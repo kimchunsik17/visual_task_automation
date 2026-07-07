@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 
 from database import engine, Base, get_db
 import models
-from graph import run_workflow
+from graph import run_workflow, compile_workflow
 
 # Create DB tables
 Base.metadata.create_all(bind=engine)
@@ -35,10 +35,11 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
     # 1. Run LangGraph with Gemini
     result_text = run_workflow(payload.nodes, payload.edges)
     
+    import json
     # 2. Save log to PostgreSQL (or SQLite fallback)
     try:
         db_log = models.FlowExecutionLog(
-            payload=payload.dict(),
+            payload=json.dumps(payload.dict()),
             result=result_text
         )
         db.add(db_log)
@@ -50,3 +51,11 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
 
     # 3. Return response to frontend
     return {"status": "success", "result": result_text}
+
+@app.post("/api/compile")
+def compile_flow(payload: FlowPayload):
+    """
+    Parses graph data from frontend and returns raw Python code representation.
+    """
+    compiled_code = compile_workflow(payload.nodes, payload.edges)
+    return {"status": "success", "code": compiled_code}

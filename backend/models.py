@@ -7,5 +7,5 @@ class FlowExecutionLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     execution_time = Column(DateTime, default=datetime.datetime.utcnow)
-    payload = Column(JSON)
+    payload = Column(String)
     result = Column(String)

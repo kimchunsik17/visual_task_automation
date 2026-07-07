@@ -118,24 +118,153 @@ body, html {
   flex: 1;
 }
 
-/* Custom Node Styles */
-.custom-node {
-  padding: 1rem;
-  border-radius: 0.5rem;
-  color: white;
-  font-weight: 500;
-  min-width: 150px;
-  text-align: center;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-  border: 2px solid rgba(255, 255, 255, 0.1);
+/* Sidebar Styles */
+.sidebar {
+  width: 250px;
+  background-color: var(--card-bg);
+  border-right: 1px solid var(--border-color);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
 }
 
-.custom-node.start {
+.sidebar-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.sidebar-description {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin-bottom: 1.5rem;
+}
+
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dnd-node {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: grab;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.dnd-node:active {
+  cursor: grabbing;
+}
+
+.dnd-node.prompt {
   background: linear-gradient(135deg, #10b981, #059669);
 }
-
-.custom-node.task {
+.dnd-node.llm {
   background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+}
+.dnd-node.output {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+/* Custom Node Styles */
+.custom-node {
+  border-radius: 0.5rem;
+  color: white;
+  min-width: 200px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  overflow: visible; /* Changed from hidden so ReactFlow Handles aren't clipped */
+  background-color: var(--card-bg);
+}
+
+.node-header {
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-radius: 0.3rem 0.3rem 0 0; /* Ensure header corners are rounded since overflow is visible */
+}
+
+.btn-delete {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.btn-delete:hover {
+  color: white;
+}
+
+/* Edge Styles */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #f59e0b !important;
+  stroke-width: 3 !important;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #cbd5e1 !important;
+  stroke-width: 3 !important;
+}
+
+.custom-node.prompt .node-header {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+.custom-node.llm .node-header {
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+}
+.custom-node.output .node-header {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+.custom-node.condition .node-header {
+  background: linear-gradient(135deg, #0ea5e9, #0369a1);
+}
+
+.custom-node.value .node-header {
+  background: linear-gradient(135deg, #ec4899, #be185d);
+}
+
+.node-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.node-body label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-align: left;
+}
+
+.node-body textarea, .node-body select {
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  font-size: 0.8rem;
+  resize: vertical;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+
+.node-body textarea:focus, .node-body select:focus {
+  outline: none;
+  border-color: var(--primary-color);
 }
 
 /* React Flow overwrites */

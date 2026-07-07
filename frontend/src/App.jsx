@@ -1,62 +1,100 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   ReactFlow,
+  ReactFlowProvider,
   MiniMap,
   Controls,
   Background,
   useNodesState,
   useEdgesState,
   addEdge,
-  Handle,
-  Position,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play } from 'lucide-react';
-
-const initialNodes = [
-  { id: '1', position: { x: 100, y: 150 }, data: { label: 'Start Trigger' }, type: 'startNode' },
-  { id: '2', position: { x: 400, y: 150 }, data: { label: 'Generate Summary Task' }, type: 'taskNode' },
-];
-
-const initialEdges = [];
-
-const StartNode = ({ data }) => (
-  <div className="custom-node start">
-    <Handle type="source" position={Position.Right} />
-    <div>{data.label}</div>
-  </div>
-);
-
-const TaskNode = ({ data }) => (
-  <div className="custom-node task">
-    <Handle type="target" position={Position.Left} />
-    <div>{data.label}</div>
-    <Handle type="source" position={Position.Right} />
-  </div>
-);
+import { Play, Code } from 'lucide-react';
+import Sidebar from './Sidebar';
+import { PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode } from './customNodes';
 
 const nodeTypes = {
-  startNode: StartNode,
-  taskNode: TaskNode,
+  promptNode: PromptNode,
+  llmNode: LLMNode,
+  outputNode: OutputNode,
+  conditionNode: ConditionNode,
+  valueNode: ValueNode,
 };
 
-function App() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+let id = 0;
+const getId = () => `dndnode_${id++}`;
+
+function FlowContent() {
+  const reactFlowWrapper = useRef(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const { screenToFlowPosition } = useReactFlow();
   const [response, setResponse] = useState('');
+  const [isCompiled, setIsCompiled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onNodeDataChange = useCallback((id, key, value) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === id) {
+          return { ...node, data: { ...node.data, [key]: value } };
+        }
+        return node;
+      })
+    );
+  }, [setNodes]);
+
+  const deleteNode = useCallback((idToDelete) => {
+    setNodes((nds) => nds.filter((node) => node.id !== idToDelete));
+    setEdges((eds) => eds.filter((edge) => edge.source !== idToDelete && edge.target !== idToDelete));
+  }, [setNodes, setEdges]);
+
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+
+      const type = event.dataTransfer.getData('application/reactflow');
+      if (typeof type === 'undefined' || !type) {
+        return;
+      }
+
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      const newNode = {
+        id: getId(),
+        type,
+        position,
+        data: { label: `${type} node`, onChange: onNodeDataChange, onDelete: deleteNode },
+      };
+
+      setNodes((nds) => nds.concat(newNode));
+    },
+    [screenToFlowPosition, onNodeDataChange, deleteNode, setNodes],
+  );
+
   const runFlow = async () => {
     setIsLoading(true);
+    setIsCompiled(false);
     setResponse('Running graph on backend...');
     
     try {
+      // Pass the entire node data including prompts/model selections to backend
       const payload = {
-        nodes: nodes.map(n => ({ id: n.id, label: n.data.label, type: n.type })),
-        edges: edges.map(e => ({ source: e.source, target: e.target }))
+        nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+        edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle }))
       };
 
       const res = await axios.post('http://localhost:8000/api/execute', payload);
@@ -69,25 +107,60 @@ function App() {
     }
   };
 
+  const compileFlow = async () => {
+    setIsLoading(true);
+    setIsCompiled(true);
+    setResponse('Compiling graph to Python code...');
+    
+    try {
+      const payload = {
+        nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+        edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle }))
+      };
+
+      const res = await axios.post('http://localhost:8000/api/compile', payload);
+      setResponse(res.data.code || 'No code generated.');
+    } catch (error) {
+      console.error(error);
+      setResponse('Error communicating with backend: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="app-container">
       <header className="header">
-        <h1>AutoFlow Pilot</h1>
-        <button className="btn-run" onClick={runFlow} disabled={isLoading}>
-          <Play size={18} />
-          {isLoading ? 'Running...' : 'Run Flow'}
-        </button>
+        <h1>LangChain Visual Builder</h1>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="btn-run" onClick={compileFlow} disabled={isLoading} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'white' }}>
+            <Code size={18} />
+            {isLoading ? '...' : 'Compile Code'}
+          </button>
+          <button className="btn-run" onClick={runFlow} disabled={isLoading}>
+            <Play size={18} />
+            {isLoading ? 'Running...' : 'Run Flow'}
+          </button>
+        </div>
       </header>
       
       <main className="main-content">
-        <div className="flow-wrapper">
+        <Sidebar />
+        <div className="flow-wrapper" ref={reactFlowWrapper}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
             nodeTypes={nodeTypes}
+            defaultEdgeOptions={{ 
+              style: { strokeWidth: 2, stroke: '#94a3b8' },
+              type: 'smoothstep'
+            }}
+            deleteKeyCode={['Backspace', 'Delete']}
             fitView
             colorMode="dark"
           >
@@ -95,8 +168,9 @@ function App() {
             <MiniMap 
               nodeColor={(node) => {
                 switch (node.type) {
-                  case 'startNode': return '#10b981';
-                  case 'taskNode': return '#8b5cf6';
+                  case 'promptNode': return '#10b981';
+                  case 'llmNode': return '#8b5cf6';
+                  case 'outputNode': return '#f59e0b';
                   default: return '#eee';
                 }
               }}
@@ -108,11 +182,25 @@ function App() {
         <aside className="response-panel">
           <h2>Execution Result</h2>
           <div className="response-content">
-            {response || 'Run the flow to see the results here.'}
+            {isCompiled ? (
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                <code>{response || 'Run or Compile the flow to see the results here.'}</code>
+              </pre>
+            ) : (
+              response || 'Run or Compile the flow to see the results here.'
+            )}
           </div>
         </aside>
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <ReactFlowProvider>
+      <FlowContent />
+    </ReactFlowProvider>
   );
 }
 
