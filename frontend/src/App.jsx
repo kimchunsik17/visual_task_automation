@@ -97,7 +97,7 @@ function FlowContent() {
         edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle }))
       };
 
-      const res = await axios.post('http://localhost:8000/api/execute', payload);
+      const res = await axios.post('/api/execute', payload);
       setResponse(res.data.result || 'No content returned.');
     } catch (error) {
       console.error(error);
@@ -118,7 +118,7 @@ function FlowContent() {
         edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle }))
       };
 
-      const res = await axios.post('http://localhost:8000/api/compile', payload);
+      const res = await axios.post('/api/compile', payload);
       setResponse(res.data.code || 'No code generated.');
     } catch (error) {
       console.error(error);

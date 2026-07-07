@@ -59,3 +59,23 @@ def compile_flow(payload: FlowPayload):
     """
     compiled_code = compile_workflow(payload.nodes, payload.edges)
     return {"status": "success", "code": compiled_code}
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
+# Serve frontend static files
+# Calculate the absolute path to the frontend/dist directory
+FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+
+if os.path.exists(FRONTEND_DIST):
+    # Mount the static files (assets, JS, CSS)
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+
+    # Catch-all route for SPA routing (returns index.html)
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        file_path = os.path.join(FRONTEND_DIST, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
