@@ -63,6 +63,11 @@ def compile_flow(payload: FlowPayload):
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
+import mimetypes
+
+# Fix mimetypes for Windows where .js might be text/plain
+mimetypes.add_type('application/javascript', '.js')
+mimetypes.add_type('text/css', '.css')
 
 # Serve frontend static files
 # Calculate the absolute path to the frontend/dist directory

@@ -10,3 +10,7 @@
 - `write_to_file(DEVELOPMENT_LOG_2.md)`
 - `run_command(Check DEVEOPMENT_GEMINI_LOG.md)`
 - `write_to_file(DEVEOPMENT_GEMINI_LOG.md)`
+- run_command(Check curl to root) 
+- run_command(Check curl to assets) 
+- replace_file_content(backend/main.py MIME types)
+- Asking user to hard refresh or use incognito mode
