@@ -17,28 +17,49 @@ def compile_workflow(nodes: list, edges: list) -> str:
     node_dict = {n['id']: n for n in nodes}
     
     forward_edges = {}
+    incoming_edges = {}
+    control_flow_edges = []
+    
     for e in edges:
         source = e['source']
-        if source not in forward_edges:
-            forward_edges[source] = []
-        forward_edges[source].append((e['target'], e.get('sourceHandle')))
+        target = e['target']
+        target_handle = e.get('targetHandle')
         
-    has_incoming = set(e['target'] for e in edges)
-    roots = [n for n in nodes if n['id'] not in has_incoming and not n.get('parentNode')]
+        if target not in incoming_edges:
+            incoming_edges[target] = []
+        incoming_edges[target].append({
+            'source': source,
+            'targetHandle': target_handle
+        })
+        
+        # Exclude 'template' handles from control flow traversal
+        if target_handle != 'template':
+            control_flow_edges.append(e)
+            if source not in forward_edges:
+                forward_edges[source] = []
+            forward_edges[source].append((target, e.get('sourceHandle')))
+        
+    has_incoming = set(e['target'] for e in control_flow_edges)
     
+    # 1. Prioritize explicit Start Nodes
+    roots = [n for n in nodes if n['type'] == 'startNode']
+    
+    # 2. Fallback to old heuristic if no start nodes are found
     if not roots:
-        # Fallback to any node without a parentNode
-        roots = [n for n in nodes if not n.get('parentNode')]
+        roots = [n for n in nodes if n['id'] not in has_incoming and not n.get('parentNode') and n['type'] != 'llmNode']
+        
+        if not roots:
+            # Final fallback
+            roots = [n for n in nodes if not n.get('parentNode')]
+            
     if not roots:
         return "Error: No valid starting node found."
         
-    # If there are multiple roots, prioritize the ones that are actually connected to something
+    # Filter out roots that have no forward connections (unless it's the only one)
     if len(roots) > 1:
         connected_roots = [r for r in roots if r['id'] in forward_edges]
         if connected_roots:
             roots = connected_roots
-            
-    root_node = roots[0]
     
     # Collect used models to generate correct imports
     used_models = set()
@@ -52,13 +73,13 @@ def compile_workflow(nodes: list, edges: list) -> str:
 
     lines = []
     lines.append("import os")
-    if needs_gemini or not used_models:
-        lines.append("from langchain_google_genai import ChatGoogleGenerativeAI")
+    lines.append("from langchain_google_genai import ChatGoogleGenerativeAI")
     if needs_openai:
         lines.append("from langchain_openai import ChatOpenAI")
     if needs_anthropic:
         lines.append("from langchain_anthropic import ChatAnthropic")
     lines.append("from langchain_core.prompts import ChatPromptTemplate")
+    lines.append("from langchain_core.messages import SystemMessage")
     lines.append("from dotenv import load_dotenv\n")
     lines.append("load_dotenv()\n")
     lines.append("def is_numeric(s):")
@@ -69,6 +90,23 @@ def compile_workflow(nodes: list, edges: list) -> str:
     lines.append("        return False\n")
     lines.append("def run_workflow():")
     lines.append("    last_result = 'No execution occurred.'")
+    
+    # Generate all LLM configurations at the top of the workflow
+    for node in nodes:
+        if node['type'] == 'llmNode':
+            node_id = node['id']
+            model = node.get('data', {}).get('model', 'gemini-3.5-flash')
+            sys_prompt = node.get('data', {}).get('systemPrompt', 'You are a helpful assistant.').replace('"', '\\"').replace('\n', '\\n')
+            lines.append(f"    # --- LLM Node ({node_id}) ---")
+            
+            if model == "gpt-4o" or model == "gpt-4o-mini":
+                lines.append(f"    llm_{node_id} = ChatOpenAI(model=\"{model}\")")
+            elif model == "claude-3-5-sonnet":
+                lines.append(f"    llm_{node_id} = ChatAnthropic(model_name=\"claude-3-5-sonnet-20240620\")")
+            else:
+                lines.append(f"    llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\")")
+                
+            lines.append(f"    sys_prompt_{node_id} = \"{sys_prompt}\"")
     
     def generate_block(node_id, indent, active_llm_id=None, prev_res_var=None, visited=None):
         if visited is None:
@@ -87,15 +125,29 @@ def compile_workflow(nodes: list, edges: list) -> str:
         if not node:
             return
             
-        if node['type'] == 'valueNode':
-            file_path = node.get('data', {}).get('file_path', '')
+        if node['type'] == 'startNode':
+            lines.append(f"{indent}# --- Start Node ({node_id}) ---")
+            next_edges = forward_edges.get(node_id, [])
+            if not next_edges:
+                lines.append(f"{indent}pass")
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+                
+        elif node['type'] == 'valueNode':
+            file_path = node.get('data', {}).get('file_path', '').replace('\\', '/')
             val = node.get('data', {}).get('value', '').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"{indent}# --- Value Node ({node_id}) ---")
             
             if file_path:
-                lines.append(f"{indent}val_{node_id} = r\"{file_path}\"")
+                if prev_res_var:
+                    lines.append(f"{indent}val_{node_id} = str({prev_res_var}) + \"\\n\\n[Attached File: \" + r\"{file_path}\" + \"]\"")
+                else:
+                    lines.append(f"{indent}val_{node_id} = r\"{file_path}\"")
             else:
-                lines.append(f"{indent}val_{node_id} = \"{val}\"")
+                if prev_res_var:
+                    lines.append(f"{indent}val_{node_id} = str({prev_res_var}) + \"\\n\\n\" + \"{val}\"")
+                else:
+                    lines.append(f"{indent}val_{node_id} = \"{val}\"")
                 
             lines.append(f"{indent}last_result = val_{node_id}")
             
@@ -106,28 +158,17 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 for target_id, handle in next_edges:
                     generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"val_{node_id}", visited=visited)
                     
-        elif node['type'] == 'llmNode':
-            model = node.get('data', {}).get('model', 'gemini-3.5-flash')
-            sys_prompt = node.get('data', {}).get('systemPrompt', 'You are a helpful assistant.').replace('"', '\\"').replace('\n', '\\n')
-            lines.append(f"{indent}# --- LLM Node ({node_id}) ---")
-            
-            if model == "gpt-4o" or model == "gpt-4o-mini":
-                lines.append(f"{indent}llm_{node_id} = ChatOpenAI(model=\"{model}\")")
-            elif model == "claude-3-5-sonnet":
-                lines.append(f"{indent}llm_{node_id} = ChatAnthropic(model_name=\"claude-3-5-sonnet-20240620\")")
-            else:
-                lines.append(f"{indent}llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\")")
-                
-            lines.append(f"{indent}sys_prompt_{node_id} = \"{sys_prompt}\"")
-            
-            next_edges = forward_edges.get(node_id, [])
-            if not next_edges:
-                lines.append(f"{indent}return last_result")
-            else:
-                for target_id, handle in next_edges:
-                    generate_block(target_id, indent, active_llm_id=node_id, prev_res_var=prev_res_var, visited=visited)
-                
         elif node['type'] == 'promptNode':
+            # Dynamically find connected LLM Node
+            for inc in incoming_edges.get(node_id, []):
+                src_node = node_dict.get(inc['source'])
+                if src_node and src_node['type'] == 'llmNode':
+                    active_llm_id = inc['source']
+            for fwd in forward_edges.get(node_id, []):
+                tgt_node = node_dict.get(fwd[0])
+                if tgt_node and tgt_node['type'] == 'llmNode':
+                    active_llm_id = fwd[0]
+                    
             if not active_llm_id:
                 lines.append(f"{indent}# --- Fallback LLM for Prompt Node ({node_id}) ---")
                 lines.append(f"{indent}llm_fb_{node_id} = ChatGoogleGenerativeAI(model=\"gemini-3.5-flash\")")
@@ -146,7 +187,8 @@ def compile_workflow(nodes: list, edges: list) -> str:
             else:
                 lines.append(f"{indent}full_prompt_{node_id} = \"{user_prompt}\"")
                 
-            lines.append(f"{indent}prompt_{node_id} = ChatPromptTemplate.from_messages([('system', {sys_var}), ('user', \"{{user_input}}\")])")
+            lines.append(f"{indent}sys_msg_{node_id} = SystemMessage(content={sys_var})")
+            lines.append(f"{indent}prompt_{node_id} = ChatPromptTemplate.from_messages([sys_msg_{node_id}, ('user', \"{{user_input}}\")])")
             lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | llm_{current_llm}")
             lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
             lines.append(f"{indent}res_text_{node_id} = str(res_obj_{node_id}.content)")
@@ -159,6 +201,30 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 for target_id, handle in next_edges:
                     generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)
                     
+        elif node['type'] == 'llmNode':
+            lines.append(f"{indent}# --- LLM Node ({node_id}) ---")
+            
+            if active_llm_id != node_id:
+                user_prompt = node.get('data', {}).get('userPrompt', '').replace('"', '\\"').replace('\n', '\\n')
+                if prev_res_var:
+                    lines.append(f"{indent}full_prompt_{node_id} = str({prev_res_var}) + \"\\n\\n{user_prompt}\"")
+                else:
+                    lines.append(f"{indent}full_prompt_{node_id} = \"{user_prompt}\"")
+                    
+                lines.append(f"{indent}sys_msg_sa_{node_id} = SystemMessage(content=sys_prompt_{node_id})")
+                lines.append(f"{indent}prompt_sa_{node_id} = ChatPromptTemplate.from_messages([sys_msg_sa_{node_id}, ('user', \"{{user_input}}\")])")
+                lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | llm_{node_id}")
+                lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
+                lines.append(f"{indent}res_text_{node_id} = str(res_obj_sa_{node_id}.content)")
+                lines.append(f"{indent}last_result = res_text_{node_id}")
+                pass_var = f"res_text_{node_id}"
+            else:
+                pass_var = prev_res_var
+                
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=node_id, prev_res_var=pass_var, visited=visited)
+                
         elif node['type'] == 'conditionNode':
             condition = node.get('data', {}).get('condition', 'Contains')
             val = node.get('data', {}).get('value', '')
@@ -372,13 +438,179 @@ def compile_workflow(nodes: list, edges: list) -> str:
         elif node['type'] == 'breakNode':
             lines.append(f"{indent}# --- Break Node ({node_id}) ---")
             lines.append(f"{indent}break")
+            
+        elif node['type'] == 'templateAnalyzerNode':
+            lines.append(f"{indent}# --- Template Analyzer Node ({node_id}) ---")
+            template_file = node.get('data', {}).get('template_path', '').replace('"', '\\"').replace('\n', '\\n').replace('\\', '/')
+            lines.append(f"{indent}try:")
+            lines.append(f"{indent}    import re")
+            lines.append(f"{indent}    import json")
+            lines.append(f"{indent}    import os")
+            lines.append(f"{indent}    template_ext = \"{template_file}\".lower()")
+            lines.append(f"{indent}    extracted_keys = set()")
+            lines.append(f"{indent}    full_text = ''")
+            lines.append(f"{indent}    if template_ext.endswith('.hwp') or template_ext.endswith('.hwpx'):")
+            lines.append(f"{indent}        import pythoncom")
+            lines.append(f"{indent}        pythoncom.CoInitialize()")
+            lines.append(f"{indent}        from pyhwpx import Hwp")
+            lines.append(f"{indent}        hwp = Hwp(visible=False)")
+            lines.append(f"{indent}        try:")
+            lines.append(f"{indent}            hwp.open(os.path.abspath(\"{template_file}\"))")
+            lines.append(f"{indent}            hwp.InitScan()")
+            lines.append(f"{indent}            while True:")
+            lines.append(f"{indent}                status, text = hwp.GetText()")
+            lines.append(f"{indent}                if status in [0, 1]: break")
+            lines.append(f"{indent}                full_text += text")
+            lines.append(f"{indent}            hwp.ReleaseScan()")
+            lines.append(f"{indent}            field_str = hwp.get_field_list(1, 0)")
+            lines.append(f"{indent}            if field_str:")
+            lines.append(f"{indent}                for field in field_str.split('\\x02'):")
+            lines.append(f"{indent}                    if field.strip(): extracted_keys.add(field.strip())")
+            lines.append(f"{indent}        finally:")
+            lines.append(f"{indent}            hwp.quit()")
+            lines.append(f"{indent}    elif template_ext.endswith('.xlsx') or template_ext.endswith('.xls'):")
+            lines.append(f"{indent}        import openpyxl")
+            lines.append(f"{indent}        wb = openpyxl.load_workbook(\"{template_file}\")")
+            lines.append(f"{indent}        for sheet in wb.worksheets:")
+            lines.append(f"{indent}            for row in sheet.iter_rows():")
+            lines.append(f"{indent}                for cell in row:")
+            lines.append(f"{indent}                    if cell.value and isinstance(cell.value, str):")
+            lines.append(f"{indent}                        full_text += cell.value + ' '")
+            lines.append(f"{indent}    elif template_ext.endswith('.pptx') or template_ext.endswith('.ppt'):")
+            lines.append(f"{indent}        from pptx import Presentation")
+            lines.append(f"{indent}        prs = Presentation(\"{template_file}\")")
+            lines.append(f"{indent}        for slide in prs.slides:")
+            lines.append(f"{indent}            for shape in slide.shapes:")
+            lines.append(f"{indent}                if shape.has_text_frame:")
+            lines.append(f"{indent}                    for p in shape.text_frame.paragraphs:")
+            lines.append(f"{indent}                        for run in p.runs:")
+            lines.append(f"{indent}                            if run.text:")
+            lines.append(f"{indent}                                full_text += run.text + ' '")
+            lines.append(f"{indent}    else:")
+            lines.append(f"{indent}        with open(\"{template_file}\", \"r\", encoding=\"utf-8\", errors='ignore') as f:")
+            lines.append(f"{indent}            full_text = f.read()")
+            lines.append(f"{indent}    ")
+            lines.append(indent + "    found_keys = re.findall(r'\\{\\{([^}]+)\\}\\}', full_text)")
+            lines.append(f"{indent}    for k in found_keys:")
+            lines.append(f"{indent}        extracted_keys.add(k.strip())")
+            lines.append(f"{indent}    ")
+            lines.append(f"{indent}    schema_dict = {{k: '' for k in extracted_keys}}")
+            lines.append(f"{indent}    res_val_{node_id} = json.dumps(schema_dict, ensure_ascii=False, indent=2)")
+            lines.append(f"{indent}except Exception as e:")
+            lines.append(f"{indent}    res_val_{node_id} = f'Error analyzing template: {{str(e)}}'")
+            lines.append(f"{indent}last_result = res_val_{node_id}")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_val_{node_id}", visited=visited)
 
-    # Start generation from root
-    generate_block(root_node['id'], "    ")
-    
-    # If the block didn't explicitly return (e.g. no output node), add a fallback return
-    if "return last_result" not in lines[-1]:
-         lines.append("    return last_result")
+        elif node['type'] == 'fileModifierNode':
+            lines.append(f"{indent}# --- Auto Fill Node ({node_id}) ---")
+            template_file = node.get('data', {}).get('template_path', '').replace('"', '\\"').replace('\n', '\\n').replace('\\', '/')
+                            
+            output_file = node.get('data', {}).get('output_path', '').replace('"', '\\"').replace('\n', '\\n')
+            if not output_file:
+                if template_file:
+                    ext = template_file.split('.')[-1]
+                    output_file = f"output.{ext}"
+                else:
+                    output_file = "output.txt"
+            
+            if not output_file.startswith('uploads/') and not output_file.startswith('uploads\\\\'):
+                import os as _os
+                output_file = 'uploads/' + _os.path.basename(output_file)
+            lines.append(f"{indent}try:")
+            lines.append(f"{indent}    import json")
+            lines.append(f"{indent}    import os")
+            lines.append(f"{indent}    data_in = {prev_res_var if prev_res_var else 'last_result'}")
+            lines.append(f"{indent}    if isinstance(data_in, str):")
+            lines.append(f"{indent}        try:")
+            lines.append(f"{indent}            data_dict = json.loads(data_in)")
+            lines.append(f"{indent}        except: data_dict = {{}}")
+            lines.append(f"{indent}    elif isinstance(data_in, dict):")
+            lines.append(f"{indent}        data_dict = data_in")
+            lines.append(f"{indent}    else:")
+            lines.append(f"{indent}        data_dict = {{}}")
+            lines.append(f"{indent}    ")
+            lines.append(f"{indent}    template_ext = \"{template_file}\".lower()")
+            lines.append(f"{indent}    if template_ext.endswith('.hwp') or template_ext.endswith('.hwpx'):")
+            lines.append(f"{indent}        import pythoncom")
+            lines.append(f"{indent}        pythoncom.CoInitialize()")
+            lines.append(f"{indent}        from pyhwpx import Hwp")
+            lines.append(f"{indent}        hwp = Hwp(visible=False)")
+            lines.append(f"{indent}        try:")
+            lines.append(f"{indent}            hwp.open(os.path.abspath(\"{template_file}\"))")
+            lines.append(f"{indent}            for k, v in data_dict.items():")
+            lines.append(f"{indent}                hwp.put_field_text(str(k), str(v))")
+            lines.append(f"{indent}                hwp.find_replace_all('{{{{' + str(k) + '}}}}', str(v))")
+            lines.append(f"{indent}            hwp.save_as(os.path.abspath(\"{output_file}\"))")
+            lines.append(f"{indent}        finally:")
+            lines.append(f"{indent}            hwp.quit()")
+            lines.append(f"{indent}    elif template_ext.endswith('.xlsx') or template_ext.endswith('.xls'):")
+            lines.append(f"{indent}        import openpyxl")
+            lines.append(f"{indent}        wb = openpyxl.load_workbook(\"{template_file}\")")
+            lines.append(f"{indent}        for sheet in wb.worksheets:")
+            lines.append(f"{indent}            for row in sheet.iter_rows():")
+            lines.append(f"{indent}                for cell in row:")
+            lines.append(f"{indent}                    if cell.value and isinstance(cell.value, str):")
+            lines.append(f"{indent}                        for k, v in data_dict.items():")
+            lines.append(f"{indent}                            if '{{{{' + str(k) + '}}}}' in cell.value:")
+            lines.append(f"{indent}                                cell.value = cell.value.replace('{{{{' + str(k) + '}}}}', str(v))")
+            lines.append(f"{indent}        wb.save(\"{output_file}\")")
+            lines.append(f"{indent}    elif template_ext.endswith('.pptx') or template_ext.endswith('.ppt'):")
+            lines.append(f"{indent}        from pptx import Presentation")
+            lines.append(f"{indent}        prs = Presentation(\"{template_file}\")")
+            lines.append(f"{indent}        for slide in prs.slides:")
+            lines.append(f"{indent}            for shape in slide.shapes:")
+            lines.append(f"{indent}                if shape.has_text_frame:")
+            lines.append(f"{indent}                    for p in shape.text_frame.paragraphs:")
+            lines.append(f"{indent}                        for run in p.runs:")
+            lines.append(f"{indent}                            if run.text:")
+            lines.append(f"{indent}                                for k, v in data_dict.items():")
+            lines.append(f"{indent}                                    if '{{{{' + str(k) + '}}}}' in run.text:")
+            lines.append(f"{indent}                                        run.text = run.text.replace('{{{{' + str(k) + '}}}}', str(v))")
+            lines.append(f"{indent}        prs.save(\"{output_file}\")")
+            lines.append(f"{indent}    else:")
+            lines.append(f"{indent}        with open(\"{output_file}\", \"w\", encoding=\"utf-8\") as _f:")
+            lines.append(f"{indent}            _f.write(str({prev_res_var if prev_res_var else 'last_result'}))")
+            lines.append(f"{indent}    ")
+            lines.append(f"{indent}    res_text_{node_id} = \"{output_file}\"")
+            lines.append(f"{indent}except Exception as e:")
+            lines.append(f"{indent}    res_text_{node_id} = f\"Error formatting file: {{str(e)}}\"")
+            lines.append(f"{indent}last_result = res_text_{node_id}")
+            
+            next_edges = forward_edges.get(node_id, [])
+            if not next_edges:
+                lines.append(f"{indent}return last_result")
+            else:
+                for target_id, handle in next_edges:
+                    generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)
+
+    # Start generation for all roots
+    lines.append("    __global_results = []")
+    for idx, r in enumerate(roots):
+        lines.append(f"    def run_root_{idx}():")
+        lines.append(f"        last_result = 'No execution occurred.'")
+        
+        generate_block(r['id'], "        ")
+        
+        # If the block didn't explicitly return, add a fallback return
+        if "return last_result" not in lines[-1]:
+             lines.append("        return last_result")
+             
+        lines.append(f"    try:")
+        lines.append(f"        res_{idx} = run_root_{idx}()")
+        if len(roots) > 1:
+            lines.append(f"        __global_results.append(f'► Flow {idx + 1} Result:\\n{{str(res_{idx})}}')")
+        else:
+            lines.append(f"        __global_results.append(str(res_{idx}))")
+        lines.append(f"    except Exception as e:")
+        lines.append(f"        __global_results.append(f'► Flow {idx + 1} Error: {{str(e)}}')")
+
+    if len(roots) > 1:
+        lines.append("    return '\\n\\n' + ('='*40) + '\\n\\n'.join(__global_results)")
+    else:
+        lines.append("    return __global_results[0] if __global_results else 'No result'")
 
     lines.append("\nif __name__ == '__main__':")
     lines.append("    print(run_workflow())")

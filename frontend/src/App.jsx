@@ -12,11 +12,13 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code } from 'lucide-react';
+import { Play, Code, Folder } from 'lucide-react';
 import Sidebar from './Sidebar';
-import { PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode } from './customNodes';
+import TemplateModal from './TemplateModal';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode } from './customNodes';
 
 const nodeTypes = {
+  startNode: StartNode,
   promptNode: PromptNode,
   llmNode: LLMNode,
   outputNode: OutputNode,
@@ -27,6 +29,8 @@ const nodeTypes = {
   pythonNode: PythonNode,
   tokenizerNode: TokenizerNode,
   distributorNode: DistributorNode,
+  fileModifierNode: FileModifierNode,
+  templateAnalyzerNode: TemplateAnalyzerNode,
 };
 
 let id = 0;
@@ -36,10 +40,11 @@ function FlowContent() {
   const reactFlowWrapper = useRef(null);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const [response, setResponse] = useState('');
   const [isCompiled, setIsCompiled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
 
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
@@ -99,7 +104,7 @@ function FlowContent() {
                   x: position.x - ln.position.x,
                   y: position.y - ln.position.y
                 };
-                newNode.zIndex = 10; // Ensure child nodes render above
+                newNode.extent = 'parent';
                 break;
             }
           }
@@ -107,7 +112,7 @@ function FlowContent() {
         return nds.concat(newNode);
       });
     },
-    [screenToFlowPosition, onNodeDataChange, deleteNode, setNodes],
+    [screenToFlowPosition, setNodes, onNodeDataChange, deleteNode],
   );
 
   const { getIntersectingNodes } = useReactFlow();
@@ -115,42 +120,38 @@ function FlowContent() {
   const onNodeDragStop = useCallback((event, node) => {
     if (node.type === 'loopNode') return;
 
-    const intersections = getIntersectingNodes(node).filter((n) => n.type === 'loopNode');
-    const targetParentId = intersections.length > 0 ? intersections[0].id : undefined;
-
-    if (node.parentNode === targetParentId) return;
-
     setNodes((nds) => {
-      const parentObj = targetParentId ? nds.find(n => n.id === targetParentId) : null;
-      
+      const intersections = getIntersectingNodes(node).filter((n) => n.type === 'loopNode');
+      const loopNode = intersections[0];
+
       return nds.map((n) => {
         if (n.id === node.id) {
-          if (targetParentId && parentObj) {
-             const absX = node.positionAbsolute ? node.positionAbsolute.x : node.position.x;
-             const absY = node.positionAbsolute ? node.positionAbsolute.y : node.position.y;
-             
-             return {
-               ...n,
-               parentNode: targetParentId,
-               zIndex: 10,
-               position: {
-                 x: absX - parentObj.position.x,
-                 y: absY - parentObj.position.y,
-               }
-             };
-          } else if (n.parentNode) {
-             const { parentNode, ...rest } = n;
-             const absX = node.positionAbsolute ? node.positionAbsolute.x : node.position.x;
-             const absY = node.positionAbsolute ? node.positionAbsolute.y : node.position.y;
-             return {
-               ...rest,
-               zIndex: 1,
-               position: { x: absX, y: absY }
-             };
+          if (loopNode && n.parentNode !== loopNode.id) {
+            return {
+              ...n,
+              parentNode: loopNode.id,
+              position: {
+                x: n.position.x - loopNode.position.x,
+                y: n.position.y - loopNode.position.y,
+              },
+              extent: 'parent',
+            };
+          } else if (!loopNode && n.parentNode) {
+              const parent = nds.find(p => p.id === n.parentNode);
+              const absX = n.position.x + (parent?.position.x || 0);
+              const absY = n.position.y + (parent?.position.y || 0);
+              
+              const updatedNode = { ...n };
+              delete updatedNode.parentNode;
+              delete updatedNode.extent;
+              
+              return {
+                ...updatedNode,
+                position: { x: absX, y: absY }
+              };
           }
         }
         
-        // Also ensure all loop nodes stay at zIndex -1
         if (n.type === 'loopNode' && n.zIndex !== -1) {
           return { ...n, zIndex: -1 };
         }
@@ -165,10 +166,9 @@ function FlowContent() {
     setResponse('Running graph on backend...');
     
     try {
-      // Pass the entire node data including prompts/model selections to backend
       const payload = {
         nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
-        edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle }))
+        edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
       };
 
       const res = await axios.post('http://localhost:8000/api/execute', payload);
@@ -189,7 +189,7 @@ function FlowContent() {
     try {
       const payload = {
         nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
-        edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle }))
+        edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
       };
 
       const res = await axios.post('http://localhost:8000/api/compile', payload);
@@ -202,11 +202,36 @@ function FlowContent() {
     }
   };
 
+  const handleLoadTemplate = (templateData) => {
+    const loadedNodes = templateData.nodes.map(n => ({
+      ...n,
+      data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
+    }));
+    setNodes(loadedNodes);
+    setEdges(templateData.edges || []);
+  };
+
+  const getCurrentFlowData = () => {
+    return {
+      nodes: getNodes().map(n => {
+        const nData = { ...n.data };
+        delete nData.onChange;
+        delete nData.onDelete;
+        return { id: n.id, type: n.type, position: n.position, data: nData };
+      }),
+      edges: getEdges()
+    };
+  };
+
   return (
     <div className="app-container">
       <header className="header">
         <h1>LangChain Visual Builder</h1>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="btn-run" onClick={() => setIsTemplateModalOpen(true)} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'white' }}>
+            <Folder size={18} />
+            Templates
+          </button>
           <button className="btn-run" onClick={compileFlow} disabled={isLoading} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'white' }}>
             <Code size={18} />
             {isLoading ? '...' : 'Compile Code'}
@@ -243,6 +268,7 @@ function FlowContent() {
             <MiniMap 
               nodeColor={(node) => {
                 switch (node.type) {
+                  case 'startNode': return '#22c55e';
                   case 'promptNode': return '#10b981';
                   case 'llmNode': return '#8b5cf6';
                   case 'outputNode': return '#f59e0b';
@@ -251,6 +277,7 @@ function FlowContent() {
                   case 'pythonNode': return '#3b82f6';
                   case 'tokenizerNode': return '#10b981';
                   case 'distributorNode': return '#8b5cf6';
+                  case 'fileModifierNode': return '#f97316';
                   default: return '#eee';
                 }
               }}
@@ -267,11 +294,31 @@ function FlowContent() {
                 <code>{response || 'Run or Compile the flow to see the results here.'}</code>
               </pre>
             ) : (
-              response || 'Run or Compile the flow to see the results here.'
+              (response && typeof response === 'string' && (response.startsWith('uploads/') || response.startsWith('uploads\\'))) ? (
+                <div>
+                  <p>File generated successfully:</p>
+                  <a 
+                    href={`http://localhost:8000/${response.replace(/\\/g, '/')}`} 
+                    target="_blank" rel="noreferrer"
+                    style={{ display: 'inline-block', padding: '8px 16px', background: '#3b82f6', color: 'white', textDecoration: 'none', borderRadius: '4px', marginTop: '10px' }}
+                  >
+                    Download File
+                  </a>
+                </div>
+              ) : (
+                <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{response || 'Run or Compile the flow to see the results here.'}</div>
+              )
             )}
           </div>
         </aside>
       </main>
+
+      <TemplateModal 
+        isOpen={isTemplateModalOpen} 
+        onClose={() => setIsTemplateModalOpen(false)}
+        onLoad={handleLoadTemplate}
+        currentFlowData={getCurrentFlowData}
+      />
     </div>
   );
 }

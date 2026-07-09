@@ -9,3 +9,7 @@ langchain-anthropic
 python-dotenv
 pydantic
 python-multipart
+
+openpyxl
+python-pptx
+pywin32

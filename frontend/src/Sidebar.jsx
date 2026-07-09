@@ -14,22 +14,30 @@ const Sidebar = () => {
 
       <div className="node-list">
         <div
+          className="dnd-node start"
+          onDragStart={(event) => onDragStart(event, 'startNode', 'Start')}
+          draggable
+          style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', fontWeight: 'bold' }}
+        >
+          🏁 Start
+        </div>
+        <div
           className="dnd-node prompt"
           onDragStart={(event) => onDragStart(event, 'promptNode', 'Prompt')}
           draggable
         >
-          Prompt Node
+          Prompt
         </div>
         <div
           className="dnd-node llm"
-          onDragStart={(event) => onDragStart(event, 'llmNode', 'LLM Node')}
+          onDragStart={(event) => onDragStart(event, 'llmNode', 'LLM')}
           draggable
         >
-          LLM Node
+          LLM
         </div>
         <div
           className="dnd-node value"
-          onDragStart={(event) => onDragStart(event, 'valueNode', 'Value Node')}
+          onDragStart={(event) => onDragStart(event, 'valueNode', 'Value')}
           draggable
           style={{ background: 'linear-gradient(135deg, #ec4899, #be185d)' }}
         >
@@ -37,11 +45,11 @@ const Sidebar = () => {
         </div>
         <div
           className="dnd-node python"
-          onDragStart={(event) => onDragStart(event, 'pythonNode', 'Python Node')}
+          onDragStart={(event) => onDragStart(event, 'pythonNode', 'Python')}
           draggable
           style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}
         >
-          Python Node
+          Python
         </div>
         <div
           className="dnd-node condition"
@@ -49,14 +57,14 @@ const Sidebar = () => {
           draggable
           style={{ background: 'linear-gradient(135deg, #0ea5e9, #0369a1)' }}
         >
-          Switch / Branch
+          Switch
         </div>
         <div
           className="dnd-node output"
           onDragStart={(event) => onDragStart(event, 'outputNode', 'Output')}
           draggable
         >
-          Output Node
+          Output
         </div>
         <div
           className="dnd-node tokenizer"
@@ -75,12 +83,28 @@ const Sidebar = () => {
           Distributor
         </div>
         <div
+          className="dnd-node file-modifier"
+          onDragStart={(event) => onDragStart(event, 'fileModifierNode', 'Auto Fill')}
+          draggable
+          style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}
+        >
+          Auto Fill
+        </div>
+        <div
+          className="dnd-node template-analyzer"
+          onDragStart={(event) => onDragStart(event, 'templateAnalyzerNode', 'Template Analyzer')}
+          draggable
+          style={{ background: 'linear-gradient(135deg, #14b8a6, #0d9488)' }}
+        >
+          Template
+        </div>
+        <div
           className="dnd-node loop"
           onDragStart={(event) => onDragStart(event, 'loopNode', 'Loop')}
           draggable
           style={{ background: 'linear-gradient(135deg, #ca8a04, #854d0e)' }}
         >
-          Loop Node
+          Loop
         </div>
         <div
           className="dnd-node break"
@@ -88,7 +112,7 @@ const Sidebar = () => {
           draggable
           style={{ background: 'linear-gradient(135deg, #dc2626, #991b1b)' }}
         >
-          Break Node
+          Break
         </div>
       </div>
     </aside>

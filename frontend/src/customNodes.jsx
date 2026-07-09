@@ -2,6 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer } from '@xyflow/react';
 import axios from 'axios';
 
+export const StartNode = ({ id, data }) => {
+  return (
+    <div className="custom-node start" style={{ borderColor: '#22c55e', minWidth: '150px' }}>
+      <div className="node-header" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}>
+        🏁 Start
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body" style={{ textAlign: 'center', padding: '10px' }}>
+        <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1' }}>Entry Point</p>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
 export const PromptNode = ({ id, data }) => {
   return (
     <div className="custom-node prompt">
@@ -58,7 +73,14 @@ export const LLMNode = ({ id, data }) => {
           className="nodrag"
           defaultValue={data.systemPrompt || 'You are a helpful assistant.'}
           onChange={(e) => data.onChange(id, 'systemPrompt', e.target.value)}
-          placeholder="Enter system prompt..."
+          placeholder="System instructions..."
+        />
+        <label>User Prompt (Optional)</label>
+        <textarea 
+          className="nodrag"
+          defaultValue={data.userPrompt || ''}
+          onChange={(e) => data.onChange(id, 'userPrompt', e.target.value)}
+          placeholder="Enter question or user prompt..."
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -429,6 +451,147 @@ export const DistributorNode = ({ id, data }) => {
       <div className="node-body">
         <div style={{ fontSize: '0.75rem', color: '#ccc', textAlign: 'center' }}>
           Iterates over list items.<br/>Outputs individual items.
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const FileModifierNode = ({ id, data }) => {
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await axios.post('http://localhost:8000/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (response.data.status === 'success') {
+        data.onChange(id, 'template_path', response.data.file_path);
+        data.onChange(id, 'filename', response.data.filename);
+      }
+    } catch (error) {
+      console.error('File upload failed:', error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="custom-node file-modifier" style={{ border: '1px solid #f97316', width: '260px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+
+      <div className="node-header" style={{ backgroundColor: '#ea580c' }}>
+        Auto Fill
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>Template File</label>
+        {data.filename ? (
+          <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
+            <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+          </div>
+        ) : (
+          <div style={{ marginBottom: '8px' }}>
+            <input 
+              type="file" 
+              id={`file-upload-template-${id}`} 
+              className="nodrag" 
+              style={{ display: 'none' }} 
+              onChange={handleFileUpload} 
+              disabled={isUploading}
+            />
+            <label htmlFor={`file-upload-template-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#ea580c', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              {isUploading ? 'Uploading...' : 'Upload Template File'}
+            </label>
+          </div>
+        )}
+        
+        <label>Output File Path</label>
+        <input 
+          type="text"
+          className="nodrag"
+          defaultValue={data.output_path || ''}
+          onChange={(e) => data.onChange(id, 'output_path', e.target.value)}
+          placeholder="e.g. output.hwp or output.xlsx"
+          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '8px' }}
+        />
+        
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+          Requires JSON input. Replaces {'{{key}}'} in Excel/PPT and fills 누름틀 in HWP.
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const TemplateAnalyzerNode = ({ id, data }) => {
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await axios.post('http://localhost:8000/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (response.data.status === 'success') {
+        data.onChange(id, 'template_path', response.data.file_path);
+        data.onChange(id, 'filename', response.data.filename);
+      }
+    } catch (error) {
+      console.error('File upload failed:', error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="custom-node template-analyzer" style={{ border: '1px solid #14b8a6', width: '260px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" style={{ backgroundColor: '#0d9488' }}>
+        Template Analyzer
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>Template File</label>
+        {data.filename ? (
+          <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
+            <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+          </div>
+        ) : (
+          <div style={{ marginBottom: '8px' }}>
+            <input 
+              type="file" 
+              id={`file-upload-analyzer-${id}`} 
+              className="nodrag" 
+              style={{ display: 'none' }} 
+              onChange={handleFileUpload} 
+              disabled={isUploading}
+            />
+            <label htmlFor={`file-upload-analyzer-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#0d9488', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              {isUploading ? 'Uploading...' : 'Upload Blank Template'}
+            </label>
+          </div>
+        )}
+        
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+          Analyzes the template and extracts placeholders {'{{key}}'} as a JSON schema.
         </div>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
