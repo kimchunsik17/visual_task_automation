@@ -4,5 +4,8 @@ sqlalchemy
 psycopg2-binary
 langgraph
 langchain-google-genai
+langchain-openai
+langchain-anthropic
 python-dotenv
 pydantic
+python-multipart

@@ -236,6 +236,18 @@ body, html {
   background: linear-gradient(135deg, #ec4899, #be185d);
 }
 
+.custom-node.python .node-header {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+
+.custom-node.tokenizer .node-header {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.custom-node.distributor .node-header {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+}
+
 .node-body {
   padding: 1rem;
   display: flex;

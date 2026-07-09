@@ -14,7 +14,7 @@ import '@xyflow/react/dist/style.css';
 import axios from 'axios';
 import { Play, Code } from 'lucide-react';
 import Sidebar from './Sidebar';
-import { PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode } from './customNodes';
+import { PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode } from './customNodes';
 
 const nodeTypes = {
   promptNode: PromptNode,
@@ -22,6 +22,11 @@ const nodeTypes = {
   outputNode: OutputNode,
   conditionNode: ConditionNode,
   valueNode: ValueNode,
+  loopNode: LoopNode,
+  breakNode: BreakNode,
+  pythonNode: PythonNode,
+  tokenizerNode: TokenizerNode,
+  distributorNode: DistributorNode,
 };
 
 let id = 0;
@@ -78,12 +83,81 @@ function FlowContent() {
         type,
         position,
         data: { label: `${type} node`, onChange: onNodeDataChange, onDelete: deleteNode },
+        zIndex: type === 'loopNode' ? -1 : 1,
       };
 
-      setNodes((nds) => nds.concat(newNode));
+      setNodes((nds) => {
+        if (type !== 'loopNode') {
+          const loopNodes = nds.filter(n => n.type === 'loopNode');
+          for (const ln of loopNodes) {
+            const w = ln.measured?.width || ln.width || 250;
+            const h = ln.measured?.height || ln.height || 200;
+            if (position.x >= ln.position.x && position.x <= ln.position.x + w &&
+                position.y >= ln.position.y && position.y <= ln.position.y + h) {
+                newNode.parentNode = ln.id;
+                newNode.position = {
+                  x: position.x - ln.position.x,
+                  y: position.y - ln.position.y
+                };
+                newNode.zIndex = 10; // Ensure child nodes render above
+                break;
+            }
+          }
+        }
+        return nds.concat(newNode);
+      });
     },
     [screenToFlowPosition, onNodeDataChange, deleteNode, setNodes],
   );
+
+  const { getIntersectingNodes } = useReactFlow();
+
+  const onNodeDragStop = useCallback((event, node) => {
+    if (node.type === 'loopNode') return;
+
+    const intersections = getIntersectingNodes(node).filter((n) => n.type === 'loopNode');
+    const targetParentId = intersections.length > 0 ? intersections[0].id : undefined;
+
+    if (node.parentNode === targetParentId) return;
+
+    setNodes((nds) => {
+      const parentObj = targetParentId ? nds.find(n => n.id === targetParentId) : null;
+      
+      return nds.map((n) => {
+        if (n.id === node.id) {
+          if (targetParentId && parentObj) {
+             const absX = node.positionAbsolute ? node.positionAbsolute.x : node.position.x;
+             const absY = node.positionAbsolute ? node.positionAbsolute.y : node.position.y;
+             
+             return {
+               ...n,
+               parentNode: targetParentId,
+               zIndex: 10,
+               position: {
+                 x: absX - parentObj.position.x,
+                 y: absY - parentObj.position.y,
+               }
+             };
+          } else if (n.parentNode) {
+             const { parentNode, ...rest } = n;
+             const absX = node.positionAbsolute ? node.positionAbsolute.x : node.position.x;
+             const absY = node.positionAbsolute ? node.positionAbsolute.y : node.position.y;
+             return {
+               ...rest,
+               zIndex: 1,
+               position: { x: absX, y: absY }
+             };
+          }
+        }
+        
+        // Also ensure all loop nodes stay at zIndex -1
+        if (n.type === 'loopNode' && n.zIndex !== -1) {
+          return { ...n, zIndex: -1 };
+        }
+        return n;
+      });
+    });
+  }, [getIntersectingNodes, setNodes]);
 
   const runFlow = async () => {
     setIsLoading(true);
@@ -155,6 +229,7 @@ function FlowContent() {
             onConnect={onConnect}
             onDrop={onDrop}
             onDragOver={onDragOver}
+            onNodeDragStop={onNodeDragStop}
             nodeTypes={nodeTypes}
             defaultEdgeOptions={{ 
               style: { strokeWidth: 2, stroke: '#94a3b8' },
@@ -171,6 +246,11 @@ function FlowContent() {
                   case 'promptNode': return '#10b981';
                   case 'llmNode': return '#8b5cf6';
                   case 'outputNode': return '#f59e0b';
+                  case 'loopNode': return '#eab308';
+                  case 'breakNode': return '#ef4444';
+                  case 'pythonNode': return '#3b82f6';
+                  case 'tokenizerNode': return '#10b981';
+                  case 'distributorNode': return '#8b5cf6';
                   default: return '#eee';
                 }
               }}

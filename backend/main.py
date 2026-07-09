@@ -1,8 +1,11 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Dict, Any
+import os
+import shutil
 
 from database import engine, Base, get_db
 import models
@@ -12,6 +15,10 @@ from graph import run_workflow, compile_workflow
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Business Automation API")
+
+# Ensure uploads directory exists
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Setup CORS to allow requests from the React frontend
 app.add_middleware(
@@ -25,6 +32,17 @@ app.add_middleware(
 class FlowPayload(BaseModel):
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """
+    Receives a file from the frontend and saves it to the uploads/ directory.
+    Returns the file path.
+    """
+    file_path = os.path.join("uploads", file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"status": "success", "file_path": file_path, "filename": file.filename}
 
 @app.post("/api/execute")
 def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
