@@ -1,5 +1,21 @@
-import React, { useEffect } from 'react';
-import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
+import React, { useEffect, useState } from 'react';
+import { Handle, Position, useUpdateNodeInternals, NodeResizer } from '@xyflow/react';
+import axios from 'axios';
+
+export const StartNode = ({ id, data }) => {
+  return (
+    <div className="custom-node start" style={{ borderColor: '#22c55e', minWidth: '150px' }}>
+      <div className="node-header" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}>
+        🏁 Start
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body" style={{ textAlign: 'center', padding: '10px' }}>
+        <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1' }}>Entry Point</p>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
 
 export const PromptNode = ({ id, data }) => {
   return (
@@ -38,7 +54,18 @@ export const LLMNode = ({ id, data }) => {
           defaultValue={data.model || 'gemini-3.5-flash'}
           onChange={(e) => data.onChange(id, 'model', e.target.value)}
         >
-          <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+          <optgroup label="Gemini">
+            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+            <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+          </optgroup>
+          <optgroup label="ChatGPT">
+            <option value="gpt-4o-mini">GPT-4o Mini</option>
+            <option value="gpt-4o">GPT-4o</option>
+          </optgroup>
+          <optgroup label="Claude">
+            <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+            <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
+          </optgroup>
         </select>
         
         <label>System Prompt</label>
@@ -46,7 +73,14 @@ export const LLMNode = ({ id, data }) => {
           className="nodrag"
           defaultValue={data.systemPrompt || 'You are a helpful assistant.'}
           onChange={(e) => data.onChange(id, 'systemPrompt', e.target.value)}
-          placeholder="Enter system prompt..."
+          placeholder="System instructions..."
+        />
+        <label>User Prompt (Optional)</label>
+        <textarea 
+          className="nodrag"
+          defaultValue={data.userPrompt || ''}
+          onChange={(e) => data.onChange(id, 'userPrompt', e.target.value)}
+          placeholder="Enter question or user prompt..."
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -55,6 +89,31 @@ export const LLMNode = ({ id, data }) => {
 };
 
 export const ValueNode = ({ id, data }) => {
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await axios.post('http://localhost:8000/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (response.data.status === 'success') {
+        data.onChange(id, 'file_path', response.data.file_path);
+        data.onChange(id, 'filename', response.data.filename);
+      }
+    } catch (error) {
+      console.error('File upload failed:', error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   return (
     <div className="custom-node value">
       <Handle type="target" position={Position.Left} id="in" />
@@ -63,13 +122,36 @@ export const ValueNode = ({ id, data }) => {
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>Static Value</label>
-        <textarea 
-          className="nodrag"
-          defaultValue={data.value || ''}
-          onChange={(e) => data.onChange(id, 'value', e.target.value)}
-          placeholder="Enter a static value or template..."
-        />
+        <label>Static Value or File</label>
+        {data.filename ? (
+          <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span title={data.file_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
+            <button className="nodrag" onClick={() => { data.onChange(id, 'file_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+          </div>
+        ) : (
+          <textarea 
+            className="nodrag"
+            value={data.value || ''}
+            onChange={(e) => data.onChange(id, 'value', e.target.value)}
+            placeholder="Enter a static value..."
+          />
+        )}
+        
+        {!data.filename && (
+          <div style={{ marginTop: '8px' }}>
+            <input 
+              type="file" 
+              id={`file-upload-${id}`} 
+              className="nodrag" 
+              style={{ display: 'none' }} 
+              onChange={handleFileUpload} 
+              disabled={isUploading}
+            />
+            <label htmlFor={`file-upload-${id}`} style={{ display: 'block', textAlign: 'center', padding: '4px 8px', backgroundColor: '#be185d', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              {isUploading ? 'Uploading...' : 'Upload File (PDF, Excel, PPT, HWP)'}
+            </label>
+          </div>
+        )}
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -92,8 +174,10 @@ export const OutputNode = ({ id, data }) => {
 };
 
 export const ConditionNode = ({ id, data }) => {
-  // Ensure we have a default rules array
-  const rules = data.rules || [{ id: `rule_${Date.now()}`, operator: '==', value: '' }];
+  // Ensure we have a default rules array with stable IDs
+  const rules = data.rules && data.rules.length > 0 
+    ? data.rules 
+    : [{ id: `${id}_rule_default`, operator: '==', value: '' }];
   const updateNodeInternals = useUpdateNodeInternals();
 
   useEffect(() => {
@@ -186,6 +270,331 @@ export const ConditionNode = ({ id, data }) => {
         </div>
 
       </div>
+    </div>
+  );
+};
+
+export const LoopNode = ({ id, data, selected }) => {
+  return (
+    <>
+      <NodeResizer minWidth={350} minHeight={250} isVisible={selected} lineClassName="border-blue-400" handleClassName="h-3 w-3 bg-white border-2 rounded" />
+      <div 
+        className={`custom-node loop`} 
+        style={{ 
+          width: '100%', 
+          height: '100%', 
+          backgroundColor: 'rgba(202, 138, 4, 0.1)', 
+          border: '2px dashed #ca8a04', 
+          borderRadius: '8px',
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+      >
+        <Handle type="target" position={Position.Left} id="in" />
+        <div className="node-header" style={{ backgroundColor: '#ca8a04', borderRadius: '6px 6px 0 0', margin: '-2px -2px 0 -2px' }}>
+          Loop Node (CoT Window)
+          <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+        </div>
+        <div className="node-body" style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <label style={{ fontSize: '0.8rem', color: '#eab308' }}>Max Iters:</label>
+            <input 
+              type="number"
+              className="nodrag"
+              defaultValue={data.maxIterations || 5}
+              onChange={(e) => data.onChange(id, 'maxIterations', e.target.value)}
+              style={{ width: '60px', padding: '0.1rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
+              min="1"
+              max="100"
+            />
+          </div>
+
+          {/* Internal Entry Point */}
+          <div style={{ position: 'absolute', left: '10px', top: '50px', backgroundColor: 'var(--card-bg)', padding: '4px 8px', borderRadius: '4px', border: '1px solid #eab308', zIndex: 10 }}>
+            <span style={{ fontSize: '0.7rem', color: '#eab308' }}>Loop Start</span>
+            <Handle type="source" position={Position.Right} id="loop_start" style={{ right: '-8px', background: '#eab308' }} />
+          </div>
+          
+          {/* Internal Exit Point */}
+          <div style={{ position: 'absolute', right: '10px', bottom: '50px', backgroundColor: 'var(--card-bg)', padding: '4px 8px', borderRadius: '4px', border: '1px dashed #eab308', zIndex: 10 }}>
+            <span style={{ fontSize: '0.7rem', color: '#eab308' }}>Loop Next</span>
+            <Handle type="target" position={Position.Left} id="loop_next" style={{ left: '-8px', background: 'transparent', border: '2px solid #eab308' }} />
+          </div>
+          
+          {/* Loop content area (visual guide only) */}
+          <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+             <span style={{color: 'rgba(234, 179, 8, 0.3)', fontSize: '0.9rem', pointerEvents: 'none'}}>
+               Connect nodes here
+             </span>
+          </div>
+          
+          {/* Done handle placed at bottom right */}
+          <div style={{ position: 'absolute', right: 0, bottom: '15px', width: '100%', textAlign: 'right', paddingRight: '10px' }}>
+            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Done</span>
+            <Handle 
+              type="source" 
+              position={Position.Right} 
+              id="done" 
+              style={{ right: '-8px', background: '#94a3b8' }} 
+            />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export const BreakNode = ({ id, data }) => {
+  return (
+    <div className="custom-node break" style={{ border: '1px solid #ef4444' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" style={{ backgroundColor: '#dc2626' }}>
+        Break Node
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <div style={{fontSize: '0.8rem', color: '#ccc'}}>Exit Loop</div>
+      </div>
+    </div>
+  );
+};
+
+export const PythonNode = ({ id, data }) => {
+  const handleKeyDown = (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const target = e.target;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const val = target.value;
+      const newValue = val.substring(0, start) + '    ' + val.substring(end);
+      
+      data.onChange(id, 'code', newValue);
+      
+      // We need to set the cursor position back after the render
+      setTimeout(() => {
+        target.selectionStart = target.selectionEnd = start + 4;
+      }, 0);
+    }
+  };
+
+  return (
+    <div className="custom-node python" style={{ border: '1px solid #3b82f6', width: '300px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" style={{ backgroundColor: '#2563eb' }}>
+        Python Node
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>Input: `input_data`, Output: `output_data`</label>
+        <textarea
+          className="nodrag"
+          placeholder="output_data = str(input_data) + ' processed'"
+          value={data.code || ''}
+          onChange={(e) => data.onChange(id, 'code', e.target.value)}
+          onKeyDown={handleKeyDown}
+          style={{
+            width: '100%',
+            height: '120px',
+            fontFamily: 'monospace',
+            backgroundColor: '#1e293b',
+            color: '#f8fafc',
+            border: '1px solid #334155',
+            padding: '8px',
+            borderRadius: '4px',
+            fontSize: '0.8rem',
+            resize: 'vertical'
+          }}
+        />
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const TokenizerNode = ({ id, data }) => {
+  return (
+    <div className="custom-node tokenizer" style={{ border: '1px solid #10b981', width: '250px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" style={{ backgroundColor: '#059669' }}>
+        Tokenizer Node
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>Parsing Method</label>
+        <select 
+          className="nodrag"
+          value={data.method || 'extract_text'}
+          onChange={(e) => data.onChange(id, 'method', e.target.value)}
+          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.5rem' }}
+        >
+          <option value="extract_text">Extract All Text</option>
+          <option value="chunk_pages">Chunk by Page</option>
+        </select>
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+          Supports PDF, PPTX, Excel, HWP/HWPX
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const DistributorNode = ({ id, data }) => {
+  return (
+    <div className="custom-node distributor" style={{ border: '1px solid #8b5cf6', width: '220px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" style={{ backgroundColor: '#7c3aed' }}>
+        Distributor (For-Each)
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <div style={{ fontSize: '0.75rem', color: '#ccc', textAlign: 'center' }}>
+          Iterates over list items.<br/>Outputs individual items.
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const FileModifierNode = ({ id, data }) => {
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await axios.post('http://localhost:8000/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (response.data.status === 'success') {
+        data.onChange(id, 'template_path', response.data.file_path);
+        data.onChange(id, 'filename', response.data.filename);
+      }
+    } catch (error) {
+      console.error('File upload failed:', error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="custom-node file-modifier" style={{ border: '1px solid #f97316', width: '260px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+
+      <div className="node-header" style={{ backgroundColor: '#ea580c' }}>
+        Auto Fill
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>Template File</label>
+        {data.filename ? (
+          <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
+            <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+          </div>
+        ) : (
+          <div style={{ marginBottom: '8px' }}>
+            <input 
+              type="file" 
+              id={`file-upload-template-${id}`} 
+              className="nodrag" 
+              style={{ display: 'none' }} 
+              onChange={handleFileUpload} 
+              disabled={isUploading}
+            />
+            <label htmlFor={`file-upload-template-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#ea580c', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              {isUploading ? 'Uploading...' : 'Upload Template File'}
+            </label>
+          </div>
+        )}
+        
+        <label>Output File Path</label>
+        <input 
+          type="text"
+          className="nodrag"
+          defaultValue={data.output_path || ''}
+          onChange={(e) => data.onChange(id, 'output_path', e.target.value)}
+          placeholder="e.g. output.hwp or output.xlsx"
+          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '8px' }}
+        />
+        
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+          Requires JSON input. Replaces {'{{key}}'} in Excel/PPT and fills 누름틀 in HWP.
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const TemplateAnalyzerNode = ({ id, data }) => {
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await axios.post('http://localhost:8000/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (response.data.status === 'success') {
+        data.onChange(id, 'template_path', response.data.file_path);
+        data.onChange(id, 'filename', response.data.filename);
+      }
+    } catch (error) {
+      console.error('File upload failed:', error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="custom-node template-analyzer" style={{ border: '1px solid #14b8a6', width: '260px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" style={{ backgroundColor: '#0d9488' }}>
+        Template Analyzer
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>Template File</label>
+        {data.filename ? (
+          <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
+            <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+          </div>
+        ) : (
+          <div style={{ marginBottom: '8px' }}>
+            <input 
+              type="file" 
+              id={`file-upload-analyzer-${id}`} 
+              className="nodrag" 
+              style={{ display: 'none' }} 
+              onChange={handleFileUpload} 
+              disabled={isUploading}
+            />
+            <label htmlFor={`file-upload-analyzer-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#0d9488', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              {isUploading ? 'Uploading...' : 'Upload Blank Template'}
+            </label>
+          </div>
+        )}
+        
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+          Analyzes the template and extracts placeholders {'{{key}}'} as a JSON schema.
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
     </div>
   );
 };
