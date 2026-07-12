@@ -13,3 +13,5 @@ python-multipart
 openpyxl
 python-pptx
 pywin32
+google-auth
+PyJWT

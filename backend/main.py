@@ -1,15 +1,27 @@
-from fastapi import FastAPI, Depends, File, UploadFile
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import FastAPI, Depends, File, UploadFile, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Dict, Any
-import os
+from typing import List, Dict, Any, Optional
 import shutil
+import jwt
+import datetime
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from database import engine, Base, get_db
 import models
 from graph import run_workflow, compile_workflow
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key")
+JWT_ALGORITHM = "HS256"
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 # Create DB tables
 Base.metadata.create_all(bind=engine)
@@ -43,6 +55,123 @@ async def upload_file(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     return {"status": "success", "file_path": file_path, "filename": file.filename}
+
+security = HTTPBearer(auto_error=False)
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    if not credentials:
+        return None
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("user_id")
+        if user_id is None:
+            return None
+        return db.query(models.User).filter(models.User.id == user_id).first()
+    except jwt.PyJWTError:
+        return None
+
+def get_current_user_required(user: models.User = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    return user
+
+class AuthPayload(BaseModel):
+    token: str
+
+@app.post("/api/auth/google")
+def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            payload.token, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID, 
+            clock_skew_in_seconds=600
+        )
+        google_id = idinfo['sub']
+        email = idinfo.get('email')
+        name = idinfo.get('name')
+        picture = idinfo.get('picture')
+
+        user = db.query(models.User).filter(models.User.google_id == google_id).first()
+        if not user:
+            user = models.User(google_id=google_id, email=email, name=name, picture=picture)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        
+        access_token = jwt.encode(
+            {"user_id": user.id, "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7)},
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM
+        )
+        return {"access_token": access_token, "user": {"id": user.id, "name": user.name, "email": user.email, "picture": user.picture}}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid Google token: {str(e)}")
+
+class ProjectCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    graph_data: Dict[str, Any]
+    is_public: bool = False
+
+@app.get("/api/projects/public")
+def get_public_projects(db: Session = Depends(get_db)):
+    projects = db.query(models.Project).filter(models.Project.is_public == True).all()
+    return [{"id": p.id, "title": p.title, "description": p.description, "owner": p.owner.name if p.owner else "Unknown", "updated_at": p.updated_at} for p in projects]
+
+@app.get("/api/projects/my")
+def get_my_projects(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
+    return [{"id": p.id, "title": p.title, "description": p.description, "is_public": p.is_public, "updated_at": p.updated_at} for p in projects]
+
+@app.post("/api/projects")
+def create_project(payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = models.Project(
+        user_id=user.id,
+        title=payload.title,
+        description=payload.description,
+        graph_data=payload.graph_data,
+        is_public=payload.is_public
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return {"status": "success", "id": project.id}
+
+@app.get("/api/projects/{project_id}")
+def get_project(project_id: int, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project.is_public and (not user or project.user_id != user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    return {
+        "id": project.id,
+        "title": project.title,
+        "description": project.description,
+        "graph_data": project.graph_data,
+        "is_public": project.is_public,
+        "owner_id": project.user_id,
+        "owner_name": project.owner.name if project.owner else "Unknown"
+    }
+
+@app.put("/api/projects/{project_id}")
+def update_project(project_id: int, payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this project")
+    
+    project.title = payload.title
+    project.description = payload.description
+    project.graph_data = payload.graph_data
+    project.is_public = payload.is_public
+    db.commit()
+    return {"status": "success"}
 
 @app.post("/api/execute")
 def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):

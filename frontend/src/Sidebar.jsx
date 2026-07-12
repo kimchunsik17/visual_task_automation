@@ -1,119 +1,63 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat } from 'lucide-react';
 
 const Sidebar = () => {
+  const [searchTerm, setSearchTerm] = useState('');
+
   const onDragStart = (event, nodeType, label) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.setData('application/reactflow-label', label);
     event.dataTransfer.effectAllowed = 'move';
   };
 
+  const nodeTypes = [
+    { type: 'startNode', label: '시작', icon: <Play size={16} />, color: '#10b981' },
+    { type: 'promptNode', label: '프롬프트', icon: <MessageSquare size={16} />, color: '#3b82f6' },
+    { type: 'llmNode', label: 'LLM', icon: <BrainCircuit size={16} />, color: '#8b5cf6' },
+    { type: 'valueNode', label: '변수 (값)', icon: <Variable size={16} />, color: '#ec4899' },
+    { type: 'pythonNode', label: '파이썬', icon: <Terminal size={16} />, color: '#eab308' },
+    { type: 'conditionNode', label: '조건 분기', icon: <SplitSquareHorizontal size={16} />, color: '#0ea5e9' },
+    { type: 'outputNode', label: '결과 출력', icon: <LogOut size={16} />, color: '#f97316' },
+    { type: 'tokenizerNode', label: '토크나이저', icon: <Box size={16} />, color: '#14b8a6' },
+    { type: 'distributorNode', label: '분배기', icon: <Network size={16} />, color: '#6366f1' },
+    { type: 'fileModifierNode', label: '자동 완성', icon: <FileCode size={16} />, color: '#f43f5e' },
+    { type: 'templateAnalyzerNode', label: '템플릿 분석', icon: <FileCode size={16} />, color: '#8b5cf6' },
+    { type: 'loopNode', label: '반복 (Loop)', icon: <Repeat size={16} />, color: '#ca8a04' },
+    { type: 'breakNode', label: '반복 종료', icon: <LogOut size={16} style={{transform: 'rotate(180deg)'}}/>, color: '#dc2626' }
+  ];
+
+  const filteredNodes = nodeTypes.filter(n => n.label.toLowerCase().includes(searchTerm.toLowerCase()));
+
   return (
     <aside className="sidebar">
-      <div className="sidebar-title">Nodes</div>
-      <div className="sidebar-description">Drag and drop nodes to build your AI workflow.</div>
+      <div className="sidebar-header">
+        <h2 className="sidebar-title">노드 목록</h2>
+      </div>
+      
+      <div className="sidebar-search">
+        <Search size={14} color="#64748b" />
+        <input 
+          type="text" 
+          placeholder="노드 검색..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
 
       <div className="node-list">
-        <div
-          className="dnd-node start"
-          onDragStart={(event) => onDragStart(event, 'startNode', 'Start')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', fontWeight: 'bold' }}
-        >
-          🏁 Start
-        </div>
-        <div
-          className="dnd-node prompt"
-          onDragStart={(event) => onDragStart(event, 'promptNode', 'Prompt')}
-          draggable
-        >
-          Prompt
-        </div>
-        <div
-          className="dnd-node llm"
-          onDragStart={(event) => onDragStart(event, 'llmNode', 'LLM')}
-          draggable
-        >
-          LLM
-        </div>
-        <div
-          className="dnd-node value"
-          onDragStart={(event) => onDragStart(event, 'valueNode', 'Value')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #ec4899, #be185d)' }}
-        >
-          Value
-        </div>
-        <div
-          className="dnd-node python"
-          onDragStart={(event) => onDragStart(event, 'pythonNode', 'Python')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}
-        >
-          Python
-        </div>
-        <div
-          className="dnd-node condition"
-          onDragStart={(event) => onDragStart(event, 'conditionNode', 'Switch / Branch')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #0ea5e9, #0369a1)' }}
-        >
-          Switch
-        </div>
-        <div
-          className="dnd-node output"
-          onDragStart={(event) => onDragStart(event, 'outputNode', 'Output')}
-          draggable
-        >
-          Output
-        </div>
-        <div
-          className="dnd-node tokenizer"
-          onDragStart={(event) => onDragStart(event, 'tokenizerNode', 'Tokenizer')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-        >
-          Tokenizer
-        </div>
-        <div
-          className="dnd-node distributor"
-          onDragStart={(event) => onDragStart(event, 'distributorNode', 'Distributor')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}
-        >
-          Distributor
-        </div>
-        <div
-          className="dnd-node file-modifier"
-          onDragStart={(event) => onDragStart(event, 'fileModifierNode', 'Auto Fill')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}
-        >
-          Auto Fill
-        </div>
-        <div
-          className="dnd-node template-analyzer"
-          onDragStart={(event) => onDragStart(event, 'templateAnalyzerNode', 'Template Analyzer')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #14b8a6, #0d9488)' }}
-        >
-          Template
-        </div>
-        <div
-          className="dnd-node loop"
-          onDragStart={(event) => onDragStart(event, 'loopNode', 'Loop')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #ca8a04, #854d0e)' }}
-        >
-          Loop
-        </div>
-        <div
-          className="dnd-node break"
-          onDragStart={(event) => onDragStart(event, 'breakNode', 'Break')}
-          draggable
-          style={{ background: 'linear-gradient(135deg, #dc2626, #991b1b)' }}
-        >
-          Break
-        </div>
+        {filteredNodes.map((node) => (
+          <div
+            key={node.type}
+            className="dnd-node"
+            onDragStart={(event) => onDragStart(event, node.type, node.label)}
+            draggable
+          >
+            <div className="dnd-node-icon" style={{ backgroundColor: `${node.color}20`, color: node.color }}>
+              {node.icon}
+            </div>
+            <span className="dnd-node-label">{node.label}</span>
+          </div>
+        ))}
       </div>
     </aside>
   );

@@ -16,9 +16,25 @@ This project is a pilot prototype for a business automation visualization tool. 
 
 ## Setup Instructions
 
-### 1. Backend Setup
+### 1. Frontend Build
 
-1. Open a terminal and navigate to the backend directory:
+1. Open a terminal and navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Build the frontend static files:
+   ```bash
+   npm run build
+   ```
+   *(Note: For frontend-only development, you can use `npm run dev` instead).*
+
+### 2. Backend Setup (Single Server)
+
+1. Open a new terminal and navigate to the backend directory:
    ```bash
    cd backend
    ```
@@ -42,23 +58,7 @@ This project is a pilot prototype for a business automation visualization tool. 
    ```bash
    uvicorn main:app --reload
    ```
-   The backend will start at `http://localhost:8000`.
-
-### 2. Frontend Setup
-
-1. Open a new terminal and navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   The frontend will start at `http://localhost:5173`.
+   The application will start at `http://localhost:8000`. FastAPI will automatically serve both the backend API and the compiled React frontend.
 
 ## Pilot Version Verification Points
 

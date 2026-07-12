@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer } from '@xyflow/react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat } from 'lucide-react';
 import axios from 'axios';
 
 export const StartNode = ({ id, data }) => {
   return (
-    <div className="custom-node start" style={{ borderColor: '#22c55e', minWidth: '150px' }}>
-      <div className="node-header" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}>
-        🏁 Start
+    <div className="custom-node start" style={{ minWidth: '150px' }}>
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={16} color="#10b981"/> 시작</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body" style={{ textAlign: 'center', padding: '10px' }}>
-        <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1' }}>Entry Point</p>
+        <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1' }}>시작점</p>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -22,16 +23,16 @@ export const PromptNode = ({ id, data }) => {
     <div className="custom-node prompt">
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        Prompt Node
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} color="#3b82f6"/> 프롬프트</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>User Prompt</label>
+        <label>사용자 프롬프트</label>
         <textarea 
           className="nodrag"
           defaultValue={data.userPrompt || ''}
           onChange={(e) => data.onChange(id, 'userPrompt', e.target.value)}
-          placeholder="Enter user prompt..."
+          placeholder="프롬프트를 입력하세요..."
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -44,11 +45,11 @@ export const LLMNode = ({ id, data }) => {
     <div className="custom-node llm">
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        LLM Node
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><BrainCircuit size={16} color="#8b5cf6"/> LLM Node</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>Model</label>
+        <label>AI 모델</label>
         <select 
           className="nodrag"
           defaultValue={data.model || 'gemini-3.5-flash'}
@@ -118,7 +119,7 @@ export const ValueNode = ({ id, data }) => {
     <div className="custom-node value">
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        Value Node
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Variable size={16} color="#ec4899"/> 변수 (값)</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">

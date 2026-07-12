@@ -1,6 +1,34 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime
+from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey, Boolean
+from sqlalchemy.orm import relationship
 from database import Base
 import datetime
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    google_id = Column(String, unique=True, index=True)
+    email = Column(String, index=True)
+    name = Column(String)
+    picture = Column(String)
+
+    projects = relationship("Project", back_populates="owner")
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, default="Untitled Project")
+    description = Column(String, nullable=True)
+    graph_data = Column(JSON, default=lambda: {"nodes": [], "edges": []})
+    is_public = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    owner = relationship("User", back_populates="projects")
+
 
 class FlowExecutionLog(Base):
     __tablename__ = "flow_execution_logs"
