@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { X, Bot, LayoutTemplate, Download, Code2 } from 'lucide-react';
+import { X, Bot, LayoutTemplate, Download, Code2, MessageSquare } from 'lucide-react';
 import axios from 'axios';
 
 const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
   const [deployMode, setDeployMode] = useState('chatbot');
+  const [discordToken, setDiscordToken] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
 
   if (!isOpen) return null;
@@ -12,7 +13,10 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
     setIsDeploying(true);
     try {
       // API call to save deploy config or generate code
-      const response = await axios.post(`/api/deploy/${project.id}`, { mode: deployMode }, {
+      const response = await axios.post(`/api/deploy/${project.id}`, { 
+        mode: deployMode,
+        discord_bot_token: deployMode === 'discord' ? discordToken : undefined
+      }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
       });
       
@@ -88,11 +92,32 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
             <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'white' }}>MCP Server</h3>
             <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>Claude Desktop용 MCP 서버 스크립트를 다운로드합니다.</p>
           </div>
+          
+          <div 
+            onClick={() => setDeployMode('discord')}
+            style={{ padding: '1rem', border: `2px solid ${deployMode === 'discord' ? '#ec4899' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'discord' ? 'rgba(236, 72, 153, 0.1)' : 'transparent', textAlign: 'center', gridColumn: '1 / -1' }}
+          >
+            <MessageSquare size={32} color={deployMode === 'discord' ? '#ec4899' : '#94a3b8'} style={{ margin: '0 auto 0.5rem' }} />
+            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'white' }}>Discord Bot (Interactive)</h3>
+            <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>디스코드 봇으로 작동시켜 채팅 채널에서 워크플로우를 실행합니다.</p>
+            {deployMode === 'discord' && (
+              <div style={{ marginTop: '1rem', textAlign: 'left' }} onClick={e => e.stopPropagation()}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-color)', fontSize: '0.9rem' }}>디스코드 봇 토큰 (Discord Bot Token)</label>
+                <input 
+                  type="password"
+                  value={discordToken}
+                  onChange={(e) => setDiscordToken(e.target.value)}
+                  placeholder="디스코드 개발자 포털에서 발급받은 토큰 입력"
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
           <button className="btn-secondary" onClick={onClose} disabled={isDeploying}>취소</button>
-          <button className="btn-run" onClick={handleDeploy} disabled={isDeploying}>
+          <button className="btn-run" onClick={handleDeploy} disabled={isDeploying || (deployMode === 'discord' && !discordToken.trim())}>
             {isDeploying ? '배포 중...' : (deployMode === 'fastapi' || deployMode === 'mcp' ? '코드 다운로드' : '배포하기')}
           </button>
         </div>

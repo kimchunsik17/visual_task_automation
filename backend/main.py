@@ -17,7 +17,8 @@ from google.auth.transport import requests as google_requests
 
 from database import engine, Base, get_db
 import models
-from graph import run_workflow, compile_workflow
+from graph import compile_workflow, run_workflow
+import discord_bot
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key")
 JWT_ALGORITHM = "HS256"
@@ -41,12 +42,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_event():
+    db = next(get_db())
+    try:
+        discord_bot.boot_existing_discord_bots(db)
+    except Exception as e:
+        print(f"Failed to boot discord bots: {e}")
+    finally:
+        db.close()
+
 class FlowPayload(BaseModel):
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
 
 class DeployPayload(BaseModel):
     mode: str
+    discord_bot_token: str = None
 
 class ExecutePayload(BaseModel):
     inputs: Dict[str, Any]
@@ -165,6 +177,18 @@ def get_project(project_id: int, user: models.User = Depends(get_current_user), 
         "owner_name": project.owner.name if project.owner else "Unknown"
     }
 
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this project")
+    
+    db.delete(project)
+    db.commit()
+    return {"status": "success"}
+
 @app.put("/api/projects/{project_id}")
 def update_project(project_id: int, payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
@@ -215,12 +239,27 @@ def compile_flow(payload: FlowPayload):
     return {"status": "success", "code": compiled_code}
 
 @app.post("/api/deploy/{project_id}")
-def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db)):
+async def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
     project.deploy_mode = payload.mode
+    
+    # 디스코드 봇 배포 로직
+    if payload.mode == "discord":
+        if payload.discord_bot_token:
+            # 기존 딕셔너리를 복사하여 업데이트 (SQLAlchemy JSON 업데이트 감지)
+            new_data = dict(project.graph_data)
+            new_data["discord_bot_token"] = payload.discord_bot_token
+            project.graph_data = new_data
+            
+            # 봇 시작
+            discord_bot.start_discord_bot(project.id, payload.discord_bot_token)
+    else:
+        # 다른 모드로 변경 시 디스코드 봇 정지
+        discord_bot.stop_discord_bot(project.id)
+
     db.commit()
 
     if payload.mode in ["fastapi", "mcp"]:
@@ -279,6 +318,50 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     
     result_text = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), **payload.inputs)
     return {"status": "success", "result": result_text}
+
+@app.get("/api/bots")
+def get_active_bots(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    projects = db.query(models.Project).filter(models.Project.user_id == user.id, models.Project.deploy_mode == "discord").all()
+    
+    result = []
+    for p in projects:
+        client = discord_bot._active_bots.get(p.id)
+        status = "offline"
+        bot_name = None
+        if client:
+            status = "online" if client.is_ready() else "connecting"
+            bot_name = str(client.user) if client.user else None
+            
+        result.append({
+            "project_id": p.id,
+            "project_title": p.title,
+            "status": status,
+            "bot_name": bot_name,
+            "updated_at": p.updated_at
+        })
+    return result
+
+@app.post("/api/bots/{project_id}/stop")
+async def stop_bot_endpoint(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    discord_bot.stop_discord_bot(project_id)
+    return {"status": "success", "message": "Bot stopped"}
+
+@app.post("/api/bots/{project_id}/start")
+async def start_bot_endpoint(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    token = project.graph_data.get("discord_bot_token")
+    if not token:
+        raise HTTPException(status_code=400, detail="No Discord token saved for this project")
+        
+    discord_bot.start_discord_bot(project_id, token)
+    return {"status": "success", "message": "Bot started"}
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

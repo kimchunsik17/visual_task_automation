@@ -253,9 +253,10 @@ def compile_workflow(nodes: list, edges: list) -> str:
         elif node['type'] == 'dynamicInputNode':
             lines.append(f"{indent}# --- Dynamic Input Node ({node_id}) ---")
             input_label = node.get('data', {}).get('inputLabel', 'Input').replace('"', '\\"')
+            test_val = node.get('data', {}).get('testValue', '').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
             lines.append(f"{indent}if dyn_input_{node_id} is None:")
-            lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', '<<No input provided>>')")
+            lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', \"{test_val}\" if \"{test_val}\" else '<<No input provided>>')")
             if prev_res_var:
                 lines.append(f"{indent}last_result = str({prev_res_var}) + \"\\n\" + str(dyn_input_{node_id})")
             else:

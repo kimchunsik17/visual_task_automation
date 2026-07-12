@@ -616,6 +616,15 @@ export const DynamicInputNode = ({ id, data }) => {
           defaultValue={data.inputLabel || '사용자 입력을 기다립니다...'}
           onChange={(e) => data.onChange(id, 'inputLabel', e.target.value)}
           placeholder="예: 이름이 무엇인가요?"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+        />
+        <label>테스트용 입력값 (에디터 실행용)</label>
+        <input 
+          type="text"
+          className="nodrag"
+          defaultValue={data.testValue || ''}
+          onChange={(e) => data.onChange(id, 'testValue', e.target.value)}
+          placeholder="테스트 실행 시 사용할 값"
           style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
         />
         <label style={{ marginTop: '0.5rem', color: '#94a3b8', fontSize: '0.75rem' }}>* 배포 모드에서 사용자에게 보일 입력칸입니다.</label>

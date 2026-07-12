@@ -183,3 +183,65 @@
   font-size: 0.9rem;
   margin: 0;
 }
+
+/* Info Popup Styles */
+.info-popup-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  border-radius: 12px;
+}
+
+.info-popup-content {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  width: 80%;
+  max-width: 400px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.info-popup-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.info-popup-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text-color);
+}
+
+.info-popup-body {
+  padding: 1rem;
+  color: #cbd5e1;
+  font-size: 0.95rem;
+}
+
+.info-popup-url {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgba(255,255,255,0.1);
+}
+
+.info-popup-url a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.info-popup-url a:hover {
+  text-decoration: underline;
+}

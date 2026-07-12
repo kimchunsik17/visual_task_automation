@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
-import { Play, Plus, LayoutGrid, Smartphone } from 'lucide-react';
+import { Play, Plus, LayoutGrid, Smartphone, Trash2 } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
 import './MainPage.css'; // Reusing layout CSS
 
@@ -34,6 +34,19 @@ function WorkflowsPage() {
     fetchMyProjects();
   }, [user, token]);
 
+  const handleDelete = async (projectId) => {
+    if (!window.confirm("정말로 이 워크플로우를 삭제하시겠습니까?")) return;
+    try {
+      await axios.delete(`/api/projects/${projectId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMyProjects(prev => prev.filter(p => p.id !== projectId));
+    } catch (error) {
+      console.error("Failed to delete project", error);
+      alert("프로젝트 삭제에 실패했습니다.");
+    }
+  };
+
   return (
     <div className="main-page-layout">
       <MainSidebar />
@@ -58,8 +71,17 @@ function WorkflowsPage() {
             ) : (
               <div className="projects-grid">
                 {myProjects.map(project => (
-                  <div key={project.id} className="project-card">
-                    <h4>{project.title}</h4>
+                  <div key={project.id} className="project-card" style={{ position: 'relative' }}>
+                    <button 
+                      onClick={() => handleDelete(project.id)} 
+                      style={{ position: 'absolute', top: '1rem', right: '1rem', padding: '0.4rem', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', borderRadius: '4px' }} 
+                      title="삭제"
+                      onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'}
+                      onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                    <h4 style={{ paddingRight: '2rem' }}>{project.title}</h4>
                     <p>{project.description || '설명이 없습니다.'}</p>
                     <div className="project-meta">
                       <span className={`status-badge ${project.is_public ? 'public' : 'private'}`}>

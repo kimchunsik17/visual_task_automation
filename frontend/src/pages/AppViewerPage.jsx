@@ -24,7 +24,9 @@ const AppViewerPage = () => {
     const fetchProject = async () => {
       try {
         // Here we ideally fetch public project info or user auth depending on visibility
-        const res = await axios.get(`/api/projects/${projectId}`);
+        const res = await axios.get(`/api/projects/${projectId}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+        });
         setProject(res.data);
         
         // Retrieve deploy mode from project (assuming backend sends it, fallback to 'chatbot')
@@ -44,7 +46,8 @@ const AppViewerPage = () => {
 
       } catch (error) {
         console.error(error);
-        alert('프로젝트를 불러오지 못했습니다.');
+        const errorMsg = error.response?.data?.detail || error.message;
+        alert(`프로젝트를 불러오지 못했습니다. 에러: ${errorMsg}`);
       } finally {
         setIsLoading(false);
       }
@@ -55,7 +58,9 @@ const AppViewerPage = () => {
   const executeFlow = async (inputs) => {
     setIsExecuting(true);
     try {
-      const res = await axios.post(`/api/deploy/${projectId}/execute`, { inputs });
+      const res = await axios.post(`/api/deploy/${projectId}/execute`, { inputs }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+      });
       return res.data.result;
     } catch (error) {
       console.error(error);

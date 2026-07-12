@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
-import { Wand2, Home, LayoutGrid, LibraryBig, Settings } from 'lucide-react';
+import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot } from 'lucide-react';
 import './MainSidebar.css';
 
 const MainSidebar = () => {
@@ -39,6 +39,9 @@ const MainSidebar = () => {
         </button>
         <button className={`nav-item ${location.pathname === '/templates' ? 'active' : ''}`} onClick={() => navigate('/templates')}>
           <LibraryBig size={18} /> 커뮤니티 템플릿
+        </button>
+        <button className={`nav-item ${location.pathname === '/bots' ? 'active' : ''}`} onClick={() => navigate('/bots')}>
+          <Bot size={18} /> 봇 관리
         </button>
         <div className="nav-divider"></div>
         <button className={`nav-item ${location.pathname === '/settings' ? 'active' : ''}`} onClick={() => navigate('/settings')}>
