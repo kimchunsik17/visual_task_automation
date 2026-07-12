@@ -24,6 +24,7 @@ class Project(Base):
     description = Column(String, nullable=True)
     graph_data = Column(JSON, default=lambda: {"nodes": [], "edges": []})
     is_public = Column(Boolean, default=False)
+    deploy_mode = Column(String, default="chatbot")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 

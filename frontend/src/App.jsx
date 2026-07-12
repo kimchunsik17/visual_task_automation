@@ -4,6 +4,7 @@ import EditorPage from './pages/EditorPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import TemplatesPage from './pages/TemplatesPage';
 import SettingsPage from './pages/SettingsPage';
+import AppViewerPage from './pages/AppViewerPage';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/editor/:projectId?" element={<EditorPage />} />
+        <Route path="/app/:projectId" element={<AppViewerPage />} />
       </Routes>
     </Router>
   );

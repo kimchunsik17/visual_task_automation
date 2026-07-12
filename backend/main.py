@@ -45,6 +45,12 @@ class FlowPayload(BaseModel):
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
 
+class DeployPayload(BaseModel):
+    mode: str
+
+class ExecutePayload(BaseModel):
+    inputs: Dict[str, Any]
+
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     """
@@ -154,6 +160,7 @@ def get_project(project_id: int, user: models.User = Depends(get_current_user), 
         "description": project.description,
         "graph_data": project.graph_data,
         "is_public": project.is_public,
+        "deploy_mode": project.deploy_mode,
         "owner_id": project.user_id,
         "owner_name": project.owner.name if project.owner else "Unknown"
     }
@@ -206,6 +213,72 @@ def compile_flow(payload: FlowPayload):
     """
     compiled_code = compile_workflow(payload.nodes, payload.edges)
     return {"status": "success", "code": compiled_code}
+
+@app.post("/api/deploy/{project_id}")
+def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    project.deploy_mode = payload.mode
+    db.commit()
+
+    if payload.mode in ["fastapi", "mcp"]:
+        compiled_code = compile_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []))
+        if payload.mode == "fastapi":
+            # Wrap in FastAPI boilerplate
+            code = f"""from fastapi import FastAPI
+import uvicorn
+
+app = FastAPI()
+
+{compiled_code}
+
+@app.post("/execute")
+def execute_endpoint(inputs: dict):
+    res = run_workflow(**inputs)
+    return {{"result": res}}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+"""
+        else: # mcp
+            # Wrap in basic MCP boilerplate
+            code = f"""import sys
+import json
+
+{compiled_code}
+
+def main():
+    # Simple stdio MCP server loop
+    while True:
+        line = sys.stdin.readline()
+        if not line: break
+        try:
+            req = json.loads(line)
+            inputs = req.get('params', {{}})
+            res = run_workflow(**inputs)
+            print(json.dumps({{"result": res}}))
+            sys.stdout.flush()
+        except Exception as e:
+            print(json.dumps({{"error": str(e)}}))
+            sys.stdout.flush()
+
+if __name__ == "__main__":
+    main()
+"""
+        return {"status": "success", "code": code}
+
+    return {"status": "success"}
+
+@app.post("/api/deploy/{project_id}/execute")
+def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    result_text = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), **payload.inputs)
+    return {"status": "success", "result": result_text}
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer } from '@xyflow/react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck } from 'lucide-react';
 import axios from 'axios';
 
 export const StartNode = ({ id, data }) => {
@@ -594,6 +594,310 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
         <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
           Analyzes the template and extracts placeholders {'{{key}}'} as a JSON schema.
         </div>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const DynamicInputNode = ({ id, data }) => {
+  return (
+    <div className="custom-node dynamic-input" style={{ minWidth: '220px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Keyboard size={16} color="#d946ef"/> 동적 입력</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>입력 프롬프트 라벨</label>
+        <input 
+          type="text"
+          className="nodrag"
+          defaultValue={data.inputLabel || '사용자 입력을 기다립니다...'}
+          onChange={(e) => data.onChange(id, 'inputLabel', e.target.value)}
+          placeholder="예: 이름이 무엇인가요?"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+        />
+        <label style={{ marginTop: '0.5rem', color: '#94a3b8', fontSize: '0.75rem' }}>* 배포 모드에서 사용자에게 보일 입력칸입니다.</label>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const WebCrawlerNode = ({ id, data }) => {
+  return (
+    <div className="custom-node crawler" style={{ minWidth: '250px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Globe size={16} color="#0ea5e9"/> 웹 크롤러</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>타겟 URL</label>
+        <input 
+          type="text"
+          className="nodrag"
+          defaultValue={data.url || ''}
+          onChange={(e) => data.onChange(id, 'url', e.target.value)}
+          placeholder="https://example.com"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+        />
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const EmailNode = ({ id, data }) => {
+  return (
+    <div className="custom-node email" style={{ minWidth: '250px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={16} color="#f43f5e"/> 이메일 전송</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>수신자 이메일</label>
+        <input 
+          type="email"
+          className="nodrag"
+          defaultValue={data.toEmail || ''}
+          onChange={(e) => data.onChange(id, 'toEmail', e.target.value)}
+          placeholder="receiver@example.com"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+        />
+        <label style={{ marginTop: '0.5rem' }}>제목</label>
+        <input 
+          type="text"
+          className="nodrag"
+          defaultValue={data.subject || 'Auto Flow 알림'}
+          onChange={(e) => data.onChange(id, 'subject', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+        />
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const KakaoNode = ({ id, data }) => {
+  return (
+    <div className="custom-node kakao" style={{ minWidth: '220px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageCircle size={16} color="#facc15"/> 카카오 알림톡</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>* 이전 노드의 결과값이 카카오톡 메시지로 전송됩니다.</p>
+        <label style={{ marginTop: '0.5rem' }}>수신자 (옵션)</label>
+        <input 
+          type="text"
+          className="nodrag"
+          defaultValue={data.receiver || ''}
+          onChange={(e) => data.onChange(id, 'receiver', e.target.value)}
+          placeholder="전화번호 또는 ID"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+        />
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const DelayNode = ({ id, data }) => {
+  return (
+    <div className="custom-node delay" style={{ minWidth: '180px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={16} color="#3b82f6"/> Delay (대기)</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>대기 시간 (초)</label>
+        <input 
+          type="number"
+          className="nodrag"
+          defaultValue={data.seconds || 5}
+          onChange={(e) => data.onChange(id, 'seconds', e.target.value)}
+          min="1"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+        />
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const JsonParserNode = ({ id, data }) => {
+  return (
+    <div className="custom-node json-parser" style={{ minWidth: '220px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Braces size={16} color="#eab308"/> JSON Parser</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>파싱 모드</label>
+        <select 
+          className="nodrag"
+          defaultValue={data.mode || 'parse'}
+          onChange={(e) => data.onChange(id, 'mode', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+        >
+          <option value="parse">String to JSON (파싱)</option>
+          <option value="stringify">JSON to String (문자열화)</option>
+          <option value="extract">Extract Key (특정 키 추출)</option>
+        </select>
+        {data.mode === 'extract' && (
+          <input 
+            type="text"
+            className="nodrag"
+            placeholder="추출할 키 이름 (예: result)"
+            defaultValue={data.extractKey || ''}
+            onChange={(e) => data.onChange(id, 'extractKey', e.target.value)}
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+          />
+        )}
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const MergeNode = ({ id, data }) => {
+  return (
+    <div className="custom-node merge" style={{ minWidth: '200px' }}>
+      <Handle type="target" position={Position.Left} id="in" style={{ height: '30px', width: '8px', borderRadius: '4px', background: '#ec4899' }} />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Merge size={16} color="#ec4899"/> Merge (데이터 병합)</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>병합 방식</label>
+        <select 
+          className="nodrag"
+          defaultValue={data.mergeStrategy || 'join_newline'}
+          onChange={(e) => data.onChange(id, 'mergeStrategy', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+        >
+          <option value="join_newline">줄바꿈으로 합치기</option>
+          <option value="join_comma">쉼표로 합치기</option>
+          <option value="array">JSON 배열로 만들기</option>
+        </select>
+        <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>여러 노드를 왼쪽 핸들에 연결하세요.</p>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const HttpRequestNode = ({ id, data }) => {
+  return (
+    <div className="custom-node http-request" style={{ minWidth: '250px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ArrowRightLeft size={16} color="#0ea5e9"/> HTTP Request</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>Method</label>
+        <select 
+          className="nodrag"
+          defaultValue={data.method || 'GET'}
+          onChange={(e) => data.onChange(id, 'method', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+        >
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+          <option value="PUT">PUT</option>
+          <option value="DELETE">DELETE</option>
+        </select>
+        <label>URL</label>
+        <input 
+          type="text"
+          className="nodrag"
+          placeholder="https://api.example.com/data"
+          defaultValue={data.url || ''}
+          onChange={(e) => data.onChange(id, 'url', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+        />
+        <label>Headers (JSON)</label>
+        <input 
+          type="text"
+          className="nodrag"
+          placeholder='{"Authorization": "Bearer token"}'
+          defaultValue={data.headers || ''}
+          onChange={(e) => data.onChange(id, 'headers', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+        />
+        <label>Body (JSON)</label>
+        <textarea 
+          className="nodrag"
+          rows={3}
+          placeholder='{"key": "value"}'
+          defaultValue={data.body || ''}
+          onChange={(e) => data.onChange(id, 'body', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
+        />
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const DatabaseNode = ({ id, data }) => {
+  return (
+    <div className="custom-node database" style={{ minWidth: '250px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Database size={16} color="#059669"/> 데이터베이스</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>연결 문자열 (URI)</label>
+        <input 
+          type="text"
+          className="nodrag"
+          placeholder="sqlite:///data.db 또는 postgresql://..."
+          defaultValue={data.connectionString || ''}
+          onChange={(e) => data.onChange(id, 'connectionString', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+        />
+        <label>SQL 쿼리</label>
+        <textarea 
+          className="nodrag"
+          rows={3}
+          placeholder="SELECT * FROM users;"
+          defaultValue={data.query || ''}
+          onChange={(e) => data.onChange(id, 'query', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
+        />
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const HumanApprovalNode = ({ id, data }) => {
+  return (
+    <div className="custom-node human-approval" style={{ minWidth: '220px' }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><UserCheck size={16} color="#f43f5e"/> 사용자 승인</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>승인 요청 메시지</label>
+        <textarea 
+          className="nodrag"
+          rows={2}
+          placeholder="다음 단계로 진행하시겠습니까?"
+          defaultValue={data.message || '승인이 필요합니다.'}
+          onChange={(e) => data.onChange(id, 'message', e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
+        />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>

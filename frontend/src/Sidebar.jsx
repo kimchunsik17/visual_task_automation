@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck } from 'lucide-react';
 
 const Sidebar = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -23,7 +23,17 @@ const Sidebar = () => {
     { type: 'fileModifierNode', label: '자동 완성', icon: <FileCode size={16} />, color: '#f43f5e' },
     { type: 'templateAnalyzerNode', label: '템플릿 분석', icon: <FileCode size={16} />, color: '#8b5cf6' },
     { type: 'loopNode', label: '반복 (Loop)', icon: <Repeat size={16} />, color: '#ca8a04' },
-    { type: 'breakNode', label: '반복 종료', icon: <LogOut size={16} style={{transform: 'rotate(180deg)'}}/>, color: '#dc2626' }
+    { type: 'breakNode', label: '반복 종료', icon: <LogOut size={16} style={{transform: 'rotate(180deg)'}}/>, color: '#dc2626' },
+    { type: 'dynamicInputNode', label: '동적 입력', icon: <Keyboard size={16} />, color: '#d946ef' },
+    { type: 'webCrawlerNode', label: '웹 크롤러', icon: <Globe size={16} />, color: '#0ea5e9' },
+    { type: 'emailNode', label: '이메일 전송', icon: <Mail size={16} />, color: '#f43f5e' },
+    { type: 'kakaoNode', label: '카카오 알림톡', icon: <MessageCircle size={16} />, color: '#facc15' },
+    { type: 'delayNode', label: 'Delay (대기)', icon: <Clock size={16} />, color: '#3b82f6' },
+    { type: 'jsonParserNode', label: 'JSON 파서', icon: <Braces size={16} />, color: '#eab308' },
+    { type: 'mergeNode', label: 'Merge (병합)', icon: <Merge size={16} />, color: '#ec4899' },
+    { type: 'httpRequestNode', label: 'HTTP Request', icon: <ArrowRightLeft size={16} />, color: '#0ea5e9' },
+    { type: 'databaseNode', label: '데이터베이스', icon: <Database size={16} />, color: '#059669' },
+    { type: 'humanApprovalNode', label: '사용자 승인 (대기)', icon: <UserCheck size={16} />, color: '#f43f5e' },
   ];
 
   const filteredNodes = nodeTypes.filter(n => n.label.toLowerCase().includes(searchTerm.toLowerCase()));

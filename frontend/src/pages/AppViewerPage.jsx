@@ -1,0 +1,192 @@
+import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import axios from 'axios';
+import { Send, Bot, User } from 'lucide-react';
+import './MainPage.css'; // Reuse existing layout classes if needed
+
+const AppViewerPage = () => {
+  const { projectId } = useParams();
+  const [project, setProject] = useState(null);
+  const [deployMode, setDeployMode] = useState('chatbot');
+  
+  // For Form mode
+  const [formInputs, setFormInputs] = useState({});
+  const [formResult, setFormResult] = useState('');
+  // For Chatbot mode
+  const [chatHistory, setChatHistory] = useState([]);
+  const [currentMessage, setCurrentMessage] = useState('');
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [dynamicNodes, setDynamicNodes] = useState([]);
+
+  useEffect(() => {
+    const fetchProject = async () => {
+      try {
+        // Here we ideally fetch public project info or user auth depending on visibility
+        const res = await axios.get(`/api/projects/${projectId}`);
+        setProject(res.data);
+        
+        // Retrieve deploy mode from project (assuming backend sends it, fallback to 'chatbot')
+        const mode = res.data.deploy_mode || 'chatbot';
+        setDeployMode(mode);
+
+        // Find all dynamic input nodes
+        const nodes = res.data.graph_data?.nodes || [];
+        const dynNodes = nodes.filter(n => n.type === 'dynamicInputNode');
+        setDynamicNodes(dynNodes);
+        
+        const initialForm = {};
+        dynNodes.forEach(n => {
+          initialForm[n.id] = '';
+        });
+        setFormInputs(initialForm);
+
+      } catch (error) {
+        console.error(error);
+        alert('프로젝트를 불러오지 못했습니다.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchProject();
+  }, [projectId]);
+
+  const executeFlow = async (inputs) => {
+    setIsExecuting(true);
+    try {
+      const res = await axios.post(`/api/deploy/${projectId}/execute`, { inputs });
+      return res.data.result;
+    } catch (error) {
+      console.error(error);
+      return '실행 중 오류가 발생했습니다.';
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    setFormResult(''); // Clear previous
+    const result = await executeFlow(formInputs);
+    setFormResult(result);
+  };
+
+  const handleChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!currentMessage.trim()) return;
+
+    const userMsg = currentMessage;
+    setChatHistory(prev => [...prev, { role: 'user', content: userMsg }]);
+    setCurrentMessage('');
+
+    // In chatbot mode, we assume there's one dynamic input node to feed this message to
+    const targetNodeId = dynamicNodes.length > 0 ? dynamicNodes[0].id : 'default_input';
+    
+    const result = await executeFlow({ [targetNodeId]: userMsg });
+    setChatHistory(prev => [...prev, { role: 'bot', content: result }]);
+  };
+
+  if (isLoading) return <div style={{ color: 'white', padding: '2rem' }}>로딩 중...</div>;
+  if (!project) return <div style={{ color: 'white', padding: '2rem' }}>프로젝트를 찾을 수 없습니다.</div>;
+
+  return (
+    <div style={{ backgroundColor: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column', color: 'white' }}>
+      <header style={{ padding: '1rem 2rem', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--card-bg)' }}>
+        <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>{project.title}</h1>
+        {project.description && <p style={{ margin: '0.5rem 0 0 0', color: '#94a3b8', fontSize: '0.9rem' }}>{project.description}</p>}
+      </header>
+
+      <main style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '2rem' }}>
+        {deployMode === 'form' ? (
+          <div style={{ width: '100%', maxWidth: '600px', backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '2rem' }}>
+            <form onSubmit={handleFormSubmit}>
+              {dynamicNodes.length === 0 ? (
+                <p style={{ color: '#94a3b8' }}>이 워크플로우에는 동적 입력 노드가 없습니다. 바로 실행해 보세요.</p>
+              ) : (
+                dynamicNodes.map(node => (
+                  <div key={node.id} style={{ marginBottom: '1.5rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
+                      {node.data?.inputLabel || '입력'}
+                    </label>
+                    <input
+                      type="text"
+                      value={formInputs[node.id] || ''}
+                      onChange={(e) => setFormInputs({...formInputs, [node.id]: e.target.value})}
+                      style={{ width: '100%', padding: '0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'white' }}
+                      required
+                    />
+                  </div>
+                ))
+              )}
+              <button 
+                type="submit" 
+                className="btn-run" 
+                disabled={isExecuting}
+                style={{ width: '100%', padding: '1rem', fontSize: '1.1rem', marginTop: '1rem' }}
+              >
+                {isExecuting ? '실행 중...' : '실행하기'}
+              </button>
+            </form>
+            {formResult && (
+              <div style={{ marginTop: '2rem', padding: '1.5rem', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6', borderRadius: '8px' }}>
+                <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#60a5fa' }}>실행 결과</h3>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{formResult}</pre>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Chatbot Mode */
+          <div style={{ width: '100%', maxWidth: '800px', backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 150px)' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {chatHistory.length === 0 ? (
+                <div style={{ margin: 'auto', textAlign: 'center', color: '#94a3b8' }}>
+                  <Bot size={48} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
+                  <p>대화를 시작해 보세요. 워크플로우가 실행됩니다.</p>
+                </div>
+              ) : (
+                chatHistory.map((msg, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                    <div style={{ display: 'flex', gap: '0.8rem', maxWidth: '80%', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: msg.role === 'user' ? '#3b82f6' : '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
+                      </div>
+                      <div style={{ padding: '1rem', borderRadius: '12px', backgroundColor: msg.role === 'user' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>
+                        {msg.content}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+              {isExecuting && (
+                <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                  <div style={{ padding: '1rem', borderRadius: '12px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#94a3b8' }}>
+                    실행 중...
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div style={{ padding: '1rem', borderTop: '1px solid var(--border-color)' }}>
+              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  type="text"
+                  value={currentMessage}
+                  onChange={(e) => setCurrentMessage(e.target.value)}
+                  placeholder="메시지를 입력하세요..."
+                  style={{ flex: 1, padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'white', outline: 'none' }}
+                  disabled={isExecuting}
+                />
+                <button type="submit" className="btn-run" disabled={isExecuting || !currentMessage.trim()} style={{ padding: '0 1.5rem', borderRadius: '8px' }}>
+                  <Send size={20} />
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
+
+export default AppViewerPage;

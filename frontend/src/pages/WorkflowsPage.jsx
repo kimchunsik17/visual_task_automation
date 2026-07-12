@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
-import { Play, Plus, LayoutGrid } from 'lucide-react';
+import { Play, Plus, LayoutGrid, Smartphone } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
 import './MainPage.css'; // Reusing layout CSS
 
@@ -66,9 +66,12 @@ function WorkflowsPage() {
                         {project.is_public ? '공개' : '비공개'}
                       </span>
                     </div>
-                    <div className="card-actions">
-                      <button className="btn-secondary" onClick={() => navigate(`/editor/${project.id}`)}>
-                        <Play size={14} /> 열기
+                    <div className="card-actions" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                      <button className="btn-secondary" onClick={() => navigate(`/editor/${project.id}`)} style={{ flex: 1 }}>
+                        <Play size={14} /> 편집기
+                      </button>
+                      <button className="btn-primary" onClick={() => navigate(`/app/${project.id}`)} style={{ flex: 1, backgroundColor: '#3b82f6', color: 'white', border: 'none' }}>
+                        <Smartphone size={14} /> 앱 실행
                       </button>
                     </div>
                   </div>

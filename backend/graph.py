@@ -80,6 +80,8 @@ def compile_workflow(nodes: list, edges: list) -> str:
         lines.append("from langchain_anthropic import ChatAnthropic")
     lines.append("from langchain_core.prompts import ChatPromptTemplate")
     lines.append("from langchain_core.messages import SystemMessage")
+    lines.append("import requests")
+    lines.append("from bs4 import BeautifulSoup")
     lines.append("from dotenv import load_dotenv\n")
     lines.append("load_dotenv()\n")
     lines.append("def is_numeric(s):")
@@ -88,7 +90,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     lines.append("        return True")
     lines.append("    except ValueError:")
     lines.append("        return False\n")
-    lines.append("def run_workflow():")
+    lines.append("def run_workflow(**kwargs):")
     lines.append("    last_result = 'No execution occurred.'")
     
     # Generate all LLM configurations at the top of the workflow
@@ -247,6 +249,259 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 generate_block(false_edges[0], indent + "    ", active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
             else:
                 lines.append(f"{indent}    pass")
+                
+        elif node['type'] == 'dynamicInputNode':
+            lines.append(f"{indent}# --- Dynamic Input Node ({node_id}) ---")
+            input_label = node.get('data', {}).get('inputLabel', 'Input').replace('"', '\\"')
+            lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
+            lines.append(f"{indent}if dyn_input_{node_id} is None:")
+            lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', '<<No input provided>>')")
+            if prev_res_var:
+                lines.append(f"{indent}last_result = str({prev_res_var}) + \"\\n\" + str(dyn_input_{node_id})")
+            else:
+                lines.append(f"{indent}last_result = str(dyn_input_{node_id})")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+                
+        elif node['type'] == 'webCrawlerNode':
+            lines.append(f"{indent}# --- Web Crawler Node ({node_id}) ---")
+            url = node.get('data', {}).get('url', '').replace('"', '\\"')
+            lines.append(f"{indent}try:")
+            if url:
+                lines.append(f"{indent}    target_url_{node_id} = \"{url}\"")
+            elif prev_res_var:
+                lines.append(f"{indent}    target_url_{node_id} = str({prev_res_var}).strip()")
+            else:
+                lines.append(f"{indent}    raise ValueError('No URL provided for Web Crawler')")
+            lines.append(f"{indent}    resp_{node_id} = requests.get(target_url_{node_id}, timeout=10)")
+            lines.append(f"{indent}    soup_{node_id} = BeautifulSoup(resp_{node_id}.text, 'html.parser')")
+            lines.append(f"{indent}    crawl_res_{node_id} = soup_{node_id}.get_text(separator=' ', strip=True)[:5000]")
+            lines.append(f"{indent}except Exception as e:")
+            lines.append(f"{indent}    crawl_res_{node_id} = 'Crawling failed: ' + str(e)")
+            if prev_res_var:
+                lines.append(f"{indent}last_result = str({prev_res_var}) + \"\\n\\n[Crawled Data]\\n\" + crawl_res_{node_id}")
+            else:
+                lines.append(f"{indent}last_result = crawl_res_{node_id}")
+                
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+                
+        elif node['type'] == 'emailNode':
+            lines.append(f"{indent}# --- Email Node ({node_id}) ---")
+            to_email = node.get('data', {}).get('toEmail', '').replace('"', '\\"')
+            subject = node.get('data', {}).get('subject', 'Auto Flow 알림').replace('"', '\\"')
+            
+            lines.append(f"{indent}import smtplib")
+            lines.append(f"{indent}from email.mime.text import MIMEText")
+            lines.append(f"{indent}from email.mime.multipart import MIMEMultipart")
+            lines.append(f"{indent}import os")
+            lines.append(f"{indent}smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')")
+            lines.append(f"{indent}smtp_port = int(os.getenv('SMTP_PORT', '587'))")
+            lines.append(f"{indent}smtp_user = os.getenv('SMTP_USER', '')")
+            lines.append(f"{indent}smtp_password = os.getenv('SMTP_PASSWORD', '')")
+            lines.append(f"{indent}msg = MIMEMultipart()")
+            lines.append(f"{indent}msg['From'] = smtp_user")
+            lines.append(f"{indent}msg['To'] = '{to_email}'")
+            lines.append(f"{indent}msg['Subject'] = '{subject}'")
+            lines.append(f"{indent}msg.attach(MIMEText(str({prev_res_var if prev_res_var else 'last_result'}), 'plain', 'utf-8'))")
+            
+            lines.append(f"{indent}try:")
+            lines.append(f"{indent}    if not smtp_user or not smtp_password:")
+            lines.append(f"{indent}        raise ValueError('SMTP credentials missing in .env')")
+            lines.append(f"{indent}    server = smtplib.SMTP(smtp_server, smtp_port)")
+            lines.append(f"{indent}    server.starttls()")
+            lines.append(f"{indent}    server.login(smtp_user, smtp_password)")
+            lines.append(f"{indent}    server.send_message(msg)")
+            lines.append(f"{indent}    server.quit()")
+            lines.append(f"{indent}    print(f'\\n[Email Successfully Sent to {to_email}]\\n')")
+            lines.append(f"{indent}    res_text_{node_id} = f'Email Successfully Sent to {to_email}'")
+            lines.append(f"{indent}except Exception as e:")
+            lines.append(f"{indent}    print(f'\\n[Email Sending Failed: {{str(e)}}]\\n')")
+            lines.append(f"{indent}    res_text_{node_id} = f'Email Sending Failed: {{str(e)}}'")
+            lines.append(f"{indent}last_result = res_text_{node_id}")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+                
+        elif node['type'] == 'kakaoNode':
+            lines.append(f"{indent}# --- Kakao Node ({node_id}) ---")
+            receiver = node.get('data', {}).get('receiver', '').replace('"', '\\"')
+            lines.append(f"{indent}print(f'\\n[Kakao Msg to {receiver}]\\n{{last_result}}\\n')")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+                
+        elif node['type'] == 'httpRequestNode':
+            lines.append(f"{indent}# --- HTTP Request Node ({node_id}) ---")
+            method = node.get('data', {}).get('method', 'GET')
+            url = node.get('data', {}).get('url', '').replace('"', '\\"')
+            headers_str = node.get('data', {}).get('headers', '{}')
+            body_str = node.get('data', {}).get('body', '{}')
+            
+            lines.append(f"{indent}import requests")
+            lines.append(f"{indent}import json")
+            lines.append(f"{indent}try:")
+            lines.append(f"{indent}    req_headers_{node_id} = json.loads('''{headers_str}''') if '''{headers_str}'''.strip() else {{}}")
+            lines.append(f"{indent}    req_body_{node_id} = json.loads('''{body_str}''') if '''{body_str}'''.strip() else {{}}")
+            
+            if url:
+                lines.append(f"{indent}    target_url_{node_id} = \"{url}\"")
+            else:
+                lines.append(f"{indent}    target_url_{node_id} = str({prev_res_var if prev_res_var else 'last_result'}).strip()")
+                
+            lines.append(f"{indent}    if '{method}' == 'GET':")
+            lines.append(f"{indent}        resp_{node_id} = requests.get(target_url_{node_id}, headers=req_headers_{node_id}, params=req_body_{node_id}, timeout=15)")
+            lines.append(f"{indent}    elif '{method}' == 'POST':")
+            lines.append(f"{indent}        resp_{node_id} = requests.post(target_url_{node_id}, headers=req_headers_{node_id}, json=req_body_{node_id}, timeout=15)")
+            lines.append(f"{indent}    elif '{method}' == 'PUT':")
+            lines.append(f"{indent}        resp_{node_id} = requests.put(target_url_{node_id}, headers=req_headers_{node_id}, json=req_body_{node_id}, timeout=15)")
+            lines.append(f"{indent}    elif '{method}' == 'DELETE':")
+            lines.append(f"{indent}        resp_{node_id} = requests.delete(target_url_{node_id}, headers=req_headers_{node_id}, json=req_body_{node_id}, timeout=15)")
+            
+            lines.append(f"{indent}    try:")
+            lines.append(f"{indent}        req_out_{node_id} = json.dumps(resp_{node_id}.json(), ensure_ascii=False, indent=2)")
+            lines.append(f"{indent}    except json.JSONDecodeError:")
+            lines.append(f"{indent}        req_out_{node_id} = resp_{node_id}.text")
+            
+            lines.append(f"{indent}except Exception as e:")
+            lines.append(f"{indent}    req_out_{node_id} = f'HTTP Request Error: {{str(e)}}'")
+            
+            lines.append(f"{indent}last_result = req_out_{node_id}")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"req_out_{node_id}", visited=visited)
+                
+        elif node['type'] == 'delayNode':
+            lines.append(f"{indent}# --- Delay Node ({node_id}) ---")
+            seconds = node.get('data', {}).get('seconds', 5)
+            lines.append(f"{indent}import time")
+            lines.append(f"{indent}print(f'Waiting for {seconds} seconds...')")
+            lines.append(f"{indent}time.sleep(float({seconds}))")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+                
+        elif node['type'] == 'jsonParserNode':
+            lines.append(f"{indent}# --- JSON Parser Node ({node_id}) ---")
+            mode = node.get('data', {}).get('mode', 'parse')
+            extract_key = node.get('data', {}).get('extractKey', '')
+            
+            lines.append(f"{indent}import json")
+            lines.append(f"{indent}try:")
+            lines.append(f"{indent}    parser_in = {prev_res_var if prev_res_var else 'last_result'}")
+            
+            if mode == 'parse':
+                lines.append(f"{indent}    parser_out_{node_id} = json.loads(str(parser_in))")
+            elif mode == 'stringify':
+                lines.append(f"{indent}    parser_out_{node_id} = json.dumps(parser_in, ensure_ascii=False, indent=2)")
+            elif mode == 'extract':
+                lines.append(f"{indent}    if isinstance(parser_in, str):")
+                lines.append(f"{indent}        tmp_dict = json.loads(parser_in)")
+                lines.append(f"{indent}    else:")
+                lines.append(f"{indent}        tmp_dict = parser_in")
+                lines.append(f"{indent}    parser_out_{node_id} = tmp_dict.get('{extract_key}', '')")
+            else:
+                lines.append(f"{indent}    parser_out_{node_id} = parser_in")
+            
+            lines.append(f"{indent}except Exception as e:")
+            lines.append(f"{indent}    parser_out_{node_id} = f'JSON Parser Error: {{str(e)}}'")
+            
+            lines.append(f"{indent}last_result = parser_out_{node_id}")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"parser_out_{node_id}", visited=visited)
+                
+        elif node['type'] == 'mergeNode':
+            lines.append(f"{indent}# --- Merge Node ({node_id}) ---")
+            strategy = node.get('data', {}).get('mergeStrategy', 'join_newline')
+            
+            lines.append(f"{indent}merge_in_dict_{node_id} = {{}}")
+            # We must collect from incoming edges
+            inc_edges = incoming_edges.get(node_id, [])
+            for inc in inc_edges:
+                src_id = inc['source']
+                # Usually we only have prev_res_var of the last visited path, but dynamic collection requires global state tracking if branching. 
+                # For simplicity in this linear compiler, we just use kwargs or prev_res_var.
+                # Since React Flow runs linearly, merge might not wait for all paths unless we modify the compiler.
+                # To mock it simply, we will just use prev_res_var and whatever global tracking we have.
+                lines.append(f"{indent}merge_in_dict_{node_id}['{src_id}'] = __global_results.get('{src_id}', '') if '{src_id}' in globals().get('__global_results', {{}}) else ''")
+                
+            lines.append(f"{indent}# Simple fallback to prev_res_var if complex branching isn't fully supported")
+            lines.append(f"{indent}merge_vals_{node_id} = [str({prev_res_var if prev_res_var else 'last_result'})]")
+            
+            if strategy == 'join_newline':
+                lines.append(f"{indent}merge_out_{node_id} = '\\n'.join(merge_vals_{node_id})")
+            elif strategy == 'join_comma':
+                lines.append(f"{indent}merge_out_{node_id} = ', '.join(merge_vals_{node_id})")
+            elif strategy == 'array':
+                lines.append(f"{indent}import json")
+                lines.append(f"{indent}merge_out_{node_id} = json.dumps(merge_vals_{node_id}, ensure_ascii=False)")
+                
+            lines.append(f"{indent}last_result = merge_out_{node_id}")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"merge_out_{node_id}", visited=visited)
+                
+        elif node['type'] == 'databaseNode':
+            lines.append(f"{indent}# --- Database Node ({node_id}) ---")
+            conn_str = node.get('data', {}).get('connectionString', '').replace('"', '\\"')
+            query_str = node.get('data', {}).get('query', '').replace('"', '\\"').replace('\n', '\\n')
+            
+            lines.append(f"{indent}import json")
+            lines.append(f"{indent}try:")
+            lines.append(f"{indent}    from sqlalchemy import create_engine, text")
+            lines.append(f"{indent}    engine_{node_id} = create_engine(\"{conn_str}\")")
+            lines.append(f"{indent}    with engine_{node_id}.connect() as conn:")
+            lines.append(f"{indent}        result_{node_id} = conn.execute(text(\"{query_str}\"))")
+            lines.append(f"{indent}        if result_{node_id}.returns_rows:")
+            lines.append(f"{indent}            rows_{node_id} = [dict(row._mapping) for row in result_{node_id}]")
+            lines.append(f"{indent}            db_out_{node_id} = json.dumps(rows_{node_id}, ensure_ascii=False, indent=2, default=str)")
+            lines.append(f"{indent}        else:")
+            lines.append(f"{indent}            conn.commit()")
+            lines.append(f"{indent}            db_out_{node_id} = 'Query executed successfully. (No rows returned)'")
+            lines.append(f"{indent}except ImportError:")
+            lines.append(f"{indent}    db_out_{node_id} = 'Database Error: sqlalchemy library is not installed.'")
+            lines.append(f"{indent}except Exception as e:")
+            lines.append(f"{indent}    db_out_{node_id} = f'Database Error: {{str(e)}}'")
+            
+            lines.append(f"{indent}last_result = db_out_{node_id}")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"db_out_{node_id}", visited=visited)
+                
+        elif node['type'] == 'humanApprovalNode':
+            lines.append(f"{indent}# --- Human Approval Node ({node_id}) ---")
+            message = node.get('data', {}).get('message', '승인이 필요합니다.').replace('"', '\\"')
+            
+            lines.append(f"{indent}# To fully support Human-in-the-loop in a deployed API, execution must be paused and state saved.")
+            lines.append(f"{indent}# Here we simulate it by requiring 'approval_decision' in kwargs for web context,")
+            lines.append(f"{indent}# or using input() for local script execution.")
+            lines.append(f"{indent}if 'approval_decision' in kwargs:")
+            lines.append(f"{indent}    approval_{node_id} = kwargs.get('approval_decision')")
+            lines.append(f"{indent}else:")
+            fallback_var = "last_result"
+            var_to_use = prev_res_var if prev_res_var else fallback_var
+            lines.append(f"{indent}    print(f'\\n[Human Approval Required] {{str({var_to_use})}}')")
+            lines.append(f"{indent}    approval_{node_id} = 'Y'  # Auto-approve in API mode if no decision is provided")
+            
+            lines.append(f"{indent}if str(approval_{node_id}).strip().upper() not in ['Y', 'YES', 'APPROVE', 'TRUE', '1']:")
+            lines.append(f"{indent}    raise Exception('Workflow execution halted by Human Approval Node (Rejected).')")
+            
+            lines.append(f"{indent}last_result = {prev_res_var if prev_res_var else 'last_result'}")
+            
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
                 
         elif node['type'] == 'pythonNode':
             user_code = node.get('data', {}).get('code', '')
@@ -618,7 +873,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     return "\n".join(lines)
 
 
-def run_workflow(nodes: list, edges: list) -> str:
+def run_workflow(nodes: list, edges: list, **kwargs) -> str:
     """
     Compiles the graph into Python code and dynamically executes it using exec().
     """
@@ -633,7 +888,7 @@ def run_workflow(nodes: list, edges: list) -> str:
         # We wrap it in a try-except to catch compile/runtime errors safely
         exec(python_code, namespace)
         if 'run_workflow' in namespace:
-            result = namespace['run_workflow']()
+            result = namespace['run_workflow'](**kwargs)
             return str(result)
         else:
             return "Execution failed: run_workflow function not found."

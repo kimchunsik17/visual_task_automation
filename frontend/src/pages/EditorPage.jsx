@@ -13,11 +13,12 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
+import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode } from '../customNodes';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode } from '../customNodes';
 
 const nodeTypes = {
   startNode: StartNode,
@@ -33,6 +34,16 @@ const nodeTypes = {
   distributorNode: DistributorNode,
   fileModifierNode: FileModifierNode,
   templateAnalyzerNode: TemplateAnalyzerNode,
+  dynamicInputNode: DynamicInputNode,
+  webCrawlerNode: WebCrawlerNode,
+  emailNode: EmailNode,
+  kakaoNode: KakaoNode,
+  delayNode: DelayNode,
+  jsonParserNode: JsonParserNode,
+  mergeNode: MergeNode,
+  httpRequestNode: HttpRequestNode,
+  databaseNode: DatabaseNode,
+  humanApprovalNode: HumanApprovalNode,
 };
 
 let id = 0;
@@ -51,7 +62,14 @@ function FlowContent() {
   const [isCompiled, setIsCompiled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    { role: 'assistant', content: '안녕하세요! 워크플로우 수정을 도와드릴까요? 원하시는 구성을 말씀해 주세요. (예: 이메일 전송 노드를 추가하고 슬랙 알림을 연결해줘)' }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
   const [projectDescription, setProjectDescription] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -103,10 +121,6 @@ function FlowContent() {
   };
 
   const handleSave = async () => {
-    if (!user) {
-      alert("Please login first to save projects.");
-      return;
-    }
     try {
       const payload = {
         title: projectTitle,
@@ -115,18 +129,31 @@ function FlowContent() {
         is_public: isPublic
       };
 
-      if (currentId && isOwner) {
+      if (currentId) {
         await axios.put(`/api/projects/${currentId}`, payload, getAuthHeaders());
-        alert("Project saved successfully!");
+        return true;
       } else {
         const res = await axios.post('/api/projects', payload, getAuthHeaders());
         setCurrentId(res.data.id);
-        setIsOwner(true);
-        alert("새 프로젝트가 성공적으로 저장되었습니다!");
+        navigate(`/editor/${res.data.id}`, { replace: true });
+        return true;
       }
     } catch (error) {
-      console.error("Save error", error);
+      console.error("Save failed", error);
       alert("프로젝트 저장에 실패했습니다.");
+      return false;
+    }
+  };
+
+  const handleOpenDeployModal = async () => {
+    if (!currentId) {
+      alert("먼저 프로젝트를 저장해 주세요.");
+      return;
+    }
+    // Save latest state before deployment
+    const saved = await handleSave();
+    if (saved) {
+      setIsDeployModalOpen(true);
     }
   };
 
@@ -311,6 +338,23 @@ function FlowContent() {
     };
   };
 
+  const handleSendChat = () => {
+    if (!chatInput.trim()) return;
+    
+    const newMessages = [...chatMessages, { role: 'user', content: chatInput }];
+    setChatMessages(newMessages);
+    setChatInput('');
+    
+    // Mock backend response
+    setTimeout(() => {
+      setChatMessages(prev => [
+        ...prev, 
+        { role: 'assistant', content: '요청하신 내용을 분석하여 워크플로우 업데이트를 준비 중입니다. (현재 UI 테스트 모드입니다. 추후 LLM API 연동이 필요합니다.)' }
+      ]);
+    }, 1000);
+  };
+
+
   return (
     <div className="app-container">
       <header className="header" style={{ position: 'relative', padding: '0.8rem 1.5rem', background: '#0f172a', borderBottom: '1px solid #1e293b', zIndex: 50 }}>
@@ -381,10 +425,16 @@ function FlowContent() {
                 <Share2 size={16} />
                 {isPublic ? '공개됨' : '비공개'}
               </button>
-              <button className="btn-secondary" onClick={handleSave}>
+              <button className="btn-secondary" onClick={() => { handleSave().then(s => s && alert("저장되었습니다.")); }}>
                 <Save size={16} />
                 저장
               </button>
+              {currentId && (
+                <button className="btn-secondary" onClick={handleOpenDeployModal} style={{ borderColor: '#8b5cf6', color: '#8b5cf6' }}>
+                  <Wand2 size={16} />
+                  배포
+                </button>
+              )}
             </>
           )}
           <button className="btn-run" onClick={() => setIsTemplateModalOpen(true)} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'white' }}>
@@ -432,6 +482,12 @@ function FlowContent() {
                   case 'tokenizerNode': return '#10b981';
                   case 'distributorNode': return '#8b5cf6';
                   case 'fileModifierNode': return '#f97316';
+                  case 'delayNode': return '#3b82f6';
+                  case 'jsonParserNode': return '#eab308';
+                  case 'mergeNode': return '#ec4899';
+                  case 'httpRequestNode': return '#0ea5e9';
+                  case 'databaseNode': return '#059669';
+                  case 'humanApprovalNode': return '#f43f5e';
                   default: return '#eee';
                 }
               }}
@@ -473,6 +529,163 @@ function FlowContent() {
         onLoad={handleLoadTemplate}
         currentFlowData={getCurrentFlowData}
       />
+
+      {isDeployModalOpen && currentId && (
+        <DeployModal 
+          isOpen={isDeployModalOpen} 
+          onClose={() => setIsDeployModalOpen(false)} 
+          project={{ id: currentId, title: projectTitle }} 
+          onDeployConfigSaved={(mode) => {
+             // Navigate to deploy viewer
+             if (mode === 'chatbot' || mode === 'form') {
+                 window.open(`/app/${currentId}`, '_blank');
+             }
+          }}
+        />
+      )}
+
+      {/* LLM Assistant Floating Button */}
+      <button 
+        onClick={() => setIsAssistantOpen(!isAssistantOpen)}
+        style={{
+          position: 'fixed',
+          bottom: '2rem',
+          right: '2rem',
+          width: '56px',
+          height: '56px',
+          borderRadius: '50%',
+          background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+          border: 'none',
+          boxShadow: '0 4px 14px rgba(139, 92, 246, 0.4)',
+          color: 'white',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          zIndex: 1000,
+          transition: 'transform 0.2s',
+          transform: isAssistantOpen ? 'scale(0.9)' : 'scale(1)'
+        }}
+      >
+        <Sparkles size={24} />
+      </button>
+
+      {/* LLM Assistant Panel (Glassmorphism UI) */}
+      <div style={{
+        position: 'fixed',
+        bottom: '5rem',
+        right: '2rem',
+        width: '360px',
+        height: '550px',
+        maxHeight: '80vh',
+        background: 'rgba(15, 23, 42, 0.85)',
+        backdropFilter: 'blur(12px)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '16px',
+        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        flexDirection: 'column',
+        zIndex: 999,
+        transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        opacity: isAssistantOpen ? 1 : 0,
+        pointerEvents: isAssistantOpen ? 'auto' : 'none',
+        transform: isAssistantOpen ? 'translateY(0)' : 'translateY(20px)'
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '1rem',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          background: 'rgba(255, 255, 255, 0.02)',
+          borderTopLeftRadius: '16px',
+          borderTopRightRadius: '16px'
+        }}>
+          <Bot size={20} color="#a78bfa" />
+          <h3 style={{ margin: 0, fontSize: '1rem', color: 'white', fontWeight: 600 }}>AI 워크플로우 어시스턴트</h3>
+        </div>
+
+        {/* Chat Messages */}
+        <div style={{
+          flex: 1,
+          padding: '1rem',
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1rem'
+        }}>
+          {chatMessages.map((msg, i) => (
+            <div key={i} style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start'
+            }}>
+              <div style={{
+                maxWidth: '85%',
+                padding: '0.75rem 1rem',
+                borderRadius: '12px',
+                background: msg.role === 'user' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)',
+                color: 'white',
+                fontSize: '0.9rem',
+                lineHeight: '1.4',
+                border: msg.role === 'user' ? 'none' : '1px solid rgba(255, 255, 255, 0.05)',
+                borderBottomRightRadius: msg.role === 'user' ? '4px' : '12px',
+                borderBottomLeftRadius: msg.role === 'assistant' ? '4px' : '12px'
+              }}>
+                {msg.content}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Chat Input */}
+        <div style={{
+          padding: '1rem',
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          display: 'flex',
+          gap: '0.5rem',
+          background: 'rgba(0, 0, 0, 0.2)',
+          borderBottomLeftRadius: '16px',
+          borderBottomRightRadius: '16px'
+        }}>
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
+            placeholder="AI에게 수정사항을 요청하세요..."
+            style={{
+              flex: 1,
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px',
+              padding: '0.75rem 1rem',
+              color: 'white',
+              outline: 'none',
+              fontSize: '0.9rem'
+            }}
+          />
+          <button 
+            onClick={handleSendChat}
+            disabled={!chatInput.trim()}
+            style={{
+              background: chatInput.trim() ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)',
+              border: 'none',
+              borderRadius: '8px',
+              width: '44px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              cursor: chatInput.trim() ? 'pointer' : 'not-allowed',
+              transition: 'background 0.2s'
+            }}
+          >
+            <Send size={18} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

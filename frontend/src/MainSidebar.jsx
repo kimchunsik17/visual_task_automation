@@ -26,8 +26,8 @@ const MainSidebar = () => {
   return (
     <aside className="main-sidebar">
       <div className="main-sidebar-header">
-        <Wand2 size={24} color="#60a5fa" /> 
-        <span className="brand-name">태스크 빌더</span>
+        <Wand2 size={24} color="#60a5fa" />
+        <span className="brand-name">Auto Flow</span>
       </div>
 
       <nav className="main-nav">
