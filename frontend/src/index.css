@@ -3,10 +3,27 @@
 :root {
   --bg-color: #0f172a;
   --text-color: #f8fafc;
+  --text-muted: #94a3b8;
   --primary-color: #3b82f6;
   --primary-hover: #2563eb;
   --card-bg: #1e293b;
   --border-color: #334155;
+  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --btn-active-bg: rgba(255, 255, 255, 0.05);
+  --node-start-bg: #10b981;
+  --node-task-bg: #8b5cf6;
+}
+
+[data-theme="light"] {
+  --bg-color: #f1f5f9;
+  --text-color: #0f172a;
+  --text-muted: #64748b;
+  --primary-color: #3b82f6;
+  --primary-hover: #2563eb;
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --border-color: #cbd5e1;
+  --card-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+  --btn-active-bg: rgba(0, 0, 0, 0.05);
   --node-start-bg: #10b981;
   --node-task-bg: #8b5cf6;
 }
@@ -19,6 +36,7 @@ body, html {
   font-family: 'Inter', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--bg-color);
   color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 button, input, textarea {
@@ -181,7 +199,7 @@ button, input, textarea {
   font-size: 1.1rem;
   font-weight: 600;
   margin: 0;
-  color: white;
+  color: var(--text-color);
 }
 
 .sidebar-search {
@@ -200,10 +218,10 @@ button, input, textarea {
 .sidebar-search input {
   width: 100%;
   padding: 0.5rem 0.5rem 0.5rem 2rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--btn-active-bg);
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  color: white;
+  color: var(--text-color);
   font-size: 0.85rem;
   outline: none;
 }
@@ -230,14 +248,14 @@ button, input, textarea {
   font-weight: 500;
   cursor: grab;
   background: transparent;
-  color: #e2e8f0;
+  color: var(--text-color);
   transition: all 0.2s;
   border: 1px solid transparent;
 }
 
 .dnd-node:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.05);
+  background: var(--btn-active-bg);
+  border-color: var(--border-color);
 }
 
 .dnd-node:active {
@@ -260,7 +278,7 @@ button, input, textarea {
 /* Custom Node Styles */
 .custom-node {
   border-radius: 12px;
-  color: white;
+  color: var(--text-color);
   min-width: 220px;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
   border: 1px solid var(--border-color);
@@ -286,7 +304,7 @@ button, input, textarea {
   justify-content: space-between;
   align-items: center;
   border-radius: 12px 12px 0 0;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--btn-active-bg);
   border-bottom: 1px solid var(--border-color);
   gap: 0.5rem;
 }
@@ -294,7 +312,7 @@ button, input, textarea {
 .btn-delete {
   background: transparent;
   border: none;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 0.9rem;
   padding: 0;
@@ -303,7 +321,7 @@ button, input, textarea {
 }
 
 .btn-delete:hover {
-  color: white;
+  color: var(--text-color);
 }
 
 /* Edge Styles */
