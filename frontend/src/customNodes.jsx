@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer } from '@xyflow/react';
 import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck } from 'lucide-react';
 import axios from 'axios';
@@ -34,6 +34,14 @@ export const PromptNode = ({ id, data }) => {
           onChange={(e) => data.onChange(id, 'userPrompt', e.target.value)}
           placeholder="프롬프트를 입력하세요..."
         />
+        {data.isTokenTrackingMode && (
+          <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6', borderRadius: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+              <span>예상 토큰:</span>
+              <span style={{ color: '#60a5fa', fontWeight: 600 }}>{data.predictedTokens ? data.predictedTokens.min_tokens : '-'}</span>
+            </div>
+          </div>
+        )}
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -83,6 +91,22 @@ export const LLMNode = ({ id, data }) => {
           onChange={(e) => data.onChange(id, 'userPrompt', e.target.value)}
           placeholder="Enter question or user prompt..."
         />
+        {data.isTokenTrackingMode && (
+          <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid #8b5cf6', borderRadius: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span>예상 (최소~최대):</span>
+              <span style={{ color: '#a78bfa', fontWeight: 600 }}>
+                {data.predictedTokens ? `${data.predictedTokens.min_tokens} ~ ${data.predictedTokens.max_tokens}` : '-'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(139, 92, 246, 0.2)', paddingTop: '4px' }}>
+              <span>실제 소모:</span>
+              <span style={{ color: '#10b981', fontWeight: 600 }}>
+                {data.actualTokens !== null ? data.actualTokens : '-'}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>

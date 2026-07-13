@@ -65,6 +65,10 @@ function FlowContent() {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [tokenUsage, setTokenUsage] = useState(null);
   
+  const [isTokenTrackingMode, setIsTokenTrackingMode] = useState(false);
+  const [estimatedTokens, setEstimatedTokens] = useState(null);
+  const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
+  
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { role: 'assistant', content: '안녕하세요! 워크플로우 수정을 도와드릴까요? 원하시는 구성을 말씀해 주세요. (예: 이메일 전송 노드를 추가하고 슬랙 알림을 연결해줘)' }
@@ -370,7 +374,7 @@ function FlowContent() {
             <ArrowLeft size={18} />
           </button>
           
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <button 
               onClick={() => setIsDrawerOpen(!isDrawerOpen)}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0.2rem 0.5rem', borderRadius: '4px' }}
@@ -379,6 +383,46 @@ function FlowContent() {
               <span style={{ fontWeight: 600, color: 'var(--text-color)', fontSize: '1.1rem' }}>{projectTitle || 'Untitled Project'}</span>
               <Settings size={14} color="var(--text-muted)" />
             </button>
+            <button
+              onClick={() => setIsTokenDrawerOpen(!isTokenDrawerOpen)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: isTokenTrackingMode ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                border: '1px solid',
+                borderColor: isTokenTrackingMode ? '#3b82f6' : 'var(--border-color)',
+                color: isTokenTrackingMode ? '#60a5fa' : 'var(--text-muted)',
+                cursor: 'pointer', padding: '0.2rem 0.5rem', borderRadius: '6px',
+                fontSize: '0.8rem', gap: '4px'
+              }}
+              title="토큰 통계 보기"
+            >
+              <BrainCircuit size={14} /> 통계
+            </button>
+
+            {isTokenDrawerOpen && (
+              <div style={{ 
+                position: 'absolute', top: '100%', left: '100%', marginTop: '0.5rem', marginLeft: '1rem',
+                background: 'var(--card-bg)', border: '1px solid var(--border-color)', 
+                borderRadius: '8px', padding: '1.5rem', width: '320px',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 100 
+              }}>
+                <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#60a5fa', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>워크플로우 토큰 통계</h3>
+                
+                <div style={{ marginBottom: '1rem' }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>1회 실행 예상 토큰량 (Min ~ Max)</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-color)' }}>
+                    {estimatedTokens ? `${estimatedTokens.total_estimated_tokens} ~ ${estimatedTokens.total_max_tokens}` : '-'}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>마지막 실행 실제 토큰 사용량</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#10b981' }}>
+                    {tokenUsage ? tokenUsage.total_tokens : '-'}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {isDrawerOpen && (
               <div style={{ 
@@ -452,7 +496,9 @@ function FlowContent() {
               };
               const res = await axios.post('/api/estimate', payload);
               if (res.data.status === 'success') {
-                alert(`[예상 소모 토큰량]\n총 ${res.data.total_estimated_tokens} tokens`);
+                setEstimatedTokens(res.data);
+                if (!isTokenTrackingMode) setIsTokenTrackingMode(true);
+                alert(`[예상 소모 토큰량]\n최소 ${res.data.total_estimated_tokens} ~ 최대 ${res.data.total_max_tokens} tokens`);
               } else {
                 alert('토큰 계산 실패: ' + res.data.message);
               }
@@ -460,8 +506,18 @@ function FlowContent() {
               console.error(error);
               alert('예상 토큰 계산 중 오류가 발생했습니다.');
             }
-          }} style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>
             예상 토큰 계산
+          </button>
+          
+          <button 
+            className="btn-secondary" 
+            onClick={() => setIsTokenTrackingMode(!isTokenTrackingMode)}
+            style={{ 
+              borderColor: isTokenTrackingMode ? '#3b82f6' : 'var(--border-color)', 
+              color: isTokenTrackingMode ? '#3b82f6' : 'var(--text-muted)' 
+            }}
+          >
+            추적 모드 {isTokenTrackingMode ? 'ON' : 'OFF'}
           </button>
           <button className="btn-run" onClick={() => setIsTemplateModalOpen(true)} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}>
             <Folder size={16} />
@@ -477,7 +533,15 @@ function FlowContent() {
         <Sidebar />
         <div className="flow-wrapper" ref={reactFlowWrapper}>
           <ReactFlow
-            nodes={nodes}
+            nodes={nodes.map(n => ({
+              ...n,
+              data: {
+                ...n.data,
+                isTokenTrackingMode,
+                predictedTokens: estimatedTokens?.node_details?.[n.id] || null,
+                actualTokens: tokenUsage?.nodes?.[n.id] || null
+              }
+            }))}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}

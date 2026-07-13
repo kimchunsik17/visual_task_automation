@@ -213,18 +213,40 @@ def estimate_tokens(payload: FlowPayload):
         return {"status": "error", "message": "Tokenizer not available"}
         
     total_estimated_tokens = 0
+    total_max_tokens = 0
     node_details = {}
+    
+    # Simple mapping of model to max output tokens
+    max_output_map = {
+        'gemini-3.5-flash': 8192,
+        'gemini-1.5-pro': 8192,
+        'gpt-4o-mini': 16384,
+        'gpt-4o': 4096,
+        'claude-3-haiku-20240307': 4096,
+        'claude-3-5-sonnet-20240620': 4096
+    }
     
     for node in payload.nodes:
         if node.get('type') in ['llmNode', 'promptNode']:
             text = node.get('data', {}).get('systemPrompt', '') + " " + node.get('data', {}).get('userPrompt', '')
             tokens = len(encoding.encode(text)) if text else 0
-            node_details[node['id']] = tokens
+            
+            max_out = 0
+            if node.get('type') == 'llmNode':
+                model = node.get('data', {}).get('model', 'gemini-3.5-flash')
+                max_out = max_output_map.get(model, 4096)
+                
+            node_details[node['id']] = {
+                'min_tokens': tokens,
+                'max_tokens': tokens + max_out
+            }
             total_estimated_tokens += tokens
+            total_max_tokens += tokens + max_out
             
     return {
         "status": "success",
         "total_estimated_tokens": total_estimated_tokens,
+        "total_max_tokens": total_max_tokens,
         "node_details": node_details
     }
 
