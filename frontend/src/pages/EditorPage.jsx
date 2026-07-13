@@ -506,6 +506,7 @@ function FlowContent() {
               console.error(error);
               alert('예상 토큰 계산 중 오류가 발생했습니다.');
             }
+          }} style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>
             예상 토큰 계산
           </button>
           
