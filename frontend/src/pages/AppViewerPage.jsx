@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Send, Bot, User } from 'lucide-react';
@@ -25,7 +25,7 @@ const AppViewerPage = () => {
       try {
         // Here we ideally fetch public project info or user auth depending on visibility
         const res = await axios.get(`/api/projects/${projectId}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
         setProject(res.data);
         
@@ -59,7 +59,7 @@ const AppViewerPage = () => {
     setIsExecuting(true);
     try {
       const res = await axios.post(`/api/deploy/${projectId}/execute`, { inputs }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       return res.data.result;
     } catch (error) {

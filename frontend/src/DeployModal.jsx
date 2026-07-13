@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { X, Bot, LayoutTemplate, Download, Code2, MessageSquare } from 'lucide-react';
 import axios from 'axios';
 
@@ -17,7 +17,7 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
         mode: deployMode,
         discord_bot_token: deployMode === 'discord' ? discordToken : undefined
       }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       
       if (deployMode === 'fastapi' || deployMode === 'mcp') {
