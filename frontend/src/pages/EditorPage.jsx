@@ -1,4 +1,4 @@
-﻿import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ReactFlow,
@@ -91,9 +91,8 @@ function FlowContent() {
       })));
       setEdges(graph.edges || []);
       
-      if (location.state?.prompt) {
-        setProjectTitle("AI 생성 워크플로우");
-      }
+    // Clear state to prevent re-triggering on reload
+    if (location.state) {
       window.history.replaceState({}, document.title);
     }
   }, [projectId, location.state]);
@@ -625,11 +624,11 @@ function FlowContent() {
                 maxWidth: '85%',
                 padding: '0.75rem 1rem',
                 borderRadius: '12px',
-                background: msg.role === 'user' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)',
-                color: 'var(--text-color)',
+                background: msg.role === 'user' ? 'var(--primary-color)' : 'var(--btn-active-bg)',
+                color: msg.role === 'user' ? '#fff' : 'var(--text-color)',
                 fontSize: '0.9rem',
                 lineHeight: '1.4',
-                border: msg.role === 'user' ? 'none' : '1px solid rgba(255, 255, 255, 0.05)',
+                border: msg.role === 'user' ? 'none' : '1px solid var(--border-color)',
                 borderBottomRightRadius: msg.role === 'user' ? '4px' : '12px',
                 borderBottomLeftRadius: msg.role === 'assistant' ? '4px' : '12px'
               }}>
@@ -657,8 +656,8 @@ function FlowContent() {
             placeholder="AI에게 수정사항을 요청하세요..."
             style={{
               flex: 1,
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'var(--btn-active-bg)',
+              border: '1px solid var(--border-color)',
               borderRadius: '8px',
               padding: '0.75rem 1rem',
               color: 'var(--text-color)',
@@ -670,7 +669,7 @@ function FlowContent() {
             onClick={handleSendChat}
             disabled={!chatInput.trim()}
             style={{
-              background: chatInput.trim() ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)',
+              background: chatInput.trim() ? 'var(--primary-color)' : 'var(--btn-active-bg)',
               border: 'none',
               borderRadius: '8px',
               width: '44px',
