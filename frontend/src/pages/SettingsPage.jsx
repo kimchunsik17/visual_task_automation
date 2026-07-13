@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Settings, User, Bell, Shield, Palette } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
 import { useAuth } from '../AuthContext';
@@ -20,7 +20,7 @@ function SettingsPage() {
         <div className="dashboard-grid">
           <section>
             <div className="section-header">
-              <h3><Settings size={22} color="#94a3b8" /> 설정</h3>
+              <h3><Settings size={22} color="var(--text-muted)" /> 설정</h3>
             </div>
             
             <div className="settings-container" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '800px' }}>
@@ -80,3 +80,4 @@ function SettingsPage() {
 }
 
 export default SettingsPage;
+

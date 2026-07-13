@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Play, LibraryBig } from 'lucide-react';
@@ -36,7 +36,7 @@ function TemplatesPage() {
             </div>
             
             {loading ? (
-              <p style={{ color: '#94a3b8' }}>템플릿을 불러오는 중...</p>
+              <p style={{ color: 'var(--text-muted)' }}>템플릿을 불러오는 중...</p>
             ) : projects.length === 0 ? (
               <p style={{ color: '#64748b' }}>아직 공개된 템플릿이 없습니다.</p>
             ) : (
@@ -65,3 +65,4 @@ function TemplatesPage() {
 }
 
 export default TemplatesPage;
+

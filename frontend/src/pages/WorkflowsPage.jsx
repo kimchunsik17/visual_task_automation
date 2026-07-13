@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
@@ -61,9 +61,9 @@ function WorkflowsPage() {
             </div>
             
             {!user ? (
-              <p style={{ color: '#94a3b8', textAlign: 'center', padding: '2rem' }}>로그인 후 내 워크플로우를 확인할 수 있습니다.</p>
+              <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>로그인 후 내 워크플로우를 확인할 수 있습니다.</p>
             ) : myLoading ? (
-              <p style={{ color: '#94a3b8' }}>워크플로우를 불러오는 중...</p>
+              <p style={{ color: 'var(--text-muted)' }}>워크플로우를 불러오는 중...</p>
             ) : myProjects.length === 0 ? (
               <p style={{ color: '#64748b', padding: '2rem', textAlign: 'center', background: 'var(--card-bg)', borderRadius: '16px', border: '1px dashed #334155' }}>
                 아직 저장된 워크플로우가 없습니다. 홈으로 돌아가서 AI를 통해 첫 워크플로우를 만들어보세요!
@@ -92,7 +92,7 @@ function WorkflowsPage() {
                       <button className="btn-secondary" onClick={() => navigate(`/editor/${project.id}`)} style={{ flex: 1 }}>
                         <Play size={14} /> 편집기
                       </button>
-                      <button className="btn-primary" onClick={() => navigate(`/app/${project.id}`)} style={{ flex: 1, backgroundColor: '#3b82f6', color: 'white', border: 'none' }}>
+                      <button className="btn-primary" onClick={() => navigate(`/app/${project.id}`)} style={{ flex: 1, backgroundColor: '#3b82f6', color: 'var(--text-color)', border: 'none' }}>
                         <Smartphone size={14} /> 앱 실행
                       </button>
                     </div>
@@ -108,3 +108,4 @@ function WorkflowsPage() {
 }
 
 export default WorkflowsPage;
+

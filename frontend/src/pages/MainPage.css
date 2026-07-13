@@ -1,8 +1,8 @@
-.main-page-layout {
+﻿.main-page-layout {
   display: flex;
   min-height: 100vh;
   background-color: var(--bg-color);
-  color: white;
+  color: var(--text-color);
 }
 
 .main-page-content {
@@ -68,7 +68,7 @@
 
 .ai-avatar {
   background: linear-gradient(135deg, #c084fc, #9333ea);
-  color: white;
+  color: var(--text-color);
 }
 
 .chat-bubble {
@@ -76,7 +76,7 @@
   border-radius: 18px;
   font-size: 1rem;
   line-height: 1.5;
-  color: white;
+  color: var(--text-color);
 }
 
 .chat-message.user .chat-bubble {
@@ -105,14 +105,14 @@
   font-size: 3rem;
   line-height: 1.2;
   margin-bottom: 1rem;
-  background: linear-gradient(135deg, #fff, #94a3b8);
+  background: linear-gradient(135deg, #fff, var(--text-muted));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .chat-hero-header p {
   font-size: 1.1rem;
-  color: #94a3b8;
+  color: var(--text-muted);
   max-width: 600px;
   margin-bottom: 2.5rem;
 }
@@ -136,7 +136,7 @@
   width: 100%;
   background: transparent;
   border: none;
-  color: white;
+  color: var(--text-color);
   font-size: 1.2rem;
   resize: none;
   outline: none;
@@ -164,7 +164,7 @@
 
 .hint-chip {
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: var(--text-muted);
   background: rgba(255, 255, 255, 0.05);
   padding: 0.25rem 0.75rem;
   border-radius: 50px;
@@ -174,12 +174,12 @@
 
 .hint-chip:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: white;
+  color: var(--text-color);
 }
 
 .btn-generate {
   background: linear-gradient(135deg, #c084fc, #9333ea);
-  color: white;
+  color: var(--text-color);
   border: none;
   padding: 0.8rem 1.5rem;
   border-radius: 8px;
@@ -254,12 +254,12 @@
 
 .project-card h4 {
   margin: 0 0 0.5rem 0;
-  color: white;
+  color: var(--text-color);
   font-size: 1.1rem;
 }
 
 .project-card p {
-  color: #94a3b8;
+  color: var(--text-muted);
   font-size: 0.9rem;
   margin: 0 0 1.5rem 0;
   line-height: 1.5;
@@ -289,7 +289,7 @@
 
 .status-badge.private {
   background: rgba(100, 116, 139, 0.1);
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .card-actions {
@@ -303,3 +303,4 @@
   flex: 1;
   justify-content: center;
 }
+

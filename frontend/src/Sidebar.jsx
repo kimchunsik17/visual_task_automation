@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, ChevronDown, ChevronRight } from 'lucide-react';
 
 const Sidebar = () => {
@@ -116,7 +116,7 @@ const Sidebar = () => {
                 <div 
                   className="sidebar-category-header" 
                   onClick={() => toggleCategory(cat.id)}
-                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px 4px', color: '#94a3b8', fontSize: '0.8rem', fontWeight: '600', userSelect: 'none' }}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px 4px', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: '600', userSelect: 'none' }}
                 >
                   {isExpanded ? <ChevronDown size={14} style={{ marginRight: '4px' }}/> : <ChevronRight size={14} style={{ marginRight: '4px' }}/>}
                   {cat.title}
@@ -136,4 +136,5 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
+
 
