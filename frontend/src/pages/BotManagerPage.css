@@ -121,7 +121,7 @@
   color: #f8fafc;
 }
 
-.btn-action:first-child {
+.btn-action:not(:last-child) {
   border-right: 1px solid var(--border-color);
 }
 
@@ -221,4 +221,133 @@
 .empty-icon {
   color: #475569;
   margin-bottom: 1rem;
+}
+
+/* Token Modal Styles */
+.token-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.token-modal-content {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  padding: 1.5rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  animation: modal-fade-in 0.2s ease-out;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.token-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.token-modal-header h3 {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #f8fafc;
+}
+
+.auth-step, .token-edit-step {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.auth-step p, .token-edit-step p {
+  color: #cbd5e1;
+  margin: 0 0 0.5rem 0;
+}
+
+.google-login-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.token-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: #f8fafc;
+  font-family: monospace;
+  font-size: 1rem;
+}
+
+.token-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.token-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.btn-cancel, .btn-save {
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: #cbd5e1;
+}
+
+.btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.btn-save {
+  background: #3b82f6;
+  border: 1px solid #2563eb;
+  color: white;
+}
+
+.btn-save:hover {
+  background: #2563eb;
 }

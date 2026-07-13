@@ -3,7 +3,8 @@ import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
-import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2 } from 'lucide-react';
+import { GoogleLogin } from '@react-oauth/google';
+import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key } from 'lucide-react';
 import './MainPage.css';
 import './BotManagerPage.css';
 
@@ -12,6 +13,51 @@ export default function BotManagerPage() {
   const navigate = useNavigate();
   const [bots, setBots] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedProjectForToken, setSelectedProjectForToken] = useState(null);
+  const [reAuthToken, setReAuthToken] = useState(null);
+  const [editingDiscordToken, setEditingDiscordToken] = useState('');
+
+  const openTokenManager = (projectId) => {
+    setSelectedProjectForToken(projectId);
+    setReAuthToken(null);
+    setEditingDiscordToken('');
+  };
+
+  const closeTokenManager = () => {
+    setSelectedProjectForToken(null);
+    setReAuthToken(null);
+    setEditingDiscordToken('');
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      setReAuthToken(credentialResponse.credential);
+      const res = await axios.post(`/api/bots/${selectedProjectForToken}/reveal-token`, 
+        { google_token: credentialResponse.credential },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setEditingDiscordToken(res.data.token || '');
+    } catch (err) {
+      console.error(err);
+      alert('인증에 실패했습니다. 본인 계정인지 확인해주세요.');
+      closeTokenManager();
+    }
+  };
+
+  const handleSaveToken = async () => {
+    try {
+      await axios.put(`/api/bots/${selectedProjectForToken}/update-token`, 
+        { google_token: reAuthToken, new_discord_token: editingDiscordToken },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      alert('토큰이 성공적으로 저장되었습니다.');
+      closeTokenManager();
+      fetchBots();
+    } catch (err) {
+      console.error(err);
+      alert('토큰 저장에 실패했습니다.');
+    }
+  };
 
   const fetchBots = async () => {
     if (!token) return;
@@ -135,6 +181,9 @@ export default function BotManagerPage() {
                     <button className="btn-action view" onClick={() => navigate(`/editor/${bot.project_id}`)}>
                       <ExternalLink size={16} /> 에디터로
                     </button>
+                    <button className="btn-action key" onClick={() => openTokenManager(bot.project_id)}>
+                      <Key size={16} /> 토큰 관리
+                    </button>
                     <button className="btn-action delete" onClick={() => handleDelete(bot.project_id)} style={{ color: '#ef4444' }}>
                       <Trash2 size={16} /> 삭제
                     </button>
@@ -145,6 +194,47 @@ export default function BotManagerPage() {
           )}
         </div>
       </div>
+
+      {selectedProjectForToken && (
+        <div className="token-modal-overlay" onClick={closeTokenManager}>
+          <div className="token-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="token-modal-header">
+              <h3>디스코드 봇 토큰 관리</h3>
+              <button className="close-btn" onClick={closeTokenManager}>&times;</button>
+            </div>
+            
+            <div className="token-modal-body">
+              {!reAuthToken ? (
+                <div className="auth-step">
+                  <p>보안을 위해 구글 계정으로 다시 한번 인증해주세요.</p>
+                  <div className="google-login-wrapper">
+                    <GoogleLogin
+                      onSuccess={handleGoogleSuccess}
+                      onError={() => alert('구글 로그인에 실패했습니다.')}
+                      useOneTap={false}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="token-edit-step">
+                  <p>토큰을 확인하고 수정할 수 있습니다.</p>
+                  <input 
+                    type="text" 
+                    className="token-input" 
+                    value={editingDiscordToken} 
+                    onChange={(e) => setEditingDiscordToken(e.target.value)} 
+                    placeholder="Discord Bot Token"
+                  />
+                  <div className="token-modal-actions">
+                    <button className="btn-cancel" onClick={closeTokenManager}>취소</button>
+                    <button className="btn-save" onClick={handleSaveToken}>저장</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

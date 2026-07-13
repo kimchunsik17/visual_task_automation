@@ -382,6 +382,61 @@ async def delete_bot_endpoint(project_id: int, user: models.User = Depends(get_c
     
     return {"status": "success", "message": "Bot deleted"}
 
+class TokenActionPayload(BaseModel):
+    google_token: str
+    new_discord_token: Optional[str] = None
+
+@app.post("/api/bots/{project_id}/reveal-token")
+def reveal_bot_token(project_id: int, payload: TokenActionPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            payload.google_token, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID, 
+            clock_skew_in_seconds=600
+        )
+        google_id = idinfo['sub']
+        if user.google_id != google_id:
+            raise HTTPException(status_code=403, detail="Google authentication mismatch")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+        
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    token = project.graph_data.get("discord_bot_token") if project.graph_data else None
+    return {"status": "success", "token": token}
+
+@app.put("/api/bots/{project_id}/update-token")
+def update_bot_token(project_id: int, payload: TokenActionPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            payload.google_token, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID, 
+            clock_skew_in_seconds=600
+        )
+        google_id = idinfo['sub']
+        if user.google_id != google_id:
+            raise HTTPException(status_code=403, detail="Google authentication mismatch")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+        
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if project.graph_data:
+        new_data = dict(project.graph_data)
+        new_data["discord_bot_token"] = payload.new_discord_token
+        project.graph_data = new_data
+        db.commit()
+        
+    if project.id in discord_bot._active_bots:
+        discord_bot.start_discord_bot(project.id, payload.new_discord_token)
+        
+    return {"status": "success", "message": "Token updated"}
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
