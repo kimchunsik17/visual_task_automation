@@ -94,6 +94,7 @@ function FlowContent() {
       if (location.state?.prompt) {
         setProjectTitle("AI 생성 워크플로우");
       }
+    }
       
     // Clear state to prevent re-triggering on reload
     if (location.state) {
