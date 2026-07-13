@@ -365,6 +365,17 @@ function FlowContent() {
     }, 1000);
   };
 
+  const enrichedNodes = useMemo(() => {
+    return nodes.map(n => ({
+      ...n,
+      data: {
+        ...n.data,
+        isTokenTrackingMode,
+        predictedTokens: estimatedTokens?.node_details?.[n.id] || null,
+        actualTokens: tokenUsage?.nodes?.[n.id] || null
+      }
+    }));
+  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage]);
 
   return (
     <div className="app-container">
@@ -534,15 +545,7 @@ function FlowContent() {
         <Sidebar />
         <div className="flow-wrapper" ref={reactFlowWrapper}>
           <ReactFlow
-            nodes={nodes.map(n => ({
-              ...n,
-              data: {
-                ...n.data,
-                isTokenTrackingMode,
-                predictedTokens: estimatedTokens?.node_details?.[n.id] || null,
-                actualTokens: tokenUsage?.nodes?.[n.id] || null
-              }
-            }))}
+            nodes={enrichedNodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
