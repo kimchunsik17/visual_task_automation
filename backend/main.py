@@ -204,6 +204,30 @@ def update_project(project_id: int, payload: ProjectCreate, user: models.User = 
     db.commit()
     return {"status": "success"}
 
+@app.post("/api/estimate")
+def estimate_tokens(payload: FlowPayload):
+    try:
+        import tiktoken
+        encoding = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        return {"status": "error", "message": "Tokenizer not available"}
+        
+    total_estimated_tokens = 0
+    node_details = {}
+    
+    for node in payload.nodes:
+        if node.get('type') in ['llmNode', 'promptNode']:
+            text = node.get('data', {}).get('systemPrompt', '') + " " + node.get('data', {}).get('userPrompt', '')
+            tokens = len(encoding.encode(text)) if text else 0
+            node_details[node['id']] = tokens
+            total_estimated_tokens += tokens
+            
+    return {
+        "status": "success",
+        "total_estimated_tokens": total_estimated_tokens,
+        "node_details": node_details
+    }
+
 @app.post("/api/execute")
 def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
     """
@@ -211,14 +235,16 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
     saves execution to DB, and returns the result.
     """
     # 1. Run LangGraph with Gemini
-    result_text = run_workflow(payload.nodes, payload.edges)
+    result_text, tokens = run_workflow(payload.nodes, payload.edges)
     
     import json
     # 2. Save log to PostgreSQL (or SQLite fallback)
     try:
         db_log = models.FlowExecutionLog(
             payload=json.dumps(payload.dict()),
-            result=result_text
+            result=result_text,
+            total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
+            token_usage_details=tokens if isinstance(tokens, dict) else None
         )
         db.add(db_log)
         db.commit()
@@ -228,7 +254,7 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
         db.rollback()
 
     # 3. Return response to frontend
-    return {"status": "success", "result": result_text}
+    return {"status": "success", "result": result_text, "token_usage": tokens}
 
 @app.post("/api/compile")
 def compile_flow(payload: FlowPayload):
@@ -316,8 +342,23 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    result_text = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), **payload.inputs)
-    return {"status": "success", "result": result_text}
+    result_text, tokens = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), **payload.inputs)
+    
+    import json
+    try:
+        db_log = models.FlowExecutionLog(
+            payload=json.dumps({"project_id": project_id, "inputs": payload.inputs}),
+            result=result_text,
+            total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
+            token_usage_details=tokens if isinstance(tokens, dict) else None
+        )
+        db.add(db_log)
+        db.commit()
+    except Exception as e:
+        print(f"Failed to save deploy log: {e}")
+        db.rollback()
+        
+    return {"status": "success", "result": result_text, "token_usage": tokens}
 
 @app.get("/api/bots")
 def get_active_bots(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):

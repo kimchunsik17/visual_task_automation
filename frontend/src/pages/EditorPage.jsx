@@ -63,6 +63,7 @@ function FlowContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [tokenUsage, setTokenUsage] = useState(null);
   
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([
@@ -292,9 +293,11 @@ function FlowContent() {
 
       const res = await axios.post('/api/execute', payload);
       setResponse(res.data.result || 'No content returned.');
+      setTokenUsage(res.data.token_usage || null);
     } catch (error) {
       console.error(error);
       setResponse('Error communicating with backend: ' + (error.response?.data?.detail || error.message));
+      setTokenUsage(null);
     } finally {
       setIsLoading(false);
     }
@@ -441,6 +444,25 @@ function FlowContent() {
               )}
             </>
           )}
+          <button className="btn-secondary" onClick={async () => {
+            try {
+              const payload = {
+                nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+                edges: edges.map(e => ({ source: e.source, target: e.target }))
+              };
+              const res = await axios.post('/api/estimate', payload);
+              if (res.data.status === 'success') {
+                alert(`[예상 소모 토큰량]\n총 ${res.data.total_estimated_tokens} tokens`);
+              } else {
+                alert('토큰 계산 실패: ' + res.data.message);
+              }
+            } catch (error) {
+              console.error(error);
+              alert('예상 토큰 계산 중 오류가 발생했습니다.');
+            }
+          }} style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>
+            예상 토큰 계산
+          </button>
           <button className="btn-run" onClick={() => setIsTemplateModalOpen(true)} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}>
             <Folder size={16} />
           </button>
@@ -500,9 +522,18 @@ function FlowContent() {
           </ReactFlow>
         </div>
         
-        <aside className="response-panel">
+        <aside className="response-panel" style={{ display: 'flex', flexDirection: 'column' }}>
           <h2>Execution Result</h2>
-          <div className="response-content">
+          {tokenUsage && (
+            <div style={{ padding: '0.8rem', margin: '0 1rem 1rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6', borderRadius: '8px', fontSize: '0.85rem' }}>
+              <div style={{ fontWeight: 'bold', color: '#60a5fa', marginBottom: '0.5rem' }}>토큰 사용량 (Token Usage)</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                <span>총 소모 토큰: {tokenUsage.total_tokens}</span>
+                <span>입력: {tokenUsage.total_input} / 출력: {tokenUsage.total_output}</span>
+              </div>
+            </div>
+          )}
+          <div className="response-content" style={{ flex: 1, overflowY: 'auto' }}>
             {isCompiled ? (
               <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem' }}>
                 <code>{response || 'Run or Compile the flow to see the results here.'}</code>

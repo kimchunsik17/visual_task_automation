@@ -61,7 +61,7 @@ const AppViewerPage = () => {
       const res = await axios.post(`/api/deploy/${projectId}/execute`, { inputs }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      return res.data.result;
+      return { result: res.data.result, tokens: res.data.token_usage || null };
     } catch (error) {
       console.error(error);
       return '실행 중 오류가 발생했습니다.';
@@ -73,8 +73,11 @@ const AppViewerPage = () => {
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setFormResult(''); // Clear previous
-    const result = await executeFlow(formInputs);
-    setFormResult(result);
+    const res = await executeFlow(formInputs);
+    setFormResult(res.result);
+    if (res.tokens) {
+      setFormResult(prev => prev + `\n\n[총 소모 토큰: ${res.tokens.total_tokens}]`);
+    }
   };
 
   const handleChatSubmit = async (e) => {
@@ -88,8 +91,11 @@ const AppViewerPage = () => {
     // In chatbot mode, we assume there's one dynamic input node to feed this message to
     const targetNodeId = dynamicNodes.length > 0 ? dynamicNodes[0].id : 'default_input';
     
-    const result = await executeFlow({ [targetNodeId]: userMsg });
-    setChatHistory(prev => [...prev, { role: 'bot', content: result }]);
+    const res = await executeFlow({ [targetNodeId]: userMsg });
+    setChatHistory(prev => [...prev, { role: 'bot', content: res.result }]);
+    if (res.tokens) {
+      setChatHistory(prev => [...prev, { role: 'bot', content: `[총 소모 토큰: ${res.tokens.total_tokens}]`, isMeta: true }]);
+    }
   };
 
   if (isLoading) return <div style={{ color: 'var(--text-color)', padding: '2rem' }}>로딩 중...</div>;
@@ -156,7 +162,7 @@ const AppViewerPage = () => {
                       <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: msg.role === 'user' ? '#3b82f6' : '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
                       </div>
-                      <div style={{ padding: '1rem', borderRadius: '12px', backgroundColor: msg.role === 'user' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>
+                      <div style={{ padding: '1rem', borderRadius: '12px', backgroundColor: msg.role === 'user' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)', color: msg.isMeta ? '#94a3b8' : '#e2e8f0', whiteSpace: 'pre-wrap', fontSize: msg.isMeta ? '0.85rem' : '1rem' }}>
                         {msg.content}
                       </div>
                     </div>

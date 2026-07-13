@@ -90,7 +90,10 @@ def compile_workflow(nodes: list, edges: list) -> str:
     lines.append("        return True")
     lines.append("    except ValueError:")
     lines.append("        return False\n")
+    lines.append("__token_usage__ = {'nodes': {}, 'total_input': 0, 'total_output': 0, 'total_tokens': 0}")
     lines.append("def run_workflow(**kwargs):")
+    lines.append("    global __token_usage__")
+    lines.append("    __token_usage__ = {'nodes': {}, 'total_input': 0, 'total_output': 0, 'total_tokens': 0}")
     lines.append("    last_result = 'No execution occurred.'")
     
     # Generate all LLM configurations at the top of the workflow
@@ -194,6 +197,17 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | llm_{current_llm}")
             lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
             lines.append(f"{indent}res_text_{node_id} = str(res_obj_{node_id}.content)")
+            
+            lines.append(f"{indent}usage_dict = getattr(res_obj_{node_id}, 'usage_metadata', None)")
+            lines.append(f"{indent}if not usage_dict and hasattr(res_obj_{node_id}, 'response_metadata'):")
+            lines.append(f"{indent}    rm = res_obj_{node_id}.response_metadata")
+            lines.append(f"{indent}    if 'token_usage' in rm: usage_dict = rm['token_usage']")
+            lines.append(f"{indent}if usage_dict:")
+            lines.append(f"{indent}    __token_usage__['nodes']['{node_id}'] = usage_dict")
+            lines.append(f"{indent}    __token_usage__['total_input'] += usage_dict.get('input_tokens', usage_dict.get('prompt_tokens', 0))")
+            lines.append(f"{indent}    __token_usage__['total_output'] += usage_dict.get('output_tokens', usage_dict.get('completion_tokens', 0))")
+            lines.append(f"{indent}    __token_usage__['total_tokens'] += usage_dict.get('total_tokens', 0)")
+            
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
             next_edges = forward_edges.get(node_id, [])
@@ -218,6 +232,17 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | llm_{node_id}")
                 lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
                 lines.append(f"{indent}res_text_{node_id} = str(res_obj_sa_{node_id}.content)")
+                
+                lines.append(f"{indent}usage_dict_sa = getattr(res_obj_sa_{node_id}, 'usage_metadata', None)")
+                lines.append(f"{indent}if not usage_dict_sa and hasattr(res_obj_sa_{node_id}, 'response_metadata'):")
+                lines.append(f"{indent}    rm_sa = res_obj_sa_{node_id}.response_metadata")
+                lines.append(f"{indent}    if 'token_usage' in rm_sa: usage_dict_sa = rm_sa['token_usage']")
+                lines.append(f"{indent}if usage_dict_sa:")
+                lines.append(f"{indent}    __token_usage__['nodes']['{node_id}'] = usage_dict_sa")
+                lines.append(f"{indent}    __token_usage__['total_input'] += usage_dict_sa.get('input_tokens', usage_dict_sa.get('prompt_tokens', 0))")
+                lines.append(f"{indent}    __token_usage__['total_output'] += usage_dict_sa.get('output_tokens', usage_dict_sa.get('completion_tokens', 0))")
+                lines.append(f"{indent}    __token_usage__['total_tokens'] += usage_dict_sa.get('total_tokens', 0)")
+
                 lines.append(f"{indent}last_result = res_text_{node_id}")
                 pass_var = f"res_text_{node_id}"
             else:
@@ -874,14 +899,15 @@ def compile_workflow(nodes: list, edges: list) -> str:
     return "\n".join(lines)
 
 
-def run_workflow(nodes: list, edges: list, **kwargs) -> str:
+def run_workflow(nodes: list, edges: list, **kwargs):
     """
     Compiles the graph into Python code and dynamically executes it using exec().
+    Returns a tuple (result_text, token_usage_dict).
     """
     python_code = compile_workflow(nodes, edges)
     
     if python_code.startswith("Error"):
-        return python_code
+        return python_code, {}
         
     # Dynamically execute the generated code
     namespace = {}
@@ -890,8 +916,9 @@ def run_workflow(nodes: list, edges: list, **kwargs) -> str:
         exec(python_code, namespace)
         if 'run_workflow' in namespace:
             result = namespace['run_workflow'](**kwargs)
-            return str(result)
+            tokens = namespace.get('__token_usage__', {})
+            return str(result), tokens
         else:
-            return "Execution failed: run_workflow function not found."
+            return "Execution failed: run_workflow function not found.", {}
     except Exception as e:
-        return f"Dynamic Execution Error: {str(e)}"
+        return f"Dynamic Execution Error: {str(e)}", {}
