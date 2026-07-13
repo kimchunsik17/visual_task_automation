@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
-import { Bot, Play, Square, ExternalLink, RefreshCw } from 'lucide-react';
+import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2 } from 'lucide-react';
 import './MainPage.css';
 import './BotManagerPage.css';
 
@@ -41,6 +41,21 @@ export default function BotManagerPage() {
     } catch (err) {
       console.error(`Failed to ${action} bot:`, err);
       alert(`${action === 'start' ? '시작' : '정지'} 중 오류가 발생했습니다: ` + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleDelete = async (projectId) => {
+    if (!window.confirm('정말로 이 디스코드 봇 연결을 삭제하시겠습니까? 봇이 정지되며 토큰이 삭제됩니다.')) {
+      return;
+    }
+    try {
+      await axios.delete(`/api/bots/${projectId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchBots();
+    } catch (err) {
+      console.error('Failed to delete bot:', err);
+      alert('삭제 중 오류가 발생했습니다: ' + (err.response?.data?.detail || err.message));
     }
   };
 
@@ -119,6 +134,9 @@ export default function BotManagerPage() {
                     )}
                     <button className="btn-action view" onClick={() => navigate(`/editor/${bot.project_id}`)}>
                       <ExternalLink size={16} /> 에디터로
+                    </button>
+                    <button className="btn-action delete" onClick={() => handleDelete(bot.project_id)} style={{ color: '#ef4444' }}>
+                      <Trash2 size={16} /> 삭제
                     </button>
                   </div>
                 </div>

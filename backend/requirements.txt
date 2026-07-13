@@ -16,3 +16,4 @@ pywin32
 google-auth
 PyJWT
 discord.py
+bs4

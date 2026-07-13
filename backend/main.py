@@ -363,6 +363,25 @@ async def start_bot_endpoint(project_id: int, user: models.User = Depends(get_cu
     discord_bot.start_discord_bot(project_id, token)
     return {"status": "success", "message": "Bot started"}
 
+@app.delete("/api/bots/{project_id}")
+async def delete_bot_endpoint(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    discord_bot.stop_discord_bot(project_id)
+    
+    if project.graph_data:
+        new_data = dict(project.graph_data)
+        if "discord_bot_token" in new_data:
+            del new_data["discord_bot_token"]
+            project.graph_data = new_data
+            
+    project.deploy_mode = "chatbot"
+    db.commit()
+    
+    return {"status": "success", "message": "Bot deleted"}
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
