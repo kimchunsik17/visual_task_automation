@@ -69,6 +69,18 @@ function FlowContent() {
   const [estimatedTokens, setEstimatedTokens] = useState(null);
   const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
   
+  const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
+  const costCurrency = localStorage.getItem('costCurrency') || 'USD';
+  
+  const formatTokenDisplay = (tokens) => {
+    if (!tokens && tokens !== 0) return '-';
+    if (tokenDisplayMode === 'cost') {
+      const usdCost = (tokens / 1000000) * 2.5; // 평균 $2.5 / 1M tokens
+      return costCurrency === 'KRW' ? `₩${Math.round(usdCost * 1400).toLocaleString()}` : `$${usdCost.toFixed(4)}`;
+    }
+    return tokens.toLocaleString();
+  };
+  
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { role: 'assistant', content: '안녕하세요! 워크플로우 수정을 도와드릴까요? 원하시는 구성을 말씀해 주세요. (예: 이메일 전송 노드를 추가하고 슬랙 알림을 연결해줘)' }
@@ -372,10 +384,12 @@ function FlowContent() {
         ...n.data,
         isTokenTrackingMode,
         predictedTokens: estimatedTokens?.node_details?.[n.id] || null,
-        actualTokens: tokenUsage?.nodes?.[n.id] || null
+        actualTokens: tokenUsage?.nodes?.[n.id] || null,
+        tokenDisplayMode,
+        costCurrency
       }
     }));
-  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage]);
+  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage, tokenDisplayMode, costCurrency]);
 
   return (
     <div className="app-container">
@@ -420,16 +434,16 @@ function FlowContent() {
                 <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#60a5fa', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>워크플로우 토큰 통계</h3>
                 
                 <div style={{ marginBottom: '1rem' }}>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>1회 실행 예상 토큰량 (Min ~ Max)</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>1회 실행 예상 (Min ~ Max)</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-color)' }}>
-                    {estimatedTokens ? `${estimatedTokens.total_estimated_tokens} ~ ${estimatedTokens.total_max_tokens}` : '-'}
+                    {estimatedTokens ? `${formatTokenDisplay(estimatedTokens.total_estimated_tokens)} ~ ${formatTokenDisplay(estimatedTokens.total_max_tokens)}` : '-'}
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>마지막 실행 실제 토큰 사용량</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>마지막 실행 실제 소모량</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#10b981' }}>
-                    {tokenUsage ? tokenUsage.total_tokens : '-'}
+                    {tokenUsage ? formatTokenDisplay(tokenUsage.total_tokens) : '-'}
                   </div>
                 </div>
               </div>

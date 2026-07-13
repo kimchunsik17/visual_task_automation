@@ -3,6 +3,28 @@ import { Handle, Position, useUpdateNodeInternals, NodeResizer } from '@xyflow/r
 import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck } from 'lucide-react';
 import axios from 'axios';
 
+const calculateNodeCost = (tokens, model, currency) => {
+  if (!tokens && tokens !== 0) return '-';
+  
+  // Approximate prices per 1M tokens (blended average of input/output for simplicity)
+  let pricePer1M = 2.5; 
+  if (model) {
+    if (model.includes('gpt-4o-mini')) pricePer1M = 0.3;
+    else if (model.includes('gpt-4o')) pricePer1M = 10.0;
+    else if (model.includes('gemini-1.5-flash') || model.includes('gemini-3.5-flash')) pricePer1M = 0.15;
+    else if (model.includes('gemini-1.5-pro')) pricePer1M = 5.0;
+    else if (model.includes('claude-3-5-sonnet')) pricePer1M = 9.0;
+    else if (model.includes('claude-3-haiku')) pricePer1M = 0.75;
+  }
+  
+  const usdCost = (tokens / 1000000) * pricePer1M;
+  
+  if (currency === 'KRW') {
+    return `₩${Math.round(usdCost * 1400).toLocaleString()}`;
+  }
+  return usdCost < 0.0001 ? `$${usdCost.toFixed(6)}` : `$${usdCost.toFixed(4)}`;
+};
+
 export const StartNode = ({ id, data }) => {
   return (
     <div className="custom-node start" style={{ minWidth: '150px' }}>
@@ -37,8 +59,8 @@ export const PromptNode = ({ id, data }) => {
         {data.isTokenTrackingMode && (
           <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6', borderRadius: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-              <span>예상 토큰:</span>
-              <span style={{ color: '#60a5fa', fontWeight: 600 }}>{data.predictedTokens ? data.predictedTokens.min_tokens : '-'}</span>
+              <span>예상 {data.tokenDisplayMode === 'cost' ? '금액' : '토큰'}:</span>
+              <span style={{ color: '#60a5fa', fontWeight: 600 }}>{data.predictedTokens ? (data.tokenDisplayMode === 'cost' ? calculateNodeCost(data.predictedTokens.min_tokens, null, data.costCurrency) : data.predictedTokens.min_tokens) : '-'}</span>
             </div>
           </div>
         )}
@@ -94,15 +116,15 @@ export const LLMNode = ({ id, data }) => {
         {data.isTokenTrackingMode && (
           <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid #8b5cf6', borderRadius: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span>예상 (최소~최대):</span>
+              <span>예상 {data.tokenDisplayMode === 'cost' ? '금액' : '토큰'} (최소~최대):</span>
               <span style={{ color: '#a78bfa', fontWeight: 600 }}>
-                {data.predictedTokens ? `${data.predictedTokens.min_tokens} ~ ${data.predictedTokens.max_tokens}` : '-'}
+                {data.predictedTokens ? `${data.tokenDisplayMode === 'cost' ? calculateNodeCost(data.predictedTokens.min_tokens, data.model, data.costCurrency) : data.predictedTokens.min_tokens} ~ ${data.tokenDisplayMode === 'cost' ? calculateNodeCost(data.predictedTokens.max_tokens, data.model, data.costCurrency) : data.predictedTokens.max_tokens}` : '-'}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(139, 92, 246, 0.2)', paddingTop: '4px' }}>
               <span>실제 소모:</span>
               <span style={{ color: '#10b981', fontWeight: 600 }}>
-                {data.actualTokens !== null ? data.actualTokens : '-'}
+                {data.actualTokens !== null ? (data.tokenDisplayMode === 'cost' ? calculateNodeCost(data.actualTokens.total_tokens || 0, data.model, data.costCurrency) : (data.actualTokens.total_tokens || JSON.stringify(data.actualTokens))) : '-'}
               </span>
             </div>
           </div>
