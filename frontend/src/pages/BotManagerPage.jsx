@@ -4,7 +4,7 @@ import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
 import { GoogleLogin } from '@react-oauth/google';
-import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key } from 'lucide-react';
+import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key, FileText, MoreVertical } from 'lucide-react';
 import './MainPage.css';
 import './BotManagerPage.css';
 
@@ -16,6 +16,34 @@ export default function BotManagerPage() {
   const [selectedProjectForToken, setSelectedProjectForToken] = useState(null);
   const [reAuthToken, setReAuthToken] = useState(null);
   const [editingDiscordToken, setEditingDiscordToken] = useState('');
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const [botLogs, setBotLogs] = useState([]);
+  const [activeDropdown, setActiveDropdown] = useState(null);
+
+  useEffect(() => {
+    const closeDropdown = () => setActiveDropdown(null);
+    document.addEventListener('click', closeDropdown);
+    return () => document.removeEventListener('click', closeDropdown);
+  }, []);
+
+  const openLogs = async (projectId) => {
+    setLogsModalOpen(true);
+    setBotLogs([]);
+    try {
+      const res = await axios.get(`/api/bots/${projectId}/logs`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setBotLogs(res.data);
+    } catch (err) {
+      console.error(err);
+      alert('로그를 불러오는 데 실패했습니다.');
+    }
+  };
+  
+  const toggleDropdown = (projectId, e) => {
+    e.stopPropagation();
+    setActiveDropdown(activeDropdown === projectId ? null : projectId);
+  };
 
   const openTokenManager = (projectId) => {
     setSelectedProjectForToken(projectId);
@@ -170,23 +198,38 @@ export default function BotManagerPage() {
 
                   <div className="bot-card-actions">
                     {bot.status === 'online' || bot.status === 'connecting' ? (
-                      <button className="btn-action stop" onClick={() => handleAction(bot.project_id, 'stop')}>
+                      <button className="btn-primary-action stop" onClick={() => handleAction(bot.project_id, 'stop')}>
                         <Square size={16} /> 정지
                       </button>
                     ) : (
-                      <button className="btn-action start" onClick={() => handleAction(bot.project_id, 'start')}>
+                      <button className="btn-primary-action start" onClick={() => handleAction(bot.project_id, 'start')}>
                         <Play size={16} /> 시작
                       </button>
                     )}
-                    <button className="btn-action view" onClick={() => navigate(`/editor/${bot.project_id}`)}>
-                      <ExternalLink size={16} /> 에디터로
-                    </button>
-                    <button className="btn-action key" onClick={() => openTokenManager(bot.project_id)}>
-                      <Key size={16} /> 토큰 관리
-                    </button>
-                    <button className="btn-action delete" onClick={() => handleDelete(bot.project_id)} style={{ color: '#ef4444' }}>
-                      <Trash2 size={16} /> 삭제
-                    </button>
+                    
+                    <div className="dropdown-container">
+                      <button className="btn-icon" onClick={(e) => toggleDropdown(bot.project_id, e)}>
+                        <MoreVertical size={20} />
+                      </button>
+                      
+                      {activeDropdown === bot.project_id && (
+                        <div className="dropdown-menu">
+                          <button className="dropdown-item" onClick={() => navigate(`/editor/${bot.project_id}`)}>
+                            <ExternalLink size={16} /> 에디터로
+                          </button>
+                          <button className="dropdown-item" onClick={() => openTokenManager(bot.project_id)}>
+                            <Key size={16} /> 토큰 관리
+                          </button>
+                          <button className="dropdown-item" onClick={() => openLogs(bot.project_id)}>
+                            <FileText size={16} /> 로그 보기
+                          </button>
+                          <div className="dropdown-divider"></div>
+                          <button className="dropdown-item danger" onClick={() => handleDelete(bot.project_id)}>
+                            <Trash2 size={16} /> 삭제
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -230,6 +273,33 @@ export default function BotManagerPage() {
                     <button className="btn-save" onClick={handleSaveToken}>저장</button>
                   </div>
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {logsModalOpen && (
+        <div className="token-modal-overlay" onClick={() => setLogsModalOpen(false)}>
+          <div className="token-modal-content logs-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="token-modal-header">
+              <h3>디스코드 봇 로그</h3>
+              <button className="close-btn" onClick={() => setLogsModalOpen(false)}>&times;</button>
+            </div>
+            <div className="logs-container">
+              {botLogs.length === 0 ? (
+                <p className="no-logs">표시할 로그가 없습니다.</p>
+              ) : (
+                botLogs.map(log => (
+                  <div key={log.id} className="log-item">
+                    <div className="log-header">
+                      <span className="log-user">{log.username}</span>
+                      <span className="log-time">{new Date(log.created_at).toLocaleString()}</span>
+                    </div>
+                    <div className="log-message"><strong>Q:</strong> {log.message}</div>
+                    <div className="log-response"><strong>A:</strong> {log.response}</div>
+                  </div>
+                ))
               )}
             </div>
           </div>

@@ -80,6 +80,24 @@ def start_discord_bot(project_id: int, token: str):
             
         await processing_msg.edit(content=result)
         
+        def _save_log():
+            db = SessionLocal()
+            try:
+                log = models.BotLog(
+                    project_id=project_id,
+                    username=str(message.author),
+                    message=content,
+                    response=result
+                )
+                db.add(log)
+                db.commit()
+            except Exception as e:
+                print(f"Failed to save bot log: {e}")
+            finally:
+                db.close()
+                
+        await asyncio.to_thread(_save_log)
+        
     _active_bots[project_id] = client
     
     async def run_client():

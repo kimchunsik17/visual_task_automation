@@ -38,3 +38,13 @@ class FlowExecutionLog(Base):
     execution_time = Column(DateTime, default=datetime.datetime.utcnow)
     payload = Column(String)
     result = Column(String)
+
+class BotLog(Base):
+    __tablename__ = "bot_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), index=True)
+    username = Column(String)
+    message = Column(String)
+    response = Column(String)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

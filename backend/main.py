@@ -437,6 +437,24 @@ def update_bot_token(project_id: int, payload: TokenActionPayload, user: models.
         discord_bot.start_discord_bot(project.id, payload.new_discord_token)
         
     return {"status": "success", "message": "Token updated"}
+
+@app.get("/api/bots/{project_id}/logs")
+def get_bot_logs(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    logs = db.query(models.BotLog).filter(models.BotLog.project_id == project_id).order_by(models.BotLog.created_at.desc()).limit(50).all()
+    
+    return [
+        {
+            "id": log.id,
+            "username": log.username,
+            "message": log.message,
+            "response": log.response,
+            "created_at": log.created_at
+        } for log in logs
+    ]
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
