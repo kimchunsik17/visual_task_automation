@@ -1,4 +1,4 @@
-﻿.main-page-layout {
+.main-page-layout {
   display: flex;
   min-height: 100vh;
   background-color: var(--bg-color);
@@ -105,7 +105,7 @@
   font-size: 3rem;
   line-height: 1.2;
   margin-bottom: 1rem;
-  background: linear-gradient(135deg, #fff, var(--text-muted));
+  background: linear-gradient(135deg, var(--text-color), var(--text-muted));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
