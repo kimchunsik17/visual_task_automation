@@ -32,25 +32,25 @@ function TemplatesPage() {
         <div className="dashboard-grid">
           <section>
             <div className="section-header">
-              <h3><LibraryBig size={22} color="#3b82f6" /> 커�??�티 ?�플�?/h3>
+              <h3><LibraryBig size={22} color="#3b82f6" /> 커뮤니티 템플릿</h3>
             </div>
             
             {loading ? (
-              <p style={{ color: 'var(--text-muted)' }}>?�플릿을 불러?�는 �?..</p>
+              <p style={{ color: '#94a3b8' }}>템플릿을 불러오는 중...</p>
             ) : projects.length === 0 ? (
-              <p style={{ color: '#64748b' }}>?�직 공개???�플릿이 ?�습?�다.</p>
+              <p style={{ color: '#64748b' }}>아직 공개된 템플릿이 없습니다.</p>
             ) : (
               <div className="projects-grid">
                 {projects.map(project => (
                   <div key={project.id} className="project-card">
                     <h4>{project.title}</h4>
-                    <p>{project.description || '?�명???�습?�다.'}</p>
+                    <p>{project.description || '설명이 없습니다.'}</p>
                     <div className="project-meta">
-                      <span>?�성?? {project.owner}</span>
+                      <span>작성자: {project.owner}</span>
                     </div>
                     <div className="card-actions">
                       <button className="btn-secondary" onClick={() => navigate(`/editor/${project.id}`)}>
-                        <Play size={14} /> ?�기 �??�행
+                        <Play size={14} /> 열기 및 실행
                       </button>
                     </div>
                   </div>

@@ -20,7 +20,7 @@
 .brand-name {
   font-size: 1.2rem;
   font-weight: 700;
-  color: var(--text-color);
+  color: white;
   letter-spacing: -0.5px;
 }
 
@@ -40,7 +40,7 @@
   border-radius: 8px;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: #94a3b8;
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
@@ -50,7 +50,7 @@
 
 .nav-item:hover {
   background: rgba(255, 255, 255, 0.05);
-  color: var(--text-color);
+  color: white;
 }
 
 .nav-item.active {
@@ -93,7 +93,7 @@
 }
 
 .user-name {
-  color: var(--text-color);
+  color: white;
   font-weight: 600;
   font-size: 1rem;
 }
@@ -131,6 +131,6 @@
 
 .login-hint {
   font-size: 0.85rem;
-  color: var(--text-muted);
+  color: #94a3b8;
   margin: 0;
 }

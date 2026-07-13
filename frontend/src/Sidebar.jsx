@@ -20,44 +20,44 @@ const Sidebar = () => {
   };
 
   const nodeTypes = [
-    { type: 'startNode', label: '?�작', icon: <Play size={16} />, color: '#10b981', category: 'core' },
+    { type: 'startNode', label: '시작', icon: <Play size={16} />, color: '#10b981', category: 'core' },
     { type: 'outputNode', label: '결과 출력', icon: <LogOut size={16} />, color: '#f97316', category: 'core' },
     
-    { type: 'dynamicInputNode', label: '?�적 ?�력', icon: <Keyboard size={16} />, color: '#d946ef', category: 'input' },
-    { type: 'valueNode', label: '변??(�?', icon: <Variable size={16} />, color: '#ec4899', category: 'input' },
+    { type: 'dynamicInputNode', label: '동적 입력', icon: <Keyboard size={16} />, color: '#d946ef', category: 'input' },
+    { type: 'valueNode', label: '변수 (값)', icon: <Variable size={16} />, color: '#ec4899', category: 'input' },
     
-    { type: 'promptNode', label: '?�롬?�트', icon: <MessageSquare size={16} />, color: '#3b82f6', category: 'ai' },
+    { type: 'promptNode', label: '프롬프트', icon: <MessageSquare size={16} />, color: '#3b82f6', category: 'ai' },
     { type: 'llmNode', label: 'LLM', icon: <BrainCircuit size={16} />, color: '#8b5cf6', category: 'ai' },
     
     { type: 'conditionNode', label: '조건 분기', icon: <SplitSquareHorizontal size={16} />, color: '#0ea5e9', category: 'logic' },
     { type: 'loopNode', label: '반복 (Loop)', icon: <Repeat size={16} />, color: '#ca8a04', category: 'logic' },
     { type: 'breakNode', label: '반복 종료', icon: <LogOut size={16} style={{transform: 'rotate(180deg)'}}/>, color: '#dc2626', category: 'logic' },
-    { type: 'delayNode', label: 'Delay (?��?', icon: <Clock size={16} />, color: '#3b82f6', category: 'logic' },
+    { type: 'delayNode', label: 'Delay (대기)', icon: <Clock size={16} />, color: '#3b82f6', category: 'logic' },
     { type: 'mergeNode', label: 'Merge (병합)', icon: <Merge size={16} />, color: '#ec4899', category: 'logic' },
     
-    { type: 'pythonNode', label: '?�이??, icon: <Terminal size={16} />, color: '#eab308', category: 'code' },
-    { type: 'jsonParserNode', label: 'JSON ?�서', icon: <Braces size={16} />, color: '#eab308', category: 'code' },
-    { type: 'tokenizerNode', label: '?�크?�이?�', icon: <Box size={16} />, color: '#14b8a6', category: 'code' },
-    { type: 'distributorNode', label: '분배�?, icon: <Network size={16} />, color: '#6366f1', category: 'code' },
-    { type: 'databaseNode', label: '?�이?�베?�스', icon: <Database size={16} />, color: '#059669', category: 'code' },
+    { type: 'pythonNode', label: '파이썬', icon: <Terminal size={16} />, color: '#eab308', category: 'code' },
+    { type: 'jsonParserNode', label: 'JSON 파서', icon: <Braces size={16} />, color: '#eab308', category: 'code' },
+    { type: 'tokenizerNode', label: '토크나이저', icon: <Box size={16} />, color: '#14b8a6', category: 'code' },
+    { type: 'distributorNode', label: '분배기', icon: <Network size={16} />, color: '#6366f1', category: 'code' },
+    { type: 'databaseNode', label: '데이터베이스', icon: <Database size={16} />, color: '#059669', category: 'code' },
     
-    { type: 'webCrawlerNode', label: '???�롤??, icon: <Globe size={16} />, color: '#0ea5e9', category: 'integration' },
-    { type: 'emailNode', label: '?�메???�송', icon: <Mail size={16} />, color: '#f43f5e', category: 'integration' },
-    { type: 'kakaoNode', label: '카카???�림??, icon: <MessageCircle size={16} />, color: '#facc15', category: 'integration' },
+    { type: 'webCrawlerNode', label: '웹 크롤러', icon: <Globe size={16} />, color: '#0ea5e9', category: 'integration' },
+    { type: 'emailNode', label: '이메일 전송', icon: <Mail size={16} />, color: '#f43f5e', category: 'integration' },
+    { type: 'kakaoNode', label: '카카오 알림톡', icon: <MessageCircle size={16} />, color: '#facc15', category: 'integration' },
     { type: 'httpRequestNode', label: 'HTTP Request', icon: <ArrowRightLeft size={16} />, color: '#0ea5e9', category: 'integration' },
     
-    { type: 'fileModifierNode', label: '?�동 ?�성', icon: <FileCode size={16} />, color: '#f43f5e', category: 'advanced' },
-    { type: 'templateAnalyzerNode', label: '?�플�?분석', icon: <FileCode size={16} />, color: '#8b5cf6', category: 'advanced' },
-    { type: 'humanApprovalNode', label: '?�용???�인 (?��?', icon: <UserCheck size={16} />, color: '#f43f5e', category: 'advanced' },
+    { type: 'fileModifierNode', label: '자동 완성', icon: <FileCode size={16} />, color: '#f43f5e', category: 'advanced' },
+    { type: 'templateAnalyzerNode', label: '템플릿 분석', icon: <FileCode size={16} />, color: '#8b5cf6', category: 'advanced' },
+    { type: 'humanApprovalNode', label: '사용자 승인 (대기)', icon: <UserCheck size={16} />, color: '#f43f5e', category: 'advanced' },
   ];
 
   const categories = [
     { id: 'core', title: '기본 (Core)' },
-    { id: 'input', title: '?�력 (Input)' },
+    { id: 'input', title: '입력 (Input)' },
     { id: 'ai', title: 'AI 모델 (AI)' },
-    { id: 'logic', title: '?�어 로직 (Logic)' },
-    { id: 'code', title: '코드 & ?�이??(Code & Data)' },
-    { id: 'integration', title: '?��? ?�동 (Integration)' },
+    { id: 'logic', title: '제어 로직 (Logic)' },
+    { id: 'code', title: '코드 & 데이터 (Code & Data)' },
+    { id: 'integration', title: '외부 연동 (Integration)' },
     { id: 'advanced', title: '고급 기능 (Advanced)' },
   ];
 
@@ -84,14 +84,14 @@ const Sidebar = () => {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2 className="sidebar-title">?�드 목록</h2>
+        <h2 className="sidebar-title">노드 목록</h2>
       </div>
       
       <div className="sidebar-search">
         <Search size={14} color="#64748b" />
         <input 
           type="text" 
-          placeholder="?�드 검??.." 
+          placeholder="노드 검색..." 
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -99,12 +99,12 @@ const Sidebar = () => {
 
       <div className="node-list">
         {isSearching ? (
-          // 검??중일 ?�는 카테고리 구분 ?�이 ?�치?�는 모든 ?�드�?보여�?
+          // 검색 중일 때는 카테고리 구분 없이 일치하는 모든 노드를 보여줌
           nodeTypes
             .filter(n => n.label.toLowerCase().includes(searchTerm.toLowerCase()))
             .map(renderNode)
         ) : (
-          // 검??중이 ?�닐 ?�는 카테고리�??�코?�언?�로 보여�?
+          // 검색 중이 아닐 때는 카테고리별 아코디언으로 보여줌
           categories.map(cat => {
             const catNodes = nodeTypes.filter(n => n.category === cat.id);
             if (catNodes.length === 0) return null;
@@ -116,7 +116,7 @@ const Sidebar = () => {
                 <div 
                   className="sidebar-category-header" 
                   onClick={() => toggleCategory(cat.id)}
-                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px 4px', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: '600', userSelect: 'none' }}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px 4px', color: '#94a3b8', fontSize: '0.8rem', fontWeight: '600', userSelect: 'none' }}
                 >
                   {isExpanded ? <ChevronDown size={14} style={{ marginRight: '4px' }}/> : <ChevronRight size={14} style={{ marginRight: '4px' }}/>}
                   {cat.title}

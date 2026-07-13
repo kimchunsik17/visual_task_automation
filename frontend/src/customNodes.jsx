@@ -7,11 +7,11 @@ export const StartNode = ({ id, data }) => {
   return (
     <div className="custom-node start" style={{ minWidth: '150px' }}>
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={16} color="#10b981"/> ?�작</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={16} color="#10b981"/> 시작</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body" style={{ textAlign: 'center', padding: '10px' }}>
-        <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1' }}>?�작??/p>
+        <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1' }}>시작점</p>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -23,16 +23,16 @@ export const PromptNode = ({ id, data }) => {
     <div className="custom-node prompt">
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} color="#3b82f6"/> ?�롬?�트</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} color="#3b82f6"/> 프롬프트</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>?�용???�롬?�트</label>
+        <label>사용자 프롬프트</label>
         <textarea 
           className="nodrag"
           defaultValue={data.userPrompt || ''}
           onChange={(e) => data.onChange(id, 'userPrompt', e.target.value)}
-          placeholder="?�롬?�트�??�력?�세??.."
+          placeholder="프롬프트를 입력하세요..."
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -46,7 +46,7 @@ export const LLMNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><BrainCircuit size={16} color="#8b5cf6"/> LLM Node</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <label>AI 모델</label>
@@ -119,15 +119,15 @@ export const ValueNode = ({ id, data }) => {
     <div className="custom-node value">
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Variable size={16} color="#ec4899"/> 변??(�?</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Variable size={16} color="#ec4899"/> 변수 (값)</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <label>Static Value or File</label>
         {data.filename ? (
           <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span title={data.file_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>?�� {data.filename}</span>
-            <button className="nodrag" onClick={() => { data.onChange(id, 'file_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>??/button>
+            <span title={data.file_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
+            <button className="nodrag" onClick={() => { data.onChange(id, 'file_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
           </div>
         ) : (
           <textarea 
@@ -148,7 +148,7 @@ export const ValueNode = ({ id, data }) => {
               onChange={handleFileUpload} 
               disabled={isUploading}
             />
-            <label htmlFor={`file-upload-${id}`} style={{ display: 'block', textAlign: 'center', padding: '4px 8px', backgroundColor: '#be185d', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+            <label htmlFor={`file-upload-${id}`} style={{ display: 'block', textAlign: 'center', padding: '4px 8px', backgroundColor: '#be185d', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
               {isUploading ? 'Uploading...' : 'Upload File (PDF, Excel, PPT, HWP)'}
             </label>
           </div>
@@ -165,7 +165,7 @@ export const OutputNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
         Output
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <div style={{fontSize: '0.8rem', color: '#ccc'}}>Final Result</div>
@@ -205,7 +205,7 @@ export const ConditionNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
         Switch / Branch
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         
@@ -215,7 +215,7 @@ export const ConditionNode = ({ id, data }) => {
               className="nodrag"
               value={rule.operator}
               onChange={(e) => updateRule(rule.id, 'operator', e.target.value)}
-              style={{ width: '35%', padding: '0.25rem', marginRight: '5px', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
+              style={{ width: '35%', padding: '0.25rem', marginRight: '5px', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
             >
               <option value="==">== (Equals)</option>
               <option value="Contains">Contains</option>
@@ -231,14 +231,14 @@ export const ConditionNode = ({ id, data }) => {
               value={rule.value}
               onChange={(e) => updateRule(rule.id, 'value', e.target.value)}
               placeholder="Value"
-              style={{ flex: 1, padding: '0.25rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem', minWidth: 0 }}
+              style={{ flex: 1, padding: '0.25rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem', minWidth: 0 }}
             />
             
             <button 
               onClick={() => removeRule(rule.id)}
               style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', marginLeft: '5px', padding: '0 5px' }}
               title="Remove Rule"
-            >??/button>
+            >✕</button>
 
             {/* Handle positioned perfectly next to this row */}
             <Handle 
@@ -261,12 +261,12 @@ export const ConditionNode = ({ id, data }) => {
         </div>
 
         <div style={{ position: 'relative', marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem' }}>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Else (Fallback)</span>
+          <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Else (Fallback)</span>
           <Handle 
             type="source" 
             position={Position.Right} 
             id="else" 
-            style={{ right: '-16px', background: 'var(--text-muted)' }} 
+            style={{ right: '-16px', background: '#94a3b8' }} 
           />
         </div>
 
@@ -294,7 +294,7 @@ export const LoopNode = ({ id, data, selected }) => {
         <Handle type="target" position={Position.Left} id="in" />
         <div className="node-header" style={{ backgroundColor: '#ca8a04', borderRadius: '6px 6px 0 0', margin: '-2px -2px 0 -2px' }}>
           Loop Node (CoT Window)
-          <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+          <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
         </div>
         <div className="node-body" style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -304,7 +304,7 @@ export const LoopNode = ({ id, data, selected }) => {
               className="nodrag"
               defaultValue={data.maxIterations || 5}
               onChange={(e) => data.onChange(id, 'maxIterations', e.target.value)}
-              style={{ width: '60px', padding: '0.1rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
+              style={{ width: '60px', padding: '0.1rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
               min="1"
               max="100"
             />
@@ -331,12 +331,12 @@ export const LoopNode = ({ id, data, selected }) => {
           
           {/* Done handle placed at bottom right */}
           <div style={{ position: 'absolute', right: 0, bottom: '15px', width: '100%', textAlign: 'right', paddingRight: '10px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Done</span>
+            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Done</span>
             <Handle 
               type="source" 
               position={Position.Right} 
               id="done" 
-              style={{ right: '-8px', background: 'var(--text-muted)' }} 
+              style={{ right: '-8px', background: '#94a3b8' }} 
             />
           </div>
         </div>
@@ -351,7 +351,7 @@ export const BreakNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header" style={{ backgroundColor: '#dc2626' }}>
         Break Node
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <div style={{fontSize: '0.8rem', color: '#ccc'}}>Exit Loop</div>
@@ -384,7 +384,7 @@ export const PythonNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header" style={{ backgroundColor: '#2563eb' }}>
         Python Node
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <label>Input: `input_data`, Output: `output_data`</label>
@@ -419,7 +419,7 @@ export const TokenizerNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header" style={{ backgroundColor: '#059669' }}>
         Tokenizer Node
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <label>Parsing Method</label>
@@ -427,12 +427,12 @@ export const TokenizerNode = ({ id, data }) => {
           className="nodrag"
           value={data.method || 'extract_text'}
           onChange={(e) => data.onChange(id, 'method', e.target.value)}
-          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.5rem' }}
+          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.5rem' }}
         >
           <option value="extract_text">Extract All Text</option>
           <option value="chunk_pages">Chunk by Page</option>
         </select>
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
           Supports PDF, PPTX, Excel, HWP/HWPX
         </div>
       </div>
@@ -447,7 +447,7 @@ export const DistributorNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header" style={{ backgroundColor: '#7c3aed' }}>
         Distributor (For-Each)
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <div style={{ fontSize: '0.75rem', color: '#ccc', textAlign: 'center' }}>
@@ -491,14 +491,14 @@ export const FileModifierNode = ({ id, data }) => {
 
       <div className="node-header" style={{ backgroundColor: '#ea580c' }}>
         Auto Fill
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <label>Template File</label>
         {data.filename ? (
           <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>?�� {data.filename}</span>
-            <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>??/button>
+            <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
+            <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
           </div>
         ) : (
           <div style={{ marginBottom: '8px' }}>
@@ -510,7 +510,7 @@ export const FileModifierNode = ({ id, data }) => {
               onChange={handleFileUpload} 
               disabled={isUploading}
             />
-            <label htmlFor={`file-upload-template-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#ea580c', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+            <label htmlFor={`file-upload-template-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#ea580c', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
               {isUploading ? 'Uploading...' : 'Upload Template File'}
             </label>
           </div>
@@ -523,11 +523,11 @@ export const FileModifierNode = ({ id, data }) => {
           defaultValue={data.output_path || ''}
           onChange={(e) => data.onChange(id, 'output_path', e.target.value)}
           placeholder="e.g. output.hwp or output.xlsx"
-          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '8px' }}
+          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '8px' }}
         />
         
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-          Requires JSON input. Replaces {'{{key}}'} in Excel/PPT and fills ?�름?� in HWP.
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+          Requires JSON input. Replaces {'{{key}}'} in Excel/PPT and fills 누름틀 in HWP.
         </div>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -566,14 +566,14 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header" style={{ backgroundColor: '#0d9488' }}>
         Template Analyzer
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <label>Template File</label>
         {data.filename ? (
           <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>?�� {data.filename}</span>
-            <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>??/button>
+            <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
+            <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
           </div>
         ) : (
           <div style={{ marginBottom: '8px' }}>
@@ -585,13 +585,13 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
               onChange={handleFileUpload} 
               disabled={isUploading}
             />
-            <label htmlFor={`file-upload-analyzer-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#0d9488', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+            <label htmlFor={`file-upload-analyzer-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#0d9488', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
               {isUploading ? 'Uploading...' : 'Upload Blank Template'}
             </label>
           </div>
         )}
         
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
           Analyzes the template and extracts placeholders {'{{key}}'} as a JSON schema.
         </div>
       </div>
@@ -605,29 +605,29 @@ export const DynamicInputNode = ({ id, data }) => {
     <div className="custom-node dynamic-input" style={{ minWidth: '220px' }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Keyboard size={16} color="#d946ef"/> ?�적 ?�력</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Keyboard size={16} color="#d946ef"/> 동적 입력</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>?�력 ?�롬?�트 ?�벨</label>
+        <label>입력 프롬프트 라벨</label>
         <input 
           type="text"
           className="nodrag"
-          defaultValue={data.inputLabel || '?�용???�력??기다립니??..'}
+          defaultValue={data.inputLabel || '사용자 입력을 기다립니다...'}
           onChange={(e) => data.onChange(id, 'inputLabel', e.target.value)}
-          placeholder="?? ?�름??무엇?��???"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          placeholder="예: 이름이 무엇인가요?"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
-        <label>?�스?�용 ?�력�?(?�디???�행??</label>
+        <label>테스트용 입력값 (에디터 실행용)</label>
         <input 
           type="text"
           className="nodrag"
           defaultValue={data.testValue || ''}
           onChange={(e) => data.onChange(id, 'testValue', e.target.value)}
-          placeholder="?�스???�행 ???�용??�?
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+          placeholder="테스트 실행 시 사용할 값"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
         />
-        <label style={{ marginTop: '0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>* 배포 모드?�서 ?�용?�에�?보일 ?�력칸입?�다.</label>
+        <label style={{ marginTop: '0.5rem', color: '#94a3b8', fontSize: '0.75rem' }}>* 배포 모드에서 사용자에게 보일 입력칸입니다.</label>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -639,18 +639,18 @@ export const WebCrawlerNode = ({ id, data }) => {
     <div className="custom-node crawler" style={{ minWidth: '250px' }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Globe size={16} color="#0ea5e9"/> ???�롤??/div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Globe size={16} color="#0ea5e9"/> 웹 크롤러</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>?��?URL</label>
+        <label>타겟 URL</label>
         <input 
           type="text"
           className="nodrag"
           defaultValue={data.url || ''}
           onChange={(e) => data.onChange(id, 'url', e.target.value)}
           placeholder="https://example.com"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -663,26 +663,26 @@ export const EmailNode = ({ id, data }) => {
     <div className="custom-node email" style={{ minWidth: '250px' }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={16} color="#f43f5e"/> ?�메???�송</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={16} color="#f43f5e"/> 이메일 전송</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>?�신???�메??/label>
+        <label>수신자 이메일</label>
         <input 
           type="email"
           className="nodrag"
           defaultValue={data.toEmail || ''}
           onChange={(e) => data.onChange(id, 'toEmail', e.target.value)}
           placeholder="receiver@example.com"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
         />
-        <label style={{ marginTop: '0.5rem' }}>?�목</label>
+        <label style={{ marginTop: '0.5rem' }}>제목</label>
         <input 
           type="text"
           className="nodrag"
-          defaultValue={data.subject || 'Auto Flow ?�림'}
+          defaultValue={data.subject || 'Auto Flow 알림'}
           onChange={(e) => data.onChange(id, 'subject', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -695,19 +695,19 @@ export const KakaoNode = ({ id, data }) => {
     <div className="custom-node kakao" style={{ minWidth: '220px' }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageCircle size={16} color="#facc15"/> 카카???�림??/div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageCircle size={16} color="#facc15"/> 카카오 알림톡</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>* ?�전 ?�드??결과값이 카카?�톡 메시지�??�송?�니??</p>
-        <label style={{ marginTop: '0.5rem' }}>?�신??(?�션)</label>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>* 이전 노드의 결과값이 카카오톡 메시지로 전송됩니다.</p>
+        <label style={{ marginTop: '0.5rem' }}>수신자 (옵션)</label>
         <input 
           type="text"
           className="nodrag"
           defaultValue={data.receiver || ''}
           onChange={(e) => data.onChange(id, 'receiver', e.target.value)}
-          placeholder="?�화번호 ?�는 ID"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+          placeholder="전화번호 또는 ID"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -720,18 +720,18 @@ export const DelayNode = ({ id, data }) => {
     <div className="custom-node delay" style={{ minWidth: '180px' }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={16} color="#3b82f6"/> Delay (?��?</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={16} color="#3b82f6"/> Delay (대기)</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>?��??�간 (�?</label>
+        <label>대기 시간 (초)</label>
         <input 
           type="number"
           className="nodrag"
           defaultValue={data.seconds || 5}
           onChange={(e) => data.onChange(id, 'seconds', e.target.value)}
           min="1"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -745,28 +745,28 @@ export const JsonParserNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Braces size={16} color="#eab308"/> JSON Parser</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>?�싱 모드</label>
+        <label>파싱 모드</label>
         <select 
           className="nodrag"
           defaultValue={data.mode || 'parse'}
           onChange={(e) => data.onChange(id, 'mode', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
         >
-          <option value="parse">String to JSON (?�싱)</option>
-          <option value="stringify">JSON to String (문자?�화)</option>
-          <option value="extract">Extract Key (?�정 ??추출)</option>
+          <option value="parse">String to JSON (파싱)</option>
+          <option value="stringify">JSON to String (문자열화)</option>
+          <option value="extract">Extract Key (특정 키 추출)</option>
         </select>
         {data.mode === 'extract' && (
           <input 
             type="text"
             className="nodrag"
-            placeholder="추출?????�름 (?? result)"
+            placeholder="추출할 키 이름 (예: result)"
             defaultValue={data.extractKey || ''}
             onChange={(e) => data.onChange(id, 'extractKey', e.target.value)}
-            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
           />
         )}
       </div>
@@ -780,8 +780,8 @@ export const MergeNode = ({ id, data }) => {
     <div className="custom-node merge" style={{ minWidth: '200px' }}>
       <Handle type="target" position={Position.Left} id="in" style={{ height: '30px', width: '8px', borderRadius: '4px', background: '#ec4899' }} />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Merge size={16} color="#ec4899"/> Merge (?�이??병합)</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Merge size={16} color="#ec4899"/> Merge (데이터 병합)</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <label>병합 방식</label>
@@ -789,13 +789,13 @@ export const MergeNode = ({ id, data }) => {
           className="nodrag"
           defaultValue={data.mergeStrategy || 'join_newline'}
           onChange={(e) => data.onChange(id, 'mergeStrategy', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
         >
-          <option value="join_newline">줄바꿈으�??�치�?/option>
-          <option value="join_comma">?�표�??�치�?/option>
-          <option value="array">JSON 배열�?만들�?/option>
+          <option value="join_newline">줄바꿈으로 합치기</option>
+          <option value="join_comma">쉼표로 합치기</option>
+          <option value="array">JSON 배열로 만들기</option>
         </select>
-        <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>?�러 ?�드�??�쪽 ?�들???�결?�세??</p>
+        <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>여러 노드를 왼쪽 핸들에 연결하세요.</p>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -808,7 +808,7 @@ export const HttpRequestNode = ({ id, data }) => {
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ArrowRightLeft size={16} color="#0ea5e9"/> HTTP Request</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
         <label>Method</label>
@@ -816,7 +816,7 @@ export const HttpRequestNode = ({ id, data }) => {
           className="nodrag"
           defaultValue={data.method || 'GET'}
           onChange={(e) => data.onChange(id, 'method', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         >
           <option value="GET">GET</option>
           <option value="POST">POST</option>
@@ -830,7 +830,7 @@ export const HttpRequestNode = ({ id, data }) => {
           placeholder="https://api.example.com/data"
           defaultValue={data.url || ''}
           onChange={(e) => data.onChange(id, 'url', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
         <label>Headers (JSON)</label>
         <input 
@@ -839,7 +839,7 @@ export const HttpRequestNode = ({ id, data }) => {
           placeholder='{"Authorization": "Bearer token"}'
           defaultValue={data.headers || ''}
           onChange={(e) => data.onChange(id, 'headers', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
         <label>Body (JSON)</label>
         <textarea 
@@ -848,7 +848,7 @@ export const HttpRequestNode = ({ id, data }) => {
           placeholder='{"key": "value"}'
           defaultValue={data.body || ''}
           onChange={(e) => data.onChange(id, 'body', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', resize: 'vertical' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -861,18 +861,18 @@ export const DatabaseNode = ({ id, data }) => {
     <div className="custom-node database" style={{ minWidth: '250px' }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Database size={16} color="#059669"/> ?�이?�베?�스</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Database size={16} color="#059669"/> 데이터베이스</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>?�결 문자??(URI)</label>
+        <label>연결 문자열 (URI)</label>
         <input 
           type="text"
           className="nodrag"
-          placeholder="sqlite:///data.db ?�는 postgresql://..."
+          placeholder="sqlite:///data.db 또는 postgresql://..."
           defaultValue={data.connectionString || ''}
           onChange={(e) => data.onChange(id, 'connectionString', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
         <label>SQL 쿼리</label>
         <textarea 
@@ -881,7 +881,7 @@ export const DatabaseNode = ({ id, data }) => {
           placeholder="SELECT * FROM users;"
           defaultValue={data.query || ''}
           onChange={(e) => data.onChange(id, 'query', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', resize: 'vertical' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -894,18 +894,18 @@ export const HumanApprovalNode = ({ id, data }) => {
     <div className="custom-node human-approval" style={{ minWidth: '220px' }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><UserCheck size={16} color="#f43f5e"/> ?�용???�인</div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>??/button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><UserCheck size={16} color="#f43f5e"/> 사용자 승인</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <label>?�인 ?�청 메시지</label>
+        <label>승인 요청 메시지</label>
         <textarea 
           className="nodrag"
           rows={2}
-          placeholder="?�음 ?�계�?진행?�시겠습?�까?"
-          defaultValue={data.message || '?�인???�요?�니??'}
+          placeholder="다음 단계로 진행하시겠습니까?"
+          defaultValue={data.message || '승인이 필요합니다.'}
           onChange={(e) => data.onChange(id, 'message', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', resize: 'vertical' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />

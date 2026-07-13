@@ -3,7 +3,7 @@
 :root {
   --bg-color: #0f172a;
   --text-color: #f8fafc;
-  --text-muted: var(--text-muted);
+  --text-muted: #94a3b8;
   --primary-color: #3b82f6;
   --primary-hover: #2563eb;
   --card-bg: #1e293b;
@@ -79,7 +79,7 @@ button, input, textarea {
 
 .btn-run {
   background-color: var(--primary-color);
-  color: var(--text-color);
+  color: white;
   border: none;
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -354,7 +354,7 @@ button, input, textarea {
 
 .node-body label {
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: #94a3b8;
   text-align: left;
 }
 

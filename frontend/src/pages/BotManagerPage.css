@@ -78,14 +78,14 @@
 .bot-name {
   margin: 0 0 1rem 0;
   font-size: 0.95rem;
-  color: var(--text-muted);
+  color: #94a3b8;
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
 .bot-name::before {
-  content: '?¤–';
+  content: 'ðŸ¤–';
 }
 
 .update-time {
@@ -156,7 +156,7 @@
 
 .page-subtitle {
   margin: 0;
-  color: var(--text-muted);
+  color: #94a3b8;
 }
 
 .btn-refresh {
@@ -203,7 +203,7 @@
   justify-content: center;
   padding: 4rem;
   text-align: center;
-  color: var(--text-muted);
+  color: #94a3b8;
   background: var(--card-bg);
   border: 1px dashed var(--border-color);
   border-radius: 12px;
