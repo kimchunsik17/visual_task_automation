@@ -94,6 +94,9 @@ function FlowContent() {
       if (location.state?.prompt) {
         setProjectTitle("AI 생성 워크플로우");
       }
+      
+    // Clear state to prevent re-triggering on reload
+    if (location.state) {
       window.history.replaceState({}, document.title);
     }
   }, [projectId, location.state]);
@@ -359,7 +362,7 @@ function FlowContent() {
     <div className="app-container">
       <header className="header" style={{ position: 'relative', padding: '0.8rem 1.5rem', background: '#0f172a', borderBottom: '1px solid #1e293b', zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button onClick={() => navigate('/')} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: 0 }}>
+          <button onClick={() => navigate('/')} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: 0 }}>
             <ArrowLeft size={18} />
           </button>
           
@@ -369,8 +372,8 @@ function FlowContent() {
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0.2rem 0.5rem', borderRadius: '4px' }}
               className="project-title-btn"
             >
-              <span style={{ fontWeight: 600, color: 'white', fontSize: '1.1rem' }}>{projectTitle || 'Untitled Project'}</span>
-              <Settings size={14} color="#94a3b8" />
+              <span style={{ fontWeight: 600, color: 'var(--text-color)', fontSize: '1.1rem' }}>{projectTitle || 'Untitled Project'}</span>
+              <Settings size={14} color="var(--text-muted)" />
             </button>
 
             {isDrawerOpen && (
@@ -381,7 +384,7 @@ function FlowContent() {
                 boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 100 
               }}>
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.3rem' }}>프로젝트 제목</label>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>프로젝트 제목</label>
                   <input 
                     type="text" 
                     value={projectTitle} 
@@ -389,13 +392,13 @@ function FlowContent() {
                     disabled={!isOwner}
                     style={{ 
                       width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', 
-                      color: 'white', fontSize: '0.9rem', padding: '0.5rem', borderRadius: '4px', outline: 'none',
+                      color: 'var(--text-color)', fontSize: '0.9rem', padding: '0.5rem', borderRadius: '4px', outline: 'none',
                       boxSizing: 'border-box'
                     }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.3rem' }}>프로젝트 명세 (Description)</label>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>프로젝트 명세 (Description)</label>
                   <textarea 
                     value={projectDescription} 
                     onChange={(e) => setProjectDescription(e.target.value)}
@@ -404,7 +407,7 @@ function FlowContent() {
                     placeholder="이 워크플로우에 대한 설명이나 기획 의도를 적어두세요."
                     style={{ 
                       width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', 
-                      color: 'white', fontSize: '0.9rem', padding: '0.5rem', borderRadius: '4px', outline: 'none',
+                      color: 'var(--text-color)', fontSize: '0.9rem', padding: '0.5rem', borderRadius: '4px', outline: 'none',
                       resize: 'none', boxSizing: 'border-box'
                     }}
                   />
@@ -420,7 +423,7 @@ function FlowContent() {
               <button 
                 className="btn-secondary" 
                 onClick={toggleShare}
-                style={{ background: isPublic ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: isPublic ? '#10b981' : '#94a3b8', borderColor: isPublic ? '#10b981' : '#334155' }}
+                style={{ background: isPublic ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: isPublic ? '#10b981' : 'var(--text-muted)', borderColor: isPublic ? '#10b981' : '#334155' }}
               >
                 <Share2 size={16} />
                 {isPublic ? '공개됨' : '비공개'}
@@ -437,7 +440,7 @@ function FlowContent() {
               )}
             </>
           )}
-          <button className="btn-run" onClick={() => setIsTemplateModalOpen(true)} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'white' }}>
+          <button className="btn-run" onClick={() => setIsTemplateModalOpen(true)} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}>
             <Folder size={16} />
           </button>
           <button className="btn-run" onClick={runFlow} disabled={isLoading}>
@@ -461,7 +464,7 @@ function FlowContent() {
             onNodeDragStop={onNodeDragStop}
             nodeTypes={nodeTypes}
             defaultEdgeOptions={{ 
-              style: { strokeWidth: 2, stroke: '#94a3b8' },
+              style: { strokeWidth: 2, stroke: 'var(--text-muted)' },
               type: 'smoothstep'
             }}
             deleteKeyCode={['Backspace', 'Delete']}
@@ -510,7 +513,7 @@ function FlowContent() {
                   <a 
                     href={`http://localhost:8000/${response.replace(/\\/g, '/')}`} 
                     target="_blank" rel="noreferrer"
-                    style={{ display: 'inline-block', padding: '8px 16px', background: '#3b82f6', color: 'white', textDecoration: 'none', borderRadius: '4px', marginTop: '10px' }}
+                    style={{ display: 'inline-block', padding: '8px 16px', background: '#3b82f6', color: 'var(--text-color)', textDecoration: 'none', borderRadius: '4px', marginTop: '10px' }}
                   >
                     Download File
                   </a>
@@ -557,7 +560,7 @@ function FlowContent() {
           background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
           border: 'none',
           boxShadow: '0 4px 14px rgba(139, 92, 246, 0.4)',
-          color: 'white',
+          color: 'var(--text-color)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -603,7 +606,7 @@ function FlowContent() {
           borderTopRightRadius: '16px'
         }}>
           <Bot size={20} color="#a78bfa" />
-          <h3 style={{ margin: 0, fontSize: '1rem', color: 'white', fontWeight: 600 }}>AI 워크플로우 어시스턴트</h3>
+          <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-color)', fontWeight: 600 }}>AI 워크플로우 어시스턴트</h3>
         </div>
 
         {/* Chat Messages */}
@@ -625,11 +628,11 @@ function FlowContent() {
                 maxWidth: '85%',
                 padding: '0.75rem 1rem',
                 borderRadius: '12px',
-                background: msg.role === 'user' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)',
-                color: 'white',
+                background: msg.role === 'user' ? 'var(--primary-color)' : 'var(--btn-active-bg)',
+                color: msg.role === 'user' ? '#fff' : 'var(--text-color)',
                 fontSize: '0.9rem',
                 lineHeight: '1.4',
-                border: msg.role === 'user' ? 'none' : '1px solid rgba(255, 255, 255, 0.05)',
+                border: msg.role === 'user' ? 'none' : '1px solid var(--border-color)',
                 borderBottomRightRadius: msg.role === 'user' ? '4px' : '12px',
                 borderBottomLeftRadius: msg.role === 'assistant' ? '4px' : '12px'
               }}>
@@ -657,11 +660,11 @@ function FlowContent() {
             placeholder="AI에게 수정사항을 요청하세요..."
             style={{
               flex: 1,
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'var(--btn-active-bg)',
+              border: '1px solid var(--border-color)',
               borderRadius: '8px',
               padding: '0.75rem 1rem',
-              color: 'white',
+              color: 'var(--text-color)',
               outline: 'none',
               fontSize: '0.9rem'
             }}
@@ -670,14 +673,14 @@ function FlowContent() {
             onClick={handleSendChat}
             disabled={!chatInput.trim()}
             style={{
-              background: chatInput.trim() ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)',
+              background: chatInput.trim() ? 'var(--primary-color)' : 'var(--btn-active-bg)',
               border: 'none',
               borderRadius: '8px',
               width: '44px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'white',
+              color: 'var(--text-color)',
               cursor: chatInput.trim() ? 'pointer' : 'not-allowed',
               transition: 'background 0.2s'
             }}
@@ -699,3 +702,4 @@ function EditorPage() {
 }
 
 export default EditorPage;
+

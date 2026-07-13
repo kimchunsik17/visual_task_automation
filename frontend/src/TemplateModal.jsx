@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Save, Folder, X, Play, Info } from 'lucide-react';
 import './TemplateModal.css';
 
@@ -474,3 +474,4 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
     </div>
   );
 }
+

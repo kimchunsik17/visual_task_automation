@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+﻿import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import MainPage from './pages/MainPage';
 import EditorPage from './pages/EditorPage';
 import WorkflowsPage from './pages/WorkflowsPage';
@@ -24,3 +24,4 @@ function App() {
 }
 
 export default App;
+

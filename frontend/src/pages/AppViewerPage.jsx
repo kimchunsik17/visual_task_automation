@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Send, Bot, User } from 'lucide-react';
@@ -92,14 +92,14 @@ const AppViewerPage = () => {
     setChatHistory(prev => [...prev, { role: 'bot', content: result }]);
   };
 
-  if (isLoading) return <div style={{ color: 'white', padding: '2rem' }}>로딩 중...</div>;
-  if (!project) return <div style={{ color: 'white', padding: '2rem' }}>프로젝트를 찾을 수 없습니다.</div>;
+  if (isLoading) return <div style={{ color: 'var(--text-color)', padding: '2rem' }}>로딩 중...</div>;
+  if (!project) return <div style={{ color: 'var(--text-color)', padding: '2rem' }}>프로젝트를 찾을 수 없습니다.</div>;
 
   return (
-    <div style={{ backgroundColor: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column', color: 'white' }}>
+    <div style={{ backgroundColor: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column', color: 'var(--text-color)' }}>
       <header style={{ padding: '1rem 2rem', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--card-bg)' }}>
         <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>{project.title}</h1>
-        {project.description && <p style={{ margin: '0.5rem 0 0 0', color: '#94a3b8', fontSize: '0.9rem' }}>{project.description}</p>}
+        {project.description && <p style={{ margin: '0.5rem 0 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>{project.description}</p>}
       </header>
 
       <main style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '2rem' }}>
@@ -107,7 +107,7 @@ const AppViewerPage = () => {
           <div style={{ width: '100%', maxWidth: '600px', backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '2rem' }}>
             <form onSubmit={handleFormSubmit}>
               {dynamicNodes.length === 0 ? (
-                <p style={{ color: '#94a3b8' }}>이 워크플로우에는 동적 입력 노드가 없습니다. 바로 실행해 보세요.</p>
+                <p style={{ color: 'var(--text-muted)' }}>이 워크플로우에는 동적 입력 노드가 없습니다. 바로 실행해 보세요.</p>
               ) : (
                 dynamicNodes.map(node => (
                   <div key={node.id} style={{ marginBottom: '1.5rem' }}>
@@ -118,7 +118,7 @@ const AppViewerPage = () => {
                       type="text"
                       value={formInputs[node.id] || ''}
                       onChange={(e) => setFormInputs({...formInputs, [node.id]: e.target.value})}
-                      style={{ width: '100%', padding: '0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'white' }}
+                      style={{ width: '100%', padding: '0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'var(--text-color)' }}
                       required
                     />
                   </div>
@@ -145,7 +145,7 @@ const AppViewerPage = () => {
           <div style={{ width: '100%', maxWidth: '800px', backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 150px)' }}>
             <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {chatHistory.length === 0 ? (
-                <div style={{ margin: 'auto', textAlign: 'center', color: '#94a3b8' }}>
+                <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)' }}>
                   <Bot size={48} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
                   <p>대화를 시작해 보세요. 워크플로우가 실행됩니다.</p>
                 </div>
@@ -165,7 +165,7 @@ const AppViewerPage = () => {
               )}
               {isExecuting && (
                 <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-                  <div style={{ padding: '1rem', borderRadius: '12px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#94a3b8' }}>
+                  <div style={{ padding: '1rem', borderRadius: '12px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-muted)' }}>
                     실행 중...
                   </div>
                 </div>
@@ -179,7 +179,7 @@ const AppViewerPage = () => {
                   value={currentMessage}
                   onChange={(e) => setCurrentMessage(e.target.value)}
                   placeholder="메시지를 입력하세요..."
-                  style={{ flex: 1, padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'white', outline: 'none' }}
+                  style={{ flex: 1, padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'var(--text-color)', outline: 'none' }}
                   disabled={isExecuting}
                 />
                 <button type="submit" className="btn-run" disabled={isExecuting || !currentMessage.trim()} style={{ padding: '0 1.5rem', borderRadius: '8px' }}>
@@ -195,3 +195,4 @@ const AppViewerPage = () => {
 };
 
 export default AppViewerPage;
+

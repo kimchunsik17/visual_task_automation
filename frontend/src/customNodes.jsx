@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer } from '@xyflow/react';
 import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck } from 'lucide-react';
 import axios from 'axios';
@@ -148,7 +148,7 @@ export const ValueNode = ({ id, data }) => {
               onChange={handleFileUpload} 
               disabled={isUploading}
             />
-            <label htmlFor={`file-upload-${id}`} style={{ display: 'block', textAlign: 'center', padding: '4px 8px', backgroundColor: '#be185d', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+            <label htmlFor={`file-upload-${id}`} style={{ display: 'block', textAlign: 'center', padding: '4px 8px', backgroundColor: '#be185d', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
               {isUploading ? 'Uploading...' : 'Upload File (PDF, Excel, PPT, HWP)'}
             </label>
           </div>
@@ -215,7 +215,7 @@ export const ConditionNode = ({ id, data }) => {
               className="nodrag"
               value={rule.operator}
               onChange={(e) => updateRule(rule.id, 'operator', e.target.value)}
-              style={{ width: '35%', padding: '0.25rem', marginRight: '5px', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
+              style={{ width: '35%', padding: '0.25rem', marginRight: '5px', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
             >
               <option value="==">== (Equals)</option>
               <option value="Contains">Contains</option>
@@ -231,7 +231,7 @@ export const ConditionNode = ({ id, data }) => {
               value={rule.value}
               onChange={(e) => updateRule(rule.id, 'value', e.target.value)}
               placeholder="Value"
-              style={{ flex: 1, padding: '0.25rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem', minWidth: 0 }}
+              style={{ flex: 1, padding: '0.25rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem', minWidth: 0 }}
             />
             
             <button 
@@ -261,12 +261,12 @@ export const ConditionNode = ({ id, data }) => {
         </div>
 
         <div style={{ position: 'relative', marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem' }}>
-          <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Else (Fallback)</span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Else (Fallback)</span>
           <Handle 
             type="source" 
             position={Position.Right} 
             id="else" 
-            style={{ right: '-16px', background: '#94a3b8' }} 
+            style={{ right: '-16px', background: 'var(--text-muted)' }} 
           />
         </div>
 
@@ -304,7 +304,7 @@ export const LoopNode = ({ id, data, selected }) => {
               className="nodrag"
               defaultValue={data.maxIterations || 5}
               onChange={(e) => data.onChange(id, 'maxIterations', e.target.value)}
-              style={{ width: '60px', padding: '0.1rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
+              style={{ width: '60px', padding: '0.1rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
               min="1"
               max="100"
             />
@@ -331,12 +331,12 @@ export const LoopNode = ({ id, data, selected }) => {
           
           {/* Done handle placed at bottom right */}
           <div style={{ position: 'absolute', right: 0, bottom: '15px', width: '100%', textAlign: 'right', paddingRight: '10px' }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Done</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Done</span>
             <Handle 
               type="source" 
               position={Position.Right} 
               id="done" 
-              style={{ right: '-8px', background: '#94a3b8' }} 
+              style={{ right: '-8px', background: 'var(--text-muted)' }} 
             />
           </div>
         </div>
@@ -427,12 +427,12 @@ export const TokenizerNode = ({ id, data }) => {
           className="nodrag"
           value={data.method || 'extract_text'}
           onChange={(e) => data.onChange(id, 'method', e.target.value)}
-          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.5rem' }}
+          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.5rem' }}
         >
           <option value="extract_text">Extract All Text</option>
           <option value="chunk_pages">Chunk by Page</option>
         </select>
-        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
           Supports PDF, PPTX, Excel, HWP/HWPX
         </div>
       </div>
@@ -510,7 +510,7 @@ export const FileModifierNode = ({ id, data }) => {
               onChange={handleFileUpload} 
               disabled={isUploading}
             />
-            <label htmlFor={`file-upload-template-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#ea580c', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+            <label htmlFor={`file-upload-template-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#ea580c', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
               {isUploading ? 'Uploading...' : 'Upload Template File'}
             </label>
           </div>
@@ -523,10 +523,10 @@ export const FileModifierNode = ({ id, data }) => {
           defaultValue={data.output_path || ''}
           onChange={(e) => data.onChange(id, 'output_path', e.target.value)}
           placeholder="e.g. output.hwp or output.xlsx"
-          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '8px' }}
+          style={{ width: '100%', padding: '0.4rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '8px' }}
         />
         
-        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
           Requires JSON input. Replaces {'{{key}}'} in Excel/PPT and fills 누름틀 in HWP.
         </div>
       </div>
@@ -585,13 +585,13 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
               onChange={handleFileUpload} 
               disabled={isUploading}
             />
-            <label htmlFor={`file-upload-analyzer-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#0d9488', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+            <label htmlFor={`file-upload-analyzer-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#0d9488', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
               {isUploading ? 'Uploading...' : 'Upload Blank Template'}
             </label>
           </div>
         )}
         
-        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
           Analyzes the template and extracts placeholders {'{{key}}'} as a JSON schema.
         </div>
       </div>
@@ -616,7 +616,7 @@ export const DynamicInputNode = ({ id, data }) => {
           defaultValue={data.inputLabel || '사용자 입력을 기다립니다...'}
           onChange={(e) => data.onChange(id, 'inputLabel', e.target.value)}
           placeholder="예: 이름이 무엇인가요?"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
         <label>테스트용 입력값 (에디터 실행용)</label>
         <input 
@@ -625,9 +625,9 @@ export const DynamicInputNode = ({ id, data }) => {
           defaultValue={data.testValue || ''}
           onChange={(e) => data.onChange(id, 'testValue', e.target.value)}
           placeholder="테스트 실행 시 사용할 값"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
         />
-        <label style={{ marginTop: '0.5rem', color: '#94a3b8', fontSize: '0.75rem' }}>* 배포 모드에서 사용자에게 보일 입력칸입니다.</label>
+        <label style={{ marginTop: '0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>* 배포 모드에서 사용자에게 보일 입력칸입니다.</label>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -650,7 +650,7 @@ export const WebCrawlerNode = ({ id, data }) => {
           defaultValue={data.url || ''}
           onChange={(e) => data.onChange(id, 'url', e.target.value)}
           placeholder="https://example.com"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -674,7 +674,7 @@ export const EmailNode = ({ id, data }) => {
           defaultValue={data.toEmail || ''}
           onChange={(e) => data.onChange(id, 'toEmail', e.target.value)}
           placeholder="receiver@example.com"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
         />
         <label style={{ marginTop: '0.5rem' }}>제목</label>
         <input 
@@ -682,7 +682,7 @@ export const EmailNode = ({ id, data }) => {
           className="nodrag"
           defaultValue={data.subject || 'Auto Flow 알림'}
           onChange={(e) => data.onChange(id, 'subject', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -699,7 +699,7 @@ export const KakaoNode = ({ id, data }) => {
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>* 이전 노드의 결과값이 카카오톡 메시지로 전송됩니다.</p>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>* 이전 노드의 결과값이 카카오톡 메시지로 전송됩니다.</p>
         <label style={{ marginTop: '0.5rem' }}>수신자 (옵션)</label>
         <input 
           type="text"
@@ -707,7 +707,7 @@ export const KakaoNode = ({ id, data }) => {
           defaultValue={data.receiver || ''}
           onChange={(e) => data.onChange(id, 'receiver', e.target.value)}
           placeholder="전화번호 또는 ID"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -731,7 +731,7 @@ export const DelayNode = ({ id, data }) => {
           defaultValue={data.seconds || 5}
           onChange={(e) => data.onChange(id, 'seconds', e.target.value)}
           min="1"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -753,7 +753,7 @@ export const JsonParserNode = ({ id, data }) => {
           className="nodrag"
           defaultValue={data.mode || 'parse'}
           onChange={(e) => data.onChange(id, 'mode', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
         >
           <option value="parse">String to JSON (파싱)</option>
           <option value="stringify">JSON to String (문자열화)</option>
@@ -766,7 +766,7 @@ export const JsonParserNode = ({ id, data }) => {
             placeholder="추출할 키 이름 (예: result)"
             defaultValue={data.extractKey || ''}
             onChange={(e) => data.onChange(id, 'extractKey', e.target.value)}
-            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
           />
         )}
       </div>
@@ -789,13 +789,13 @@ export const MergeNode = ({ id, data }) => {
           className="nodrag"
           defaultValue={data.mergeStrategy || 'join_newline'}
           onChange={(e) => data.onChange(id, 'mergeStrategy', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}
         >
           <option value="join_newline">줄바꿈으로 합치기</option>
           <option value="join_comma">쉼표로 합치기</option>
           <option value="array">JSON 배열로 만들기</option>
         </select>
-        <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>여러 노드를 왼쪽 핸들에 연결하세요.</p>
+        <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>여러 노드를 왼쪽 핸들에 연결하세요.</p>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -816,7 +816,7 @@ export const HttpRequestNode = ({ id, data }) => {
           className="nodrag"
           defaultValue={data.method || 'GET'}
           onChange={(e) => data.onChange(id, 'method', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         >
           <option value="GET">GET</option>
           <option value="POST">POST</option>
@@ -830,7 +830,7 @@ export const HttpRequestNode = ({ id, data }) => {
           placeholder="https://api.example.com/data"
           defaultValue={data.url || ''}
           onChange={(e) => data.onChange(id, 'url', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
         <label>Headers (JSON)</label>
         <input 
@@ -839,7 +839,7 @@ export const HttpRequestNode = ({ id, data }) => {
           placeholder='{"Authorization": "Bearer token"}'
           defaultValue={data.headers || ''}
           onChange={(e) => data.onChange(id, 'headers', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
         <label>Body (JSON)</label>
         <textarea 
@@ -848,7 +848,7 @@ export const HttpRequestNode = ({ id, data }) => {
           placeholder='{"key": "value"}'
           defaultValue={data.body || ''}
           onChange={(e) => data.onChange(id, 'body', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', resize: 'vertical' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -872,7 +872,7 @@ export const DatabaseNode = ({ id, data }) => {
           placeholder="sqlite:///data.db 또는 postgresql://..."
           defaultValue={data.connectionString || ''}
           onChange={(e) => data.onChange(id, 'connectionString', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
         <label>SQL 쿼리</label>
         <textarea 
@@ -881,7 +881,7 @@ export const DatabaseNode = ({ id, data }) => {
           placeholder="SELECT * FROM users;"
           defaultValue={data.query || ''}
           onChange={(e) => data.onChange(id, 'query', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', resize: 'vertical' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -905,10 +905,11 @@ export const HumanApprovalNode = ({ id, data }) => {
           placeholder="다음 단계로 진행하시겠습니까?"
           defaultValue={data.message || '승인이 필요합니다.'}
           onChange={(e) => data.onChange(id, 'message', e.target.value)}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'white', border: '1px solid var(--border-color)', resize: 'vertical' }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', resize: 'vertical' }}
         />
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
   );
 };
+

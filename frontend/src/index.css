@@ -1,9 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Jua&family=Quicksand:wght@500;600;700&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Jua&family=Quicksand:wght@500;600;700&display=swap');
 
 :root {
   --bg-color: #0f172a;
   --text-color: #f8fafc;
-  --text-muted: #94a3b8;
+  --text-muted: var(--text-muted);
   --primary-color: #3b82f6;
   --primary-hover: #2563eb;
   --card-bg: #1e293b;
@@ -79,7 +79,7 @@ button, input, textarea {
 
 .btn-run {
   background-color: var(--primary-color);
-  color: white;
+  color: var(--text-color);
   border: none;
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -354,7 +354,7 @@ button, input, textarea {
 
 .node-body label {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-muted);
   text-align: left;
 }
 
@@ -397,3 +397,4 @@ button, input, textarea {
   background-color: rgba(255,255,255,0.1);
 }
 .project-title-btn:hover { background: rgba(255, 255, 255, 0.05) !important; }
+

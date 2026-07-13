@@ -22,9 +22,13 @@ This project is a pilot prototype for a business automation visualization tool. 
    ```bash
    cd frontend
    ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 3. Build the frontend static files:
    ```bash
-   npm run dev
+   npm run build
    ```
    *(Note: For frontend-only development, you can use `npm run dev` instead).*
 
@@ -35,15 +39,26 @@ This project is a pilot prototype for a business automation visualization tool. 
    cd backend
    ```
 2. Create and activate a Python virtual environment:
-
+   ```bash
+   python -m venv venv
    # On Windows:
    venv\Scripts\activate
-
+   # On macOS/Linux:
+   source venv/bin/activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Set up Environment Variables:
+   - Copy `.env.example` to `.env` in the `backend` directory.
+   - Insert your `GEMINI_API_KEY`.
+   - Update `DATABASE_URL` with your PostgreSQL credentials (e.g., `postgresql://postgres:password@localhost/dbname`). 
 5. Run the FastAPI server:
    ```bash
    uvicorn main:app --reload
    ```
-   The application will start at `http://localhost:8000`. FastAPI will `automatically serve both the backend API and the compiled React frontend.
+   The application will start at `http://localhost:8000`. FastAPI will automatically serve both the backend API and the compiled React frontend.
 
 ## Pilot Version Verification Points
 

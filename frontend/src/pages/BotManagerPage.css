@@ -78,7 +78,7 @@
 .bot-name {
   margin: 0 0 1rem 0;
   font-size: 0.95rem;
-  color: #94a3b8;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -230,7 +230,7 @@
 
 .page-subtitle {
   margin: 0;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .btn-refresh {
@@ -277,7 +277,7 @@
   justify-content: center;
   padding: 4rem;
   text-align: center;
-  color: #94a3b8;
+  color: var(--text-muted);
   background: var(--card-bg);
   border: 1px dashed var(--border-color);
   border-radius: 12px;
