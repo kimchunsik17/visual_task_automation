@@ -35,11 +35,14 @@ class FlowExecutionLog(Base):
     __tablename__ = "flow_execution_logs"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     execution_time = Column(DateTime, default=datetime.datetime.utcnow)
     payload = Column(String)
     result = Column(String)
     total_tokens = Column(Integer, default=0)
     token_usage_details = Column(JSON, nullable=True)
+
+    user = relationship("User", backref="execution_logs")
 
 class BotLog(Base):
     __tablename__ = "bot_logs"

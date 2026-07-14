@@ -251,7 +251,7 @@ def estimate_tokens(payload: FlowPayload):
     }
 
 @app.post("/api/execute")
-def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
+def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """
     Receives graph data from frontend, runs LangGraph logic,
     saves execution to DB, and returns the result.
@@ -263,6 +263,7 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
     # 2. Save log to PostgreSQL (or SQLite fallback)
     try:
         db_log = models.FlowExecutionLog(
+            user_id=user.id if user else None,
             payload=json.dumps(payload.dict()),
             result=result_text,
             total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
@@ -359,7 +360,7 @@ if __name__ == "__main__":
     return {"status": "success"}
 
 @app.post("/api/deploy/{project_id}/execute")
-def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Session = Depends(get_db)):
+def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -369,6 +370,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     import json
     try:
         db_log = models.FlowExecutionLog(
+            user_id=user.id if user else None,
             payload=json.dumps({"project_id": project_id, "inputs": payload.inputs}),
             result=result_text,
             total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
@@ -518,6 +520,47 @@ def get_bot_logs(project_id: int, user: models.User = Depends(get_current_user_r
             "created_at": log.created_at
         } for log in logs
     ]
+
+@app.get("/api/statistics")
+def get_statistics(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    import datetime
+    
+    total_used = db.query(func.sum(models.FlowExecutionLog.total_tokens)).filter(models.FlowExecutionLog.user_id == user.id).scalar() or 0
+    total_allocated = 10000000 # 10M tokens allocated for demo
+    remaining = max(0, total_allocated - total_used)
+    
+    # Get last 7 days usage
+    seven_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=6) # include today, so 6 days ago
+    seven_days_ago = seven_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    recent_logs = db.query(models.FlowExecutionLog).filter(
+        models.FlowExecutionLog.user_id == user.id,
+        models.FlowExecutionLog.execution_time >= seven_days_ago
+    ).all()
+    
+    # Aggregate by date
+    daily_usage = {}
+    for i in range(7):
+        d = (datetime.datetime.utcnow() - datetime.timedelta(days=i)).date().isoformat()
+        daily_usage[d] = 0
+        
+    for log in recent_logs:
+        if log.execution_time:
+            date_str = log.execution_time.date().isoformat()
+            if date_str in daily_usage:
+                daily_usage[date_str] += log.total_tokens
+                
+    # Format for chart: array of {date: 'YYYY-MM-DD', tokens: 1234} sorted by date
+    chart_data = [{"date": k[-5:], "tokens": v, "fullDate": k} for k, v in sorted(daily_usage.items())]
+    
+    return {
+        "total_used": total_used,
+        "remaining": remaining,
+        "total_allocated": total_allocated,
+        "chart_data": chart_data
+    }
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
