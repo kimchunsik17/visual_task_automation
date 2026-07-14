@@ -307,7 +307,7 @@ function FlowContent() {
         edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
       };
 
-      const res = await axios.post('/api/execute', payload);
+      const res = await axios.post('/api/execute', payload, getAuthHeaders());
       setResponse(res.data.result || 'No content returned.');
       setTokenUsage(res.data.token_usage || null);
     } catch (error) {
