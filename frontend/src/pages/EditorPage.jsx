@@ -523,9 +523,9 @@ function FlowContent() {
               if (res.data.status === 'success') {
                 setEstimatedTokens(res.data);
                 if (!isTokenTrackingMode) setIsTokenTrackingMode(true);
-                alert(`[예상 소모 토큰량]\n최소 ${res.data.total_estimated_tokens} ~ 최대 ${res.data.total_max_tokens} tokens`);
+                alert(`[예상 소모 ${tokenDisplayMode === 'cost' ? '비용' : '토큰량'}]\n최소 ${formatTokenDisplay(res.data.total_estimated_tokens)} ~ 최대 ${formatTokenDisplay(res.data.total_max_tokens)} ${tokenDisplayMode === 'cost' ? '' : 'tokens'}`);
               } else {
-                alert('토큰 계산 실패: ' + res.data.message);
+                alert(`${tokenDisplayMode === 'cost' ? '비용' : '토큰'} 계산 실패: ` + res.data.message);
               }
             } catch (error) {
               console.error(error);
@@ -608,10 +608,12 @@ function FlowContent() {
           <h2>Execution Result</h2>
           {tokenUsage && (
             <div style={{ padding: '0.8rem', margin: '0 1rem 1rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6', borderRadius: '8px', fontSize: '0.85rem' }}>
-              <div style={{ fontWeight: 'bold', color: '#60a5fa', marginBottom: '0.5rem' }}>토큰 사용량 (Token Usage)</div>
+              <div style={{ fontWeight: 'bold', color: '#60a5fa', marginBottom: '0.5rem' }}>
+                {tokenDisplayMode === 'cost' ? '소모 비용 (Estimated Cost)' : '토큰 사용량 (Token Usage)'}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                <span>총 소모 토큰: {tokenUsage.total_tokens}</span>
-                <span>입력: {tokenUsage.total_input} / 출력: {tokenUsage.total_output}</span>
+                <span>총 {tokenDisplayMode === 'cost' ? '비용' : '소모 토큰'}: {formatTokenDisplay(tokenUsage.total_tokens)}</span>
+                <span>입력: {formatTokenDisplay(tokenUsage.total_input)} / 출력: {formatTokenDisplay(tokenUsage.total_output)}</span>
               </div>
             </div>
           )}
