@@ -688,6 +688,27 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
 };
 
 export const DynamicInputNode = ({ id, data }) => {
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await axios.post('/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      data.onChange(id, 'testValue', res.data.file_path);
+    } catch (err) {
+      console.error('File upload failed', err);
+      alert('파일 업로드에 실패했습니다.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="custom-node dynamic-input" style={{ minWidth: '220px' }}>
       <Handle type="target" position={Position.Left} id="in" />
@@ -705,16 +726,46 @@ export const DynamicInputNode = ({ id, data }) => {
           placeholder="예: 이름이 무엇인가요?"
           style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
         />
-        <label>테스트용 입력값 (에디터 실행용)</label>
-        <input 
-          type="text"
+        
+        <label>입력 타입</label>
+        <select
           className="nodrag"
-          defaultValue={data.testValue || ''}
-          onChange={(e) => data.onChange(id, 'testValue', e.target.value)}
-          placeholder="테스트 실행 시 사용할 값"
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
-        />
-        <label style={{ marginTop: '0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>* 배포 모드에서 사용자에게 보일 입력칸입니다.</label>
+          value={data.inputType || 'text'}
+          onChange={(e) => {
+            data.onChange(id, 'inputType', e.target.value);
+            data.onChange(id, 'testValue', ''); // Reset test value on type change
+          }}
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+        >
+          <option value="text">텍스트 (Text)</option>
+          <option value="file">파일 (File)</option>
+        </select>
+
+        <label>테스트용 입력값 (에디터 실행용)</label>
+        {(data.inputType === 'file') ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <input 
+              type="file" 
+              className="nodrag" 
+              onChange={handleFileUpload} 
+              disabled={uploading}
+              style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }} 
+            />
+            {uploading && <span style={{ fontSize: '0.75rem', color: '#fbbf24' }}>업로드 중...</span>}
+            {data.testValue && <span style={{ fontSize: '0.75rem', color: '#10b981', wordBreak: 'break-all' }}>업로드 완료: {data.testValue}</span>}
+          </div>
+        ) : (
+          <input 
+            type="text"
+            className="nodrag"
+            value={data.testValue || ''}
+            onChange={(e) => data.onChange(id, 'testValue', e.target.value)}
+            placeholder="테스트 실행 시 사용할 값"
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+          />
+        )}
+        
+        <label style={{ marginTop: '0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>* 배포 모드에서 사용자에게 보일 입력 칸입니다.</label>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>

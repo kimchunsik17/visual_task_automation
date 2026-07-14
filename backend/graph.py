@@ -118,7 +118,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     lines.append("        float(s)")
     lines.append("        return True")
     lines.append("    except ValueError:")
-    lines.append("        return False\n")
+    lines.append("        return False")
     lines.append("__token_usage__ = {'nodes': {}, 'total_input': 0, 'total_output': 0, 'total_tokens': 0}")
     lines.append("def run_workflow(**kwargs):")
     lines.append("    global __token_usage__")
@@ -199,13 +199,24 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}# --- Value Node ({node_id}) ---")
             
             if file_path:
+                lines.append(f"{indent}import os")
+                lines.append(f"{indent}file_content_{node_id} = ''")
+                lines.append(f"{indent}try:")
+                lines.append(f"{indent}    if os.path.exists(r\"{file_path}\"):")
+                lines.append(f"{indent}        with open(r\"{file_path}\", 'r', encoding='utf-8', errors='replace') as f:")
+                lines.append(f"{indent}            file_content_{node_id} = f.read()")
+                lines.append(f"{indent}    else:")
+                lines.append(f"{indent}        file_content_{node_id} = 'File not found'")
+                lines.append(f"{indent}except Exception as e:")
+                lines.append(f"{indent}    file_content_{node_id} = f'Error reading file: {{str(e)}}'")
+                
                 if prev_res_var:
-                    lines.append(f"{indent}val_{node_id} = str({prev_res_var}) + \"\\n\\n[Attached File: \" + r\"{file_path}\" + \"]\"")
+                    lines.append(f"{indent}val_{node_id} = f\"{{{prev_res_var}}}\\n\\n[Attached File: {file_path}]:\\n{{file_content_{node_id}}}\"")
                 else:
-                    lines.append(f"{indent}val_{node_id} = r\"{file_path}\"")
+                    lines.append(f"{indent}val_{node_id} = f\"[Attached File: {file_path}]:\\n{{file_content_{node_id}}}\"")
             else:
                 if prev_res_var:
-                    lines.append(f"{indent}val_{node_id} = str({prev_res_var}) + \"\\n\\n\" + \"{val}\"")
+                    lines.append(f"{indent}val_{node_id} = f\"{{{prev_res_var}}}\\n\\n[Value]:\\n{val}\"")
                 else:
                     lines.append(f"{indent}val_{node_id} = \"{val}\"")
                 
@@ -545,14 +556,28 @@ def compile_workflow(nodes: list, edges: list) -> str:
         elif node['type'] == 'dynamicInputNode':
             lines.append(f"{indent}# --- Dynamic Input Node ({node_id}) ---")
             input_label = node.get('data', {}).get('inputLabel', 'Input').replace('"', '\\"')
+            input_type = node.get('data', {}).get('inputType', 'text')
             test_val = node.get('data', {}).get('testValue', '').replace('"', '\\"').replace('\n', '\\n')
+            
             lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
             lines.append(f"{indent}if dyn_input_{node_id} is None:")
             lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', \"{test_val}\" if \"{test_val}\" else '<<No input provided>>')")
+            
+            if input_type == 'file':
+                lines.append(f"{indent}import os")
+                lines.append(f"{indent}file_content_{node_id} = ''")
+                lines.append(f"{indent}try:")
+                lines.append(f"{indent}    if os.path.exists(str(dyn_input_{node_id})):")
+                lines.append(f"{indent}        with open(str(dyn_input_{node_id}), 'r', encoding='utf-8', errors='replace') as f:")
+                lines.append(f"{indent}            file_content_{node_id} = f.read()")
+                lines.append(f"{indent}        dyn_input_{node_id} = file_content_{node_id}")
+                lines.append(f"{indent}except Exception as e:")
+                lines.append(f"{indent}    dyn_input_{node_id} = f'Error reading file: {{str(e)}}'")
+                
             if prev_res_var:
-                lines.append(f"{indent}last_result = str({prev_res_var}) + \"\\n\" + str(dyn_input_{node_id})")
+                lines.append(f"{indent}last_result = f\"{{{prev_res_var}}}\\n\\n[{input_label}]:\\n{{dyn_input_{node_id}}}\"")
             else:
-                lines.append(f"{indent}last_result = str(dyn_input_{node_id})")
+                lines.append(f"{indent}last_result = f\"[{input_label}]:\\n{{dyn_input_{node_id}}}\"")
             
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
@@ -865,7 +890,13 @@ def compile_workflow(nodes: list, edges: list) -> str:
         elif node['type'] == 'tokenizerNode':
             method = node.get('data', {}).get('method', 'extract_text')
             lines.append(f"{indent}# --- Tokenizer Node ({node_id}) ---")
-            lines.append(f"{indent}file_path = {prev_res_var if prev_res_var else 'last_result'}")
+            lines.append(f"{indent}file_path_raw = {prev_res_var if prev_res_var else 'last_result'}")
+            lines.append(f"{indent}import re")
+            lines.append(f"{indent}match_{node_id} = re.search(r'\\[Attached File: (.*?)\\]', str(file_path_raw))")
+            lines.append(f"{indent}if match_{node_id}:")
+            lines.append(f"{indent}    file_path = match_{node_id}.group(1)")
+            lines.append(f"{indent}else:")
+            lines.append(f"{indent}    file_path = str(file_path_raw)")
             lines.append(f"{indent}res_text_{node_id} = []")
             
             lines.append(f"{indent}if str(file_path).lower().endswith('.pdf'):")
@@ -958,8 +989,22 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}            res_text_{node_id} = [''.join(hwpx_text)]")
             lines.append(f"{indent}    except Exception as e:")
             lines.append(f"{indent}        res_text_{node_id} = [str(e)]")
-                
-            lines.append(f"{indent}last_result = res_text_{node_id}")
+            
+            lines.append(f"{indent}elif str(file_path).lower().endswith(('.txt', '.csv', '.md', '.json', '.html')):")
+            lines.append(f"{indent}    try:")
+            lines.append(f"{indent}        with open(file_path, 'r', encoding='utf-8') as f:")
+            lines.append(f"{indent}            res_text_{node_id} = [f.read()]")
+            lines.append(f"{indent}    except Exception as e:")
+            lines.append(f"{indent}        res_text_{node_id} = [f'Text Read Error: {{str(e)}}']")
+
+            lines.append(f"{indent}if res_text_{node_id}:")
+            lines.append(f"{indent}    parsed_str_{node_id} = '\\n'.join(res_text_{node_id})")
+            lines.append(f"{indent}    if match_{node_id}:")
+            lines.append(f"{indent}        last_result = str(file_path_raw).replace(match_{node_id}.group(0), f'[Parsed Content:]\\n{{parsed_str_{node_id}}}\\n')")
+            lines.append(f"{indent}    else:")
+            lines.append(f"{indent}        last_result = parsed_str_{node_id}")
+            lines.append(f"{indent}else:")
+            lines.append(f"{indent}    last_result = str(file_path_raw)")
             
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:

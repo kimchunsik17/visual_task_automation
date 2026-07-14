@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Send, Bot, User } from 'lucide-react';
+import { Send, Bot, User, Paperclip, X, Upload } from 'lucide-react';
 import './MainPage.css'; // Reuse existing layout classes if needed
 
 const AppViewerPage = () => {
@@ -15,6 +15,10 @@ const AppViewerPage = () => {
   // For Chatbot mode
   const [chatHistory, setChatHistory] = useState([]);
   const [currentMessage, setCurrentMessage] = useState('');
+  const [attachedFile, setAttachedFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const fileInputRef = useRef(null);
   
   const [isLoading, setIsLoading] = useState(true);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -70,6 +74,58 @@ const AppViewerPage = () => {
     }
   };
 
+  const handleFormFileChange = async (nodeId, file) => {
+    if (!file) return;
+    setUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await axios.post('/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setFormInputs(prev => ({ ...prev, [nodeId]: res.data.file_path }));
+    } catch (err) {
+      alert('업로드 실패');
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleChatFile = async (file) => {
+    if (!file) return;
+    setUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await axios.post('/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setAttachedFile({ path: res.data.file_path, name: file.name });
+    } catch (err) {
+      alert('업로드 실패');
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+  
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleChatFile(e.dataTransfer.files[0]);
+    }
+  };
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setFormResult(''); // Clear previous
@@ -82,13 +138,17 @@ const AppViewerPage = () => {
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
-    if (!currentMessage.trim()) return;
+    if (!currentMessage.trim() && !attachedFile) return;
 
-    const userMsg = currentMessage;
+    let userMsg = currentMessage;
+    if (attachedFile) {
+      userMsg = `[Attached File: ${attachedFile.path}]\n\n${userMsg}`;
+    }
+
     setChatHistory(prev => [...prev, { role: 'user', content: userMsg }]);
     setCurrentMessage('');
+    setAttachedFile(null);
 
-    // In chatbot mode, we assume there's one dynamic input node to feed this message to
     const targetNodeId = dynamicNodes.length > 0 ? dynamicNodes[0].id : 'default_input';
     
     const res = await executeFlow({ [targetNodeId]: userMsg });
@@ -120,13 +180,26 @@ const AppViewerPage = () => {
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
                       {node.data?.inputLabel || '입력'}
                     </label>
-                    <input
-                      type="text"
-                      value={formInputs[node.id] || ''}
-                      onChange={(e) => setFormInputs({...formInputs, [node.id]: e.target.value})}
-                      style={{ width: '100%', padding: '0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'var(--text-color)' }}
-                      required
-                    />
+                    {node.data?.inputType === 'file' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <input
+                          type="file"
+                          onChange={(e) => handleFormFileChange(node.id, e.target.files[0])}
+                          style={{ color: 'var(--text-muted)' }}
+                          disabled={uploadingFile}
+                        />
+                        {uploadingFile && <span style={{ fontSize: '0.8rem', color: '#fbbf24' }}>업로드 중...</span>}
+                        {formInputs[node.id] && <span style={{ fontSize: '0.8rem', color: '#10b981', wordBreak: 'break-all' }}>업로드 완료: {formInputs[node.id]}</span>}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={formInputs[node.id] || ''}
+                        onChange={(e) => setFormInputs({...formInputs, [node.id]: e.target.value})}
+                        style={{ width: '100%', padding: '0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'var(--text-color)' }}
+                        required
+                      />
+                    )}
                   </div>
                 ))
               )}
@@ -148,7 +221,22 @@ const AppViewerPage = () => {
           </div>
         ) : (
           /* Chatbot Mode */
-          <div style={{ width: '100%', maxWidth: '800px', backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 150px)' }}>
+          <div 
+            style={{ 
+              width: '100%', maxWidth: '800px', backgroundColor: 'var(--card-bg)', border: `2px ${isDragging ? 'dashed #3b82f6' : 'solid var(--border-color)'}`, 
+              borderRadius: '12px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 150px)', position: 'relative', transition: 'border 0.2s ease'
+            }}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {isDragging && (
+              <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}>
+                <Upload size={48} color="#3b82f6" style={{ marginBottom: '1rem' }} />
+                <h3 style={{ margin: 0, color: '#3b82f6' }}>파일을 여기에 드롭하세요</h3>
+              </div>
+            )}
+            
             <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {chatHistory.length === 0 ? (
                 <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -178,17 +266,43 @@ const AppViewerPage = () => {
               )}
             </div>
             
-            <div style={{ padding: '1rem', borderTop: '1px solid var(--border-color)' }}>
-              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ padding: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {attachedFile && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'rgba(59, 130, 246, 0.1)', padding: '0.5rem 1rem', borderRadius: '8px', width: 'fit-content' }}>
+                  <Paperclip size={14} color="#3b82f6" />
+                  <span style={{ fontSize: '0.85rem', color: '#60a5fa' }}>{attachedFile.name}</span>
+                  <button onClick={() => setAttachedFile(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              {uploadingFile && (
+                <div style={{ fontSize: '0.8rem', color: '#fbbf24', marginLeft: '0.5rem' }}>파일 업로드 중...</div>
+              )}
+              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  style={{ display: 'none' }} 
+                  onChange={(e) => handleChatFile(e.target.files[0])} 
+                />
+                <button 
+                  type="button" 
+                  onClick={() => fileInputRef.current?.click()} 
+                  disabled={isExecuting || uploadingFile}
+                  style={{ padding: '0.8rem', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                >
+                  <Paperclip size={20} />
+                </button>
                 <input
                   type="text"
                   value={currentMessage}
                   onChange={(e) => setCurrentMessage(e.target.value)}
-                  placeholder="메시지를 입력하세요..."
+                  placeholder="메시지를 입력하거나 파일을 드래그 하세요..."
                   style={{ flex: 1, padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'var(--text-color)', outline: 'none' }}
-                  disabled={isExecuting}
+                  disabled={isExecuting || uploadingFile}
                 />
-                <button type="submit" className="btn-run" disabled={isExecuting || !currentMessage.trim()} style={{ padding: '0 1.5rem', borderRadius: '8px' }}>
+                <button type="submit" className="btn-run" disabled={isExecuting || uploadingFile || (!currentMessage.trim() && !attachedFile)} style={{ padding: '0 1.5rem', borderRadius: '8px' }}>
                   <Send size={20} />
                 </button>
               </form>
