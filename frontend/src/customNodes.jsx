@@ -113,6 +113,18 @@ export const LLMNode = ({ id, data }) => {
           onChange={(e) => data.onChange(id, 'userPrompt', e.target.value)}
           placeholder="Enter question or user prompt..."
         />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <input 
+            type="checkbox" 
+            id={`memory-${id}`}
+            checked={data.useMemory || false}
+            onChange={(e) => data.onChange(id, 'useMemory', e.target.checked)}
+            style={{ cursor: 'pointer' }}
+          />
+          <label htmlFor={`memory-${id}`} style={{ margin: 0, cursor: 'pointer', fontSize: '0.8rem', color: '#cbd5e1' }}>
+            💾 대화 기억하기 (DB 연동)
+          </label>
+        </div>
         {data.isTokenTrackingMode && (
           <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid #8b5cf6', borderRadius: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>

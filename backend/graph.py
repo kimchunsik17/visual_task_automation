@@ -1,3 +1,5 @@
+import models
+import json
 import os
 from typing import TypedDict, Annotated, List, Dict, Any
 from langgraph.graph import StateGraph, START, END
@@ -82,7 +84,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     if needs_anthropic:
         lines.append("from langchain_anthropic import ChatAnthropic")
     lines.append("from langchain_core.prompts import ChatPromptTemplate")
-    lines.append("from langchain_core.messages import SystemMessage")
+    lines.append("from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, messages_from_dict, messages_to_dict")
     lines.append("import requests")
     lines.append("from bs4 import BeautifulSoup")
     lines.append("from dotenv import load_dotenv\n")
@@ -214,10 +216,36 @@ def compile_workflow(nodes: list, edges: list) -> str:
             else:
                 lines.append(f"{indent}full_prompt_{node_id} = \"{user_prompt}\"")
                 
+            llm_n = node_dict.get(current_llm) if current_llm and not current_llm.startswith("fb_") else None
+            use_memory = llm_n.get('data', {}).get('useMemory', False) if llm_n else False
             lines.append(f"{indent}sys_msg_{node_id} = SystemMessage(content={sys_var})")
-            lines.append(f"{indent}prompt_{node_id} = ChatPromptTemplate.from_messages([sys_msg_{node_id}, ('user', \"{{user_input}}\")])")
-            lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | llm_{current_llm}")
-            lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
+            if use_memory:
+                lines.append(f"{indent}history_msgs_{node_id} = []")
+                lines.append(f"{indent}mem_record_{node_id} = None")
+                lines.append(f"{indent}if db:")
+                lines.append(f"{indent}    session_id = kwargs.get('session_id', 'default')")
+                lines.append(f"{indent}    project_id = kwargs.get('project_id', 0)")
+                lines.append(f"{indent}    mem_record_{node_id} = db.query(models.NodeMemory).filter_by(session_id=session_id, project_id=project_id, node_id='{node_id}').first()")
+                lines.append(f"{indent}    if mem_record_{node_id}:")
+                lines.append(f"{indent}        history_msgs_{node_id} = messages_from_dict(json.loads(mem_record_{node_id}.history))")
+                
+                lines.append(f"{indent}prompt_{node_id} = ChatPromptTemplate.from_messages([sys_msg_{node_id}, ('placeholder', '{{history}}'), ('user', \"{{user_input}}\")])")
+                lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | llm_{current_llm}")
+                lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
+                
+                lines.append(f"{indent}if db:")
+                lines.append(f"{indent}    history_msgs_{node_id}.append(HumanMessage(content=full_prompt_{node_id}))")
+                lines.append(f"{indent}    history_msgs_{node_id}.append(AIMessage(content=str(res_obj_{node_id}.content)))")
+                lines.append(f"{indent}    if not mem_record_{node_id}:")
+                lines.append(f"{indent}        mem_record_{node_id} = models.NodeMemory(session_id=session_id, project_id=project_id, node_id='{node_id}', history=json.dumps(messages_to_dict(history_msgs_{node_id}), ensure_ascii=False))")
+                lines.append(f"{indent}        db.add(mem_record_{node_id})")
+                lines.append(f"{indent}    else:")
+                lines.append(f"{indent}        mem_record_{node_id}.history = json.dumps(messages_to_dict(history_msgs_{node_id}), ensure_ascii=False)")
+                lines.append(f"{indent}    db.commit()")
+            else:
+                lines.append(f"{indent}prompt_{node_id} = ChatPromptTemplate.from_messages([sys_msg_{node_id}, ('user', \"{{user_input}}\")])")
+                lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | llm_{current_llm}")
+                lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
             lines.append(f"{indent}res_text_{node_id} = str(res_obj_{node_id}.content)")
             
             lines.append(f"{indent}usage_dict = getattr(res_obj_{node_id}, 'usage_metadata', None)")
@@ -249,10 +277,35 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 else:
                     lines.append(f"{indent}full_prompt_{node_id} = \"{user_prompt}\"")
                     
+                use_memory = node.get('data', {}).get('useMemory', False)
                 lines.append(f"{indent}sys_msg_sa_{node_id} = SystemMessage(content=sys_prompt_{node_id})")
-                lines.append(f"{indent}prompt_sa_{node_id} = ChatPromptTemplate.from_messages([sys_msg_sa_{node_id}, ('user', \"{{user_input}}\")])")
-                lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | llm_{node_id}")
-                lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
+                if use_memory:
+                    lines.append(f"{indent}history_msgs_{node_id} = []")
+                    lines.append(f"{indent}mem_record_{node_id} = None")
+                    lines.append(f"{indent}if db:")
+                    lines.append(f"{indent}    session_id = kwargs.get('session_id', 'default')")
+                    lines.append(f"{indent}    project_id = kwargs.get('project_id', 0)")
+                    lines.append(f"{indent}    mem_record_{node_id} = db.query(models.NodeMemory).filter_by(session_id=session_id, project_id=project_id, node_id='{node_id}').first()")
+                    lines.append(f"{indent}    if mem_record_{node_id}:")
+                    lines.append(f"{indent}        history_msgs_{node_id} = messages_from_dict(json.loads(mem_record_{node_id}.history))")
+                    
+                    lines.append(f"{indent}prompt_sa_{node_id} = ChatPromptTemplate.from_messages([sys_msg_sa_{node_id}, ('placeholder', '{{history}}'), ('user', \"{{user_input}}\")])")
+                    lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | llm_{node_id}")
+                    lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
+                    
+                    lines.append(f"{indent}if db:")
+                    lines.append(f"{indent}    history_msgs_{node_id}.append(HumanMessage(content=full_prompt_{node_id}))")
+                    lines.append(f"{indent}    history_msgs_{node_id}.append(AIMessage(content=str(res_obj_sa_{node_id}.content)))")
+                    lines.append(f"{indent}    if not mem_record_{node_id}:")
+                    lines.append(f"{indent}        mem_record_{node_id} = models.NodeMemory(session_id=session_id, project_id=project_id, node_id='{node_id}', history=json.dumps(messages_to_dict(history_msgs_{node_id}), ensure_ascii=False))")
+                    lines.append(f"{indent}        db.add(mem_record_{node_id})")
+                    lines.append(f"{indent}    else:")
+                    lines.append(f"{indent}        mem_record_{node_id}.history = json.dumps(messages_to_dict(history_msgs_{node_id}), ensure_ascii=False)")
+                    lines.append(f"{indent}    db.commit()")
+                else:
+                    lines.append(f"{indent}prompt_sa_{node_id} = ChatPromptTemplate.from_messages([sys_msg_sa_{node_id}, ('user', \"{{user_input}}\")])")
+                    lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | llm_{node_id}")
+                    lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
                 lines.append(f"{indent}res_text_{node_id} = str(res_obj_sa_{node_id}.content)")
                 
                 lines.append(f"{indent}usage_dict_sa = getattr(res_obj_sa_{node_id}, 'usage_metadata', None)")
@@ -921,7 +974,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     return "\n".join(lines)
 
 
-def run_workflow(nodes: list, edges: list, **kwargs):
+def run_workflow(nodes: list, edges: list, db=None, **kwargs):
     """
     Compiles the graph into Python code and dynamically executes it using exec().
     Returns a tuple (result_text, token_usage_dict).
@@ -932,7 +985,7 @@ def run_workflow(nodes: list, edges: list, **kwargs):
         return python_code, {}
         
     # Dynamically execute the generated code
-    namespace = {}
+    namespace = {'db': db, 'models': models, 'json': json}
     try:
         # We wrap it in a try-except to catch compile/runtime errors safely
         exec(python_code, namespace)

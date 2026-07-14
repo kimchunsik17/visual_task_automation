@@ -281,7 +281,7 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
         
     # 1. Run LangGraph
     try:
-        result_text, tokens = run_workflow(payload.nodes, payload.edges)
+        result_text, tokens = run_workflow(payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -404,7 +404,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    result_text, tokens = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), **payload.inputs)
+    result_text, tokens = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **payload.inputs)
     
     import json
     try:

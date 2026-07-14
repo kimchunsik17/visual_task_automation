@@ -64,7 +64,7 @@ def start_discord_bot(project_id: int, token: str):
                 
                 nodes = project.graph_data.get('nodes', [])
                 edges = project.graph_data.get('edges', [])
-                return run_workflow(nodes, edges, default_input=content)
+                return run_workflow(nodes, edges, db=db, session_id=str(message.author), project_id=project_id, default_input=content)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
