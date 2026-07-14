@@ -348,7 +348,7 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
         db.rollback()
 
     # 3. Return response to frontend
-    return {"status": "success", "result": result_text, "token_usage": tokens}
+    return {"status": "success", "result": result_text, "token_usage": tokens, "logs": logs}
 
 @app.get("/api/projects/{project_id}/runs")
 def get_project_runs(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
