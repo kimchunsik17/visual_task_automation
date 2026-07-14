@@ -112,7 +112,7 @@ button, input, textarea {
 
 .btn-secondary {
   background-color: transparent;
-  color: #e2e8f0;
+  color: var(--text-color);
   border: 1px solid var(--border-color);
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -129,12 +129,12 @@ button, input, textarea {
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: #475569;
+  background-color: var(--btn-active-bg);
+  border-color: var(--primary-color);
 }
 
 .btn-secondary:active:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--btn-active-bg);
 }
 
 .btn-secondary:disabled {
@@ -394,7 +394,7 @@ button, input, textarea {
   fill: var(--text-color);
 }
 .react-flow__controls-button:hover {
-  background-color: rgba(255,255,255,0.1);
+  background-color: var(--btn-active-bg);
 }
-.project-title-btn:hover { background: rgba(255, 255, 255, 0.05) !important; }
+.project-title-btn:hover { background: var(--btn-active-bg) !important; }
 

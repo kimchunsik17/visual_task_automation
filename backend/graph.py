@@ -5,6 +5,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 
+from node_registry import node_registry
+import node_generators.slack_node
+
 load_dotenv()
 
 def compile_workflow(nodes: list, edges: list) -> str:
@@ -130,6 +133,25 @@ def compile_workflow(nodes: list, edges: list) -> str:
         if not node:
             return
             
+        # 1. Use Registry if available (New Architecture)
+        if node_registry.has_node(node['type']):
+            generator = node_registry.get_generator(node['type'])
+            generator(
+                node_id=node_id,
+                node=node,
+                indent=indent,
+                active_llm_id=active_llm_id,
+                prev_res_var=prev_res_var,
+                visited=visited,
+                node_dict=node_dict,
+                forward_edges=forward_edges,
+                incoming_edges=incoming_edges,
+                lines=lines,
+                generate_block_fn=generate_block
+            )
+            return
+            
+        # 2. Fallback to Legacy Hardcoded Generation
         if node['type'] == 'startNode':
             lines.append(f"{indent}# --- Start Node ({node_id}) ---")
             next_edges = forward_edges.get(node_id, [])

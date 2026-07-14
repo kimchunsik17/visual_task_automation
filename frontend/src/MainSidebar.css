@@ -1,4 +1,4 @@
-﻿.main-sidebar {
+.main-sidebar {
   width: 260px;
   background-color: var(--card-bg);
   border-right: 1px solid var(--border-color);
@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .brand-name {
@@ -49,7 +49,7 @@
 }
 
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--btn-active-bg);
   color: var(--text-color);
 }
 
@@ -60,14 +60,14 @@
 
 .nav-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-color);
   margin: 1rem 0;
 }
 
 .main-sidebar-footer {
   padding: 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(0, 0, 0, 0.1);
+  border-top: 1px solid var(--border-color);
+  background: var(--btn-active-bg);
 }
 
 .user-profile-vertical {
@@ -107,9 +107,9 @@
   width: 100%;
   padding: 0.6rem;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #cbd5e1;
+  background: var(--btn-active-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s;
@@ -119,7 +119,7 @@
 .btn-logout:hover {
   background: rgba(239, 68, 68, 0.1);
   color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 .login-container {

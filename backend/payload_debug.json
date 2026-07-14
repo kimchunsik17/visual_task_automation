@@ -1,0 +1,87 @@
+{
+  "nodes": [
+    {
+      "id": "node_start",
+      "type": "startNode",
+      "data": {
+        "label": "시작"
+      }
+    },
+    {
+      "id": "node_1",
+      "type": "templateAnalyzerNode",
+      "data": {
+        "label": "템플릿 분석기",
+        "template_path": "C:\\Users\\kimchunsik\\Desktop\\업무자동화 비주얼화\\backend\\uploads\\입사 지원서 .hwp",
+        "filename": "입사 지원서 .hwp"
+      }
+    },
+    {
+      "id": "node_info",
+      "type": "valueNode",
+      "data": {
+        "label": "지원자 정보",
+        "value": "홍길동은 네이버에서 3년간 마케팅 기획자로 일했습니다. 연락처는 010-1234-5678이며 마케팅 팀에 지원합니다."
+      }
+    },
+    {
+      "id": "node_2",
+      "type": "promptNode",
+      "data": {
+        "label": "프롬프트",
+        "userPrompt": "다음 JSON 형식(keys)에 맞게 텍스트에서 정보를 추출해 줘. 반드시 JSON 형식으로만 대답해."
+      }
+    },
+    {
+      "id": "node_3",
+      "type": "llmNode",
+      "data": {
+        "label": "LLM",
+        "model": "gemini-3.5-flash",
+        "systemPrompt": "당신은 정확한 데이터 추출 어시스턴트입니다."
+      }
+    },
+    {
+      "id": "node_4",
+      "type": "fileModifierNode",
+      "data": {
+        "label": "자동 채우기",
+        "template_path": "C:\\Users\\kimchunsik\\Desktop\\업무자동화 비주얼화\\backend\\uploads\\입사 지원서 .hwp",
+        "filename": "입사 지원서 .hwp",
+        "output_path": "output_filled.hwp"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "node_start",
+      "target": "node_1",
+      "sourceHandle": "out",
+      "targetHandle": "in"
+    },
+    {
+      "source": "node_1",
+      "target": "node_info",
+      "sourceHandle": "out",
+      "targetHandle": "in"
+    },
+    {
+      "source": "node_info",
+      "target": "node_2",
+      "sourceHandle": "out",
+      "targetHandle": "in"
+    },
+    {
+      "source": "node_2",
+      "target": "node_3",
+      "sourceHandle": "out",
+      "targetHandle": "in"
+    },
+    {
+      "source": "node_3",
+      "target": "node_4",
+      "sourceHandle": "out",
+      "targetHandle": "in"
+    }
+  ]
+}

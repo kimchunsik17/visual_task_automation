@@ -33,7 +33,7 @@ export const StartNode = ({ id, data }) => {
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body" style={{ textAlign: 'center', padding: '10px' }}>
-        <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1' }}>시작점</p>
+        <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>시작점</p>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -171,7 +171,7 @@ export const ValueNode = ({ id, data }) => {
       <div className="node-body">
         <label>Static Value or File</label>
         {data.filename ? (
-          <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '8px', backgroundColor: 'var(--btn-active-bg)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span title={data.file_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
             <button className="nodrag" onClick={() => { data.onChange(id, 'file_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
           </div>
@@ -214,7 +214,7 @@ export const OutputNode = ({ id, data }) => {
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <div style={{fontSize: '0.8rem', color: '#ccc'}}>Final Result</div>
+        <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>Final Result</div>
       </div>
     </div>
   );
@@ -300,7 +300,7 @@ export const ConditionNode = ({ id, data }) => {
           <button 
             className="nodrag" 
             onClick={addRule}
-            style={{ background: 'rgba(255,255,255,0.1)', border: '1px dashed #ccc', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', width: '100%' }}
+            style={{ background: 'var(--btn-active-bg)', border: '1px dashed var(--border-color)', color: 'var(--text-muted)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', width: '100%' }}
           >
             + Add Condition
           </button>
@@ -400,7 +400,7 @@ export const BreakNode = ({ id, data }) => {
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <div style={{fontSize: '0.8rem', color: '#ccc'}}>Exit Loop</div>
+        <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>Exit Loop</div>
       </div>
     </div>
   );
@@ -444,9 +444,9 @@ export const PythonNode = ({ id, data }) => {
             width: '100%',
             height: '120px',
             fontFamily: 'monospace',
-            backgroundColor: '#1e293b',
-            color: '#f8fafc',
-            border: '1px solid #334155',
+            backgroundColor: 'var(--bg-color)',
+            color: 'var(--text-color)',
+            border: '1px solid var(--border-color)',
             padding: '8px',
             borderRadius: '4px',
             fontSize: '0.8rem',
@@ -496,7 +496,7 @@ export const DistributorNode = ({ id, data }) => {
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       <div className="node-body">
-        <div style={{ fontSize: '0.75rem', color: '#ccc', textAlign: 'center' }}>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
           Iterates over list items.<br/>Outputs individual items.
         </div>
       </div>
@@ -542,7 +542,7 @@ export const FileModifierNode = ({ id, data }) => {
       <div className="node-body">
         <label>Template File</label>
         {data.filename ? (
-          <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <div style={{ padding: '8px', backgroundColor: 'var(--btn-active-bg)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
             <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
           </div>
@@ -617,7 +617,7 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
       <div className="node-body">
         <label>Template File</label>
         {data.filename ? (
-          <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <div style={{ padding: '8px', backgroundColor: 'var(--btn-active-bg)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span title={data.template_path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {data.filename}</span>
             <button className="nodrag" onClick={() => { data.onChange(id, 'template_path', ''); data.onChange(id, 'filename', ''); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
           </div>
@@ -959,3 +959,43 @@ export const HumanApprovalNode = ({ id, data }) => {
   );
 };
 
+import { NodeRegistry } from './nodeRegistry';
+import { Settings } from 'lucide-react';
+
+export const DynamicNode = ({ id, data, type }) => {
+  const meta = NodeRegistry[type] || {};
+  return (
+    <div className="custom-node" style={{ borderTop: `3px solid ${meta.color || '#3b82f6'}` }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" style={{ background: meta.headerColor || 'var(--btn-active-bg)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={16} color={meta.color}/> {meta.label || 'Task'}</div>
+        <button className="btn-delete" onClick={() => data.onDelete && data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        {meta.fields?.map(f => (
+          <div key={f.name}>
+            <label>{f.label}</label>
+            {f.type === 'textarea' ? (
+              <textarea 
+                className="nodrag"
+                defaultValue={data[f.name] || ''}
+                onChange={(e) => data.onChange && data.onChange(id, f.name, e.target.value)}
+                placeholder={f.placeholder}
+              />
+            ) : (
+              <input 
+                type={f.type}
+                className="nodrag"
+                style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', boxSizing: 'border-box' }}
+                defaultValue={data[f.name] || ''}
+                onChange={(e) => data.onChange && data.onChange(id, f.name, e.target.value)}
+                placeholder={f.placeholder}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
