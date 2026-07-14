@@ -249,7 +249,19 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
             llm_n = node_dict.get(current_llm) if current_llm and not current_llm.startswith("fb_") else None
             use_memory = llm_n.get('data', {}).get('useMemory', False) if llm_n else False
+            use_structured = llm_n.get('data', {}).get('useStructuredOutput', False) if llm_n else False
+            json_schema_str = llm_n.get('data', {}).get('jsonSchema', '').replace('\n', '\\n').replace('"', '\\"') if llm_n else ""
+            
             lines.append(f"{indent}sys_msg_{node_id} = SystemMessage(content={sys_var})")
+            
+            if use_structured and json_schema_str:
+                lines.append(f"{indent}import json")
+                lines.append(f"{indent}schema_dict_{node_id} = json.loads(\"{json_schema_str}\")")
+                lines.append(f"{indent}structured_llm_{node_id} = llm_{current_llm}.with_structured_output(schema_dict_{node_id}, include_raw=True)")
+                target_llm = f"structured_llm_{node_id}"
+            else:
+                target_llm = f"llm_{current_llm}"
+                
             if use_memory:
                 lines.append(f"{indent}history_msgs_{node_id} = []")
                 lines.append(f"{indent}mem_record_{node_id} = None")
@@ -261,12 +273,19 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 lines.append(f"{indent}        history_msgs_{node_id} = messages_from_dict(json.loads(mem_record_{node_id}.history))")
                 
                 lines.append(f"{indent}prompt_{node_id} = ChatPromptTemplate.from_messages([sys_msg_{node_id}, ('placeholder', '{{history}}'), ('user', \"{{user_input}}\")])")
-                lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | llm_{current_llm}")
-                lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
+                lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | {target_llm}")
+                
+                if use_structured and json_schema_str:
+                    lines.append(f"{indent}res_obj_wrapper_{node_id} = chain_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
+                    lines.append(f"{indent}res_obj_{node_id} = res_obj_wrapper_{node_id}['raw']")
+                    lines.append(f"{indent}res_text_{node_id} = json.dumps(res_obj_wrapper_{node_id}['parsed'], ensure_ascii=False)")
+                else:
+                    lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
+                    lines.append(f"{indent}res_text_{node_id} = str(res_obj_{node_id}.content)")
                 
                 lines.append(f"{indent}if db:")
                 lines.append(f"{indent}    history_msgs_{node_id}.append(HumanMessage(content=full_prompt_{node_id}))")
-                lines.append(f"{indent}    history_msgs_{node_id}.append(AIMessage(content=str(res_obj_{node_id}.content)))")
+                lines.append(f"{indent}    history_msgs_{node_id}.append(AIMessage(content=res_text_{node_id}))")
                 lines.append(f"{indent}    if not mem_record_{node_id}:")
                 lines.append(f"{indent}        mem_record_{node_id} = models.NodeMemory(session_id=session_id, project_id=project_id, node_id='{node_id}', history=json.dumps(messages_to_dict(history_msgs_{node_id}), ensure_ascii=False))")
                 lines.append(f"{indent}        db.add(mem_record_{node_id})")
@@ -275,9 +294,15 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 lines.append(f"{indent}    db.commit()")
             else:
                 lines.append(f"{indent}prompt_{node_id} = ChatPromptTemplate.from_messages([sys_msg_{node_id}, ('user', \"{{user_input}}\")])")
-                lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | llm_{current_llm}")
-                lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
-            lines.append(f"{indent}res_text_{node_id} = str(res_obj_{node_id}.content)")
+                lines.append(f"{indent}chain_{node_id} = prompt_{node_id} | {target_llm}")
+                
+                if use_structured and json_schema_str:
+                    lines.append(f"{indent}res_obj_wrapper_{node_id} = chain_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
+                    lines.append(f"{indent}res_obj_{node_id} = res_obj_wrapper_{node_id}['raw']")
+                    lines.append(f"{indent}res_text_{node_id} = json.dumps(res_obj_wrapper_{node_id}['parsed'], ensure_ascii=False)")
+                else:
+                    lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
+                    lines.append(f"{indent}res_text_{node_id} = str(res_obj_{node_id}.content)")
             
             lines.append(f"{indent}usage_dict = getattr(res_obj_{node_id}, 'usage_metadata', None)")
             lines.append(f"{indent}if not usage_dict and hasattr(res_obj_{node_id}, 'response_metadata'):")
@@ -309,7 +334,19 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     lines.append(f"{indent}full_prompt_{node_id} = \"{user_prompt}\"")
                     
                 use_memory = node.get('data', {}).get('useMemory', False)
+                use_structured = node.get('data', {}).get('useStructuredOutput', False)
+                json_schema_str = node.get('data', {}).get('jsonSchema', '').replace('\n', '\\n').replace('"', '\\"')
+                
                 lines.append(f"{indent}sys_msg_sa_{node_id} = SystemMessage(content=sys_prompt_{node_id})")
+                
+                if use_structured and json_schema_str:
+                    lines.append(f"{indent}import json")
+                    lines.append(f"{indent}schema_dict_{node_id} = json.loads(\"{json_schema_str}\")")
+                    lines.append(f"{indent}structured_llm_{node_id} = llm_{node_id}.with_structured_output(schema_dict_{node_id}, include_raw=True)")
+                    target_llm = f"structured_llm_{node_id}"
+                else:
+                    target_llm = f"llm_{node_id}"
+                
                 if use_memory:
                     lines.append(f"{indent}history_msgs_{node_id} = []")
                     lines.append(f"{indent}mem_record_{node_id} = None")
@@ -321,12 +358,19 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     lines.append(f"{indent}        history_msgs_{node_id} = messages_from_dict(json.loads(mem_record_{node_id}.history))")
                     
                     lines.append(f"{indent}prompt_sa_{node_id} = ChatPromptTemplate.from_messages([sys_msg_sa_{node_id}, ('placeholder', '{{history}}'), ('user', \"{{user_input}}\")])")
-                    lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | llm_{node_id}")
-                    lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
+                    lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | {target_llm}")
+                    
+                    if use_structured and json_schema_str:
+                        lines.append(f"{indent}res_obj_wrapper_{node_id} = chain_sa_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
+                        lines.append(f"{indent}res_obj_sa_{node_id} = res_obj_wrapper_{node_id}['raw']")
+                        lines.append(f"{indent}res_text_{node_id} = json.dumps(res_obj_wrapper_{node_id}['parsed'], ensure_ascii=False)")
+                    else:
+                        lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
+                        lines.append(f"{indent}res_text_{node_id} = str(res_obj_sa_{node_id}.content)")
                     
                     lines.append(f"{indent}if db:")
                     lines.append(f"{indent}    history_msgs_{node_id}.append(HumanMessage(content=full_prompt_{node_id}))")
-                    lines.append(f"{indent}    history_msgs_{node_id}.append(AIMessage(content=str(res_obj_sa_{node_id}.content)))")
+                    lines.append(f"{indent}    history_msgs_{node_id}.append(AIMessage(content=res_text_{node_id}))")
                     lines.append(f"{indent}    if not mem_record_{node_id}:")
                     lines.append(f"{indent}        mem_record_{node_id} = models.NodeMemory(session_id=session_id, project_id=project_id, node_id='{node_id}', history=json.dumps(messages_to_dict(history_msgs_{node_id}), ensure_ascii=False))")
                     lines.append(f"{indent}        db.add(mem_record_{node_id})")
@@ -335,9 +379,15 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     lines.append(f"{indent}    db.commit()")
                 else:
                     lines.append(f"{indent}prompt_sa_{node_id} = ChatPromptTemplate.from_messages([sys_msg_sa_{node_id}, ('user', \"{{user_input}}\")])")
-                    lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | llm_{node_id}")
-                    lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
-                lines.append(f"{indent}res_text_{node_id} = str(res_obj_sa_{node_id}.content)")
+                    lines.append(f"{indent}chain_sa_{node_id} = prompt_sa_{node_id} | {target_llm}")
+                    
+                    if use_structured and json_schema_str:
+                        lines.append(f"{indent}res_obj_wrapper_{node_id} = chain_sa_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
+                        lines.append(f"{indent}res_obj_sa_{node_id} = res_obj_wrapper_{node_id}['raw']")
+                        lines.append(f"{indent}res_text_{node_id} = json.dumps(res_obj_wrapper_{node_id}['parsed'], ensure_ascii=False)")
+                    else:
+                        lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
+                        lines.append(f"{indent}res_text_{node_id} = str(res_obj_sa_{node_id}.content)")
                 
                 lines.append(f"{indent}usage_dict_sa = getattr(res_obj_sa_{node_id}, 'usage_metadata', None)")
                 lines.append(f"{indent}if not usage_dict_sa and hasattr(res_obj_sa_{node_id}, 'response_metadata'):")

@@ -125,6 +125,35 @@ export const LLMNode = ({ id, data }) => {
             💾 대화 기억하기 (DB 연동)
           </label>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <input 
+            type="checkbox" 
+            id={`structured-${id}`}
+            checked={data.useStructuredOutput || false}
+            onChange={(e) => {
+              data.onChange(id, 'useStructuredOutput', e.target.checked);
+              if (e.target.checked && !data.jsonSchema) {
+                data.onChange(id, 'jsonSchema', '{\n  "title": "Output",\n  "type": "object",\n  "properties": {\n    "answer": { "type": "string" }\n  }\n}');
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          />
+          <label htmlFor={`structured-${id}`} style={{ margin: 0, cursor: 'pointer', fontSize: '0.8rem', color: '#cbd5e1' }}>
+            [Structured Output 강제 (JSON)]
+          </label>
+        </div>
+        {data.useStructuredOutput && (
+          <>
+            <label style={{ marginTop: '0.5rem', color: '#fcd34d' }}>JSON Schema</label>
+            <textarea 
+              className="nodrag"
+              style={{ fontFamily: 'monospace', fontSize: '0.75rem', height: '100px', background: '#1e293b', color: '#a7f3d0' }}
+              value={data.jsonSchema || ''}
+              onChange={(e) => data.onChange(id, 'jsonSchema', e.target.value)}
+              placeholder="Enter JSON Schema..."
+            />
+          </>
+        )}
         {data.isTokenTrackingMode && (
           <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid #8b5cf6', borderRadius: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>

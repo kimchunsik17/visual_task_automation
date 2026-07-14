@@ -1,8 +1,8 @@
 {
-  "project_id": 6,
+  "project_id": 7,
   "nodes": [
     {
-      "id": "node_start",
+      "id": "start_1",
       "type": "startNode",
       "data": {
         "label": "시작",
@@ -14,26 +14,11 @@
       }
     },
     {
-      "id": "node_dyn",
+      "id": "dyn_1",
       "type": "dynamicInputNode",
       "data": {
-        "label": "토론 주제",
-        "inputLabel": "토론할 안건을 입력하세요",
-        "isTokenTrackingMode": false,
-        "predictedTokens": null,
-        "actualTokens": null,
-        "tokenDisplayMode": "tokens",
-        "costCurrency": "KRW",
-        "testValue": "핵 발전소를 늘려야 한다는 의견에 어떻게 생각해"
-      }
-    },
-    {
-      "id": "node_ma",
-      "type": "multiAgentNode",
-      "data": {
-        "label": "토론장",
-        "mode": "tool_agent",
-        "maxRounds": 3,
+        "label": "입력 데이터",
+        "testValue": "나는 20살에 군대에 입대해 지금은 전역했다. 내 이름은 거북선을 만든 유명인의 이름을 땄다.",
         "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
@@ -42,38 +27,39 @@
       }
     },
     {
-      "id": "node_llm1",
+      "id": "llm_1",
       "type": "llmNode",
       "data": {
-        "label": "찬성측 패널",
-        "model": "gpt-4o-mini",
-        "systemPrompt": "당신은 해당 주제에 무조건 찬성하는 입장입니다. 논리적으로 상대방을 설득하세요.",
+        "label": "JSON 정보 추출기",
+        "model": "gpt-4o",
+        "systemPrompt": "You are a data extractor. You must extract a person's name and age from the given text.",
+        "userPrompt": "Extract data from this text.",
+        "useStructuredOutput": true,
+        "jsonSchema": "{\n  \"title\": \"PersonInfo\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"name\": { \"type\": \"string\" },\n    \"age\": { \"type\": \"integer\" }\n  }\n}",
         "isTokenTrackingMode": false,
         "predictedTokens": null,
-        "actualTokens": null,
+        "actualTokens": {
+          "input_tokens": 100,
+          "output_tokens": 11,
+          "total_tokens": 111,
+          "input_token_details": {
+            "audio": 0,
+            "cache_read": 0
+          },
+          "output_token_details": {
+            "audio": 0,
+            "reasoning": 0
+          }
+        },
         "tokenDisplayMode": "tokens",
         "costCurrency": "KRW"
       }
     },
     {
-      "id": "node_llm2",
-      "type": "llmNode",
-      "data": {
-        "label": "반대측 패널",
-        "model": "gpt-4o-mini",
-        "systemPrompt": "당신은 해당 주제에 무조건 반대하는 입장입니다. 논리적으로 상대방의 주장을 반박하세요.",
-        "isTokenTrackingMode": false,
-        "predictedTokens": null,
-        "actualTokens": null,
-        "tokenDisplayMode": "tokens",
-        "costCurrency": "KRW"
-      }
-    },
-    {
-      "id": "node_out",
+      "id": "out_1",
       "type": "outputNode",
       "data": {
-        "label": "토론 결과",
+        "label": "최종 JSON 결과",
         "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
@@ -84,32 +70,20 @@
   ],
   "edges": [
     {
-      "source": "node_start",
-      "target": "node_dyn",
+      "source": "start_1",
+      "target": "dyn_1",
       "sourceHandle": "out",
       "targetHandle": "in"
     },
     {
-      "source": "node_dyn",
-      "target": "node_ma",
+      "source": "dyn_1",
+      "target": "llm_1",
       "sourceHandle": "out",
       "targetHandle": "in"
     },
     {
-      "source": "node_llm1",
-      "target": "node_ma",
-      "sourceHandle": "out",
-      "targetHandle": "tools"
-    },
-    {
-      "source": "node_llm2",
-      "target": "node_ma",
-      "sourceHandle": "out",
-      "targetHandle": "tools"
-    },
-    {
-      "source": "node_ma",
-      "target": "node_out",
+      "source": "llm_1",
+      "target": "out_1",
       "sourceHandle": "out",
       "targetHandle": "in"
     }
