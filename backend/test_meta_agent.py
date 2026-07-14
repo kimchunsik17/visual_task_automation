@@ -303,6 +303,74 @@ def test_신규노드_3종_섞인_전체flow_통과():
     assert errs == []
 
 
+# ── dynamicInputNode / webCrawlerNode (2026-07-14 추가) ──────────────────
+
+def test_dynamicInputNode_webCrawlerNode_섞인_전체flow_통과():
+    """FEWSHOT 예시3+4 패턴: start -> dynamicInput(URL) -> webCrawler(url 비움, 직전 출력 사용) -> prompt -> llm -> output"""
+    g = FlowGraph(
+        nodes=[
+            N("n1", "startNode"),
+            N("n2", "dynamicInputNode", {"inputLabel": "크롤링할 URL", "testValue": "https://example.com"}),
+            N("n3", "webCrawlerNode", {"url": ""}),
+            N("n4", "promptNode", {"userPrompt": "다음 웹페이지 내용을 요약해줘"}),
+            N("n5", "llmNode", {"model": "gpt-4o-mini", "systemPrompt": "너는 요약 전문가다"}),
+            N("n6", "outputNode"),
+        ],
+        edges=[
+            E("e1", "n1", "n2"), E("e2", "n2", "n3"), E("e3", "n3", "n4"),
+            E("e4", "n4", "n5"), E("e5", "n5", "n6"),
+        ],
+    )
+    ok, errs = validate_flow(g)
+    assert ok is True
+    assert errs == []
+
+
+def test_webCrawlerNode_url_없고_incoming도_없으면_실패():
+    g = FlowGraph(
+        nodes=[N("n1", "webCrawlerNode", {"url": ""}), N("n2", "outputNode")],
+        edges=[E("e1", "n1", "n2")],
+    )
+    ok, errs = validate_flow(g, require_complete=False)
+    assert ok is False
+    assert any("url이 없고 연결된 이전 노드도 없다" in e for e in errs)
+
+
+def test_webCrawlerNode_url_없고_직전이_startNode뿐이면_실패():
+    g = FlowGraph(
+        nodes=[N("n1", "startNode"), N("n2", "webCrawlerNode", {"url": ""}), N("n3", "outputNode")],
+        edges=[E("e1", "n1", "n2"), E("e2", "n2", "n3")],
+    )
+    ok, errs = validate_flow(g)
+    assert ok is False
+    assert any("직전 노드가 startNode뿐이라" in e for e in errs)
+
+
+def test_webCrawlerNode_url_채워져있으면_incoming_없어도_통과():
+    g = FlowGraph(
+        nodes=[
+            N("n1", "startNode"),
+            N("n2", "webCrawlerNode", {"url": "https://example.com"}),
+            N("n3", "outputNode"),
+        ],
+        edges=[E("e1", "n1", "n2"), E("e2", "n2", "n3")],
+    )
+    ok, errs = validate_flow(g)
+    assert ok is True
+    assert errs == []
+
+
+def test_dynamicInputNode_data_비어있어도_통과():
+    """inputLabel/testValue 둘 다 선택값이므로 data가 비어있어도 유효하다."""
+    g = FlowGraph(
+        nodes=[N("n1", "startNode"), N("n2", "dynamicInputNode", {}), N("n3", "outputNode")],
+        edges=[E("e1", "n1", "n2"), E("e2", "n2", "n3")],
+    )
+    ok, errs = validate_flow(g)
+    assert ok is True
+    assert errs == []
+
+
 # ── auto_layout: 기존 position 보존 (2026-07-14 프론트 통합 리뷰에서 발견) ──
 
 def test_auto_layout_기존_position_보존하고_새노드만_배치():
