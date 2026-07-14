@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import MainSidebar from '../MainSidebar';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
-import { BarChart, Activity, Database } from 'lucide-react';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, BarChart as RechartsBarChart, Bar } from 'recharts';
+import { BarChart, Activity, Database, Clock } from 'lucide-react';
 import './MainPage.css';
 
 function StatisticsPage() {
   const { user, token } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState('weekly');
   
   const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
   const costCurrency = localStorage.getItem('costCurrency') || 'USD';
@@ -29,12 +30,12 @@ function StatisticsPage() {
     } else {
       setLoading(false);
     }
-  }, [user, token]);
+  }, [user, token, timeRange]);
 
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/statistics', {
+      const res = await axios.get(`/api/statistics?time_range=${timeRange}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setStats(res.data);
@@ -64,10 +65,23 @@ function StatisticsPage() {
       <MainSidebar />
       <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
         <div className="content-area" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
-          <div className="page-header">
+          <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h1 className="page-title"><BarChart className="title-icon" /> 사용 통계</h1>
               <p className="page-subtitle">워크플로우 실행 및 토큰 사용 현황을 확인하세요.</p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--card-bg)', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <Clock size={16} color="var(--text-muted)" />
+              <select 
+                value={timeRange} 
+                onChange={(e) => setTimeRange(e.target.value)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-color)', fontSize: '0.9rem', outline: 'none', cursor: 'pointer' }}
+              >
+                <option value="hourly">일간 (시간별)</option>
+                <option value="weekly">주간 (일별)</option>
+                <option value="monthly">월간 (일별)</option>
+                <option value="yearly">연간 (월별)</option>
+              </select>
             </div>
           </div>
 
@@ -107,7 +121,9 @@ function StatisticsPage() {
 
               <div style={{ background: 'var(--card-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--card-shadow)' }}>
                 <h3 style={{ margin: '0 0 1.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  최근 7일 사용량 추이
+                  {timeRange === 'hourly' ? '최근 24시간 추이' : 
+                   timeRange === 'monthly' ? '최근 30일 추이' : 
+                   timeRange === 'yearly' ? '최근 12개월 추이' : '최근 7일 추이'}
                 </h3>
                 <div style={{ width: '100%', height: '400px' }}>
                   <ResponsiveContainer width="100%" height="100%">
@@ -147,6 +163,28 @@ function StatisticsPage() {
                   </ResponsiveContainer>
                 </div>
               </div>
+
+              {stats.project_usage && stats.project_usage.length > 0 && (
+                <div style={{ background: 'var(--card-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--card-shadow)', marginTop: '2rem' }}>
+                  <h3 style={{ margin: '0 0 1.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    프로젝트별 토큰 사용량
+                  </h3>
+                  <div style={{ width: '100%', height: '300px' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsBarChart data={stats.project_usage} margin={{ top: 10, right: 30, left: 0, bottom: 0 }} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" horizontal={false} />
+                        <XAxis type="number" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} />
+                        <YAxis type="category" dataKey="title" width={150} stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} />
+                        <Tooltip 
+                          contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-color)' }}
+                          formatter={(value) => [formatTokenDisplay(value), tokenDisplayMode === 'cost' ? '사용 금액' : '사용 토큰']}
+                        />
+                        <Bar dataKey="tokens" fill="#10b981" radius={[0, 4, 4, 0]} />
+                      </RechartsBarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="empty-state">

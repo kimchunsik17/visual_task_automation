@@ -303,6 +303,7 @@ function FlowContent() {
     
     try {
       const payload = {
+        project_id: currentId,
         nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
         edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
       };

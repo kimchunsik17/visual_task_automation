@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Settings, User, Bell, Shield, Palette, DollarSign } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import { Settings, User, Bell, Shield, Palette, DollarSign, AlertTriangle } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
 import { useAuth } from '../AuthContext';
 import './MainPage.css';
 
 function SettingsPage() {
-  const { user } = useAuth();
+  const { user, token, logout } = useAuth();
+  const navigate = useNavigate();
   const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme') || 'dark');
   const [tokenDisplayMode, setTokenDisplayMode] = useState(localStorage.getItem('tokenDisplayMode') || 'tokens');
   const [costCurrency, setCostCurrency] = useState(localStorage.getItem('costCurrency') || 'USD');
@@ -25,6 +28,23 @@ function SettingsPage() {
     localStorage.setItem('costCurrency', currency);
   };
 
+  const handleDeleteAccount = async () => {
+    const confirmDelete = window.confirm("정말로 탈퇴하시겠습니까? 모든 프로젝트와 데이터가 완전히 삭제되며 복구할 수 없습니다.");
+    if (!confirmDelete) return;
+    
+    try {
+      await axios.delete('/api/users/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert('회원 탈퇴가 완료되었습니다.');
+      logout();
+      navigate('/');
+    } catch (error) {
+      console.error('Failed to delete account:', error);
+      alert('회원 탈퇴 처리 중 오류가 발생했습니다: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
   return (
     <div className="main-page-layout">
       <MainSidebar />
@@ -42,12 +62,22 @@ function SettingsPage() {
                   <User size={18} color="#60a5fa" /> 계정 정보
                 </h4>
                 {user ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginTop: '1rem' }}>
-                    <img src={user.picture} alt="Profile" style={{ width: '64px', height: '64px', borderRadius: '50%', border: '2px solid #334155' }} />
-                    <div>
-                      <p style={{ margin: '0 0 0.5rem 0', color: 'var(--text-color)', fontWeight: 600, fontSize: '1.1rem' }}>{user.name}</p>
-                      <p style={{ margin: 0, color: 'var(--text-muted)' }}>{user.email}</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                      <img src={user.picture} alt="Profile" style={{ width: '64px', height: '64px', borderRadius: '50%', border: '2px solid #334155' }} />
+                      <div>
+                        <p style={{ margin: '0 0 0.5rem 0', color: 'var(--text-color)', fontWeight: 600, fontSize: '1.1rem' }}>{user.name}</p>
+                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>{user.email}</p>
+                      </div>
                     </div>
+                    <button 
+                      onClick={handleDeleteAccount}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', background: '#ef444420', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '6px', cursor: 'pointer', transition: 'all 0.2s', fontSize: '0.9rem', fontWeight: 500 }}
+                      onMouseOver={(e) => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#ffffff'; }}
+                      onMouseOut={(e) => { e.currentTarget.style.background = '#ef444420'; e.currentTarget.style.color = '#ef4444'; }}
+                    >
+                      <AlertTriangle size={16} /> 회원 탈퇴
+                    </button>
                   </div>
                 ) : (
                   <p style={{ color: 'var(--text-muted)', margin: '1rem 0 0 0' }}>로그인이 필요합니다.</p>
