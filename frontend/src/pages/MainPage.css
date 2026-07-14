@@ -153,7 +153,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border-color);
   padding-top: 1rem;
 }
 
@@ -165,7 +165,8 @@
 .hint-chip {
   font-size: 0.8rem;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--btn-active-bg);
+  border: 1px solid var(--border-color);
   padding: 0.25rem 0.75rem;
   border-radius: 50px;
   cursor: pointer;
@@ -173,13 +174,14 @@
 }
 
 .hint-chip:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-color);
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #ffffff;
 }
 
 .btn-generate {
-  background: linear-gradient(135deg, #c084fc, #9333ea);
-  color: var(--text-color);
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: #ffffff;
   border: none;
   padding: 0.8rem 1.5rem;
   border-radius: 8px;
@@ -190,11 +192,12 @@
   align-items: center;
   gap: 0.5rem;
   transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
 }
 
 .btn-generate:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 10px 20px rgba(192, 132, 252, 0.3);
+  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.35);
 }
 
 .btn-generate:disabled {

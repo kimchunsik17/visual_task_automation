@@ -210,8 +210,26 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db)):
     Receives graph data from frontend, runs LangGraph logic,
     saves execution to DB, and returns the result.
     """
-    # 1. Run LangGraph with Gemini
-    result_text = run_workflow(payload.nodes, payload.edges)
+    import json
+    with open("payload_debug.json", "w", encoding="utf-8") as f:
+        json.dump(payload.dict(), f, ensure_ascii=False, indent=2)
+        
+    # 1. Run LangGraph
+    try:
+        result_text = run_workflow(payload.nodes, payload.edges)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        error_msg = str(e)
+        # API 크레딧 소진 오류 안내
+        if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+            result_text = "❌ AI API 크레딧이 소진되었습니다. AI Studio 또는 OpenAI에서 크레딧을 충전해 주세요."
+        elif "AuthenticationError" in error_msg or "401" in error_msg:
+            result_text = "❌ AI API 키가 유효하지 않습니다. .env 파일의 API 키를 확인해 주세요."
+        elif "Network" in error_msg or "Connection" in error_msg:
+            result_text = f"❌ 네트워크 오류가 발생했습니다: {error_msg}"
+        else:
+            result_text = f"❌ 워크플로우 실행 중 오류가 발생했습니다: {error_msg}"
     
     import json
     # 2. Save log to PostgreSQL (or SQLite fallback)

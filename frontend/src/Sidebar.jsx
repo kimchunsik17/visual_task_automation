@@ -1,5 +1,6 @@
-﻿import React, { useState } from 'react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, ChevronDown, ChevronRight, Puzzle } from 'lucide-react';
+import { NodeRegistry } from './nodeRegistry';
 
 const Sidebar = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,6 +51,17 @@ const Sidebar = () => {
     { type: 'templateAnalyzerNode', label: '템플릿 분석', icon: <FileCode size={16} />, color: '#8b5cf6', category: 'advanced' },
     { type: 'humanApprovalNode', label: '사용자 승인 (대기)', icon: <UserCheck size={16} />, color: '#f43f5e', category: 'advanced' },
   ];
+
+  // Append dynamic nodes from registry
+  Object.values(NodeRegistry).forEach(meta => {
+    nodeTypes.push({
+      type: meta.type,
+      label: meta.label,
+      icon: <Puzzle size={16} />, // Default icon for dynamic nodes
+      color: meta.color,
+      category: meta.category || 'integration'
+    });
+  });
 
   const categories = [
     { id: 'core', title: '기본 (Core)' },
