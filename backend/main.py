@@ -20,6 +20,7 @@ import models
 from graph import compile_workflow, run_workflow
 from meta_agent import run_agent_turn
 import discord_bot
+import scheduler
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key")
 JWT_ALGORITHM = "HS256"
@@ -50,6 +51,11 @@ async def startup_event():
         discord_bot.boot_existing_discord_bots(db)
     except Exception as e:
         print(f"Failed to boot discord bots: {e}")
+    try:
+        scheduler.start_scheduler()
+        scheduler.sync_all_schedules(db)
+    except Exception as e:
+        print(f"Failed to boot scheduler: {e}")
     finally:
         db.close()
 
@@ -210,6 +216,12 @@ def delete_project(project_id: int, user: models.User = Depends(get_current_user
     if project.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this project")
     
+    try:
+        if scheduler.scheduler.get_job(f"project_{project_id}"):
+            scheduler.scheduler.remove_job(f"project_{project_id}")
+    except Exception as e:
+        print(f"Failed to remove schedule: {e}")
+
     db.delete(project)
     db.commit()
     return {"status": "success"}
@@ -227,6 +239,12 @@ def update_project(project_id: int, payload: ProjectCreate, user: models.User = 
     project.graph_data = payload.graph_data
     project.is_public = payload.is_public
     db.commit()
+    
+    try:
+        scheduler.sync_project_schedule(project_id, project)
+    except Exception as e:
+        print(f"Failed to sync schedule: {e}")
+        
     return {"status": "success"}
 
 @app.post("/api/estimate")
@@ -670,6 +688,104 @@ def get_bot_logs(project_id: int, user: models.User = Depends(get_current_user_r
             "message": log.message,
             "response": log.response,
             "created_at": log.created_at
+        } for log in logs
+    ]
+
+@app.get("/api/schedules")
+def get_schedules(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
+    schedules = []
+    
+    from scheduler import scheduler
+    
+    for p in projects:
+        if p.graph_data:
+            nodes = p.graph_data.get('nodes', [])
+            schedule_node = next((n for n in nodes if n.get('type') == 'scheduleNode'), None)
+            if schedule_node:
+                job_id = f"project_{p.id}"
+                job = scheduler.get_job(job_id)
+                cron_expr = schedule_node.get('data', {}).get('cronExpression', '0 7 * * *')
+                
+                status = "Stopped"
+                next_run = None
+                if job:
+                    status = "Active" if job.next_run_time else "Paused"
+                    if job.next_run_time:
+                        next_run = job.next_run_time.isoformat()
+                        
+                schedules.append({
+                    "project_id": p.id,
+                    "title": p.title,
+                    "cron": cron_expr,
+                    "status": status,
+                    "next_run": next_run
+                })
+    return schedules
+
+@app.post("/api/schedules/{project_id}/pause")
+def pause_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    from scheduler import scheduler
+    job_id = f"project_{project_id}"
+    if scheduler.get_job(job_id):
+        scheduler.pause_job(job_id)
+        return {"status": "success", "message": "Schedule paused"}
+    raise HTTPException(status_code=404, detail="Schedule job not found")
+
+@app.post("/api/schedules/{project_id}/resume")
+def resume_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    from scheduler import scheduler
+    job_id = f"project_{project_id}"
+    if scheduler.get_job(job_id):
+        scheduler.resume_job(job_id)
+        return {"status": "success", "message": "Schedule resumed"}
+    raise HTTPException(status_code=404, detail="Schedule job not found")
+
+@app.delete("/api/schedules/{project_id}")
+def delete_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if project.graph_data:
+        new_data = dict(project.graph_data)
+        nodes = new_data.get('nodes', [])
+        # Remove scheduleNode
+        new_nodes = [n for n in nodes if n.get('type') != 'scheduleNode']
+        new_data['nodes'] = new_nodes
+        project.graph_data = new_data
+        db.commit()
+        
+    from scheduler import sync_project_schedule
+    sync_project_schedule(project_id, project)
+    
+    return {"status": "success", "message": "Schedule deleted"}
+
+@app.get("/api/schedules/{project_id}/logs")
+def get_schedule_logs(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    logs = db.query(models.FlowExecutionLog).filter(
+        models.FlowExecutionLog.project_id == project_id,
+        models.FlowExecutionLog.payload.like('%"trigger": "scheduler"%')
+    ).order_by(models.FlowExecutionLog.execution_time.desc()).limit(50).all()
+    
+    return [
+        {
+            "id": log.id,
+            "result": log.result,
+            "total_tokens": log.total_tokens,
+            "execution_time": log.execution_time
         } for log in logs
     ]
 

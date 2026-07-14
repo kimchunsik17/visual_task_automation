@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
-import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart } from 'lucide-react';
+import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock } from 'lucide-react';
 import './MainSidebar.css';
 
 const MainSidebar = () => {
@@ -42,6 +42,9 @@ const MainSidebar = () => {
         </button>
         <button className={`nav-item ${location.pathname === '/bots' ? 'active' : ''}`} onClick={() => navigate('/bots')}>
           <Bot size={18} /> 봇 관리
+        </button>
+        <button className={`nav-item ${location.pathname === '/scheduler' ? 'active' : ''}`} onClick={() => navigate('/scheduler')}>
+          <Clock size={18} /> 스케줄 관리
         </button>
         <button className={`nav-item ${location.pathname === '/statistics' ? 'active' : ''}`} onClick={() => navigate('/statistics')}>
           <BarChart size={18} /> 통계

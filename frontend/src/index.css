@@ -366,6 +366,8 @@ button, input, textarea {
 .custom-node.tokenizer .node-header { border-top: 3px solid #14b8a6; }
 .custom-node.distributor .node-header { border-top: 3px solid #6366f1; }
 .custom-node.start .node-header { border-top: 3px solid #10b981; }
+.custom-node.schedule .node-header { border-top: 3px solid #8b5cf6; }
+.custom-node.discord .node-header { border-top: 3px solid #5865F2; }
 
 .node-body {
   padding: 1rem;
@@ -380,7 +382,7 @@ button, input, textarea {
   text-align: left;
 }
 
-.node-body textarea, .node-body select {
+.node-body textarea, .node-body select, .node-body input[type="text"], .node-body input[type="password"] {
   width: 100%;
   padding: 0.5rem;
   border-radius: 0.25rem;
@@ -393,7 +395,7 @@ button, input, textarea {
   box-sizing: border-box;
 }
 
-.node-body textarea:focus, .node-body select:focus {
+.node-body textarea:focus, .node-body select:focus, .node-body input[type="text"]:focus, .node-body input[type="password"]:focus {
   outline: none;
   border-color: var(--primary-color);
 }

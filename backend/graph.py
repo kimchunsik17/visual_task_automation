@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from node_registry import node_registry
 import node_generators.slack_node
 import node_generators.tokenizer_node
+import node_generators.discord_node
 
 load_dotenv()
 
@@ -72,7 +73,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     has_incoming = set(e['target'] for e in control_flow_edges)
     
     # 1. Prioritize explicit Start Nodes
-    roots = [n for n in nodes if n['type'] == 'startNode' and n['id'] not in tool_node_ids]
+    roots = [n for n in nodes if n['type'] in ('startNode', 'scheduleNode') and n['id'] not in tool_node_ids]
     
     # 2. Fallback to old heuristic if no start nodes are found
     if not roots:
@@ -123,6 +124,15 @@ def compile_workflow(nodes: list, edges: list) -> str:
     lines.append("        return False")
     lines.append("__token_usage__ = {'nodes': {}, 'total_input': 0, 'total_output': 0, 'total_tokens': 0}")
     lines.append("__execution_logs__ = []")
+    lines.append("def _extract_text(obj):")
+    lines.append("    if hasattr(obj, 'content'):")
+    lines.append("        c = obj.content")
+    lines.append("        if isinstance(c, list):")
+    lines.append("            return '\\n'.join([str(x.get('text', x)) if isinstance(x, dict) else str(x) for x in c])")
+    lines.append("        return str(c)")
+    lines.append("    elif isinstance(obj, dict) and 'content' in obj:")
+    lines.append("        return str(obj['content'])")
+    lines.append("    return str(obj)")
     lines.append("def log_step(node_id, node_type, start_time, result=None, error=None):")
     lines.append("    end_time = datetime.datetime.utcnow().isoformat()")
     lines.append("    res_str = str(result) if result is not None else None")
@@ -204,13 +214,13 @@ def compile_workflow(nodes: list, edges: list) -> str:
             return
             
         # 2. Fallback to Legacy Hardcoded Generation
-        if node['type'] == 'startNode':
-            lines.append(f"{indent}# --- Start Node ({node_id}) ---")
+        if node['type'] in ('startNode', 'scheduleNode'):
+            lines.append(f"{indent}# --- {node['type']} ({node_id}) ---")
             lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}pass")
-            lines.append(f"{indent}log_step(\'{node_id}\', \'startNode\', _start_{node_id}, result=\'Started\')")
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node['type']}\', _start_{node_id}, result=\'Started\')")
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
                 
@@ -317,7 +327,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     lines.append(f"{indent}res_text_{node_id} = json.dumps(res_obj_wrapper_{node_id}['parsed'], ensure_ascii=False)")
                 else:
                     lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
-                    lines.append(f"{indent}res_text_{node_id} = str(res_obj_{node_id}.content)")
+                    lines.append(f"{indent}res_text_{node_id} = _extract_text(res_obj_{node_id})")
                 
                 lines.append(f"{indent}if db:")
                 lines.append(f"{indent}    history_msgs_{node_id}.append(HumanMessage(content=full_prompt_{node_id}))")
@@ -338,7 +348,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     lines.append(f"{indent}res_text_{node_id} = json.dumps(res_obj_wrapper_{node_id}['parsed'], ensure_ascii=False)")
                 else:
                     lines.append(f"{indent}res_obj_{node_id} = chain_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
-                    lines.append(f"{indent}res_text_{node_id} = str(res_obj_{node_id}.content)")
+                    lines.append(f"{indent}res_text_{node_id} = _extract_text(res_obj_{node_id})")
             
             lines.append(f"{indent}usage_dict = getattr(res_obj_{node_id}, 'usage_metadata', None)")
             lines.append(f"{indent}if not usage_dict and hasattr(res_obj_{node_id}, 'response_metadata'):")
@@ -404,7 +414,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                         lines.append(f"{indent}res_text_{node_id} = json.dumps(res_obj_wrapper_{node_id}['parsed'], ensure_ascii=False)")
                     else:
                         lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{'history': history_msgs_{node_id}, 'user_input': full_prompt_{node_id}}})")
-                        lines.append(f"{indent}res_text_{node_id} = str(res_obj_sa_{node_id}.content)")
+                        lines.append(f"{indent}res_text_{node_id} = _extract_text(res_obj_sa_{node_id})")
                     
                     lines.append(f"{indent}if db:")
                     lines.append(f"{indent}    history_msgs_{node_id}.append(HumanMessage(content=full_prompt_{node_id}))")
@@ -425,7 +435,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                         lines.append(f"{indent}res_text_{node_id} = json.dumps(res_obj_wrapper_{node_id}['parsed'], ensure_ascii=False)")
                     else:
                         lines.append(f"{indent}res_obj_sa_{node_id} = chain_sa_{node_id}.invoke({{\"user_input\": full_prompt_{node_id}}})")
-                        lines.append(f"{indent}res_text_{node_id} = str(res_obj_sa_{node_id}.content)")
+                        lines.append(f"{indent}res_text_{node_id} = _extract_text(res_obj_sa_{node_id})")
                 
                 lines.append(f"{indent}usage_dict_sa = getattr(res_obj_sa_{node_id}, 'usage_metadata', None)")
                 lines.append(f"{indent}if not usage_dict_sa and hasattr(res_obj_sa_{node_id}, 'response_metadata'):")
@@ -480,7 +490,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 lines.append(f"{indent}prompt_sup_{node_id} = ChatPromptTemplate.from_messages([sys_msg_sup_{node_id}, ('user', \"{{user_input}}\")])")
                 lines.append(f"{indent}chain_sup_{node_id} = prompt_sup_{node_id} | supervisor_llm_{node_id}")
                 lines.append(f"{indent}choice_obj_{node_id} = chain_sup_{node_id}.invoke({{\"user_input\": ma_input_{node_id}}})")
-                lines.append(f"{indent}choice_text_{node_id} = str(choice_obj_{node_id}.content).strip()")
+                lines.append(f"{indent}choice_text_{node_id} = _extract_text(choice_obj_{node_id}).strip()")
                 lines.append(add_tracking(f"choice_obj_{node_id}", node_id, indent))
                 lines.append(f"{indent}print(f'Supervisor chose: {{choice_text_{node_id}}}')")
                 
@@ -498,7 +508,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                         lines.append(f"{indent}    tmp_chain_{node_id}_{idx} = tmp_prompt_{node_id}_{idx} | tmp_llm_{node_id}_{idx}")
                         lines.append(f"{indent}    tmp_res_{node_id}_{idx} = tmp_chain_{node_id}_{idx}.invoke({{\"user_input\": ma_input_{node_id}}})")
                         lines.append(add_tracking(f"tmp_res_{node_id}_{idx}", sub['id'], indent + "    "))
-                        lines.append(f"{indent}    res_ma_{node_id} = f'[{name} 답변]\\n' + str(tmp_res_{node_id}_{idx}.content)")
+                        lines.append(f"{indent}    res_ma_{node_id} = f'[{name} 답변]\\n' + _extract_text(tmp_res_{node_id}_{idx})")
                         
                 lines.append(f"{indent}last_result = res_ma_{node_id}")
                 
@@ -523,7 +533,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                         lines.append(f"{indent}    tmp_msgs_{node_id}_{idx} = [sys_{node_id}_{idx}] + chat_history_{node_id}")
                         lines.append(f"{indent}    tmp_res_{node_id}_{idx} = llm_{node_id}_{idx}.invoke(tmp_msgs_{node_id}_{idx})")
                         lines.append(add_tracking(f"tmp_res_{node_id}_{idx}", sub['id'], indent + "    "))
-                        lines.append(f"{indent}    chat_history_{node_id}.append(AIMessage(content=f'[{name}] ' + str(tmp_res_{node_id}_{idx}.content)))")
+                        lines.append(f"{indent}    chat_history_{node_id}.append(AIMessage(content=f'[{name}] ' + _extract_text(tmp_res_{node_id}_{idx})))")
                         
                 lines.append(f"{indent}res_ma_{node_id} = '\\n\\n'.join([m.content for m in chat_history_{node_id} if isinstance(m, AIMessage)])")
                 lines.append(f"{indent}last_result = res_ma_{node_id}")
@@ -545,7 +555,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 lines.append(f"{indent}    final_msg_{node_id} = res_obj_{node_id}['messages'][-1]")
                 # Note: Tool agent intermediate steps are harder to track directly from AgentExecutor res_obj without callbacks, but some metadata might be available
                 lines.append(add_tracking(f"final_msg_{node_id}", node_id, indent + "    "))
-                lines.append(f"{indent}    res_ma_{node_id} = str(final_msg_{node_id}.content)")
+                lines.append(f"{indent}    res_ma_{node_id} = _extract_text(final_msg_{node_id})")
                 lines.append(f"{indent}except Exception as e:")
                 lines.append(f"{indent}    res_ma_{node_id} = f'Tool Agent Error: {{str(e)}}'")
                 

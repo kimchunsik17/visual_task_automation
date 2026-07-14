@@ -8,6 +8,7 @@ import AppViewerPage from './pages/AppViewerPage';
 import BotManagerPage from './pages/BotManagerPage';
 import StatisticsPage from './pages/StatisticsPage';
 import ProjectRunsPage from './pages/ProjectRunsPage';
+import SchedulerPage from './pages/SchedulerPage';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
         <Route path="/project/:projectId/runs" element={<ProjectRunsPage />} />
         <Route path="/app/:projectId" element={<AppViewerPage />} />
         <Route path="/bots" element={<BotManagerPage />} />
+        <Route path="/scheduler" element={<SchedulerPage />} />
         <Route path="/statistics" element={<StatisticsPage />} />
       </Routes>
     </Router>

@@ -18,3 +18,5 @@ google-auth
 PyJWT
 discord.py
 bs4
+
+apscheduler

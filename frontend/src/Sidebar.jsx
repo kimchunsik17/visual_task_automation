@@ -22,6 +22,7 @@ const Sidebar = () => {
 
   const nodeTypes = [
     { type: 'startNode', label: '시작', icon: <Play size={16} />, color: '#10b981', category: 'core' },
+    { type: 'scheduleNode', label: '스케줄 (시작)', icon: <Clock size={16} />, color: '#8b5cf6', category: 'core' },
     { type: 'outputNode', label: '결과 출력', icon: <LogOut size={16} />, color: '#f97316', category: 'core' },
     
     { type: 'dynamicInputNode', label: '동적 입력', icon: <Keyboard size={16} />, color: '#d946ef', category: 'input' },
@@ -46,6 +47,7 @@ const Sidebar = () => {
     { type: 'webCrawlerNode', label: '웹 크롤러', icon: <Globe size={16} />, color: '#0ea5e9', category: 'integration' },
     { type: 'emailNode', label: '이메일 전송', icon: <Mail size={16} />, color: '#f43f5e', category: 'integration' },
     { type: 'kakaoNode', label: '카카오 알림톡', icon: <MessageCircle size={16} />, color: '#facc15', category: 'integration' },
+    { type: 'discordNode', label: '디스코드 발송', icon: <MessageCircle size={16} />, color: '#5865F2', category: 'integration' },
     { type: 'httpRequestNode', label: 'HTTP Request', icon: <ArrowRightLeft size={16} />, color: '#0ea5e9', category: 'integration' },
     
     { type: 'fileModifierNode', label: '자동 완성', icon: <FileCode size={16} />, color: '#f43f5e', category: 'advanced' },

@@ -18,11 +18,12 @@ import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode } from '../customNodes';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 
 const nodeTypes = {
   startNode: StartNode,
+  scheduleNode: ScheduleNode,
   promptNode: PromptNode,
   llmNode: LLMNode,
   outputNode: OutputNode,
@@ -46,6 +47,7 @@ const nodeTypes = {
   databaseNode: DatabaseNode,
   humanApprovalNode: HumanApprovalNode,
   multiAgentNode: MultiAgentNode,
+  discordNode: DiscordNode,
 };
 
 // Auto-register dynamic nodes
@@ -730,10 +732,7 @@ function FlowContent() {
           onClose={() => setIsDeployModalOpen(false)} 
           project={{ id: currentId, title: projectTitle }} 
           onDeployConfigSaved={(mode) => {
-             // Navigate to deploy viewer
-             if (mode === 'chatbot' || mode === 'form') {
-                 window.open(`/app/${currentId}`, '_blank');
-             }
+             // Deployment config saved successfully
           }}
         />
       )}

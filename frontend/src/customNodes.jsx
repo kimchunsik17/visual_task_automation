@@ -11,8 +11,7 @@ const calculateNodeCost = (tokens, model, currency) => {
   if (model) {
     if (model.includes('gpt-4o-mini')) pricePer1M = 0.3;
     else if (model.includes('gpt-4o')) pricePer1M = 10.0;
-    else if (model.includes('gemini-1.5-flash') || model.includes('gemini-3.5-flash')) pricePer1M = 0.15;
-    else if (model.includes('gemini-1.5-pro')) pricePer1M = 5.0;
+    else if (model.includes('gemini-3.5-flash')) pricePer1M = 0.15;
     else if (model.includes('claude-3-5-sonnet')) pricePer1M = 9.0;
     else if (model.includes('claude-3-haiku')) pricePer1M = 0.75;
   }
@@ -87,7 +86,6 @@ export const LLMNode = ({ id, data }) => {
         >
           <optgroup label="Gemini">
             <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-            <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
           </optgroup>
           <optgroup label="ChatGPT">
             <option value="gpt-4o-mini">GPT-4o Mini</option>
@@ -1153,3 +1151,63 @@ export const MultiAgentNode = ({ id, data }) => {
     </div>
   );
 };
+
+export const ScheduleNode = ({ id, data }) => {
+  return (
+    <div className="custom-node schedule" style={{ minWidth: '200px' }}>
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={16} color="#8b5cf6"/> 스케줄 (시작)</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <div className="input-group">
+          <label>Cron 표현식</label>
+          <input 
+            type="text" 
+            className="nodrag"
+            value={data.cronExpression || ''} 
+            onChange={(e) => data.onChange(id, 'cronExpression', e.target.value)} 
+            placeholder="0 7 * * *" 
+          />
+          <small style={{display: 'block', marginTop: '4px', color: 'var(--text-muted)'}}>예: 0 7 * * * (매일 오전 7시)</small>
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const DiscordNode = ({ id, data }) => {
+  return (
+    <div className="custom-node discord">
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageCircle size={16} color="#5865F2"/> 디스코드 발송</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <div className="input-group">
+          <label>Bot Token 또는 Webhook URL</label>
+          <input 
+            type="password" 
+            className="nodrag"
+            value={data.botToken || ''} 
+            onChange={(e) => data.onChange(id, 'botToken', e.target.value)} 
+            placeholder="Bot token / Webhook" 
+          />
+        </div>
+        <div className="input-group">
+          <label>채널 ID (Webhook시 생략)</label>
+          <input 
+            type="text" 
+            className="nodrag"
+            value={data.channelId || ''} 
+            onChange={(e) => data.onChange(id, 'channelId', e.target.value)} 
+            placeholder="1234567890" 
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+

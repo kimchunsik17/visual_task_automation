@@ -1,46 +1,30 @@
 {
-  "project_id": null,
+  "project_id": 12,
   "nodes": [
     {
-      "id": "node_start",
+      "id": "n1",
       "type": "startNode",
       "data": {
-        "label": "시작",
-        "isTokenTrackingMode": true,
+        "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
         "tokenDisplayMode": "tokens",
-        "costCurrency": "USD"
+        "costCurrency": "KRW",
+        "isExecuting": false,
+        "executionStatus": "success"
       }
     },
     {
-      "id": "node_1",
-      "type": "valueNode",
+      "id": "n2",
+      "type": "promptNode",
       "data": {
-        "label": "입력값",
-        "value": "",
-        "file_path": "uploads\\translation_test_sentences.pdf",
-        "filename": "translation_test_sentences.pdf",
-        "isTokenTrackingMode": true,
-        "predictedTokens": null,
-        "actualTokens": null,
-        "tokenDisplayMode": "tokens",
-        "costCurrency": "USD"
-      }
-    },
-    {
-      "id": "node_2",
-      "type": "llmNode",
-      "data": {
-        "label": "LLM",
-        "model": "gpt-4o-mini",
-        "systemPrompt": "당신은 전문 번역가입니다. 주어진 텍스트를 한국어로 번역하세요.",
-        "isTokenTrackingMode": true,
+        "userPrompt": "나는 이온규입니다",
+        "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": {
-          "input_tokens": 53,
-          "output_tokens": 20,
-          "total_tokens": 73,
+          "input_tokens": 23,
+          "output_tokens": 15,
+          "total_tokens": 38,
           "input_token_details": {
             "audio": 0,
             "cache_read": 0
@@ -51,40 +35,55 @@
           }
         },
         "tokenDisplayMode": "tokens",
-        "costCurrency": "USD"
+        "costCurrency": "KRW",
+        "isExecuting": false,
+        "executionStatus": "success"
       }
     },
     {
-      "id": "node_3",
-      "type": "outputNode",
+      "id": "n3",
+      "type": "llmNode",
       "data": {
-        "label": "결과 출력",
-        "isTokenTrackingMode": true,
+        "model": "gpt-4o-mini",
+        "systemPrompt": "너는 번역 전문가다. 한국어 입력을 영어로 바꿔서 출력해줘",
+        "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
         "tokenDisplayMode": "tokens",
-        "costCurrency": "USD"
+        "costCurrency": "KRW",
+        "isExecuting": false,
+        "executionStatus": null
+      }
+    },
+    {
+      "id": "n4",
+      "type": "outputNode",
+      "data": {
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "KRW",
+        "isExecuting": false,
+        "executionStatus": null
       }
     }
   ],
   "edges": [
     {
-      "source": "node_start",
-      "target": "node_1",
-      "sourceHandle": "out",
-      "targetHandle": "in"
+      "source": "n1",
+      "target": "n2",
+      "sourceHandle": null
     },
     {
-      "source": "node_1",
-      "target": "node_2",
-      "sourceHandle": "out",
-      "targetHandle": "in"
+      "source": "n2",
+      "target": "n3",
+      "sourceHandle": null
     },
     {
-      "source": "node_2",
-      "target": "node_3",
-      "sourceHandle": "out",
-      "targetHandle": "in"
+      "source": "n3",
+      "target": "n4",
+      "sourceHandle": null
     }
   ]
 }
