@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
@@ -14,23 +14,44 @@ function MainPage() {
   const [autoPrompt, setAutoPrompt] = useState('');
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [messages, setMessages] = useState([]);
+  const draftIdRef = useRef(`draft-${Date.now()}`);
 
   const getAuthHeaders = () => token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
 
   const handleAutoGenerate = async () => {
     if (!autoPrompt.trim()) return;
-    
+
     const userMessage = autoPrompt.trim();
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setAutoPrompt('');
     setIsAutoGenerating(true);
 
-    // 딜레이를 주어 AI 응답을 시뮬레이션 (LLM 구현 보류)
-    setTimeout(() => {
-      setMessages(prev => [...prev, { role: 'ai', content: '현재 llm 업무 자동화 기능은 구현 중에 있습니다.' }]);
+    try {
+      const payload = {
+        project_id: draftIdRef.current,
+        message: userMessage,
+        graph_data: { nodes: [], edges: [] },
+      };
+      const res = await axios.post('/api/chat', payload, getAuthHeaders());
+      const { reply, graph_data } = res.data;
+
+      if (reply) {
+        setMessages(prev => [...prev, { role: 'ai', content: reply }]);
+      }
+
+      if (graph_data?.nodes?.length > 0) {
+        navigate('/editor', { state: { initialGraph: graph_data, prompt: userMessage } });
+      }
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => [
+        ...prev,
+        { role: 'ai', content: '오류가 발생했습니다: ' + (error.response?.data?.detail || error.message) }
+      ]);
+    } finally {
       setIsAutoGenerating(false);
-    }, 800);
+    }
   };
 
   const handleKeyDown = (e) => {

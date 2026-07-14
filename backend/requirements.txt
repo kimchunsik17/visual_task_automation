@@ -3,6 +3,7 @@ uvicorn
 sqlalchemy
 psycopg2-binary
 langgraph
+langchain>=0.3
 langchain-google-genai
 langchain-openai
 langchain-anthropic

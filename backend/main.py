@@ -18,6 +18,7 @@ from google.auth.transport import requests as google_requests
 from database import engine, Base, get_db
 import models
 from graph import compile_workflow, run_workflow
+from meta_agent import run_agent_turn
 import discord_bot
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key")
@@ -63,6 +64,11 @@ class DeployPayload(BaseModel):
 
 class ExecutePayload(BaseModel):
     inputs: Dict[str, Any]
+
+class ChatPayload(BaseModel):
+    project_id: str
+    message: str
+    graph_data: Dict[str, Any]
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -412,6 +418,26 @@ def compile_flow(payload: FlowPayload):
     """
     compiled_code = compile_workflow(payload.nodes, payload.edges)
     return {"status": "success", "code": compiled_code}
+
+@app.post("/api/chat")
+def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_current_user)):
+    """
+    자연어로 flow(graph_data)를 생성/수정하는 메타 에이전트 챗봇.
+    project_id를 LangGraph thread_id로 써서 같은 프로젝트 안에서는 대화 맥락이 이어진다.
+    graph_data는 여기서 저장하지 않는다 — 프론트가 매번 현재 캔버스 상태를 보내고,
+    돌아온 graph_data를 캔버스에 반영한 뒤 원할 때 /api/projects로 별도 저장한다.
+    """
+    try:
+        reply, graph_data = run_agent_turn(
+            payload.graph_data,
+            payload.message,
+            thread_id=f"project-{payload.project_id}",
+        )
+        return {"status": "success", "reply": reply, "graph_data": graph_data}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"챗봇 처리 중 오류: {str(e)}")
 
 @app.post("/api/deploy/{project_id}")
 async def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db)):
