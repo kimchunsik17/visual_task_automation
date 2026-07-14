@@ -60,7 +60,7 @@ def start_discord_bot(project_id: int, token: str):
             try:
                 project = db.query(models.Project).filter(models.Project.id == project_id).first()
                 if not project:
-                    return "Error: Project not found.", {}
+                    return "Error: Project not found.", {}, []
                 
                 nodes = project.graph_data.get('nodes', [])
                 edges = project.graph_data.get('edges', [])
@@ -68,11 +68,11 @@ def start_discord_bot(project_id: int, token: str):
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                return f"Error executing workflow: {str(e)}", {}
+                return f"Error executing workflow: {str(e)}", {}, []
             finally:
                 db.close()
                 
-        result_text, tokens = await asyncio.to_thread(_run)
+        result_text, tokens, logs = await asyncio.to_thread(_run)
         
         # Handle empty or too long results
         if not result_text or result_text.strip() == "":

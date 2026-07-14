@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from node_registry import node_registry
 import node_generators.slack_node
+import node_generators.tokenizer_node
 
 load_dotenv()
 
@@ -112,6 +113,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     lines.append("import requests")
     lines.append("from bs4 import BeautifulSoup")
     lines.append("from dotenv import load_dotenv\n")
+    lines.append("import datetime")
     lines.append("load_dotenv()\n")
     lines.append("def is_numeric(s):")
     lines.append("    try:")
@@ -120,9 +122,26 @@ def compile_workflow(nodes: list, edges: list) -> str:
     lines.append("    except ValueError:")
     lines.append("        return False")
     lines.append("__token_usage__ = {'nodes': {}, 'total_input': 0, 'total_output': 0, 'total_tokens': 0}")
+    lines.append("__execution_logs__ = []")
+    lines.append("def log_step(node_id, node_type, start_time, result=None, error=None):")
+    lines.append("    end_time = datetime.datetime.utcnow().isoformat()")
+    lines.append("    res_str = str(result) if result is not None else None")
+    lines.append("    if res_str and len(res_str) > 10000:")
+    lines.append("        res_str = res_str[:10000] + '...(truncated)'")
+    lines.append("    __execution_logs__.append({")
+    lines.append("        'node_id': node_id,")
+    lines.append("        'node_type': node_type,")
+    lines.append("        'start_time': start_time,")
+    lines.append("        'end_time': end_time,")
+    lines.append("        'status': 'error' if error else 'success',")
+    lines.append("        'result_data': res_str,")
+    lines.append("        'error_message': str(error) if error else None")
+    lines.append("    })")
     lines.append("def run_workflow(**kwargs):")
     lines.append("    global __token_usage__")
+    lines.append("    global __execution_logs__")
     lines.append("    __token_usage__ = {'nodes': {}, 'total_input': 0, 'total_output': 0, 'total_tokens': 0}")
+    lines.append("    __execution_logs__ = []")
     lines.append("    last_result = 'No execution occurred.'")
     
     # Generate all LLM configurations at the top of the workflow
@@ -134,11 +153,11 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"    # --- LLM Node ({node_id}) ---")
             
             if model == "gpt-4o" or model == "gpt-4o-mini":
-                lines.append(f"    llm_{node_id} = ChatOpenAI(model=\"{model}\")")
+                lines.append(f"    llm_{node_id} = ChatOpenAI(model=\"{model}\", max_retries=0)")
             elif model == "claude-3-5-sonnet":
-                lines.append(f"    llm_{node_id} = ChatAnthropic(model_name=\"claude-3-5-sonnet-20240620\")")
+                lines.append(f"    llm_{node_id} = ChatAnthropic(model_name=\"claude-3-5-sonnet-20240620\", max_retries=0)")
             else:
-                lines.append(f"    llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\")")
+                lines.append(f"    llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\", max_retries=0)")
                 
             lines.append(f"    sys_prompt_{node_id} = \"{sys_prompt}\"")
     
@@ -187,9 +206,11 @@ def compile_workflow(nodes: list, edges: list) -> str:
         # 2. Fallback to Legacy Hardcoded Generation
         if node['type'] == 'startNode':
             lines.append(f"{indent}# --- Start Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}pass")
+            lines.append(f"{indent}log_step(\'{node_id}\', \'startNode\', _start_{node_id}, result=\'Started\')")
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
                 
@@ -197,6 +218,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             file_path = node.get('data', {}).get('file_path', '').replace('\\', '/')
             val = node.get('data', {}).get('value', '').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"{indent}# --- Value Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             
             if file_path:
                 lines.append(f"{indent}import os")
@@ -222,6 +244,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
             lines.append(f"{indent}last_result = val_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -242,7 +265,8 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     
             if not active_llm_id:
                 lines.append(f"{indent}# --- Fallback LLM for Prompt Node ({node_id}) ---")
-                lines.append(f"{indent}llm_fb_{node_id} = ChatGoogleGenerativeAI(model=\"gemini-3.5-flash\")")
+                lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+                lines.append(f"{indent}llm_fb_{node_id} = ChatGoogleGenerativeAI(model=\"gemini-3.5-flash\", max_retries=0)")
                 lines.append(f"{indent}sys_fb_{node_id} = \"You are a helpful assistant.\"")
                 current_llm = f"fb_{node_id}"
                 sys_var = f"sys_fb_{node_id}"
@@ -252,6 +276,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
             user_prompt = node.get('data', {}).get('userPrompt', '').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"{indent}# --- Prompt Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             
             if prev_res_var:
                 lines.append(f"{indent}full_prompt_{node_id} = str({prev_res_var}) + \"\\n\\n{user_prompt}\"")
@@ -327,6 +352,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -336,6 +362,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     
         elif node['type'] == 'llmNode':
             lines.append(f"{indent}# --- LLM Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             
             if active_llm_id != node_id:
                 user_prompt = node.get('data', {}).get('userPrompt', '').replace('"', '\\"').replace('\n', '\\n')
@@ -535,6 +562,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             val = node.get('data', {}).get('value', '')
             
             lines.append(f"{indent}# --- Condition Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             if condition == 'Contains':
                 lines.append(f"{indent}if \"{val}\" in str({prev_res_var if prev_res_var else 'last_result'}):")
             else:
@@ -555,6 +583,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
         elif node['type'] == 'dynamicInputNode':
             lines.append(f"{indent}# --- Dynamic Input Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             input_label = node.get('data', {}).get('inputLabel', 'Input').replace('"', '\\"')
             input_type = node.get('data', {}).get('inputType', 'text')
             test_val = node.get('data', {}).get('testValue', '').replace('"', '\\"').replace('\n', '\\n')
@@ -579,12 +608,14 @@ def compile_workflow(nodes: list, edges: list) -> str:
             else:
                 lines.append(f"{indent}last_result = f\"[{input_label}]:\\n{{dyn_input_{node_id}}}\"")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
                 
         elif node['type'] == 'webCrawlerNode':
             lines.append(f"{indent}# --- Web Crawler Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             url = node.get('data', {}).get('url', '').replace('"', '\\"')
             lines.append(f"{indent}try:")
             if url:
@@ -603,12 +634,14 @@ def compile_workflow(nodes: list, edges: list) -> str:
             else:
                 lines.append(f"{indent}last_result = crawl_res_{node_id}")
                 
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
                 
         elif node['type'] == 'emailNode':
             lines.append(f"{indent}# --- Email Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             to_email = node.get('data', {}).get('toEmail', '').replace('"', '\\"')
             subject = node.get('data', {}).get('subject', 'Auto Flow 알림').replace('"', '\\"')
             
@@ -641,12 +674,14 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}    res_text_{node_id} = f'Email Sending Failed: {{str(e)}}'")
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
                 
         elif node['type'] == 'kakaoNode':
             lines.append(f"{indent}# --- Kakao Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             receiver = node.get('data', {}).get('receiver', '').replace('"', '\\"')
             lines.append(f"{indent}print(f'\\n[Kakao Msg to {receiver}]\\n{{last_result}}\\n')")
             
@@ -656,6 +691,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
         elif node['type'] == 'httpRequestNode':
             lines.append(f"{indent}# --- HTTP Request Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             method = node.get('data', {}).get('method', 'GET')
             url = node.get('data', {}).get('url', '').replace('"', '\\"')
             headers_str = node.get('data', {}).get('headers', '{}')
@@ -691,12 +727,14 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = req_out_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"req_out_{node_id}", visited=visited)
                 
         elif node['type'] == 'delayNode':
             lines.append(f"{indent}# --- Delay Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             seconds = node.get('data', {}).get('seconds', 5)
             lines.append(f"{indent}import time")
             lines.append(f"{indent}print(f'Waiting for {seconds} seconds...')")
@@ -708,6 +746,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
         elif node['type'] == 'jsonParserNode':
             lines.append(f"{indent}# --- JSON Parser Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             mode = node.get('data', {}).get('mode', 'parse')
             extract_key = node.get('data', {}).get('extractKey', '')
             
@@ -733,12 +772,14 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = parser_out_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"parser_out_{node_id}", visited=visited)
                 
         elif node['type'] == 'mergeNode':
             lines.append(f"{indent}# --- Merge Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             strategy = node.get('data', {}).get('mergeStrategy', 'join_newline')
             
             lines.append(f"{indent}merge_in_dict_{node_id} = {{}}")
@@ -765,12 +806,14 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
             lines.append(f"{indent}last_result = merge_out_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"merge_out_{node_id}", visited=visited)
                 
         elif node['type'] == 'databaseNode':
             lines.append(f"{indent}# --- Database Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             conn_str = node.get('data', {}).get('connectionString', '').replace('"', '\\"')
             query_str = node.get('data', {}).get('query', '').replace('"', '\\"').replace('\n', '\\n')
             
@@ -793,12 +836,14 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = db_out_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"db_out_{node_id}", visited=visited)
                 
         elif node['type'] == 'humanApprovalNode':
             lines.append(f"{indent}# --- Human Approval Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             message = node.get('data', {}).get('message', '승인이 필요합니다.').replace('"', '\\"')
             
             lines.append(f"{indent}# To fully support Human-in-the-loop in a deployed API, execution must be paused and state saved.")
@@ -817,6 +862,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = {prev_res_var if prev_res_var else 'last_result'}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
@@ -824,6 +870,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
         elif node['type'] == 'pythonNode':
             user_code = node.get('data', {}).get('code', '')
             lines.append(f"{indent}# --- Python Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             lines.append(f"{indent}input_data = {prev_res_var if prev_res_var else 'last_result'}")
             lines.append(f"{indent}output_data = input_data # Default fallback")
             
@@ -834,6 +881,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}res_text_{node_id} = output_data")
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -843,6 +891,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     
         elif node['type'] == 'outputNode':
             lines.append(f"{indent}# --- Output Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             lines.append(f"{indent}return {prev_res_var if prev_res_var else 'last_result'}")
             
         elif node['type'] == 'loopNode':
@@ -890,6 +939,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
         elif node['type'] == 'tokenizerNode':
             method = node.get('data', {}).get('method', 'extract_text')
             lines.append(f"{indent}# --- Tokenizer Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             lines.append(f"{indent}file_path_raw = {prev_res_var if prev_res_var else 'last_result'}")
             lines.append(f"{indent}import re")
             lines.append(f"{indent}match_{node_id} = re.search(r'\\[Attached File: (.*?)\\]', str(file_path_raw))")
@@ -1006,6 +1056,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}else:")
             lines.append(f"{indent}    last_result = str(file_path_raw)")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -1015,6 +1066,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                     
         elif node['type'] == 'distributorNode':
             lines.append(f"{indent}# --- Distributor Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             lines.append(f"{indent}dist_list_{node_id} = {prev_res_var if prev_res_var else 'last_result'}")
             lines.append(f"{indent}if not isinstance(dist_list_{node_id}, list):")
             lines.append(f"{indent}    dist_list_{node_id} = [dist_list_{node_id}]")
@@ -1030,10 +1082,12 @@ def compile_workflow(nodes: list, edges: list) -> str:
 
         elif node['type'] == 'breakNode':
             lines.append(f"{indent}# --- Break Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             lines.append(f"{indent}break")
             
         elif node['type'] == 'templateAnalyzerNode':
             lines.append(f"{indent}# --- Template Analyzer Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             template_file = node.get('data', {}).get('template_path', '').replace('"', '\\"').replace('\n', '\\n').replace('\\', '/')
             lines.append(f"{indent}try:")
             lines.append(f"{indent}    import re")
@@ -1093,12 +1147,14 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}    res_val_{node_id} = f'Error analyzing template: {{str(e)}}'")
             lines.append(f"{indent}last_result = res_val_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_val_{node_id}", visited=visited)
 
         elif node['type'] == 'fileModifierNode':
             lines.append(f"{indent}# --- Auto Fill Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             template_file = node.get('data', {}).get('template_path', '').replace('"', '\\"').replace('\n', '\\n').replace('\\', '/')
                             
             output_file = node.get('data', {}).get('output_path', '').replace('"', '\\"').replace('\n', '\\n')
@@ -1172,6 +1228,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}    res_text_{node_id} = f\"Error formatting file: {{str(e)}}\"")
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
+            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -1219,7 +1276,7 @@ def run_workflow(nodes: list, edges: list, db=None, **kwargs):
     python_code = compile_workflow(nodes, edges)
     
     if python_code.startswith("Error"):
-        return python_code, {}
+        return python_code, {}, []
         
     # Dynamically execute the generated code
     namespace = {'db': db, 'models': models, 'json': json}
@@ -1229,8 +1286,9 @@ def run_workflow(nodes: list, edges: list, db=None, **kwargs):
         if 'run_workflow' in namespace:
             result = namespace['run_workflow'](**kwargs)
             tokens = namespace.get('__token_usage__', {})
-            return str(result), tokens
+            logs = namespace.get('__execution_logs__', [])
+            return str(result), tokens, logs
         else:
-            return "Execution failed: run_workflow function not found.", {}
+            return "Execution failed: run_workflow function not found.", {}, []
     except Exception as e:
-        return f"Dynamic Execution Error: {str(e)}", {}
+        return f"Dynamic Execution Error: {str(e)}", {}, []

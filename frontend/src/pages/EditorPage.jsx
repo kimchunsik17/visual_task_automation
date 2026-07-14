@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
@@ -71,6 +71,7 @@ function FlowContent() {
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [tokenUsage, setTokenUsage] = useState(null);
+  const [executionLogs, setExecutionLogs] = useState([]);
   
   const [isTokenTrackingMode, setIsTokenTrackingMode] = useState(false);
   const [estimatedTokens, setEstimatedTokens] = useState(null);
@@ -159,12 +160,12 @@ function FlowContent() {
 
       if (currentId) {
         await axios.put(`/api/projects/${currentId}`, payload, getAuthHeaders());
-        return true;
+        return currentId;
       } else {
         const res = await axios.post('/api/projects', payload, getAuthHeaders());
         setCurrentId(res.data.id);
         navigate(`/editor/${res.data.id}`, { replace: true });
-        return true;
+        return res.data.id;
       }
     } catch (error) {
       console.error("Save failed", error);
@@ -304,8 +305,16 @@ function FlowContent() {
   }, [getIntersectingNodes, setNodes]);
 
   const runFlow = async () => {
+    // 자동 저장 (실행 전)
+    const savedId = await handleSave();
+    if (!savedId) {
+      alert("프로젝트 저장에 실패하여 실행을 취소합니다.");
+      return;
+    }
+
     setIsLoading(true);
     setIsCompiled(false);
+    setExecutionLogs([]); // Clear previous logs
     setResponse('Running graph on backend...');
     
     try {
@@ -313,7 +322,7 @@ function FlowContent() {
       const currentEdges = getEdges();
       
       const payload = {
-project_id: currentId,
+        project_id: savedId,
         nodes: currentNodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
         edges: currentEdges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
       };
@@ -321,6 +330,7 @@ project_id: currentId,
       const res = await axios.post('/api/execute', payload, getAuthHeaders());
       setResponse(res.data.result || 'No content returned.');
       setTokenUsage(res.data.token_usage || null);
+      setExecutionLogs(res.data.logs || []);
     } catch (error) {
       console.error(error);
       setResponse('Error communicating with backend: ' + (error.response?.data?.detail || error.message));
@@ -392,18 +402,36 @@ project_id: currentId,
   };
 
   const enrichedNodes = useMemo(() => {
-    return nodes.map(n => ({
-      ...n,
-      data: {
-        ...n.data,
-        isTokenTrackingMode,
-        predictedTokens: estimatedTokens?.node_details?.[n.id] || null,
-        actualTokens: tokenUsage?.nodes?.[n.id] || null,
-        tokenDisplayMode,
-        costCurrency
+    return nodes.map(n => {
+      const log = executionLogs.find(l => String(l.node_id) === String(n.id));
+      
+      let nodeClass = n.className || '';
+      if (isLoading) {
+        nodeClass = `${nodeClass} node-executing`.trim();
+      } else if (log) {
+        if (log.status === 'success') {
+          nodeClass = `${nodeClass} node-success`.trim();
+        } else if (log.status === 'error') {
+          nodeClass = `${nodeClass} node-error`.trim();
+        }
       }
-    }));
-  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage, tokenDisplayMode, costCurrency]);
+
+      return {
+        ...n,
+        className: nodeClass,
+        data: {
+          ...n.data,
+          isTokenTrackingMode,
+          predictedTokens: estimatedTokens?.node_details?.[n.id] || null,
+          actualTokens: tokenUsage?.nodes?.[n.id] || null,
+          tokenDisplayMode,
+          costCurrency,
+          isExecuting: isLoading,
+          executionStatus: log ? log.status : null
+        }
+      };
+    });
+  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage, tokenDisplayMode, costCurrency, isLoading, executionLogs]);
 
   return (
     <div className="app-container">
@@ -527,6 +555,12 @@ project_id: currentId,
               )}
             </>
           )}
+          {currentId && (
+            <button className="btn-secondary" onClick={() => navigate(`/project/${currentId}/runs`)} style={{ borderColor: '#10b981', color: '#10b981' }}>
+              <History size={16} />
+              Run History
+            </button>
+          )}
           <button className="btn-secondary" onClick={async () => {
             try {
               const payload = {
@@ -574,7 +608,11 @@ project_id: currentId,
         <div className="flow-wrapper" ref={reactFlowWrapper}>
           <ReactFlow
             nodes={enrichedNodes}
-            edges={edges}
+            edges={edges.map(e => ({ 
+              ...e, 
+              animated: isLoading || e.animated,
+              style: { ...e.style, stroke: isLoading ? '#10b981' : (e.style?.stroke || '#475569') }
+            }))}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}

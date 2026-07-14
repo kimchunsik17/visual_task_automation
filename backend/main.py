@@ -281,12 +281,24 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
         
     # 1. Run LangGraph
     try:
-        result_text, tokens = run_workflow(payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id)
+        result_text, tokens, logs = run_workflow(payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id)
+        
+        # Check if run_workflow returned an error string
+        if "► Flow 1 Error:" in result_text or "Error calling model" in result_text:
+            if "RESOURCE_EXHAUSTED" in result_text or "429" in result_text:
+                result_text = "❌ AI API 크레딧이 소진되었습니다. AI Studio 또는 OpenAI에서 크레딧을 충전해 주세요."
+            elif "AuthenticationError" in result_text or "401" in result_text:
+                result_text = "❌ AI API 키가 유효하지 않습니다. .env 파일의 API 키를 확인해 주세요."
+            elif "Network" in result_text or "Connection" in result_text:
+                result_text = f"❌ 네트워크 오류가 발생했습니다."
+            else:
+                result_text = f"❌ 워크플로우 실행 중 오류가 발생했습니다: {result_text}"
     except Exception as e:
         import traceback
         traceback.print_exc()
         error_msg = str(e)
         tokens = {}
+        logs = []
         # API 크레딧 소진 오류 안내
         if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
             result_text = "❌ AI API 크레딧이 소진되었습니다. AI Studio 또는 OpenAI에서 크레딧을 충전해 주세요."
@@ -300,15 +312,35 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
     import json
     # 2. Save log to PostgreSQL (or SQLite fallback)
     try:
+        flow_status = "error" if "❌" in result_text or "Error" in result_text else "success"
         db_log = models.FlowExecutionLog(
             user_id=user.id if user else None,
             project_id=payload.project_id,
             payload=json.dumps(payload.dict()),
             result=result_text,
             total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
-            token_usage_details=tokens if isinstance(tokens, dict) else None
+            token_usage_details=tokens if isinstance(tokens, dict) else None,
+            status=flow_status,
+            error_message=result_text if flow_status == "error" else None
         )
         db.add(db_log)
+        db.flush() # To get db_log.id
+        
+        for step in logs:
+            start_dt = datetime.datetime.fromisoformat(step['start_time']) if step.get('start_time') else None
+            end_dt = datetime.datetime.fromisoformat(step['end_time']) if step.get('end_time') else None
+            node_log = models.NodeExecutionLog(
+                flow_execution_id=db_log.id,
+                node_id=step.get('node_id'),
+                node_type=step.get('node_type'),
+                start_time=start_dt,
+                end_time=end_dt,
+                status=step.get('status', 'success'),
+                result_data=step.get('result_data'),
+                error_message=step.get('error_message')
+            )
+            db.add(node_log)
+            
         db.commit()
         db.refresh(db_log)
     except Exception as e:
@@ -316,7 +348,62 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
         db.rollback()
 
     # 3. Return response to frontend
-    return {"status": "success", "result": result_text, "token_usage": tokens}
+    return {"status": "success", "result": result_text, "token_usage": tokens, "logs": logs}
+
+@app.get("/api/projects/{project_id}/runs")
+def get_project_runs(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
+    # Verify project access
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project or (project.user_id != user.id and not project.is_public):
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    runs = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.project_id == project_id).order_by(models.FlowExecutionLog.execution_time.desc()).limit(100).all()
+    
+    return [
+        {
+            "id": run.id,
+            "execution_time": run.execution_time,
+            "status": run.status,
+            "total_tokens": run.total_tokens,
+            "result_summary": run.result[:100] + "..." if run.result and len(run.result) > 100 else run.result
+        } for run in runs
+    ]
+
+@app.get("/api/runs/{run_id}")
+def get_run_details(run_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
+    run = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+        
+    project = db.query(models.Project).filter(models.Project.id == run.project_id).first()
+    if project and project.user_id != user.id and not project.is_public:
+        raise HTTPException(status_code=403, detail="Not authorized to view this run")
+        
+    steps = db.query(models.NodeExecutionLog).filter(models.NodeExecutionLog.flow_execution_id == run.id).order_by(models.NodeExecutionLog.id).all()
+    
+    return {
+        "run": {
+            "id": run.id,
+            "project_id": run.project_id,
+            "execution_time": run.execution_time,
+            "status": run.status,
+            "result": run.result,
+            "total_tokens": run.total_tokens,
+            "error_message": run.error_message
+        },
+        "steps": [
+            {
+                "id": step.id,
+                "node_id": step.node_id,
+                "node_type": step.node_type,
+                "start_time": step.start_time,
+                "end_time": step.end_time,
+                "status": step.status,
+                "result_data": step.result_data,
+                "error_message": step.error_message
+            } for step in steps
+        ]
+    }
 
 @app.post("/api/compile")
 def compile_flow(payload: FlowPayload):
@@ -363,8 +450,8 @@ app = FastAPI()
 
 @app.post("/execute")
 def execute_endpoint(inputs: dict):
-    res = run_workflow(**inputs)
-    return {{"result": res}}
+    res_text, tokens, logs = run_workflow(**inputs)
+    return {{"result": res_text, "tokens": tokens}}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
@@ -384,8 +471,8 @@ def main():
         try:
             req = json.loads(line)
             inputs = req.get('params', {{}})
-            res = run_workflow(**inputs)
-            print(json.dumps({{"result": res}}))
+            res_text, tokens, logs = run_workflow(**inputs)
+            print(json.dumps({{"result": res_text}}))
             sys.stdout.flush()
         except Exception as e:
             print(json.dumps({{"error": str(e)}}))
@@ -404,7 +491,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    result_text, tokens = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **payload.inputs)
+    result_text, tokens, logs = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **payload.inputs)
     
     import json
     try:
