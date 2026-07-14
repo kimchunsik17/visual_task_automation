@@ -5,7 +5,7 @@ meta_agent.py — "말로 만드는 Agent 빌더"의 메타 agent (MVP 골격)
 엔진·프론트(React Flow)는 이미 완성돼 있으므로, 이 모듈은 '올바른 graph_data'만 만들면 된다.
 
 ■ 구조 한눈에
-  ① NODE_CATALOG    : LLM에게 주는 '노드 사용설명서' (지금은 핵심 9종, 나중에 한 줄씩 추가하면 확장)
+  ① NODE_CATALOG    : LLM에게 주는 '노드 사용설명서' (지금은 핵심 11종, 나중에 한 줄씩 추가하면 확장)
   ② Pydantic 스키마 : 출력 형식을 강제(with_structured_output) → 엉뚱한 노드/필드 방지
   ③ generate_flow   : 요청 -> graph_data
   ④ modify_flow     : 기존 graph_data + 요청 -> 수정된 graph_data
@@ -28,10 +28,10 @@ from collections import defaultdict, deque
 from pydantic import BaseModel, Field
 
 
-# ── ① 노드 카탈로그 (핵심 9종) ────────────────────────────────────────────
+# ── ① 노드 카탈로그 (핵심 11종) ────────────────────────────────────────────
 # 여기에 노드를 한 줄씩 추가하면 챗봇이 다룰 수 있는 노드가 늘어난다(P2 확장).
 NODE_CATALOG = """\
-[사용 가능한 노드 — 이 9종만 사용한다]
+[사용 가능한 노드 — 이 11종만 사용한다]
 - startNode      : 플로우 시작점. data 없음. 모든 플로우는 이 노드에서 시작한다.
 - promptNode     : 사용자 프롬프트. data.userPrompt(문자열).
 - llmNode        : LLM 호출. data.model(gemini-3.5-flash | gpt-4o-mini | claude-3-5-sonnet-20240620),
@@ -45,9 +45,27 @@ NODE_CATALOG = """\
 - jsonParserNode : JSON 파싱/변환. data.mode(parse|stringify|extract). extract일 때만 data.extractKey(문자열) 필요.
                    parse=문자열→JSON, stringify=JSON→문자열, extract=특정 키 값 꺼내기.
 - delayNode      : 지정한 시간만큼 대기 후 다음 노드로 진행. data.seconds(숫자).
+- dynamicInputNode: 실행할 때마다 외부(호출자·디스코드 봇 메시지 등)에서 값을 받는 자리.
+                   data.inputLabel(문자열, 이 입력이 뭔지 설명 — 요청 맥락에서 유추해 채운다),
+                   data.testValue(문자열, 선택 — 에디터에서 미리보기/테스트 실행할 때만 쓰이는 예시값.
+                   실제 배포 실행에서는 호출자가 넘긴 값으로 항상 대체되므로 "진짜 기본 메시지"가 아니다).
+                   userPrompt처럼 flow에 고정 박히는 값이 필요하면 promptNode를 쓰고, "매번 다른 값을
+                   입력받고 싶다"는 요청일 때만 이 노드를 쓴다.
+- webCrawlerNode : URL의 웹페이지를 크롤링해 텍스트만 추출한다(5000자 제한). data.url(문자열, 선택 —
+                   비워두면 직전 노드의 출력을 URL로 그대로 쓴다). 크롤링에 실패해도 워크플로우가
+                   멈추지 않고 "Crawling failed: ..." 같은 에러 문자열이 다음 노드로 그냥 전달된다.
 - outputNode     : 결과 출력(종료). data 없음. 모든 플로우는 이 노드에서 끝난다.
 
 [생성 원칙]
+- dynamicInputNode의 testValue를 사용자가 명시적으로 주지 않았다면: 문맥에 맞는 그럴듯한 예시값을 채우거나
+  (마땅치 않으면 비워둬도 된다), 반드시 답변에서 "사용자가 값을 안 줘서 예시로 OOO를 채웠다" 또는
+  "예시가 마땅치 않아 비워뒀다"는 사실을 알려준다 — 실제 값이 아니라 미리보기용 임시값이라는 걸
+  사용자가 착각하지 않게 하기 위함이다.
+- webCrawlerNode의 url은 요청에 크롤링할 대상이 고정 문자열로 나와 있으면(예: "example.com 크롤링해줘")
+  채우고, URL 자체가 이전 단계의 결과물(예: API 응답으로 받은 링크)이면 비워서 직전 노드 출력을
+  그대로 쓰게 한다. 단, url을 비울 거면 반드시 URL을 실제로 만들어낼 노드를 바로 앞에 연결해야 한다 —
+  url도 없고 직전 노드도 없거나 직전이 startNode뿐이면 실행 시 크롤링할 URL이 없어서 에러가 난다
+  (Validator가 이 경우를 막는다).
 - 반드시 startNode 1개로 시작하고, outputNode로 끝난다.
 - 모든 노드는 start→output 경로 위에 있어야 한다. 어디에도 연결 안 된 고아 노드를 만들지 않는다.
 - 사용자가 원하는 바를 충족하되, 불필요한 중복 노드를 만들지 않는다 — 필요한 만큼만 최소로 구성한다.
@@ -57,6 +75,12 @@ NODE_CATALOG = """\
 - llmNode의 model은 사용자가 특정 모델을 요청하지 않는 한 기본값 gpt-4o-mini를 쓴다.
 - 요청이 모호하면 임의로 복잡하게 확대 해석하지 말고, 가장 단순한 구조로 만들거나 먼저 사용자에게 되물어본다.
 - (미세수정 시) 기존 노드로 이미 처리 가능하면 새 노드를 추가하지 말고 update_node로 기존 노드를 고친다.
+- **기본은 항상 단일 경로다.** 노드 A에서 노드 B로 가는 길은 하나만 만든다. 예를 들어 "결과를 3초 뒤에
+  보여줘"처럼 중간 처리 단계(delayNode 등)가 필요하면 그 단계를 경유하는 경로 하나만 만들고,
+  같은 목적지로 가는 직행 경로를 별도로 추가하지 않는다(예: llm→output과 llm→delay→output을
+  동시에 만들지 않는다 — 하나만 남긴다). 여러 경로로 갈라졌다가 같은 노드에서 다시 합류하는 구조는
+  사용자가 "동시에"/"병렬로"/"두 가지 다" 처럼 명시적으로 여러 갈래를 요청한 경우가 아니면 만들지 않는다.
+  (조건분기(conditionNode)는 예외 — 런타임에 규칙 중 하나만 타므로 여러 갈래가 원래 정상이다.)
 
 [연결 규칙]
 - 순환(cycle) 금지. 노드는 앞에서 뒤로만 연결한다.
@@ -67,17 +91,20 @@ NODE_CATALOG = """\
     첫 번째만 쓰고 나머지는 조용히 버린다.
   · promptNode는 들어오는 llmNode 엣지를 1개까지만 — 2개 이상이면 어떤 모델이 쓰일지
     비결정적이 된다(엔진이 마지막 걸로 덮어씀).
-  · 그 외 노드가 나가는 엣지를 여러 개 갖는 것(팬아웃)은 괜찮다 — 각 분기가 독립적으로 실행된다.
-    단, 여러 입력을 하나로 합치는 기능은 없다.
+  · 그 외 노드가 나가는 엣지를 여러 개 갖는 것(팬아웃) 자체는 문법적으로 가능하지만, 실행 엔진에
+    여러 입력을 하나로 합치는 merge 기능이 없다 — 그래서 갈라진 경로가 나중에 같은 노드로 다시
+    모이면 그 노드가 중복 실행된다. conditionNode의 분기가 아닌 한 이런 재합류 구조는 만들지 않는다
+    (위 [생성 원칙]의 "기본은 단일 경로" 참고).
 """
 
 
 # ── ② 출력 스키마 (형식 강제) ────────────────────────────────────────────
-# type을 Literal로 묶어 9종 밖의 노드를 아예 못 만들게 한다. position(x,y)은
+# type을 Literal로 묶어 11종 밖의 노드를 아예 못 만들게 한다. position(x,y)은
 # LLM이 추측하면 안 되므로 항상 None으로 초기화하고, auto_layout에서 채운다.
 NodeType = Literal[
     "startNode", "promptNode", "llmNode", "tokenizerNode", "conditionNode",
-    "httpRequestNode", "jsonParserNode", "delayNode", "outputNode"
+    "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode",
+    "webCrawlerNode", "outputNode"
 ]
 
 
@@ -150,6 +177,41 @@ FEWSHOT = """\
   {"id":"e4","source":"n4","target":"n5"},
   {"id":"e5","source":"n5","target":"n6"}
 ]}
+
+[예시3] 요청: "매번 다른 문장을 입력받아 한국어로 번역하고, 3초 후에 결과를 보여주는 봇 만들어줘"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"번역할 문장","testValue":"Hello, how are you?"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 문장을 한국어로 번역해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 번역 전문가다"}},
+  {"id":"n5","type":"delayNode","data":{"seconds":3}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+# ↑ n4에서 n6(output)으로 가는 직행 엣지를 따로 만들지 않는다 — delayNode를 거치는 경로 하나만 남긴다
+# (기본은 단일 경로 원칙). testValue는 사용자가 안 준 예시이므로 답변에서 그 사실을 알려준다.
+
+[예시4] 요청: "https://example.com/news 내용 요약해줘"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"webCrawlerNode","data":{"url":"https://example.com/news"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 웹페이지 내용을 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n5","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"}
+]}
+# ↑ url이 요청에 고정으로 나와 있으므로 data.url을 채운다. 만약 URL이 이전 단계 결과물(예:
+# httpRequestNode의 응답에서 뽑아낸 링크)이라면 url은 비우고, 그 노드를 webCrawlerNode 바로
+# 앞에 연결한다(비우면서 앞에 아무 노드도 없거나 startNode뿐이면 Validator가 막는다).
 """
 
 
@@ -210,6 +272,13 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
          그리고 같은 핸들에 엣지가 2개 이상 몰리지 않는지(실행 엔진이 첫 번째만 쓰고 나머지는 무시함)
       8) promptNode에 llmNode발 incoming 엣지가 2개 이상이면 안 됨(실행 엔진이 마지막 것으로 덮어써서
          모델 선택이 비결정적이 됨)
+      9) conditionNode가 아닌 노드에서 갈라진 경로 여러 개가 같은 하류 노드에서 다시 합쳐지면 안 됨
+         (예: llm→output 직행 + llm→delay→output 경유가 동시에 존재 — merge 기능이 없어 그 노드가
+         중복 실행된다). 기본은 단일 경로이고, 이 재합류만 예외적으로 허용된다.
+      10) webCrawlerNode의 data.url이 비어있으면, 실행 시 직전 노드의 출력을 URL로 대신 쓴다
+          (실행 엔진 확인 결과). 그런데 연결된 이전 노드가 아예 없거나, 직전 노드가 아무 값도
+          만들지 않는 startNode뿐이면 URL을 얻을 방법이 없어 "No URL provided" 에러로 빠진다 —
+          이 경우를 막는다.
 
     require_complete=False면 1)·2)(시작/종료 완결성)를 건너뛴다. add_node 등으로 그래프를
     한 노드씩 쌓는 도중에는 당연히 startNode나 outputNode가 아직 없는 "미완성" 상태를 거치므로,
@@ -290,6 +359,65 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
             errors.append(
                 f"{prompt_id}(promptNode)에 llmNode에서 들어오는 엣지가 {count}개 있다 — "
                 "실행 엔진이 마지막 것으로 조용히 덮어써서 어떤 모델이 쓰일지 비결정적이 된다. 1개만 연결하라"
+            )
+
+    # 9) 재합류(diamond) 감지 — conditionNode가 아닌 노드에서 갈라진 경로 여러 개가
+    # 같은 하류 노드에서 다시 합쳐지는지 검사. (실행 엔진에 merge 기능이 없어서, 이런 구조가 있으면
+    # 그 하류 노드가 여러 번 실행/출력된다. conditionNode의 분기는 런타임에 하나만 타므로 예외.)
+    forward: Dict[str, List[str]] = defaultdict(list)
+    for e in g.edges:
+        forward[e.source].append(e.target)
+
+    def _reachable_from(start: str) -> set:
+        seen: set = set()
+        stack = [start]
+        while stack:
+            u = stack.pop()
+            if u in seen:
+                continue
+            seen.add(u)
+            stack.extend(forward.get(u, []))
+        return seen
+
+    reported_diamonds: set = set()
+    for n in g.nodes:
+        if n.type == "conditionNode":
+            continue
+        children = forward.get(n.id, [])
+        if len(children) < 2:
+            continue
+        reach = {c: _reachable_from(c) for c in children}
+        for i in range(len(children)):
+            for j in range(i + 1, len(children)):
+                c1, c2 = children[i], children[j]
+                shared = reach[c1] & reach[c2]
+                if shared:
+                    key = (n.id, c1, c2)
+                    if key in reported_diamonds:
+                        continue
+                    reported_diamonds.add(key)
+                    errors.append(
+                        f"{n.id}에서 나간 경로 여러 개({c1}, {c2} 방향)가 {', '.join(sorted(shared))}에서 "
+                        "다시 합쳐진다 — merge 기능이 없어 해당 노드가 중복 실행된다. 사용자가 병렬/동시 "
+                        "실행을 명시적으로 요청하지 않았다면 하나의 경로만 남겨라"
+                    )
+
+    # 10) webCrawlerNode: url이 비어있으면 직전 노드가 실제로 URL을 줄 수 있어야 한다
+    # (실행 엔진 확인 결과: url이 없으면 prev_res_var를 URL로 쓰는데, startNode 바로 다음이거나
+    # incoming 엣지가 아예 없으면 prev_res_var가 없어서 "No URL provided" 에러로 빠진다)
+    for n in g.nodes:
+        if n.type != "webCrawlerNode" or (n.data or {}).get("url"):
+            continue
+        incoming_sources = [nodes_by_id[e.source] for e in g.edges if e.target == n.id and e.source in nodes_by_id]
+        if not incoming_sources:
+            errors.append(
+                f"{n.id}(webCrawlerNode)에 url이 없고 연결된 이전 노드도 없다 — "
+                "url을 채우거나 URL을 출력하는 노드를 앞에 연결하라"
+            )
+        elif all(s.type == "startNode" for s in incoming_sources):
+            errors.append(
+                f"{n.id}(webCrawlerNode)에 url이 없고 직전 노드가 startNode뿐이라 실행 시 URL을 얻을 수 없다 — "
+                "url을 채우거나 URL을 출력하는 노드를 startNode와 사이에 연결하라"
             )
 
     # 3) 순환(cycle)
@@ -498,7 +626,27 @@ def _summarize_node_data(node_type: str, data: Dict[str, Any]) -> str:
         return f"mode={mode}" + (f", extractKey={data.get('extractKey', '')!r}" if mode == "extract" else "")
     if node_type == "delayNode":
         return f"seconds={data.get('seconds')}"
+    if node_type == "dynamicInputNode":
+        test_val = data.get("testValue", "")
+        return f"inputLabel={data.get('inputLabel', '')!r}, testValue={test_val!r}" + (
+            " (비어있음 — 예시값 없음)" if not test_val else " (예시/미리보기용, 실제 실행 값 아님)"
+        )
+    if node_type == "webCrawlerNode":
+        url = data.get("url", "")
+        return f"url={url!r}" + (" (비어있음 — 직전 노드 출력을 URL로 사용)" if not url else "")
     return ""
+
+
+def _dynamic_input_note(n: FlowNode) -> Optional[str]:
+    """dynamicInputNode 하나에 대해 testValue 상태를 있는 그대로 알려주는 문장을 만든다.
+    도구(add_node/update_node/generate_flow)의 반환 문자열에 붙여서, 에이전트가 답변에서
+    '예시값을 채웠다/못 채워서 비워뒀다'는 사실을 실제 데이터 그대로(추측 없이) 전달하게 한다."""
+    if n.type != "dynamicInputNode":
+        return None
+    test_val = (n.data or {}).get("testValue", "")
+    if test_val:
+        return f"{n.id}(dynamicInputNode)의 testValue를 예시로 {test_val!r}로 채웠다 — 실제 실행 값이 아니라 미리보기용 예시임을 답변에서 알려줄 것"
+    return f"{n.id}(dynamicInputNode)에 마땅한 예시가 없어 testValue를 비워뒀다 — 실제 실행 시 호출자가 넘긴 값으로 채워짐을 답변에서 알려줄 것"
 
 
 def make_tools(initial_graph: FlowGraph) -> Tuple[List, Callable[[], FlowGraph]]:
@@ -582,13 +730,21 @@ def make_tools(initial_graph: FlowGraph) -> Tuple[List, Callable[[], FlowGraph]]
         node_type별 data 필수 필드: promptNode→userPrompt, llmNode→model+systemPrompt,
         tokenizerNode→method(extract_text|chunk_pages), conditionNode→rules(id·operator·value 목록),
         httpRequestNode→method(GET|POST|PUT|DELETE)+url(headers/body는 선택),
-        jsonParserNode→mode(parse|stringify|extract)(+extract면 extractKey), delayNode→seconds(숫자).
+        jsonParserNode→mode(parse|stringify|extract)(+extract면 extractKey), delayNode→seconds(숫자),
+        dynamicInputNode→inputLabel(문자열)+testValue(문자열, 선택 — 미리보기용 예시일 뿐 실제 실행값 아님),
+        webCrawlerNode→url(문자열, 선택 — 비우면 직전 노드 출력을 URL로 사용하는데, 그러려면 반드시
+        URL을 실제로 만들어내는 노드가 바로 앞에 연결돼 있어야 한다).
         startNode·outputNode는 data가 필요 없다.
         실패하면 사유가 반환되니 data를 고쳐서 이 도구를 다시 호출한다."""
         before = _snapshot()
         new_id = _next_id("n", [n.id for n in state["graph"].nodes])
-        state["graph"].nodes.append(FlowNode(id=new_id, type=node_type, data=data or {}))
-        return _commit_or_rollback(before, f"노드 {new_id}({node_type}) 추가됨")
+        new_node = FlowNode(id=new_id, type=node_type, data=data or {})
+        state["graph"].nodes.append(new_node)
+        msg = f"노드 {new_id}({node_type}) 추가됨"
+        note = _dynamic_input_note(new_node)
+        if note:
+            msg += f"\n{note}"
+        return _commit_or_rollback(before, msg)
 
     @tool
     def connect_nodes(source: str, target: str, sourceHandle: Optional[str] = None) -> str:
@@ -613,7 +769,12 @@ def make_tools(initial_graph: FlowGraph) -> Tuple[List, Callable[[], FlowGraph]]
             return _fail(f"실패: 노드 {node_id}를 찾을 수 없다")
         before = _snapshot()
         node.data = {**node.data, **data}
-        return _commit_or_rollback(before, f"노드 {node_id} 갱신됨: {list(data.keys())}")
+        msg = f"노드 {node_id} 갱신됨: {list(data.keys())}"
+        if "testValue" in data:
+            note = _dynamic_input_note(node)
+            if note:
+                msg += f"\n{note}"
+        return _commit_or_rollback(before, msg)
 
     @tool
     def delete_node(node_id: str) -> str:
@@ -640,7 +801,11 @@ def make_tools(initial_graph: FlowGraph) -> Tuple[List, Callable[[], FlowGraph]]
         if not ok:
             return _fail(f"생성 실패(기존 flow 유지): {errs}")
         state["graph"] = g
-        return _succeed(f"새 플로우 생성됨: 노드 {len(g.nodes)}개, 엣지 {len(g.edges)}개")
+        msg = f"새 플로우 생성됨: 노드 {len(g.nodes)}개, 엣지 {len(g.edges)}개"
+        notes = [n for n in (_dynamic_input_note(node) for node in g.nodes) if n]
+        if notes:
+            msg += "\n" + "\n".join(notes)
+        return _succeed(msg)
 
     def get_current_graph() -> FlowGraph:
         """컨테이너의 최신 그래프를 반환. Phase 3/4가 에이전트 실행 후 최종 결과를 읽을 때 쓴다."""
@@ -677,10 +842,17 @@ AGENT_SYSTEM_PROMPT = (
     "상황일수록(예: 여러 flow를 이미 만들어본 뒤) 짐작하지 말고 먼저 확인한다.\n"
     "- 도구 응답에 '⚠️ 연속 N회 실패' 경고가 붙으면, 같은 방식을 반복하지 말고 사용자에게 무엇이 "
     "막혔는지 설명하고 어떻게 할지 물어본다.\n"
+    "- 도구 응답에 'dynamicInputNode의 testValue를...' 같은 안내 문장이 붙어 있으면, 그 내용을 반드시 "
+    "최종 답변에 그대로(추측해서 다른 값을 지어내지 말고) 포함시켜 사용자에게 알려준다 — 예시값인지, "
+    "비워뒀는지를 사용자가 알아야 실제 실행 때 뭐가 들어가는지 헷갈리지 않는다.\n"
     "\n[예시]\n"
     '- 사용자: "PDF 요약봇 만들어줘" → generate_flow("PDF 요약봇 만들어줘") 호출\n'
     '- 사용자: "요약 뒤에 번역 추가해줘" → show_flow로 현재 노드 확인 → add_node로 promptNode·llmNode 추가 → connect_nodes로 연결\n'
     '- 사용자: "모델을 gpt-4o로 바꿔줘" → show_flow로 llmNode id 확인 → update_node(그 id, {"model": "gpt-4o"})\n'
+    '- 사용자: "매번 다른 문장을 입력받아서 번역해주는 봇 만들어줘" → generate_flow 호출 → 도구 응답에 '
+    '"n2(dynamicInputNode)의 testValue를 예시로 \'Hello, how are you?\'로 채웠다..." 같은 note가 붙으면, '
+    '답변에서 "테스트용으로 \'Hello, how are you?\'라는 예시 문장을 넣어뒀어요. 실제로 실행할 때는 그때 '
+    '입력하는 문장이 대신 들어갑니다." 처럼 그대로 안내한다\n'
     '- 사용자: "안녕" → 도구 호출 없이 그냥 인사만 한다\n'
     '- 사용자: "뭔가 자동화해줘" (구체적인 목적·입력·출력이 없는 모호한 요청) → 도구를 부르지 않고 '
     '"어떤 작업을 자동화하고 싶으신가요? 예를 들어 문서 요약, 외부 API 연동, 정해진 시간마다 알림 보내기 '
