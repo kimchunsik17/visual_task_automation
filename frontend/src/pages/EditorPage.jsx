@@ -18,7 +18,8 @@ import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode } from '../customNodes';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode } from '../customNodes';
+import { NodeRegistry } from '../nodeRegistry';
 
 const nodeTypes = {
   startNode: StartNode,
@@ -44,7 +45,13 @@ const nodeTypes = {
   httpRequestNode: HttpRequestNode,
   databaseNode: DatabaseNode,
   humanApprovalNode: HumanApprovalNode,
+  multiAgentNode: MultiAgentNode,
 };
+
+// Auto-register dynamic nodes
+Object.keys(NodeRegistry).forEach(key => {
+  nodeTypes[key] = DynamicNode;
+});
 
 let id = 0;
 const getId = () => `dndnode_${id++}`;
@@ -302,9 +309,13 @@ function FlowContent() {
     setResponse('Running graph on backend...');
     
     try {
+      const currentNodes = getNodes();
+      const currentEdges = getEdges();
+      
       const payload = {
-        nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
-        edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
+project_id: currentId,
+        nodes: currentNodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+        edges: currentEdges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
       };
 
       const res = await axios.post('/api/execute', payload, getAuthHeaders());
@@ -325,9 +336,12 @@ function FlowContent() {
     setResponse('Compiling graph to Python code...');
     
     try {
+      const currentNodes = getNodes();
+      const currentEdges = getEdges();
+      
       const payload = {
-        nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
-        edges: edges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
+        nodes: currentNodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+        edges: currentEdges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
       };
 
       const res = await axios.post('/api/compile', payload);
@@ -416,7 +430,7 @@ function FlowContent() {
 
   return (
     <div className="app-container">
-      <header className="header" style={{ position: 'relative', padding: '0.8rem 1.5rem', background: '#0f172a', borderBottom: '1px solid #1e293b', zIndex: 50 }}>
+      <header className="header" style={{ position: 'relative', padding: '0.8rem 1.5rem', background: 'var(--card-bg)', borderBottom: '1px solid var(--border-color)', zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <button onClick={() => navigate('/')} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: 0 }}>
             <ArrowLeft size={18} />
@@ -487,7 +501,7 @@ function FlowContent() {
                     onChange={(e) => setProjectTitle(e.target.value)}
                     disabled={!isOwner}
                     style={{ 
-                      width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', 
+                      width: '100%', background: 'var(--btn-active-bg)', border: '1px solid var(--border-color)', 
                       color: 'var(--text-color)', fontSize: '0.9rem', padding: '0.5rem', borderRadius: '4px', outline: 'none',
                       boxSizing: 'border-box'
                     }}
@@ -502,7 +516,7 @@ function FlowContent() {
                     rows={4}
                     placeholder="이 워크플로우에 대한 설명이나 기획 의도를 적어두세요."
                     style={{ 
-                      width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', 
+                      width: '100%', background: 'var(--btn-active-bg)', border: '1px solid var(--border-color)', 
                       color: 'var(--text-color)', fontSize: '0.9rem', padding: '0.5rem', borderRadius: '4px', outline: 'none',
                       resize: 'none', boxSizing: 'border-box'
                     }}
@@ -519,7 +533,7 @@ function FlowContent() {
               <button 
                 className="btn-secondary" 
                 onClick={toggleShare}
-                style={{ background: isPublic ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: isPublic ? '#10b981' : 'var(--text-muted)', borderColor: isPublic ? '#10b981' : '#334155' }}
+                style={{ background: isPublic ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: isPublic ? '#10b981' : 'var(--text-muted)', borderColor: isPublic ? '#10b981' : 'var(--border-color)' }}
               >
                 <Share2 size={16} />
                 {isPublic ? '공개됨' : '비공개'}
@@ -597,7 +611,7 @@ function FlowContent() {
             }}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
-            colorMode="dark"
+            colorMode="system"
           >
             <Controls />
             <MiniMap 
@@ -720,9 +734,9 @@ function FlowContent() {
         width: '360px',
         height: '550px',
         maxHeight: '80vh',
-        background: 'rgba(15, 23, 42, 0.85)',
+        background: 'var(--card-bg)',
         backdropFilter: 'blur(12px)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
+        border: '1px solid var(--border-color)',
         borderRadius: '16px',
         boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
         display: 'flex',
@@ -736,11 +750,11 @@ function FlowContent() {
         {/* Header */}
         <div style={{
           padding: '1rem',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          borderBottom: '1px solid var(--border-color)',
           display: 'flex',
           alignItems: 'center',
           gap: '0.5rem',
-          background: 'rgba(255, 255, 255, 0.02)',
+          background: 'var(--btn-active-bg)',
           borderTopLeftRadius: '16px',
           borderTopRightRadius: '16px'
         }}>
@@ -784,10 +798,10 @@ function FlowContent() {
         {/* Chat Input */}
         <div style={{
           padding: '1rem',
-          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          borderTop: '1px solid var(--border-color)',
           display: 'flex',
           gap: '0.5rem',
-          background: 'rgba(0, 0, 0, 0.2)',
+          background: 'var(--btn-active-bg)',
           borderBottomLeftRadius: '16px',
           borderBottomRightRadius: '16px'
         }}>
@@ -841,4 +855,5 @@ function EditorPage() {
 }
 
 export default EditorPage;
+
 

@@ -35,14 +35,15 @@ class FlowExecutionLog(Base):
     __tablename__ = "flow_execution_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    project_id = Column(Integer, nullable=True, index=True)
     execution_time = Column(DateTime, default=datetime.datetime.utcnow)
     payload = Column(String)
     result = Column(String)
     total_tokens = Column(Integer, default=0)
     token_usage_details = Column(JSON, nullable=True)
 
-    user = relationship("User", backref="execution_logs")
+    user = relationship("User", foreign_keys=[user_id], primaryjoin="User.id == foreign(FlowExecutionLog.user_id)", backref="execution_logs")
 
 class BotLog(Base):
     __tablename__ = "bot_logs"
@@ -53,3 +54,13 @@ class BotLog(Base):
     message = Column(String)
     response = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class NodeMemory(Base):
+    __tablename__ = 'node_memory'
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, index=True)
+    project_id = Column(Integer, index=True)
+    node_id = Column(String, index=True)
+    history = Column(String, default='[]')
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

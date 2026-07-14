@@ -112,7 +112,7 @@ button, input, textarea {
 
 .btn-secondary {
   background-color: transparent;
-  color: #e2e8f0;
+  color: var(--text-color);
   border: 1px solid var(--border-color);
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -129,12 +129,12 @@ button, input, textarea {
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: #475569;
+  background-color: var(--btn-active-bg);
+  border-color: var(--primary-color);
 }
 
 .btn-secondary:active:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--btn-active-bg);
 }
 
 .btn-secondary:disabled {
@@ -394,7 +394,42 @@ button, input, textarea {
   fill: var(--text-color);
 }
 .react-flow__controls-button:hover {
-  background-color: rgba(255,255,255,0.1);
+  background-color: var(--btn-active-bg);
 }
-.project-title-btn:hover { background: rgba(255, 255, 255, 0.05) !important; }
+.project-title-btn:hover { background: var(--btn-active-bg) !important; }
 
+@keyframes pulse-opacity {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.claude-loader-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+.claude-loader-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #a855f7;
+  font-weight: 500;
+  animation: pulse-opacity 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.claude-loader-header svg {
+  animation: pulse-opacity 1.5s ease-in-out infinite alternate;
+}
+.claude-skeleton {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--border-color) 25%, var(--btn-active-bg) 50%, var(--border-color) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite linear;
+}
+.claude-skeleton.short { width: 60%; }
+.claude-skeleton.medium { width: 85%; }
+.claude-skeleton.full { width: 100%; }

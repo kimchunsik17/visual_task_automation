@@ -1,4 +1,4 @@
-﻿.modal-overlay {
+.modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -55,7 +55,7 @@
   margin-bottom: 0.75rem;
   font-size: 1.1rem;
   color: var(--text-muted);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-color);
   padding-bottom: 0.25rem;
 }
 
@@ -66,7 +66,7 @@
 
 .save-flow-row input {
   flex: 1;
-  background: rgba(0,0,0,0.2);
+  background: var(--btn-active-bg);
   border: 1px solid var(--border-color);
   color: var(--text-color);
   padding: 0.5rem 0.75rem;
@@ -86,8 +86,8 @@
 }
 
 .template-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--btn-active-bg);
+  border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   padding: 1rem;
   display: flex;
@@ -97,21 +97,21 @@
 }
 
 .template-card:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--card-bg);
+  border-color: var(--primary-color);
   transform: translateY(-2px);
 }
 
 .template-card h4 {
   margin: 0;
   font-size: 1.05rem;
-  color: #f8fafc;
+  color: var(--text-color);
 }
 
 .template-card p {
   margin: 0;
   font-size: 0.85rem;
-  color: #cbd5e1;
+  color: var(--text-muted);
   flex: 1;
 }
 
@@ -121,7 +121,7 @@
   gap: 0.35rem;
   padding: 0.5rem 1rem;
   background-color: #3b82f6;
-  color: var(--text-color);
+  color: #ffffff;
   border: none;
   border-radius: 0.5rem;
   font-weight: 600;
@@ -141,7 +141,7 @@
   gap: 0.35rem;
   padding: 0.4rem;
   background-color: #10b981;
-  color: var(--text-color);
+  color: #ffffff;
   border: none;
   border-radius: 0.4rem;
   font-weight: 600;
@@ -168,8 +168,8 @@
 }
 
 .btn-icon:hover {
-  color: #f8fafc;
-  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-color);
+  background-color: var(--btn-active-bg);
 }
 
 .btn-icon.delete:hover {
@@ -227,14 +227,14 @@
 
 .info-popup-body {
   padding: 1rem;
-  color: #cbd5e1;
+  color: var(--text-color);
   font-size: 0.95rem;
 }
 
 .info-popup-url {
   margin-top: 0.5rem;
   padding-top: 0.5rem;
-  border-top: 1px dashed rgba(255,255,255,0.1);
+  border-top: 1px dashed var(--border-color);
 }
 
 .info-popup-url a {

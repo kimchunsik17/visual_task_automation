@@ -1,0 +1,91 @@
+{
+  "project_id": 7,
+  "nodes": [
+    {
+      "id": "start_1",
+      "type": "startNode",
+      "data": {
+        "label": "시작",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "KRW"
+      }
+    },
+    {
+      "id": "dyn_1",
+      "type": "dynamicInputNode",
+      "data": {
+        "label": "입력 데이터",
+        "testValue": "나는 20살에 군대에 입대해 지금은 전역했다. 내 이름은 거북선을 만든 유명인의 이름을 땄다.",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "KRW"
+      }
+    },
+    {
+      "id": "llm_1",
+      "type": "llmNode",
+      "data": {
+        "label": "JSON 정보 추출기",
+        "model": "gpt-4o",
+        "systemPrompt": "You are a data extractor. You must extract a person's name and age from the given text.",
+        "userPrompt": "Extract data from this text.",
+        "useStructuredOutput": true,
+        "jsonSchema": "{\n  \"title\": \"PersonInfo\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"name\": { \"type\": \"string\" },\n    \"age\": { \"type\": \"integer\" }\n  }\n}",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": {
+          "input_tokens": 100,
+          "output_tokens": 11,
+          "total_tokens": 111,
+          "input_token_details": {
+            "audio": 0,
+            "cache_read": 0
+          },
+          "output_token_details": {
+            "audio": 0,
+            "reasoning": 0
+          }
+        },
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "KRW"
+      }
+    },
+    {
+      "id": "out_1",
+      "type": "outputNode",
+      "data": {
+        "label": "최종 JSON 결과",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "KRW"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "start_1",
+      "target": "dyn_1",
+      "sourceHandle": "out",
+      "targetHandle": "in"
+    },
+    {
+      "source": "dyn_1",
+      "target": "llm_1",
+      "sourceHandle": "out",
+      "targetHandle": "in"
+    },
+    {
+      "source": "llm_1",
+      "target": "out_1",
+      "sourceHandle": "out",
+      "targetHandle": "in"
+    }
+  ]
+}

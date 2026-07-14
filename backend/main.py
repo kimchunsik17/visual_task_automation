@@ -54,6 +54,7 @@ async def startup_event():
         db.close()
 
 class FlowPayload(BaseModel):
+    project_id: Optional[int] = None
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
 
@@ -134,6 +135,24 @@ def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid Google token: {str(e)}")
+
+@app.delete("/api/users/me")
+def delete_user_account(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    # 1. Anonymize execution logs
+    db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.user_id == user.id).update({models.FlowExecutionLog.user_id: None})
+    
+    # 2. Delete bot logs for their projects
+    projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
+    project_ids = [p.id for p in projects]
+    if project_ids:
+        db.query(models.BotLog).filter(models.BotLog.project_id.in_(project_ids)).delete(synchronize_session=False)
+        # 3. Delete projects
+        db.query(models.Project).filter(models.Project.user_id == user.id).delete(synchronize_session=False)
+        
+    # 4. Delete user
+    db.delete(user)
+    db.commit()
+    return {"status": "success", "message": "Account deleted"}
 
 class ProjectCreate(BaseModel):
     title: str
@@ -262,14 +281,34 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
     Receives graph data from frontend, runs LangGraph logic,
     saves execution to DB, and returns the result.
     """
-    # 1. Run LangGraph with Gemini
-    result_text, tokens = run_workflow(payload.nodes, payload.edges)
+    import json
+    with open("payload_debug.json", "w", encoding="utf-8") as f:
+        json.dump(payload.dict(), f, ensure_ascii=False, indent=2)
+        
+    # 1. Run LangGraph
+    try:
+        result_text, tokens = run_workflow(payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        error_msg = str(e)
+        tokens = {}
+        # API 크레딧 소진 오류 안내
+        if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+            result_text = "❌ AI API 크레딧이 소진되었습니다. AI Studio 또는 OpenAI에서 크레딧을 충전해 주세요."
+        elif "AuthenticationError" in error_msg or "401" in error_msg:
+            result_text = "❌ AI API 키가 유효하지 않습니다. .env 파일의 API 키를 확인해 주세요."
+        elif "Network" in error_msg or "Connection" in error_msg:
+            result_text = f"❌ 네트워크 오류가 발생했습니다: {error_msg}"
+        else:
+            result_text = f"❌ 워크플로우 실행 중 오류가 발생했습니다: {error_msg}"
     
     import json
     # 2. Save log to PostgreSQL (or SQLite fallback)
     try:
         db_log = models.FlowExecutionLog(
             user_id=user.id if user else None,
+            project_id=payload.project_id,
             payload=json.dumps(payload.dict()),
             result=result_text,
             total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
@@ -391,7 +430,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    result_text, tokens = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), **payload.inputs)
+    result_text, tokens = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **payload.inputs)
     
     import json
     try:
@@ -548,7 +587,7 @@ def get_bot_logs(project_id: int, user: models.User = Depends(get_current_user_r
     ]
 
 @app.get("/api/statistics")
-def get_statistics(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     from sqlalchemy import func
     import datetime
     
@@ -556,35 +595,124 @@ def get_statistics(user: models.User = Depends(get_current_user_required), db: S
     total_allocated = 10000000 # 10M tokens allocated for demo
     remaining = max(0, total_allocated - total_used)
     
-    # Get last 7 days usage
-    seven_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=6) # include today, so 6 days ago
-    seven_days_ago = seven_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    recent_logs = db.query(models.FlowExecutionLog).filter(
-        models.FlowExecutionLog.user_id == user.id,
-        models.FlowExecutionLog.execution_time >= seven_days_ago
-    ).all()
-    
-    # Aggregate by date
-    daily_usage = {}
-    for i in range(7):
-        d = (datetime.datetime.utcnow() - datetime.timedelta(days=i)).date().isoformat()
-        daily_usage[d] = 0
+    now = datetime.datetime.utcnow()
+    chart_data = []
+
+    if time_range == "hourly":
+        start_time = now - datetime.timedelta(hours=23)
+        start_time = start_time.replace(minute=0, second=0, microsecond=0)
+        recent_logs = db.query(models.FlowExecutionLog).filter(
+            models.FlowExecutionLog.user_id == user.id,
+            models.FlowExecutionLog.execution_time >= start_time
+        ).all()
+        usage = {}
+        for i in range(24):
+            t = start_time + datetime.timedelta(hours=i)
+            usage[t.strftime("%Y-%m-%d %H:00")] = 0
+        for log in recent_logs:
+            if log.execution_time:
+                t_str = log.execution_time.strftime("%Y-%m-%d %H:00")
+                if t_str in usage:
+                    usage[t_str] += log.total_tokens
+        chart_data = [{"date": k[-5:], "tokens": v, "fullDate": k} for k, v in sorted(usage.items())]
+
+    elif time_range == "monthly":
+        start_time = now - datetime.timedelta(days=29)
+        start_time = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        recent_logs = db.query(models.FlowExecutionLog).filter(
+            models.FlowExecutionLog.user_id == user.id,
+            models.FlowExecutionLog.execution_time >= start_time
+        ).all()
+        usage = {}
+        for i in range(30):
+            d = (start_time + datetime.timedelta(days=i)).date().isoformat()
+            usage[d] = 0
+        for log in recent_logs:
+            if log.execution_time:
+                d_str = log.execution_time.date().isoformat()
+                if d_str in usage:
+                    usage[d_str] += log.total_tokens
+        chart_data = [{"date": k[-5:], "tokens": v, "fullDate": k} for k, v in sorted(usage.items())]
+
+    elif time_range == "yearly":
+        usage = {}
+        m = now.month
+        y = now.year
+        for i in range(12):
+            usage[f"{y}-{m:02d}"] = 0
+            m -= 1
+            if m == 0:
+                m = 12
+                y -= 1
         
-    for log in recent_logs:
-        if log.execution_time:
-            date_str = log.execution_time.date().isoformat()
-            if date_str in daily_usage:
-                daily_usage[date_str] += log.total_tokens
-                
-    # Format for chart: array of {date: 'YYYY-MM-DD', tokens: 1234} sorted by date
-    chart_data = [{"date": k[-5:], "tokens": v, "fullDate": k} for k, v in sorted(daily_usage.items())]
+        start_time = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(days=365)
+        recent_logs = db.query(models.FlowExecutionLog).filter(
+            models.FlowExecutionLog.user_id == user.id,
+            models.FlowExecutionLog.execution_time >= start_time
+        ).all()
+        for log in recent_logs:
+            if log.execution_time:
+                m_str = log.execution_time.strftime("%Y-%m")
+                if m_str in usage:
+                    usage[m_str] += log.total_tokens
+        chart_data = [{"date": k, "tokens": v, "fullDate": k} for k, v in sorted(usage.items())]
+
+    else: # weekly
+        start_time = now - datetime.timedelta(days=6)
+        start_time = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        recent_logs = db.query(models.FlowExecutionLog).filter(
+            models.FlowExecutionLog.user_id == user.id,
+            models.FlowExecutionLog.execution_time >= start_time
+        ).all()
+        usage = {}
+        for i in range(7):
+            d = (start_time + datetime.timedelta(days=i)).date().isoformat()
+            usage[d] = 0
+        for log in recent_logs:
+            if log.execution_time:
+                d_str = log.execution_time.date().isoformat()
+                if d_str in usage:
+                    usage[d_str] += log.total_tokens
+        chart_data = [{"date": k[-5:], "tokens": v, "fullDate": k} for k, v in sorted(usage.items())]
+
+    # Project usage
+    project_usage_rows = db.query(
+        models.FlowExecutionLog.project_id,
+        func.sum(models.FlowExecutionLog.total_tokens).label("total")
+    ).filter(
+        models.FlowExecutionLog.user_id == user.id,
+        models.FlowExecutionLog.project_id.isnot(None)
+    ).group_by(models.FlowExecutionLog.project_id).all()
+
+    project_usage = []
+    deleted_project_tokens = 0
     
+    for pid, tot in project_usage_rows:
+        project = db.query(models.Project).filter(models.Project.id == pid).first()
+        if project:
+            project_usage.append({"project_id": pid, "title": project.title, "tokens": tot})
+        else:
+            deleted_project_tokens += tot
+            
+    if deleted_project_tokens > 0:
+        project_usage.append({"project_id": -1, "title": "삭제된 프로젝트", "tokens": deleted_project_tokens})
+    
+    none_usage = db.query(func.sum(models.FlowExecutionLog.total_tokens)).filter(
+        models.FlowExecutionLog.user_id == user.id,
+        models.FlowExecutionLog.project_id.is_(None)
+    ).scalar()
+    
+    if none_usage:
+        project_usage.append({"project_id": None, "title": "미지정 프로젝트", "tokens": none_usage})
+
+    project_usage.sort(key=lambda x: x['tokens'], reverse=True)
+
     return {
         "total_used": total_used,
         "remaining": remaining,
         "total_allocated": total_allocated,
-        "chart_data": chart_data
+        "chart_data": chart_data,
+        "project_usage": project_usage
     }
 
 from fastapi.staticfiles import StaticFiles

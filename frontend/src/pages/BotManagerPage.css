@@ -44,7 +44,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.25rem 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--btn-active-bg);
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -61,7 +61,7 @@
 .status-dot.connecting { background-color: #f59e0b; animation: pulse 1.5s infinite; }
 
 .status-text {
-  color: #cbd5e1;
+  color: var(--text-muted);
 }
 
 .bot-card-body {
@@ -72,7 +72,7 @@
 .project-title {
   margin: 0 0 0.5rem 0;
   font-size: 1.25rem;
-  color: #f8fafc;
+  color: var(--text-color);
 }
 
 .bot-name {
@@ -97,7 +97,7 @@
 .bot-card-actions {
   display: flex;
   border-top: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--btn-active-bg);
 }
 
 .btn-primary-action {
@@ -105,7 +105,7 @@
   padding: 0.875rem;
   border: none;
   background: transparent;
-  color: #cbd5e1;
+  color: var(--text-muted);
   font-size: 0.95rem;
   font-weight: 600;
   display: flex;
@@ -118,8 +118,8 @@
 }
 
 .btn-primary-action:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #f8fafc;
+  background: var(--btn-active-bg);
+  color: var(--text-color);
 }
 
 .btn-primary-action.start:hover {
@@ -143,7 +143,7 @@
   height: 100%;
   border: none;
   background: transparent;
-  color: #cbd5e1;
+  color: var(--text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -152,8 +152,8 @@
 }
 
 .btn-icon:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #f8fafc;
+  background: var(--btn-active-bg);
+  color: var(--text-color);
 }
 
 .dropdown-menu {
@@ -185,7 +185,7 @@
   padding: 0.75rem 1rem;
   background: transparent;
   border: none;
-  color: #cbd5e1;
+  color: var(--text-color);
   font-size: 0.9rem;
   text-align: left;
   cursor: pointer;
@@ -193,8 +193,8 @@
 }
 
 .dropdown-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #f8fafc;
+  background: var(--btn-active-bg);
+  color: var(--text-color);
 }
 
 .dropdown-item.danger {
@@ -240,14 +240,15 @@
   padding: 0.5rem 1rem;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  color: #f8fafc;
+  color: var(--text-color);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-refresh:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--btn-active-bg);
+  border-color: var(--primary-color);
 }
 
 .btn-refresh:disabled {
@@ -284,7 +285,7 @@
 }
 
 .empty-state h3 {
-  color: #f8fafc;
+  color: var(--text-color);
   margin: 1rem 0 0.5rem;
 }
 
@@ -339,7 +340,7 @@
 
 .token-modal-header h3 {
   margin: 0;
-  color: #f8fafc;
+  color: var(--text-color);
 }
 
 .close-btn {
@@ -363,7 +364,7 @@
 }
 
 .auth-step p, .token-edit-step p {
-  color: #cbd5e1;
+  color: var(--text-muted);
   margin: 0 0 0.5rem 0;
 }
 
@@ -378,8 +379,8 @@
   padding: 0.75rem;
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.2);
-  color: #f8fafc;
+  background: var(--btn-active-bg);
+  color: var(--text-color);
   font-family: monospace;
   font-size: 1rem;
 }
@@ -408,12 +409,12 @@
 .btn-cancel {
   background: transparent;
   border: 1px solid var(--border-color);
-  color: #cbd5e1;
+  color: var(--text-color);
 }
 
 .btn-cancel:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
+  background: var(--btn-active-bg);
+  color: var(--text-color);
 }
 
 .btn-save {
@@ -480,14 +481,14 @@
 }
 
 .log-message {
-  color: #f8fafc;
+  color: var(--text-color);
   margin-bottom: 0.5rem;
   white-space: pre-wrap;
 }
 
 .log-response {
-  color: #cbd5e1;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  background: var(--btn-active-bg);
   padding: 0.75rem;
   border-radius: 6px;
   white-space: pre-wrap;
