@@ -361,20 +361,43 @@ function FlowContent() {
     };
   };
 
-  const handleSendChat = () => {
+  const handleSendChat = async () => {
     if (!chatInput.trim()) return;
-    
-    const newMessages = [...chatMessages, { role: 'user', content: chatInput }];
-    setChatMessages(newMessages);
+
+    const userMessage = chatInput;
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatInput('');
-    
-    // Mock backend response
-    setTimeout(() => {
+
+    try {
+      const payload = {
+        project_id: String(currentId || projectId || 'draft'),
+        message: userMessage,
+        graph_data: getCurrentFlowData(),
+      };
+      const res = await axios.post('/api/chat', payload, getAuthHeaders());
+      const { reply, graph_data } = res.data;
+
+      if (reply) {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+      }
+
+      // 챗봇이 flow를 바꿨으면 캔버스에 반영 — 기존 노드에 필요한 콜백(onChange/onDelete)을
+      // handleLoadTemplate과 동일하게 다시 주입해줘야 편집/삭제가 계속 동작한다.
+      if (graph_data) {
+        const loadedNodes = (graph_data.nodes || []).map(n => ({
+          ...n,
+          data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode },
+        }));
+        setNodes(loadedNodes);
+        setEdges(graph_data.edges || []);
+      }
+    } catch (error) {
+      console.error(error);
       setChatMessages(prev => [
-        ...prev, 
-        { role: 'assistant', content: '요청하신 내용을 분석하여 워크플로우 업데이트를 준비 중입니다. (현재 UI 테스트 모드입니다. 추후 LLM API 연동이 필요합니다.)' }
+        ...prev,
+        { role: 'assistant', content: '오류가 발생했습니다: ' + (error.response?.data?.detail || error.message) }
       ]);
-    }, 1000);
+    }
   };
 
   const enrichedNodes = useMemo(() => {
