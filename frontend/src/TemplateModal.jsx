@@ -331,6 +331,70 @@ const BUILT_IN_TEMPLATES = [
       ]
     }
   }
+  ,
+  {
+    id: 'builtin-ma-1',
+    name: '👨‍💼 멀티에이전트 - Supervisor 모드',
+    description: '매니저가 사용자의 질문을 분석하여, 연결된 전문가 중 알맞은 사람에게 작업을 지시합니다.',
+    data: {
+      nodes: [
+        { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
+        { id: 'node_dyn', type: 'dynamicInputNode', position: { x: 300, y: 150 }, data: { label: '작업 요청', inputLabel: '무엇을 도와드릴까요?' } },
+        { id: 'node_ma', type: 'multiAgentNode', position: { x: 650, y: 150 }, data: { label: '매니저', mode: 'supervisor', supervisorPrompt: '당신은 매니저입니다. 작업에 가장 적합한 전문가를 선택하세요.' } },
+        { id: 'node_llm1', type: 'llmNode', position: { x: 650, y: -50 }, data: { label: '개발자 전문가', model: 'gpt-4o-mini', systemPrompt: '당신은 파이썬 코드를 작성하고 리뷰하는 천재 개발자입니다.' } },
+        { id: 'node_llm2', type: 'llmNode', position: { x: 650, y: 350 }, data: { label: '번역가 전문가', model: 'gpt-4o-mini', systemPrompt: '당신은 영어와 한국어를 완벽하게 번역하는 전문 번역가입니다.' } },
+        { id: 'node_out', type: 'outputNode', position: { x: 1050, y: 150 }, data: { label: '최종 결과' } }
+      ],
+      edges: [
+        { id: 'e_s-d', source: 'node_start', target: 'node_dyn', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_d-ma', source: 'node_dyn', target: 'node_ma', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_l1-ma', source: 'node_llm1', target: 'node_ma', sourceHandle: 'out', targetHandle: 'tools' },
+        { id: 'e_l2-ma', source: 'node_llm2', target: 'node_ma', sourceHandle: 'out', targetHandle: 'tools' },
+        { id: 'e_ma-out', source: 'node_ma', target: 'node_out', sourceHandle: 'out', targetHandle: 'in' }
+      ]
+    }
+  },
+  {
+    id: 'builtin-ma-2',
+    name: '🗣️ 멀티에이전트 - Group Chat 모드',
+    description: '여러 LLM이 모여 지정된 횟수만큼 토론하며 의견을 조율합니다.',
+    data: {
+      nodes: [
+        { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
+        { id: 'node_dyn', type: 'dynamicInputNode', position: { x: 300, y: 150 }, data: { label: '토론 주제', inputLabel: '토론할 안건을 입력하세요' } },
+        { id: 'node_ma', type: 'multiAgentNode', position: { x: 650, y: 150 }, data: { label: '토론장', mode: 'group_chat', maxRounds: 3 } },
+        { id: 'node_llm1', type: 'llmNode', position: { x: 650, y: -50 }, data: { label: '찬성측 패널', model: 'gpt-4o-mini', systemPrompt: '당신은 해당 주제에 무조건 찬성하는 입장입니다. 논리적으로 상대방을 설득하세요.' } },
+        { id: 'node_llm2', type: 'llmNode', position: { x: 650, y: 350 }, data: { label: '반대측 패널', model: 'gpt-4o-mini', systemPrompt: '당신은 해당 주제에 무조건 반대하는 입장입니다. 논리적으로 상대방의 주장을 반박하세요.' } },
+        { id: 'node_out', type: 'outputNode', position: { x: 1050, y: 150 }, data: { label: '토론 결과' } }
+      ],
+      edges: [
+        { id: 'e_s-d', source: 'node_start', target: 'node_dyn', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_d-ma', source: 'node_dyn', target: 'node_ma', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_l1-ma', source: 'node_llm1', target: 'node_ma', sourceHandle: 'out', targetHandle: 'tools' },
+        { id: 'e_l2-ma', source: 'node_llm2', target: 'node_ma', sourceHandle: 'out', targetHandle: 'tools' },
+        { id: 'e_ma-out', source: 'node_ma', target: 'node_out', sourceHandle: 'out', targetHandle: 'in' }
+      ]
+    }
+  },
+  {
+    id: 'builtin-ma-3',
+    name: '🛠️ 멀티에이전트 - Tool Agent 모드',
+    description: '에이전트가 스스로 판단하여 웹 검색 등 주어진 도구를 사용합니다.',
+    data: {
+      nodes: [
+        { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
+        { id: 'node_dyn', type: 'dynamicInputNode', position: { x: 300, y: 150 }, data: { label: '사용자 질문', inputLabel: '최신 정보가 필요한 질문을 해보세요.' } },
+        { id: 'node_ma', type: 'multiAgentNode', position: { x: 650, y: 150 }, data: { label: '도구 에이전트', mode: 'tool_agent', agentPrompt: '당신은 자율 에이전트입니다. 주어진 도구(웹 검색)를 자유롭게 사용하여 최신 정보를 찾아 답변하세요.' } },
+        { id: 'node_out', type: 'outputNode', position: { x: 1050, y: 150 }, data: { label: '최종 답변' } }
+      ],
+      edges: [
+        { id: 'e_s-d', source: 'node_start', target: 'node_dyn', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_d-ma', source: 'node_dyn', target: 'node_ma', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_ma-out', source: 'node_ma', target: 'node_out', sourceHandle: 'out', targetHandle: 'in' }
+      ]
+    }
+  }
+
 ];
 
 export default function TemplateModal({ isOpen, onClose, onSave, onLoad, currentFlowData }) {

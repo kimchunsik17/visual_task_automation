@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, ChevronDown, ChevronRight, Puzzle } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, Puzzle } from 'lucide-react';
 import { NodeRegistry } from './nodeRegistry';
 
 const Sidebar = () => {
@@ -28,7 +28,8 @@ const Sidebar = () => {
     { type: 'valueNode', label: '변수 (값)', icon: <Variable size={16} />, color: '#ec4899', category: 'input' },
     
     { type: 'promptNode', label: '프롬프트', icon: <MessageSquare size={16} />, color: '#3b82f6', category: 'ai' },
-    { type: 'llmNode', label: 'LLM', icon: <BrainCircuit size={16} />, color: '#8b5cf6', category: 'ai' },
+          { type: 'llmNode', label: 'LLM', icon: <BrainCircuit size={16} />, color: '#8b5cf6', category: 'ai' },
+      { type: 'multiAgentNode', label: 'Multi-Agent', icon: <Users size={16} />, color: '#6366f1', category: 'ai' },
     
     { type: 'conditionNode', label: '조건 분기', icon: <SplitSquareHorizontal size={16} />, color: '#0ea5e9', category: 'logic' },
     { type: 'loopNode', label: '반복 (Loop)', icon: <Repeat size={16} />, color: '#ca8a04', category: 'logic' },

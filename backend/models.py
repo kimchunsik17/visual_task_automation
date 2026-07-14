@@ -72,3 +72,13 @@ class BotLog(Base):
     message = Column(String)
     response = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class NodeMemory(Base):
+    __tablename__ = 'node_memory'
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, index=True)
+    project_id = Column(Integer, index=True)
+    node_id = Column(String, index=True)
+    history = Column(String, default='[]')
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

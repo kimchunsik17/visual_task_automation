@@ -281,7 +281,7 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
         
     # 1. Run LangGraph
     try:
-        result_text, tokens, logs = run_workflow(payload.nodes, payload.edges)
+        result_text, tokens, logs = run_workflow(payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id)
         
         # Check if run_workflow returned an error string
         if "► Flow 1 Error:" in result_text or "Error calling model" in result_text:
@@ -293,7 +293,6 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
                 result_text = f"❌ 네트워크 오류가 발생했습니다."
             else:
                 result_text = f"❌ 워크플로우 실행 중 오류가 발생했습니다: {result_text}"
-                
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -451,8 +450,8 @@ app = FastAPI()
 
 @app.post("/execute")
 def execute_endpoint(inputs: dict):
-    res = run_workflow(**inputs)
-    return {{"result": res}}
+    res_text, tokens, logs = run_workflow(**inputs)
+    return {{"result": res_text, "tokens": tokens}}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
@@ -472,8 +471,8 @@ def main():
         try:
             req = json.loads(line)
             inputs = req.get('params', {{}})
-            res = run_workflow(**inputs)
-            print(json.dumps({{"result": res}}))
+            res_text, tokens, logs = run_workflow(**inputs)
+            print(json.dumps({{"result": res_text}}))
             sys.stdout.flush()
         except Exception as e:
             print(json.dumps({{"error": str(e)}}))
@@ -492,7 +491,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    result_text, tokens = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), **payload.inputs)
+    result_text, tokens, logs = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **payload.inputs)
     
     import json
     try:
