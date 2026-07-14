@@ -152,6 +152,10 @@ function FlowContent() {
   };
 
   const handleSave = async () => {
+    if (!user) {
+      alert("프로젝트를 저장하려면 로그인이 필요합니다. 왼쪽 메뉴에서 구글 계정으로 로그인해주세요.");
+      return null;
+    }
     try {
       const payload = {
         title: projectTitle,
@@ -683,7 +687,7 @@ function FlowContent() {
         
         <aside className="response-panel" style={{ display: 'flex', flexDirection: 'column' }}>
           <h2>Execution Result</h2>
-          {tokenUsage && (
+          {isTokenTrackingMode && tokenUsage && (
             <div style={{ padding: '0.8rem', margin: '0 1rem 1rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6', borderRadius: '8px', fontSize: '0.85rem' }}>
               <div style={{ fontWeight: 'bold', color: '#60a5fa', marginBottom: '0.5rem' }}>
                 {tokenDisplayMode === 'cost' ? '소모 비용 (Estimated Cost)' : '토큰 사용량 (Token Usage)'}

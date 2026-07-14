@@ -131,9 +131,6 @@ const AppViewerPage = () => {
     setFormResult(''); // Clear previous
     const res = await executeFlow(formInputs);
     setFormResult(res.result);
-    if (res.tokens) {
-      setFormResult(prev => prev + `\n\n[총 소모 토큰: ${res.tokens.total_tokens}]`);
-    }
   };
 
   const handleChatSubmit = async (e) => {
@@ -153,9 +150,6 @@ const AppViewerPage = () => {
     
     const res = await executeFlow({ [targetNodeId]: userMsg });
     setChatHistory(prev => [...prev, { role: 'bot', content: res.result }]);
-    if (res.tokens) {
-      setChatHistory(prev => [...prev, { role: 'bot', content: `[총 소모 토큰: ${res.tokens.total_tokens}]`, isMeta: true }]);
-    }
   };
 
   if (isLoading) return <div style={{ color: 'var(--text-color)', padding: '2rem' }}>로딩 중...</div>;
