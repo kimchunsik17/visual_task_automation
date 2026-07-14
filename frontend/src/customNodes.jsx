@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer } from '@xyflow/react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users } from 'lucide-react';
 import axios from 'axios';
 
 const calculateNodeCost = (tokens, model, currency) => {
@@ -1006,6 +1006,68 @@ export const DynamicNode = ({ id, data, type }) => {
             )}
           </div>
         ))}
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+export const MultiAgentNode = ({ id, data }) => {
+  return (
+    <div className="custom-node multi-agent-node">
+      <Handle type="target" position={Position.Top} id="tools" style={{ background: '#3b82f6', width: '12px', height: '12px', borderRadius: '4px' }} />
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Users size={16} color="#6366f1"/> Multi-Agent</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      <div className="node-body">
+        <label>Agent Mode</label>
+        <select 
+          className="nodrag"
+          defaultValue={data.mode || 'supervisor'}
+          onChange={(e) => data.onChange(id, 'mode', e.target.value)}
+        >
+          <option value="supervisor">Supervisor (Delegation)</option>
+          <option value="group_chat">Group Chat (Debate)</option>
+          <option value="tool_agent">Tool-using Agent</option>
+        </select>
+        
+        {(!data.mode || data.mode === 'supervisor') && (
+          <>
+            <label>Supervisor Prompt</label>
+            <textarea 
+              className="nodrag"
+              defaultValue={data.supervisorPrompt || '당신은 매니저입니다. 작업에 가장 적합한 전문가를 선택하세요.'}
+              onChange={(e) => data.onChange(id, 'supervisorPrompt', e.target.value)}
+              placeholder="System prompt for supervisor..."
+            />
+          </>
+        )}
+        
+        {data.mode === 'group_chat' && (
+          <>
+            <label>Max Rounds</label>
+            <input 
+              type="number" 
+              className="nodrag"
+              defaultValue={data.maxRounds || 3}
+              onChange={(e) => data.onChange(id, 'maxRounds', parseInt(e.target.value))}
+            />
+          </>
+        )}
+        
+        {data.mode === 'tool_agent' && (
+          <>
+            <label>Agent Prompt</label>
+            <textarea 
+              className="nodrag"
+              defaultValue={data.agentPrompt || '당신은 자율 에이전트입니다. 주어진 도구를 사용하여 작업을 수행하세요.'}
+              onChange={(e) => data.onChange(id, 'agentPrompt', e.target.value)}
+              placeholder="System prompt for tool agent..."
+            />
+          </>
+        )}
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>

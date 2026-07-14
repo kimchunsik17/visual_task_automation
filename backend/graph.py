@@ -12,6 +12,24 @@ import node_generators.slack_node
 
 load_dotenv()
 
+def add_tracking(res_var, track_id, indent_str):
+    return f"""{indent_str}usage_dict = getattr({res_var}, 'usage_metadata', None)
+{indent_str}if not usage_dict and hasattr({res_var}, 'response_metadata'):
+{indent_str}    rm = {res_var}.response_metadata
+{indent_str}    if 'token_usage' in rm: usage_dict = rm['token_usage']
+{indent_str}if usage_dict:
+{indent_str}    if '{track_id}' not in __token_usage__['nodes']:
+{indent_str}        __token_usage__['nodes']['{track_id}'] = {{'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}}
+{indent_str}    i_tok = usage_dict.get('input_tokens', usage_dict.get('prompt_tokens', 0))
+{indent_str}    o_tok = usage_dict.get('output_tokens', usage_dict.get('completion_tokens', 0))
+{indent_str}    t_tok = usage_dict.get('total_tokens', 0)
+{indent_str}    __token_usage__['nodes']['{track_id}']['input_tokens'] += i_tok
+{indent_str}    __token_usage__['nodes']['{track_id}']['output_tokens'] += o_tok
+{indent_str}    __token_usage__['nodes']['{track_id}']['total_tokens'] += t_tok
+{indent_str}    __token_usage__['total_input'] += i_tok
+{indent_str}    __token_usage__['total_output'] += o_tok
+{indent_str}    __token_usage__['total_tokens'] += t_tok"""
+
 def compile_workflow(nodes: list, edges: list) -> str:
     """
     Parses the graph data (순방향 탐색) and generates imperative Python LangChain code.
@@ -20,6 +38,12 @@ def compile_workflow(nodes: list, edges: list) -> str:
         return "Error: Graph is empty. Please drag and drop nodes from the sidebar."
 
     node_dict = {n['id']: n for n in nodes}
+    
+    tool_node_ids = set()
+    for e in edges:
+        if e.get('targetHandle') == 'tools':
+            tool_node_ids.add(e['source'])
+
     
     forward_edges = {}
     incoming_edges = {}
@@ -38,7 +62,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
         })
         
         # Exclude 'template' handles from control flow traversal
-        if target_handle != 'template':
+        if target_handle not in ('template', 'tools'):
             control_flow_edges.append(e)
             if source not in forward_edges:
                 forward_edges[source] = []
@@ -47,11 +71,11 @@ def compile_workflow(nodes: list, edges: list) -> str:
     has_incoming = set(e['target'] for e in control_flow_edges)
     
     # 1. Prioritize explicit Start Nodes
-    roots = [n for n in nodes if n['type'] == 'startNode']
+    roots = [n for n in nodes if n['type'] == 'startNode' and n['id'] not in tool_node_ids]
     
     # 2. Fallback to old heuristic if no start nodes are found
     if not roots:
-        roots = [n for n in nodes if n['id'] not in has_incoming and not n.get('parentNode') and n['type'] != 'llmNode']
+        roots = [n for n in nodes if n['id'] not in has_incoming and not n.get('parentNode') and n['type'] != 'llmNode' and n['id'] not in tool_node_ids]
         
         if not roots:
             # Final fallback
@@ -122,9 +146,16 @@ def compile_workflow(nodes: list, edges: list) -> str:
         if visited is None:
             visited = set()
         
-        # Prevent cyclic recursion (e.g. from loop_next handles connecting back to the loop node)
+        # Prevent cyclic recursion
         if node_id in visited:
             return
+        
+        # Tool nodes are generated inside MultiAgentNode
+        if node_id in tool_node_ids and node.get('type') != 'multiAgentNode':
+            pass # wait, if it's explicitly called, we should generate it.
+            # We should only skip if it's called from regular control flow.
+            # But the roots logic already excludes them? Let's exclude from roots instead.
+
         
         # We only add to visited if it's a loop node, or we can add all nodes.
         # Wait, if a node is visited, it shouldn't be generated again anyway.
@@ -327,6 +358,117 @@ def compile_workflow(nodes: list, edges: list) -> str:
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=node_id, prev_res_var=pass_var, visited=visited)
                 
+        elif node['type'] == 'multiAgentNode':
+            lines.append(f"{indent}# --- Multi-Agent Node ({node_id}) ---")
+            mode = node.get('data', {}).get('mode', 'supervisor')
+            
+            # Find incoming tool/agent edges
+            sub_nodes = []
+            for e in edges:
+                if e['target'] == node_id and e.get('targetHandle') == 'tools':
+                    src_node = node_dict.get(e['source'])
+                    if src_node:
+                        sub_nodes.append(src_node)
+                        
+            input_val = prev_res_var if prev_res_var else 'last_result'
+            
+            if mode == 'supervisor':
+                supervisor_prompt = node.get('data', {}).get('supervisorPrompt', 'Choose an expert.').replace('"', '\"').replace('\n', '\\n')
+                lines.append(f"{indent}ma_input_{node_id} = str({input_val})")
+                
+                # Build descriptions
+                expert_names = []
+                for idx, sub in enumerate(sub_nodes):
+                    if sub['type'] == 'llmNode':
+                        name = f"Expert_{idx}"
+                        desc = sub.get('data', {}).get('systemPrompt', f"Expert {idx}").replace('"', '\\"').replace('\n', ' ')
+                        expert_names.append(f"- {name}: {desc}")
+                
+                experts_str = "\\n".join(expert_names)
+                lines.append(f"{indent}experts_{node_id} = \"{experts_str}\"")
+                lines.append(f"{indent}from langchain_openai import ChatOpenAI")
+                lines.append(f"{indent}supervisor_llm_{node_id} = ChatOpenAI(model='gpt-4o-mini')")
+                lines.append(f"{indent}sys_msg_sup_{node_id} = SystemMessage(content=f\"{supervisor_prompt}\\nAvailable Experts:\\n{{experts_{node_id}}}\\nRespond ONLY with the exact name of the chosen expert (e.g. Expert_0), or 'None' if none fit.\")")
+                lines.append(f"{indent}prompt_sup_{node_id} = ChatPromptTemplate.from_messages([sys_msg_sup_{node_id}, ('user', \"{{user_input}}\")])")
+                lines.append(f"{indent}chain_sup_{node_id} = prompt_sup_{node_id} | supervisor_llm_{node_id}")
+                lines.append(f"{indent}choice_obj_{node_id} = chain_sup_{node_id}.invoke({{\"user_input\": ma_input_{node_id}}})")
+                lines.append(f"{indent}choice_text_{node_id} = str(choice_obj_{node_id}.content).strip()")
+                lines.append(add_tracking(f"choice_obj_{node_id}", node_id, indent))
+                lines.append(f"{indent}print(f'Supervisor chose: {{choice_text_{node_id}}}')")
+                
+                # Generate execution block for chosen expert
+                lines.append(f"{indent}res_ma_{node_id} = f'No suitable expert found. (Supervisor output: {{choice_text_{node_id}}})'")
+                for idx, sub in enumerate(sub_nodes):
+                    if sub['type'] == 'llmNode':
+                        name = f"Expert_{idx}"
+                        model = sub.get('data', {}).get('model', 'gpt-4o-mini')
+                        sys_p = sub.get('data', {}).get('systemPrompt', '').replace('"', '\"').replace('\n', '\\n')
+                        lines.append(f"{indent}if '{name}' in choice_text_{node_id}:")
+                        lines.append(f"{indent}    tmp_llm_{node_id}_{idx} = ChatOpenAI(model='{model}')")
+                        lines.append(f"{indent}    tmp_sys_{node_id}_{idx} = SystemMessage(content=\"{sys_p}\")")
+                        lines.append(f"{indent}    tmp_prompt_{node_id}_{idx} = ChatPromptTemplate.from_messages([tmp_sys_{node_id}_{idx}, ('user', \"{{user_input}}\")])")
+                        lines.append(f"{indent}    tmp_chain_{node_id}_{idx} = tmp_prompt_{node_id}_{idx} | tmp_llm_{node_id}_{idx}")
+                        lines.append(f"{indent}    tmp_res_{node_id}_{idx} = tmp_chain_{node_id}_{idx}.invoke({{\"user_input\": ma_input_{node_id}}})")
+                        lines.append(add_tracking(f"tmp_res_{node_id}_{idx}", sub['id'], indent + "    "))
+                        lines.append(f"{indent}    res_ma_{node_id} = f'[{name} 답변]\\n' + str(tmp_res_{node_id}_{idx}.content)")
+                        
+                lines.append(f"{indent}last_result = res_ma_{node_id}")
+                
+            elif mode == 'group_chat':
+                max_rounds = node.get('data', {}).get('maxRounds', 3)
+                lines.append(f"{indent}ma_input_{node_id} = str({input_val})")
+                lines.append(f"{indent}chat_history_{node_id} = [HumanMessage(content=f\'주제: {{ma_input_{node_id}}}\')]")
+                lines.append(f"{indent}res_ma_{node_id} = ''")
+                
+                # Setup LLMs
+                for idx, sub in enumerate(sub_nodes):
+                    if sub['type'] == 'llmNode':
+                        model = sub.get('data', {}).get('model', 'gpt-4o-mini')
+                        sys_p = sub.get('data', {}).get('systemPrompt', '').replace('"', '\"').replace('\n', '\\n')
+                        lines.append(f"{indent}llm_{node_id}_{idx} = ChatOpenAI(model='{model}')")
+                        lines.append(f"{indent}sys_{node_id}_{idx} = SystemMessage(content=\"{sys_p}\")")
+                        
+                lines.append(f"{indent}for round_idx in range({max_rounds}):")
+                for idx, sub in enumerate(sub_nodes):
+                    if sub['type'] == 'llmNode':
+                        name = f"Expert_{idx}"
+                        lines.append(f"{indent}    tmp_msgs_{node_id}_{idx} = [sys_{node_id}_{idx}] + chat_history_{node_id}")
+                        lines.append(f"{indent}    tmp_res_{node_id}_{idx} = llm_{node_id}_{idx}.invoke(tmp_msgs_{node_id}_{idx})")
+                        lines.append(add_tracking(f"tmp_res_{node_id}_{idx}", sub['id'], indent + "    "))
+                        lines.append(f"{indent}    chat_history_{node_id}.append(AIMessage(content=f'[{name}] ' + str(tmp_res_{node_id}_{idx}.content)))")
+                        
+                lines.append(f"{indent}res_ma_{node_id} = '\\n\\n'.join([m.content for m in chat_history_{node_id} if isinstance(m, AIMessage)])")
+                lines.append(f"{indent}last_result = res_ma_{node_id}")
+                
+            elif mode == 'tool_agent':
+                agent_prompt = node.get('data', {}).get('agentPrompt', 'Solve the task.').replace('"', '\"').replace('\n', '\\n')
+                lines.append(f"{indent}ma_input_{node_id} = str({input_val})")
+                lines.append(f"{indent}res_ma_{node_id} = 'Tool Agent not fully implemented for dynamic tools yet.'")
+                # Creating tools on the fly in generated python is complex.
+                # We will provide a simple mock implementation or pre-built tools for now.
+                lines.append(f"{indent}try:")
+                lines.append(f"{indent}    from langchain_openai import ChatOpenAI")
+                lines.append(f"{indent}    from langgraph.prebuilt import create_react_agent")
+                lines.append(f"{indent}    from langchain_community.tools.tavily_search import TavilySearchResults")
+                lines.append(f"{indent}    tools_{node_id} = [TavilySearchResults(max_results=2)] # Default tool")
+                lines.append(f"{indent}    agent_llm_{node_id} = ChatOpenAI(model='gpt-4o-mini', temperature=0)")
+                lines.append(f"{indent}    agent_{node_id} = create_react_agent(agent_llm_{node_id}, tools=tools_{node_id}, prompt=\"{agent_prompt}\")")
+                lines.append(f"{indent}    res_obj_{node_id} = agent_{node_id}.invoke({{'messages': [('user', ma_input_{node_id})]}})")
+                lines.append(f"{indent}    final_msg_{node_id} = res_obj_{node_id}['messages'][-1]")
+                # Note: Tool agent intermediate steps are harder to track directly from AgentExecutor res_obj without callbacks, but some metadata might be available
+                lines.append(add_tracking(f"final_msg_{node_id}", node_id, indent + "    "))
+                lines.append(f"{indent}    res_ma_{node_id} = str(final_msg_{node_id}.content)")
+                lines.append(f"{indent}except Exception as e:")
+                lines.append(f"{indent}    res_ma_{node_id} = f'Tool Agent Error: {{str(e)}}'")
+                
+                lines.append(f"{indent}last_result = res_ma_{node_id}")
+
+            # Continue flow
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_ma_{node_id}", visited=visited)
+                
+
         elif node['type'] == 'conditionNode':
             condition = node.get('data', {}).get('condition', 'Contains')
             val = node.get('data', {}).get('value', '')
