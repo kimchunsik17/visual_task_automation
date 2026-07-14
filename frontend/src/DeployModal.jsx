@@ -3,7 +3,7 @@ import { X, Bot, LayoutTemplate, Download, Code2, MessageSquare } from 'lucide-r
 import axios from 'axios';
 
 const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
-  const [deployMode, setDeployMode] = useState('chatbot');
+  const [deployMode, setDeployMode] = useState('apprunner');
   const [discordToken, setDiscordToken] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
 
@@ -12,6 +12,21 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
   const handleDeploy = async () => {
     setIsDeploying(true);
     try {
+      if (deployMode === 'apprunner') {
+        const res = await axios.post(`/api/projects/${project.id}/deploy`, {}, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        const shareToken = res.data.share_token;
+        const appUrl = `${window.location.origin}/app/${shareToken}`;
+        const goApp = window.confirm(`독립형 앱 배포가 완료되었습니다!\n링크: ${appUrl}\n\n지금 바로 접속하시겠습니까?`);
+        if (goApp) {
+          window.open(`/app/${shareToken}`, '_blank');
+        }
+        if (onDeployConfigSaved) onDeployConfigSaved(deployMode);
+        onClose();
+        return;
+      }
+
       // API call to save deploy config or generate code
       const response = await axios.post(`/api/deploy/${project.id}`, { 
         mode: deployMode,
@@ -32,7 +47,7 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
       } else {
-        const goApp = window.confirm("배포가 완료되었습니다! 지금 배포된 앱 페이지로 이동하시겠습니까?");
+        const goApp = window.confirm("배포가 완료되었습니다! 지금 구형 뷰어 페이지로 이동하시겠습니까?");
         if (goApp) {
           window.open(`/app/${project.id}`, '_blank');
         }
@@ -57,11 +72,21 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
         <h2 style={{ margin: '0 0 1.5rem 0', color: 'var(--text-color)', fontSize: '1.3rem' }}>워크플로우 배포</h2>
         
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '2rem' }}>
+          
+          <div 
+            onClick={() => setDeployMode('apprunner')}
+            style={{ padding: '1rem', border: `2px solid ${deployMode === 'apprunner' ? '#3b82f6' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'apprunner' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', textAlign: 'center', gridColumn: '1 / -1' }}
+          >
+            <LayoutTemplate size={32} color={deployMode === 'apprunner' ? '#3b82f6' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
+            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', color: 'var(--text-color)' }}>App Runner (전문가용 독립 웹사이트)</h3>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>에디터를 숨기고 오직 워크플로우 실행 및 결과 확인만 가능한 깨끗한 고유 링크를 생성합니다.</p>
+          </div>
+
           <div 
             onClick={() => setDeployMode('chatbot')}
-            style={{ padding: '1rem', border: `2px solid ${deployMode === 'chatbot' ? '#3b82f6' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'chatbot' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', textAlign: 'center' }}
+            style={{ padding: '1rem', border: `2px solid ${deployMode === 'chatbot' ? '#10b981' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'chatbot' ? 'rgba(16, 185, 129, 0.1)' : 'transparent', textAlign: 'center' }}
           >
-            <Bot size={32} color={deployMode === 'chatbot' ? '#3b82f6' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
+            <Bot size={32} color={deployMode === 'chatbot' ? '#10b981' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
             <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'var(--text-color)' }}>Web App (Chatbot)</h3>
             <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>대화형 챗봇 인터페이스로 배포합니다.</p>
           </div>

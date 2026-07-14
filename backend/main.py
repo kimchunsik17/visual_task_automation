@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional
 import shutil
 import jwt
 import datetime
+import uuid
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
@@ -222,6 +223,100 @@ def update_project(project_id: int, payload: ProjectCreate, user: models.User = 
     project.is_public = payload.is_public
     db.commit()
     return {"status": "success"}
+
+@app.post("/api/projects/{project_id}/deploy")
+def deploy_project(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project or project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not project.share_token:
+        project.share_token = str(uuid.uuid4())
+        db.commit()
+    return {"status": "success", "share_token": project.share_token}
+
+@app.get("/api/apps/{share_token}")
+def get_app_info(share_token: str, db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.share_token == share_token).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="App not found")
+    
+    return {
+        "id": project.id,
+        "title": project.title,
+        "description": project.description,
+        "is_public": project.is_public,
+        "owner_name": project.owner.name if project.owner else "Unknown"
+    }
+
+class AppExecutePayload(BaseModel):
+    pass # Reserved for future dynamic inputs
+
+@app.post("/api/apps/{share_token}/execute")
+def execute_app(share_token: str, request: Request, payload: AppExecutePayload = None, db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.share_token == share_token).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="App not found")
+    
+    user = None
+    if not project.is_public:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            raise HTTPException(status_code=403, detail="Authentication required for private app")
+        token = auth_header.split(" ")[1]
+        try:
+            payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            user = db.query(models.User).filter(models.User.id == payload_jwt.get("user_id")).first()
+        except:
+            raise HTTPException(status_code=403, detail="Invalid token")
+        if not user:
+            raise HTTPException(status_code=403, detail="User not found")
+    else:
+        # even if public, if user is logged in, grab their ID
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(" ")[1]
+            try:
+                payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                user = db.query(models.User).filter(models.User.id == payload_jwt.get("user_id")).first()
+            except:
+                pass
+
+    nodes = project.graph_data.get('nodes', [])
+    edges = project.graph_data.get('edges', [])
+    
+    try:
+        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id)
+        
+        db_log = models.FlowExecutionLog(
+            user_id=user.id if user else None,
+            project_id=project.id,
+            payload="App Runner Execution",
+            result=result_text,
+            total_tokens=tokens.get('total_tokens', 0) if tokens else 0,
+            token_usage_details=tokens,
+            status="success"
+        )
+        db.add(db_log)
+        db.flush()
+        for step in logs:
+            node_log = models.NodeExecutionLog(
+                flow_execution_id=db_log.id,
+                node_id=step.get('node_id'),
+                node_type=step.get('node_type'),
+                start_time=step.get('start_time'),
+                end_time=step.get('end_time'),
+                status=step.get('status'),
+                result_data=str(step.get('result_data')) if step.get('result_data') else None,
+                error_message=step.get('error_message')
+            )
+            db.add(node_log)
+        db.commit()
+        return {"status": "success", "result": result_text}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/estimate")
 def estimate_tokens(payload: FlowPayload):
