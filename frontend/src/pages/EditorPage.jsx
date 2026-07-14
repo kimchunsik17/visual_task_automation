@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
@@ -525,6 +525,12 @@ project_id: currentId,
                 </button>
               )}
             </>
+          )}
+          {currentId && (
+            <button className="btn-secondary" onClick={() => navigate(`/project/${currentId}/runs`)} style={{ borderColor: '#10b981', color: '#10b981' }}>
+              <History size={16} />
+              Run History
+            </button>
           )}
           <button className="btn-secondary" onClick={async () => {
             try {

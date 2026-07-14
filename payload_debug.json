@@ -6,7 +6,7 @@
       "type": "startNode",
       "data": {
         "label": "시작",
-        "isTokenTrackingMode": true,
+        "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
         "tokenDisplayMode": "tokens",
@@ -18,10 +18,8 @@
       "type": "valueNode",
       "data": {
         "label": "입력값",
-        "value": "",
-        "file_path": "uploads\\translation_test_sentences.pdf",
-        "filename": "translation_test_sentences.pdf",
-        "isTokenTrackingMode": true,
+        "value": "Hello, how are you?",
+        "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
         "tokenDisplayMode": "tokens",
@@ -35,21 +33,9 @@
         "label": "LLM",
         "model": "gpt-4o-mini",
         "systemPrompt": "당신은 전문 번역가입니다. 주어진 텍스트를 한국어로 번역하세요.",
-        "isTokenTrackingMode": true,
+        "isTokenTrackingMode": false,
         "predictedTokens": null,
-        "actualTokens": {
-          "input_tokens": 53,
-          "output_tokens": 20,
-          "total_tokens": 73,
-          "input_token_details": {
-            "audio": 0,
-            "cache_read": 0
-          },
-          "output_token_details": {
-            "audio": 0,
-            "reasoning": 0
-          }
-        },
+        "actualTokens": null,
         "tokenDisplayMode": "tokens",
         "costCurrency": "USD"
       }
@@ -59,7 +45,7 @@
       "type": "outputNode",
       "data": {
         "label": "결과 출력",
-        "isTokenTrackingMode": true,
+        "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
         "tokenDisplayMode": "tokens",

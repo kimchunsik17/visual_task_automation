@@ -6,8 +6,8 @@ import TemplatesPage from './pages/TemplatesPage';
 import SettingsPage from './pages/SettingsPage';
 import AppViewerPage from './pages/AppViewerPage';
 import BotManagerPage from './pages/BotManagerPage';
-
 import StatisticsPage from './pages/StatisticsPage';
+import ProjectRunsPage from './pages/ProjectRunsPage';
 
 function App() {
   return (
@@ -18,6 +18,7 @@ function App() {
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/editor/:projectId?" element={<EditorPage />} />
+        <Route path="/project/:projectId/runs" element={<ProjectRunsPage />} />
         <Route path="/app/:projectId" element={<AppViewerPage />} />
         <Route path="/bots" element={<BotManagerPage />} />
         <Route path="/statistics" element={<StatisticsPage />} />
