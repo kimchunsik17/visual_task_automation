@@ -11,7 +11,7 @@ const calculateNodeCost = (tokens, model, currency) => {
   if (model) {
     if (model.includes('gpt-4o-mini')) pricePer1M = 0.3;
     else if (model.includes('gpt-4o')) pricePer1M = 10.0;
-    else if (model.includes('gemini-1.5-flash') || model.includes('gemini-3.5-flash')) pricePer1M = 0.15;
+    else if (model.includes('gemini-1.5-flash') || model.includes('gemini-1.5-flash')) pricePer1M = 0.15;
     else if (model.includes('gemini-1.5-pro')) pricePer1M = 5.0;
     else if (model.includes('claude-3-5-sonnet')) pricePer1M = 9.0;
     else if (model.includes('claude-3-haiku')) pricePer1M = 0.75;
@@ -82,11 +82,11 @@ export const LLMNode = ({ id, data }) => {
         <label>AI 모델</label>
         <select 
           className="nodrag"
-          defaultValue={data.model || 'gemini-3.5-flash'}
+          defaultValue={data.model || 'gemini-1.5-flash'}
           onChange={(e) => data.onChange(id, 'model', e.target.value)}
         >
           <optgroup label="Gemini">
-            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
             <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
           </optgroup>
           <optgroup label="ChatGPT">

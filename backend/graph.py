@@ -95,7 +95,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     used_models = set()
     for node in nodes:
         if node['type'] == 'llmNode':
-            used_models.add(node.get('data', {}).get('model', 'gemini-3.5-flash'))
+            used_models.add(node.get('data', {}).get('model', 'gemini-1.5-flash'))
     
     needs_gemini = any('gemini' in m for m in used_models)
     needs_openai = any('gpt' in m for m in used_models)
@@ -148,7 +148,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     for node in nodes:
         if node['type'] == 'llmNode':
             node_id = node['id']
-            model = node.get('data', {}).get('model', 'gemini-3.5-flash')
+            model = node.get('data', {}).get('model', 'gemini-1.5-flash')
             sys_prompt = node.get('data', {}).get('systemPrompt', 'You are a helpful assistant.').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"    # --- LLM Node ({node_id}) ---")
             
@@ -255,7 +255,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             if not active_llm_id:
                 lines.append(f"{indent}# --- Fallback LLM for Prompt Node ({node_id}) ---")
                 lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-                lines.append(f"{indent}llm_fb_{node_id} = ChatGoogleGenerativeAI(model=\"gemini-3.5-flash\", max_retries=0)")
+                lines.append(f"{indent}llm_fb_{node_id} = ChatGoogleGenerativeAI(model=\"gemini-1.5-flash\", max_retries=0)")
                 lines.append(f"{indent}sys_fb_{node_id} = \"You are a helpful assistant.\"")
                 current_llm = f"fb_{node_id}"
                 sys_var = f"sys_fb_{node_id}"
