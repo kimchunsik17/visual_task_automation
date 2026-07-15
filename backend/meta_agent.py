@@ -5,7 +5,7 @@ meta_agent.py — "말로 만드는 Agent 빌더"의 메타 agent (MVP 골격)
 엔진·프론트(React Flow)는 이미 완성돼 있으므로, 이 모듈은 '올바른 graph_data'만 만들면 된다.
 
 ■ 구조 한눈에
-  ① NODE_CATALOG    : LLM에게 주는 '노드 사용설명서' (지금은 핵심 16종, 나중에 한 줄씩 추가하면 확장)
+  ① NODE_CATALOG    : LLM에게 주는 '노드 사용설명서' (지금은 핵심 18종, 나중에 한 줄씩 추가하면 확장)
   ② Pydantic 스키마 : 출력 형식을 강제(with_structured_output) → 엉뚱한 노드/필드 방지
   ③ generate_flow   : 요청 -> graph_data
   ④ modify_flow     : 기존 graph_data + 요청 -> 수정된 graph_data
@@ -31,8 +31,9 @@ from pydantic import BaseModel, Field
 # ── ① 노드 카탈로그 (핵심 11종) ────────────────────────────────────────────
 # 여기에 노드를 한 줄씩 추가하면 챗봇이 다룰 수 있는 노드가 늘어난다(P2 확장).
 NODE_CATALOG = """\
-[사용 가능한 노드 — 이 16종만 사용한다]
+[사용 가능한 노드 — 이 21종만 사용한다]
 - startNode      : 플로우 시작점. data 없음. 모든 플로우는 이 노드에서 시작한다.
+- scheduleNode   : 주기적으로 자동 실행되는 플로우의 시작점. data.cronExpression(문자열, 예: "0 7 * * *"). startNode 대신 사용한다.
 - promptNode     : 사용자 프롬프트. data.userPrompt(문자열).
 - llmNode        : LLM 호출. data.model(gemini-3.5-flash | gpt-4o-mini | claude-3-5-sonnet-20240620),
                    data.systemPrompt(문자열). 사용자가 모델을 특정하지 않으면 gpt-4o-mini를 기본값으로 쓴다.
@@ -59,6 +60,9 @@ NODE_CATALOG = """\
                    data.headers(JSON 문자열, 생략 가능), data.body(JSON 문자열, 생략 가능).
 - jsonParserNode : JSON 파싱/변환. data.mode(parse|stringify|extract). extract일 때만 data.extractKey(문자열) 필요.
                    parse=문자열→JSON, stringify=JSON→문자열, extract=특정 키 값 꺼내기.
+- databaseNode   : SQL 데이터베이스 조회/실행. data.connectionString(문자열, DB 접속정보 — 사용자가
+                   실제로 준 값만 쓰고 없으면 지어내지 말고 물어본다), data.query(문자열, 실행할 SQL).
+                   connectionString이나 query가 없으면 실행 시 에러가 난다.
 - delayNode      : 지정한 시간만큼 대기 후 다음 노드로 진행. data.seconds(숫자).
 - dynamicInputNode: 실행할 때마다 외부(호출자·디스코드 봇 메시지 등)에서 값을 받는 자리.
                    data.inputLabel(문자열, 이 입력이 뭔지 설명 — 요청 맥락에서 유추해 채운다),
@@ -74,9 +78,19 @@ NODE_CATALOG = """\
 - webCrawlerNode : URL의 웹페이지를 크롤링해 텍스트만 추출한다(5000자 제한). data.url(문자열, 선택 —
                    비워두면 직전 노드의 출력을 URL로 그대로 쓴다). 크롤링에 실패해도 워크플로우가
                    멈추지 않고 "Crawling failed: ..." 같은 에러 문자열이 다음 노드로 그냥 전달된다.
+- emailNode      : 이메일 전송. data.toEmail(문자열, 받는사람), data.subject(문자열, 선택 — 기본값은
+                   "Auto Flow 알림"). 본문은 직전 노드의 출력을 그대로 쓴다. SMTP 크리덴셜은 서버
+                   배포 시점 .env 설정이 필요하다(챗봇이 채울 필드 아님) — 없으면 실행 시 실패한다.
+- loopNode       : 반복을 제어한다. data.maxIterations(숫자, 기본 5). 하류 엣지는 sourceHandle을 쓴다:
+                   'loop_start' (매 반복마다 실행할 흐름 시작), 'done' (반복이 모두 끝난 뒤 실행).
+- multiAgentNode : 여러 에이전트를 조율한다. data.mode("supervisor" | "group_chat"). 
+                   연결될 서브 에이전트(llmNode)는 엣지의 targetHandle을 "tools"로 설정하여 들어와야 한다.
+- pythonNode     : 파이썬 코드를 실행한다. data.code(문자열, 파이썬 코드). 직전 노드의 출력이 'input_data' 변수에 담기며, 처리 결과를 'output_data' 변수에 할당해야 한다.
+- discordNode    : 디스코드 메시지 발송. data.botToken(문자열), data.channelId(문자열, 선택). 직전 노드의 출력을 본문으로 발송한다.
 - outputNode     : 결과 출력(종료). data 없음. 모든 플로우는 이 노드에서 끝난다.
 
 [생성 원칙]
+- discordNode를 생성할 때 사용자가 프롬프트에서 봇 토큰이나 Webhook URL을 명시적으로 알려주지 않았다면, 절대 임의의 가짜 값(예: "your-token", "1234")을 지어내서 채우지 말고 botToken과 channelId를 빈 문자열("")로 둔다. 그리고 반드시 답변에서 "디스코드 발송 노드를 구성했습니다. 실제 발송을 위해서는 화면에서 디스코드 노드를 클릭한 뒤, 본인의 봇 토큰(또는 웹훅 주소)을 직접 입력해 주세요."라고 친절하게 안내한다.
 - dynamicInputNode의 testValue를 사용자가 명시적으로 주지 않았다면: 문맥에 맞는 그럴듯한 예시값을 채우거나
   (마땅치 않으면 비워둬도 된다), 반드시 답변에서 "사용자가 값을 안 줘서 예시로 OOO를 채웠다" 또는
   "예시가 마땅치 않아 비워뒀다"는 사실을 알려준다 — 실제 값이 아니라 미리보기용 임시값이라는 걸
@@ -86,7 +100,7 @@ NODE_CATALOG = """\
   그대로 쓰게 한다. 단, url을 비울 거면 반드시 URL을 실제로 만들어낼 노드를 바로 앞에 연결해야 한다 —
   url도 없고 직전 노드도 없거나 직전이 startNode뿐이면 실행 시 크롤링할 URL이 없어서 에러가 난다
   (Validator가 이 경우를 막는다).
-- 반드시 startNode 1개로 시작하고, outputNode로 끝난다.
+- 반드시 startNode 또는 scheduleNode 중 정확히 1개로 시작하고, outputNode로 끝난다.
 - 모든 노드는 start→output 경로 위에 있어야 한다. 어디에도 연결 안 된 고아 노드를 만들지 않는다.
 - 사용자가 원하는 바를 충족하되, 불필요한 중복 노드를 만들지 않는다 — 필요한 만큼만 최소로 구성한다.
   단, "최소"를 이유로 요청에 필요한 단계(예: PDF 입력이면 tokenizerNode)를 빠뜨리면 안 된다.
@@ -129,7 +143,8 @@ NodeType = Literal[
     "startNode", "promptNode", "llmNode", "tokenizerNode", "conditionNode",
     "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode",
     "webCrawlerNode", "outputNode", "valueNode", "distributorNode", "breakNode",
-    "templateAnalyzerNode", "fileModifierNode"
+    "templateAnalyzerNode", "fileModifierNode", "emailNode", "databaseNode",
+    "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode"
 ]
 
 
@@ -148,7 +163,8 @@ class FlowEdge(BaseModel):
     id: str
     source: str
     target: str
-    sourceHandle: Optional[str] = Field(default=None, description="조건 분기 시 rule 순번 또는 'else'")
+    sourceHandle: Optional[str] = Field(default=None, description="조건 분기 rule 순번/'else', 또는 loopNode의 'loop_start'/'done'")
+    targetHandle: Optional[str] = Field(default=None, description="multiAgentNode에 서브에이전트 연결 시 'tools'로 지정")
 
 
 class FlowGraph(BaseModel):
@@ -274,6 +290,85 @@ FEWSHOT = """\
 ]}
 # ↑ fileModifierNode(n5)가 채울 값은 자기 data가 아니라 직전 노드(n4, llmNode가 만든 JSON)에서 온다.
 # templateAnalyzerNode(n2) 없이 fileModifierNode를 바로 쓰면 채울 JSON이 없어 원본이 그대로 저장된다.
+
+[예시7] 요청: "https://example.com/news 내용을 요약해서 team@company.com으로 메일 보내줘"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"webCrawlerNode","data":{"url":"https://example.com/news"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 뉴스를 한국어로 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n5","type":"emailNode","data":{"toEmail":"team@company.com","subject":"뉴스 요약"}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+
+[예시8] 요청: "customers 테이블에서 이메일만 뽑아서 보여줘 (DB 접속정보: postgresql://user:pass@localhost:5432/shop)"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"databaseNode","data":{"connectionString":"postgresql://user:pass@localhost:5432/shop","query":"SELECT email FROM customers"}},
+  {"id":"n3","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"}
+]}
+# ↑ connectionString은 요청에 실제로 준 값을 그대로 쓴다 — 안 주면 지어내지 말고 물어본다.
+
+[예시9] 요청: "사용자 요청을 번역, 요약, 감성 분석 에이전트에게 보내서 알아서 처리하게 해주는 매니저 봇을 만들어줘"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"promptNode","data":{"userPrompt":"사용자의 요청을 처리할 에이전트를 선택해"}},
+  {"id":"n3","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"번역을 담당합니다."}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"요약을 담당합니다."}},
+  {"id":"n5","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"감성 분석을 담당합니다."}},
+  {"id":"n6","type":"multiAgentNode","data":{"mode":"supervisor"}},
+  {"id":"n7","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n6"},
+  {"id":"e3","source":"n3","target":"n6","targetHandle":"tools"},
+  {"id":"e4","source":"n4","target":"n6","targetHandle":"tools"},
+  {"id":"e5","source":"n5","target":"n6","targetHandle":"tools"},
+  {"id":"e6","source":"n6","target":"n7"}
+]}
+# ↑ multiAgentNode(n6)로 들어오는 llmNode 서브 에이전트들(n3,n4,n5)의 엣지에는 반드시 targetHandle:"tools"를 지정해야 한다.
+
+[예시10] 요청: "다음 문장을 3번 반복해서 요약해줘"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"loopNode","data":{"maxIterations":3}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 문장을 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"요약 전문가"}},
+  {"id":"n5","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3","sourceHandle":"loop_start"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n2"},
+  {"id":"e5","source":"n2","target":"n5","sourceHandle":"done"}
+]}
+# ↑ loopNode에서 반복할 흐름의 시작은 sourceHandle:"loop_start", 반복 종료 후 나가는 흐름은 sourceHandle:"done"을 쓴다.
+
+[예시11] 요청: "매일 아침 9시에 날씨를 요약해서 이메일로 보내줘"
+{"nodes":[
+  {"id":"n1","type":"scheduleNode","data":{"cronExpression":"0 9 * * *"}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 날씨 정보를 한국어로 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"날씨 전문가"}},
+  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"오늘의 날씨"}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+# ↑ 정기적으로 실행해야 하므로 startNode 대신 scheduleNode(cronExpression 포함)로 시작한다.
 """
 
 
@@ -362,8 +457,9 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
 
     # 1~2) 시작/종료 — 완성본 검사일 때만
     if require_complete:
-        if types.count("startNode") != 1:
-            errors.append(f"startNode(시작)는 정확히 1개여야 한다 (현재 {types.count('startNode')}개)")
+        start_count = types.count("startNode") + types.count("scheduleNode")
+        if start_count != 1:
+            errors.append(f"시작 노드(startNode 또는 scheduleNode)는 정확히 1개여야 한다 (현재 {start_count}개)")
         if "outputNode" not in types:
             errors.append("outputNode(종료)가 없다")
 
@@ -395,6 +491,7 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
         source_node = nodes_by_id.get(e.source)
         if source_node is None:
             continue  # 이미 위에서 고아 엣지로 보고됨
+            
         if source_node.type == "conditionNode":
             handles = _condition_handles(source_node)
             if e.sourceHandle is None:
@@ -406,6 +503,18 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
                 )
             else:
                 handle_edge_count[(source_node.id, e.sourceHandle)] += 1
+                
+        elif source_node.type == "loopNode":
+            if e.sourceHandle not in ("loop_start", "done"):
+                errors.append(f"엣지 {e.id}: loopNode {source_node.id}에서 나가는 엣지는 sourceHandle이 'loop_start' 또는 'done'이어야 한다 (현재: {e.sourceHandle})")
+            else:
+                handle_edge_count[(source_node.id, e.sourceHandle)] += 1
+
+        target_node = nodes_by_id.get(e.target)
+        if target_node and target_node.type == "multiAgentNode":
+            if source_node.type == "llmNode":
+                if e.targetHandle != "tools":
+                    errors.append(f"엣지 {e.id}: multiAgentNode {target_node.id}로 연결되는 서브 에이전트(llmNode {source_node.id})는 targetHandle이 'tools'여야 한다")
 
     for (cond_id, handle), count in handle_edge_count.items():
         if count > 1:
@@ -570,6 +679,17 @@ def _validate_node_data(n: FlowNode) -> List[str]:
                 if val is None or val == "":
                     errors.append(f"{n.id}(conditionNode)의 rule {label}에 value가 없다")
 
+    elif n.type == "pythonNode":
+        if "code" not in d:
+            errors.append(f"{n.id}(pythonNode)에 code가 없다")
+            
+    elif n.type == "discordNode":
+        if "botToken" not in d:
+            errors.append(f"{n.id}(discordNode)에 botToken이 없다")
+        elif d.get("botToken") and not d.get("botToken", "").startswith("http"):
+            if not d.get("channelId"):
+                errors.append(f"{n.id}(discordNode)가 Webhook이 아닌 봇 토큰 방식일 때는 channelId가 필수다")
+
     elif n.type == "httpRequestNode":
         method = d.get("method")
         if method not in ALLOWED_HTTP_METHODS:
@@ -602,6 +722,37 @@ def _validate_node_data(n: FlowNode) -> List[str]:
     elif n.type == "fileModifierNode":
         if not d.get("template_path"):
             errors.append(f"{n.id}(fileModifierNode)에 template_path가 없다")
+
+    elif n.type == "emailNode":
+        if not d.get("toEmail"):
+            errors.append(f"{n.id}(emailNode)에 toEmail이 없다")
+
+    elif n.type == "loopNode":
+        max_iter = d.get("maxIterations", 5)
+        try:
+            int(max_iter)
+        except (TypeError, ValueError):
+            errors.append(f"{n.id}(loopNode)의 maxIterations는 숫자여야 한다 (현재: {max_iter!r})")
+
+    elif n.type == "scheduleNode":
+        if not d.get("cronExpression"):
+            errors.append(f"{n.id}(scheduleNode)에 cronExpression이 없다")
+
+    elif n.type == "multiAgentNode":
+        mode = d.get("mode")
+        if mode not in ("supervisor", "group_chat"):
+            errors.append(f"{n.id}(multiAgentNode)의 mode는 'supervisor' 또는 'group_chat'이어야 한다 (현재: {mode!r})")
+
+    # TODO(가드레일 미구현 — 2026-07-15 예나 결정: 리스크 알고 지금은 제약 없이 추가함, 나중에 추가할 것):
+    #   1) query가 SELECT로 시작하지 않으면 에러 처리(INSERT/UPDATE/DELETE/DROP/ALTER 등 차단)
+    #   2) AGENT_SYSTEM_PROMPT에 "파괴적 쿼리는 실행 전 사용자 확인" 지시 추가
+    #      (generate_flow는 구조화 출력 강제라 되묻기 불가 — ReAct 에이전트 도구 호출 레이어에서만 가능)
+    #   3) show_flow/_summarize_node_data에서 connectionString 마스킹(현재는 평문 노출)
+    elif n.type == "databaseNode":
+        if not d.get("connectionString"):
+            errors.append(f"{n.id}(databaseNode)에 connectionString이 없다")
+        if not d.get("query"):
+            errors.append(f"{n.id}(databaseNode)에 query가 없다")
 
     # startNode·outputNode·valueNode·distributorNode·breakNode는 data가 없어도(또는 비어있어도)
     # 실행이 깨지지 않으므로 필수 필드 에러로 보진 않는다.
@@ -768,6 +919,21 @@ def _summarize_node_data(node_type: str, data: Dict[str, Any]) -> str:
         return f"template_path={data.get('template_path', '')!r}"
     if node_type == "fileModifierNode":
         return f"template_path={data.get('template_path', '')!r}, output_path={data.get('output_path', '')!r}"
+    if node_type == "emailNode":
+        return f"toEmail={data.get('toEmail', '')!r}, subject={data.get('subject', '')!r}"
+    if node_type == "databaseNode":
+        return f"connectionString={data.get('connectionString', '')!r}, query={data.get('query', '')!r}"
+    if node_type == "pythonNode":
+        code_preview = data.get("code", "")[:30].replace("\n", " ") + "..."
+        return f"code={code_preview!r}"
+    if node_type == "discordNode":
+        return f"botToken={'Webhook' if data.get('botToken', '').startswith('http') else 'BotToken'}, channelId={data.get('channelId', '')!r}"
+    if node_type == "loopNode":
+        return f"maxIterations={data.get('maxIterations', 5)}"
+    if node_type == "multiAgentNode":
+        return f"mode={data.get('mode', '')!r}"
+    if node_type == "scheduleNode":
+        return f"cronExpression={data.get('cronExpression', '')!r}"
     return ""
 
 
@@ -873,6 +1039,8 @@ def make_tools(initial_graph: FlowGraph) -> Tuple[List, Callable[[], FlowGraph]]
         아니면 실행이 SyntaxError로 깨짐), templateAnalyzerNode→template_path(문자열),
         fileModifierNode→template_path(문자열)+output_path(문자열, 선택) — 반드시 JSON을 만들어주는
         노드(templateAnalyzerNode→llmNode 조합 등) 바로 뒤에 연결해야 한다(직전 노드 의존).
+        emailNode→toEmail(문자열)+subject(문자열, 선택), databaseNode→connectionString(문자열,
+        사용자가 준 값만 사용)+query(문자열, SQL — 아직 SELECT 강제 등 가드레일 없음, 주의해서 사용).
         startNode·outputNode는 data가 필요 없다.
         실패하면 사유가 반환되니 data를 고쳐서 이 도구를 다시 호출한다."""
         before = _snapshot()
