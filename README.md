@@ -20,7 +20,7 @@ This project is a pilot prototype for a business automation visualization tool. 
 
 1. Open a terminal and navigate to the frontend directory:
    ```bash
-   cd frontend
+   필수 cd frontend
    ```
 2. Install dependencies:
    ```bash
