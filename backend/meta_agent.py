@@ -5,7 +5,7 @@ meta_agent.py — "말로 만드는 Agent 빌더"의 메타 agent (MVP 골격)
 엔진·프론트(React Flow)는 이미 완성돼 있으므로, 이 모듈은 '올바른 graph_data'만 만들면 된다.
 
 ■ 구조 한눈에
-  ① NODE_CATALOG    : LLM에게 주는 '노드 사용설명서' (지금은 핵심 11종, 나중에 한 줄씩 추가하면 확장)
+  ① NODE_CATALOG    : LLM에게 주는 '노드 사용설명서' (지금은 핵심 16종, 나중에 한 줄씩 추가하면 확장)
   ② Pydantic 스키마 : 출력 형식을 강제(with_structured_output) → 엉뚱한 노드/필드 방지
   ③ generate_flow   : 요청 -> graph_data
   ④ modify_flow     : 기존 graph_data + 요청 -> 수정된 graph_data
@@ -31,15 +31,30 @@ from pydantic import BaseModel, Field
 # ── ① 노드 카탈로그 (핵심 11종) ────────────────────────────────────────────
 # 여기에 노드를 한 줄씩 추가하면 챗봇이 다룰 수 있는 노드가 늘어난다(P2 확장).
 NODE_CATALOG = """\
-[사용 가능한 노드 — 이 11종만 사용한다]
+[사용 가능한 노드 — 이 16종만 사용한다]
 - startNode      : 플로우 시작점. data 없음. 모든 플로우는 이 노드에서 시작한다.
 - promptNode     : 사용자 프롬프트. data.userPrompt(문자열).
 - llmNode        : LLM 호출. data.model(gemini-3.5-flash | gpt-4o-mini | claude-3-5-sonnet-20240620),
                    data.systemPrompt(문자열). 사용자가 모델을 특정하지 않으면 gpt-4o-mini를 기본값으로 쓴다.
 - tokenizerNode  : 업로드 문서(PDF/PPTX/Excel/HWP)에서 텍스트 추출. data.method(extract_text | chunk_pages).
                    '문서/PDF/회의록 기반' 작업이면 llmNode 앞에 둔다. 직전 노드의 출력이 파일 경로여야 한다.
+- templateAnalyzerNode: 서식 파일(.hwp/.hwpx/.xlsx/.pptx/텍스트) 안의 빈칸을 스캔해서 채워야 할 항목을
+                   JSON으로 뽑아낸다(값은 안 채움, 빈칸 목록만). data.template_path(문자열, 파일 경로).
+                   "{{이름}}" 같은 표시나 HWP 양식 필드를 자동으로 찾는다.
+- fileModifierNode: templateAnalyzerNode가 찾아낸 빈칸을 실제 값으로 채워서 파일을 완성한다.
+                   data.template_path(문자열, 원본 서식 파일 경로 — templateAnalyzerNode와 동일),
+                   data.output_path(문자열, 선택 — 비우면 자동 생성). 채울 값은 자기 data가 아니라
+                   직전 노드의 출력(JSON)에서 가져오므로, 반드시 그 JSON을 만들어주는 노드
+                   (templateAnalyzerNode → llmNode/promptNode 조합이 일반적) 바로 뒤에 연결해야 한다 —
+                   그렇지 않으면 에러 없이 빈칸이 하나도 안 채워진 원본이 그대로 저장된다.
 - conditionNode  : 조건 분기. data.rules=[{"id":"r1", "operator":"=="|"Contains"|">"|"<"|">="|"<=", "value":"문자열"}].
                    분기 엣지는 sourceHandle에 해당 rule의 id(조건 통과) 또는 "else"(다 안 맞을 때)를 넣는다.
+- distributorNode: 직전 노드의 출력을 리스트로 보고 하나씩 꺼내 뒤에 연결된 노드들을 항목 개수만큼
+                   반복 실행시킨다(리스트가 아니면 1개짜리로 취급). data 없음. "각각에 대해",
+                   "하나씩" 같은 요청에 쓴다.
+- breakNode      : 반복을 즉시 멈춘다. data 없음. 반드시 distributorNode 하류(반복 구조 안)에서만
+                   쓴다 — 반복 구조 밖에 두면 실행 자체가 SyntaxError로 깨진다. 보통 conditionNode와
+                   짝을 이뤄 "특정 조건을 만나면 반복을 멈춘다"는 용도로 쓴다.
 - httpRequestNode: 외부 API 호출. data.method(GET|POST|PUT|DELETE), data.url(문자열),
                    data.headers(JSON 문자열, 생략 가능), data.body(JSON 문자열, 생략 가능).
 - jsonParserNode : JSON 파싱/변환. data.mode(parse|stringify|extract). extract일 때만 data.extractKey(문자열) 필요.
@@ -51,6 +66,11 @@ NODE_CATALOG = """\
                    실제 배포 실행에서는 호출자가 넘긴 값으로 항상 대체되므로 "진짜 기본 메시지"가 아니다).
                    userPrompt처럼 flow에 고정 박히는 값이 필요하면 promptNode를 쓰고, "매번 다른 값을
                    입력받고 싶다"는 요청일 때만 이 노드를 쓴다.
+- valueNode      : 실행할 때마다 항상 같은 고정값을 흐름에 넣는다(dynamicInputNode의 반대 — 매번
+                   바뀌는 값이 아니라 고정값). data.file_path(문자열, 선택 — 고정 파일 경로) 또는
+                   data.value(문자열, 선택 — 고정 텍스트) 중 하나를 쓴다. 파일 경로가 필요한 노드
+                   (tokenizerNode 등) 앞에 "항상 이 파일" 식으로 붙이거나, 프롬프트에 고정 문구를
+                   미리 넣어둘 때 쓴다.
 - webCrawlerNode : URL의 웹페이지를 크롤링해 텍스트만 추출한다(5000자 제한). data.url(문자열, 선택 —
                    비워두면 직전 노드의 출력을 URL로 그대로 쓴다). 크롤링에 실패해도 워크플로우가
                    멈추지 않고 "Crawling failed: ..." 같은 에러 문자열이 다음 노드로 그냥 전달된다.
@@ -71,6 +91,10 @@ NODE_CATALOG = """\
 - 사용자가 원하는 바를 충족하되, 불필요한 중복 노드를 만들지 않는다 — 필요한 만큼만 최소로 구성한다.
   단, "최소"를 이유로 요청에 필요한 단계(예: PDF 입력이면 tokenizerNode)를 빠뜨리면 안 된다.
 - tokenizerNode는 직전 노드의 출력이 파일 경로일 때만 사용한다.
+- distributorNode 뒤에 연결된 노드들은 리스트 항목 개수만큼 반복 실행된다는 걸 감안해서 구성한다.
+- breakNode는 반드시 distributorNode 하류에서만 쓴다 — 반복 구조 밖에서 쓰면 실행이 깨진다.
+- fileModifierNode는 반드시 JSON을 만들어주는 노드(templateAnalyzerNode → llmNode/promptNode 조합이
+  일반적) 뒤에 연결한다 — 그렇지 않으면 빈칸이 하나도 안 채워진 채로 조용히 저장된다.
 - promptNode는 항상 인접한 llmNode와 짝으로 사용한다.
 - llmNode의 model은 사용자가 특정 모델을 요청하지 않는 한 기본값 gpt-4o-mini를 쓴다.
 - 요청이 모호하면 임의로 복잡하게 확대 해석하지 말고, 가장 단순한 구조로 만들거나 먼저 사용자에게 되물어본다.
@@ -104,7 +128,8 @@ NODE_CATALOG = """\
 NodeType = Literal[
     "startNode", "promptNode", "llmNode", "tokenizerNode", "conditionNode",
     "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode",
-    "webCrawlerNode", "outputNode"
+    "webCrawlerNode", "outputNode", "valueNode", "distributorNode", "breakNode",
+    "templateAnalyzerNode", "fileModifierNode"
 ]
 
 
@@ -212,6 +237,43 @@ FEWSHOT = """\
 # ↑ url이 요청에 고정으로 나와 있으므로 data.url을 채운다. 만약 URL이 이전 단계 결과물(예:
 # httpRequestNode의 응답에서 뽑아낸 링크)이라면 url은 비우고, 그 노드를 webCrawlerNode 바로
 # 앞에 연결한다(비우면서 앞에 아무 노드도 없거나 startNode뿐이면 Validator가 막는다).
+
+[예시5] 요청: "https://api.example.com/articles 에서 글 목록을 받아와서 각각 한국어로 요약해줘"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/articles"}},
+  {"id":"n3","type":"jsonParserNode","data":{"mode":"parse"}},
+  {"id":"n4","type":"distributorNode","data":{}},
+  {"id":"n5","type":"promptNode","data":{"userPrompt":"다음 글을 한국어로 요약해줘"}},
+  {"id":"n6","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n7","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"},
+  {"id":"e6","source":"n6","target":"n7"}
+]}
+# ↑ distributorNode(n4) 뒤에 연결된 n5~n7은 글 목록 개수만큼 반복 실행된다.
+
+[예시6] 요청: "계약서_템플릿.hwp 파일의 빈칸을 채워서 완성해줘"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.hwp"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"위 JSON의 각 키에 대해 문맥에 맞는 값을 채워서 같은 형식의 JSON으로만 답해"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다"}},
+  {"id":"n5","type":"fileModifierNode","data":{"template_path":"계약서_템플릿.hwp"}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+# ↑ fileModifierNode(n5)가 채울 값은 자기 data가 아니라 직전 노드(n4, llmNode가 만든 JSON)에서 온다.
+# templateAnalyzerNode(n2) 없이 fileModifierNode를 바로 쓰면 채울 JSON이 없어 원본이 그대로 저장된다.
 """
 
 
@@ -256,6 +318,7 @@ ALLOWED_OPERATORS = {"==", "Contains", ">", "<", ">=", "<="}
 ALLOWED_METHODS = {"extract_text", "chunk_pages"}
 ALLOWED_HTTP_METHODS = {"GET", "POST", "PUT", "DELETE"}
 ALLOWED_JSON_PARSER_MODES = {"parse", "stringify", "extract"}
+LOOP_PRODUCING_NODE_TYPES = {"distributorNode"}  # breakNode가 유효하려면 상류에 이 중 하나가 있어야 한다(추후 loopNode 등 추가 시 여기에 더한다)
 
 
 def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, List[str]]:
@@ -279,6 +342,12 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
           (실행 엔진 확인 결과). 그런데 연결된 이전 노드가 아예 없거나, 직전 노드가 아무 값도
           만들지 않는 startNode뿐이면 URL을 얻을 방법이 없어 "No URL provided" 에러로 빠진다 —
           이 경우를 막는다.
+      11) breakNode는 상류(backward)에 distributorNode가 없으면 에러 — 파이썬 break는 반복문 밖에
+          있으면 SyntaxError로 실행 자체가 깨진다(조용한 버그가 아니라 즉시 크래시).
+      12) fileModifierNode는 채울 값을 항상 직전 노드의 출력(JSON)에서 가져온다(자기 data엔 값이
+          없음). 연결된 이전 노드가 없거나 직전 노드가 startNode뿐이면 채울 JSON이 없어 에러 없이
+          빈칸이 하나도 안 채워진 원본이 그대로 저장된다(webCrawlerNode의 10)과 달리 우회 필드가
+          없어 항상 검사한다).
 
     require_complete=False면 1)·2)(시작/종료 완결성)를 건너뛴다. add_node 등으로 그래프를
     한 노드씩 쌓는 도중에는 당연히 startNode나 outputNode가 아직 없는 "미완성" 상태를 거치므로,
@@ -420,6 +489,34 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
                 "url을 채우거나 URL을 출력하는 노드를 startNode와 사이에 연결하라"
             )
 
+    # 11) breakNode: 상류(backward)에 distributorNode(반복을 만드는 노드)가 있어야 한다
+    # (파이썬 break는 반복문 밖에 있으면 SyntaxError로 실행 자체가 깨진다 — 조용한 버그가 아니라 즉시 크래시)
+    for n in g.nodes:
+        if n.type != "breakNode":
+            continue
+        if not _has_upstream_type(n.id, g, LOOP_PRODUCING_NODE_TYPES):
+            errors.append(
+                f"{n.id}(breakNode)의 상류에 distributorNode(반복을 만드는 노드)가 없다 — "
+                "반복 구조 밖에서 break를 쓰면 실행이 SyntaxError로 깨진다. distributorNode 하류에 연결하라"
+            )
+
+    # 12) fileModifierNode: 채울 값을 항상 직전 노드의 출력(JSON)에서 가져온다(자기 data엔 값이 없음).
+    # webCrawlerNode의 10)과 달리 우회 필드가 없어 url이 비었는지 여부와 상관없이 항상 검사한다.
+    for n in g.nodes:
+        if n.type != "fileModifierNode":
+            continue
+        incoming_sources = [nodes_by_id[e.source] for e in g.edges if e.target == n.id and e.source in nodes_by_id]
+        if not incoming_sources:
+            errors.append(
+                f"{n.id}(fileModifierNode)에 연결된 이전 노드가 없다 — 채울 값(JSON)을 만들어주는 노드"
+                "(templateAnalyzerNode → llmNode/promptNode 조합 등)를 앞에 연결하라"
+            )
+        elif all(s.type == "startNode" for s in incoming_sources):
+            errors.append(
+                f"{n.id}(fileModifierNode)의 직전 노드가 startNode뿐이라 채울 JSON을 얻을 수 없다 — "
+                "templateAnalyzerNode 등 JSON을 만들어주는 노드를 사이에 연결하라"
+            )
+
     # 3) 순환(cycle)
     has_cycle, stuck = _has_cycle(ids, g.edges)
     if has_cycle:
@@ -498,7 +595,16 @@ def _validate_node_data(n: FlowNode) -> List[str]:
             except (TypeError, ValueError):
                 errors.append(f"{n.id}(delayNode)의 seconds는 숫자여야 한다 (현재: {seconds!r})")
 
-    # startNode·outputNode는 data가 없어야 정상이지만, 있다고 해서 실행이 깨지진 않으므로 에러로 보진 않는다.
+    elif n.type == "templateAnalyzerNode":
+        if not d.get("template_path"):
+            errors.append(f"{n.id}(templateAnalyzerNode)에 template_path가 없다")
+
+    elif n.type == "fileModifierNode":
+        if not d.get("template_path"):
+            errors.append(f"{n.id}(fileModifierNode)에 template_path가 없다")
+
+    # startNode·outputNode·valueNode·distributorNode·breakNode는 data가 없어도(또는 비어있어도)
+    # 실행이 깨지지 않으므로 필수 필드 에러로 보진 않는다.
     return errors
 
 
@@ -506,6 +612,27 @@ def _condition_handles(n: FlowNode) -> set:
     """conditionNode가 가질 수 있는 sourceHandle 전체 집합 = rule id들 + 'else'."""
     rules = (n.data or {}).get("rules") or []
     return {r.get("id") for r in rules if r.get("id")} | {"else"}
+
+
+def _has_upstream_type(target_id: str, g: FlowGraph, wanted_types: set) -> bool:
+    """target_id로 들어오는 엣지를 거꾸로(backward) 타고 올라가며, wanted_types에 속하는 타입의
+    노드를 만나면 True. breakNode가 distributorNode 하류(반복 구조 안)에 있는지 확인하는 용도."""
+    backward: Dict[str, List[str]] = defaultdict(list)
+    for e in g.edges:
+        backward[e.target].append(e.source)
+    nodes_by_id = {n.id: n for n in g.nodes}
+    seen: set = set()
+    stack = list(backward.get(target_id, []))
+    while stack:
+        u = stack.pop()
+        if u in seen:
+            continue
+        seen.add(u)
+        node = nodes_by_id.get(u)
+        if node and node.type in wanted_types:
+            return True
+        stack.extend(backward.get(u, []))
+    return False
 
 
 def _has_cycle(ids: List[str], edges: List[FlowEdge]) -> Tuple[bool, List[str]]:
@@ -634,6 +761,13 @@ def _summarize_node_data(node_type: str, data: Dict[str, Any]) -> str:
     if node_type == "webCrawlerNode":
         url = data.get("url", "")
         return f"url={url!r}" + (" (비어있음 — 직전 노드 출력을 URL로 사용)" if not url else "")
+    if node_type == "valueNode":
+        file_path = data.get("file_path", "")
+        return f"file_path={file_path!r}" if file_path else f"value={data.get('value', '')!r}"
+    if node_type == "templateAnalyzerNode":
+        return f"template_path={data.get('template_path', '')!r}"
+    if node_type == "fileModifierNode":
+        return f"template_path={data.get('template_path', '')!r}, output_path={data.get('output_path', '')!r}"
     return ""
 
 
@@ -734,6 +868,11 @@ def make_tools(initial_graph: FlowGraph) -> Tuple[List, Callable[[], FlowGraph]]
         dynamicInputNode→inputLabel(문자열)+testValue(문자열, 선택 — 미리보기용 예시일 뿐 실제 실행값 아님),
         webCrawlerNode→url(문자열, 선택 — 비우면 직전 노드 출력을 URL로 사용하는데, 그러려면 반드시
         URL을 실제로 만들어내는 노드가 바로 앞에 연결돼 있어야 한다).
+        valueNode→file_path 또는 value(둘 다 문자열, 선택 — 실행마다 항상 같은 고정값),
+        distributorNode/breakNode→data 없음(breakNode는 반드시 distributorNode 하류에 연결해야 함,
+        아니면 실행이 SyntaxError로 깨짐), templateAnalyzerNode→template_path(문자열),
+        fileModifierNode→template_path(문자열)+output_path(문자열, 선택) — 반드시 JSON을 만들어주는
+        노드(templateAnalyzerNode→llmNode 조합 등) 바로 뒤에 연결해야 한다(직전 노드 의존).
         startNode·outputNode는 data가 필요 없다.
         실패하면 사유가 반환되니 data를 고쳐서 이 도구를 다시 호출한다."""
         before = _snapshot()
