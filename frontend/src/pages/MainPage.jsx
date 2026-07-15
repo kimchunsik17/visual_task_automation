@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { Plus, LayoutGrid, Sparkles, Wand2, ArrowRight, Zap, Bot, LibraryBig } from 'lucide-react';
+import axios from 'axios';
 import MainSidebar from '../MainSidebar';
 import './MainPage.css';
 
@@ -13,6 +14,11 @@ function MainPage() {
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [messages, setMessages] = useState([]);
   const draftIdRef = useRef(`draft-${Date.now()}`);
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+  };
 
   const handleAutoGenerate = async () => {
     if (!autoPrompt.trim()) return;
@@ -114,23 +120,6 @@ function MainPage() {
               노드를 연결하여 반복 업무를 워크플로우로 만들고, 한 번의 클릭으로 실행하세요.
             </p>
           </div>
-
-          {messages.length > 0 && (
-            <div className="chat-history" style={{ marginBottom: '2rem', padding: '1rem', background: 'var(--card-bg)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-              {messages.map((msg, index) => (
-                <div key={index} className={`chat-message ${msg.role}`} style={{ display: 'flex', gap: '0.8rem', marginBottom: '1rem', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
-                  {msg.role === 'ai' && (
-                    <div className="chat-avatar ai-avatar" style={{ background: 'var(--primary-color)', color: '#fff', padding: '0.5rem', borderRadius: '50%' }}>
-                      <Sparkles size={16} />
-                    </div>
-                  )}
-                  <div className="chat-bubble" style={{ background: msg.role === 'user' ? 'var(--primary-color)' : 'var(--bg-color)', color: msg.role === 'user' ? '#fff' : 'var(--text-color)', padding: '0.8rem 1rem', borderRadius: '12px', border: msg.role === 'ai' ? '1px solid var(--border-color)' : 'none', maxWidth: '80%' }}>
-                    {msg.content}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
 
           {/* AI 입력창 */}
           <div className="auto-gen-container" style={{ marginBottom: '2.5rem' }}>
