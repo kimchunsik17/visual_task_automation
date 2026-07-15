@@ -87,6 +87,10 @@ NODE_CATALOG = """\
                    연결될 서브 에이전트(llmNode)는 엣지의 targetHandle을 "tools"로 설정하여 들어와야 한다.
 - pythonNode     : 파이썬 코드를 실행한다. data.code(문자열, 파이썬 코드). 직전 노드의 출력이 'input_data' 변수에 담기며, 처리 결과를 'output_data' 변수에 할당해야 한다.
 - discordNode    : 디스코드 메시지 발송. data.botToken(문자열), data.channelId(문자열, 선택). 직전 노드의 출력을 본문으로 발송한다.
+- kakaoNode      : 카카오톡 알림톡 발송. data.receiver(문자열, 선택 — 수신자 정보). 직전 노드의 출력을 내용으로 발송한다.
+- slackNode      : 슬랙 메시지 발송. data.channel(문자열, 예: "#general"), data.message(문자열, 선택 — 직전 노드 출력과 함께 전송할 추가 메시지).
+- humanApprovalNode : 사람의 승인 대기. data.message(문자열, 승인 요청 메시지). 워크플로우 진행을 일시 정지하고 사용자 승인을 기다린다.
+- mergeNode      : 여러 흐름의 결과를 하나로 병합한다. data.mergeStrategy("join_newline" | "join_comma" | "array"). 여러 갈래의 엣지가 이 노드로 모일 수 있다.
 - outputNode     : 결과 출력(종료). data 없음. 모든 플로우는 이 노드에서 끝난다.
 
 [생성 원칙]
@@ -129,10 +133,9 @@ NODE_CATALOG = """\
     첫 번째만 쓰고 나머지는 조용히 버린다.
   · promptNode는 들어오는 llmNode 엣지를 1개까지만 — 2개 이상이면 어떤 모델이 쓰일지
     비결정적이 된다(엔진이 마지막 걸로 덮어씀).
-  · 그 외 노드가 나가는 엣지를 여러 개 갖는 것(팬아웃) 자체는 문법적으로 가능하지만, 실행 엔진에
-    여러 입력을 하나로 합치는 merge 기능이 없다 — 그래서 갈라진 경로가 나중에 같은 노드로 다시
-    모이면 그 노드가 중복 실행된다. conditionNode의 분기가 아닌 한 이런 재합류 구조는 만들지 않는다
-    (위 [생성 원칙]의 "기본은 단일 경로" 참고).
+  · 그 외 노드가 나가는 엣지를 여러 개 갖는 것(팬아웃) 자체는 문법적으로 가능하지만, 갈라진 경로가
+    나중에 다시 모일 때는 반드시 mergeNode를 통해 합쳐야 한다. mergeNode 없이 임의의 노드(예: llmNode)로
+    여러 갈래가 바로 합류하게 만들면 그 노드가 중복 실행되므로 절대 금지한다.
 """
 
 
@@ -144,7 +147,8 @@ NodeType = Literal[
     "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode",
     "webCrawlerNode", "outputNode", "valueNode", "distributorNode", "breakNode",
     "templateAnalyzerNode", "fileModifierNode", "emailNode", "databaseNode",
-    "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode"
+    "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
+    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode"
 ]
 
 
@@ -690,6 +694,15 @@ def _validate_node_data(n: FlowNode) -> List[str]:
             if not d.get("channelId"):
                 errors.append(f"{n.id}(discordNode)가 Webhook이 아닌 봇 토큰 방식일 때는 channelId가 필수다")
 
+    elif n.type == "slackNode":
+        if "channel" not in d:
+            errors.append(f"{n.id}(slackNode)에 channel이 없다")
+            
+    elif n.type == "mergeNode":
+        strategy = d.get("mergeStrategy")
+        if strategy and strategy not in ["join_newline", "join_comma", "array"]:
+            errors.append(f"{n.id}(mergeNode)의 mergeStrategy '{strategy}'는 허용되지 않는다")
+
     elif n.type == "httpRequestNode":
         method = d.get("method")
         if method not in ALLOWED_HTTP_METHODS:
@@ -928,6 +941,14 @@ def _summarize_node_data(node_type: str, data: Dict[str, Any]) -> str:
         return f"code={code_preview!r}"
     if node_type == "discordNode":
         return f"botToken={'Webhook' if data.get('botToken', '').startswith('http') else 'BotToken'}, channelId={data.get('channelId', '')!r}"
+    if node_type == "kakaoNode":
+        return f"receiver={data.get('receiver', '')!r}"
+    if node_type == "slackNode":
+        return f"channel={data.get('channel', '')!r}, message={data.get('message', '')!r}"
+    if node_type == "humanApprovalNode":
+        return f"message={data.get('message', '')!r}"
+    if node_type == "mergeNode":
+        return f"mergeStrategy={data.get('mergeStrategy', 'join_newline')!r}"
     if node_type == "loopNode":
         return f"maxIterations={data.get('maxIterations', 5)}"
     if node_type == "multiAgentNode":
