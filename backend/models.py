@@ -110,3 +110,15 @@ class FriendRequest(Base):
     from_user = relationship("User", foreign_keys=[from_user_id])
     to_user = relationship("User", foreign_keys=[to_user_id])
 
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    project_id = Column(String, index=True, nullable=True) # string since it might be 'draft-123' or '45'
+    title = Column(String)
+    messages = Column(JSON, default=list) # [{role: 'user', content: '...'}, {role: 'ai', content: '...'}]
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    user = relationship("User", backref="chat_sessions")
+

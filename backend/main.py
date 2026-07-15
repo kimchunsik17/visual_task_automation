@@ -606,7 +606,7 @@ def compile_flow(payload: FlowPayload):
     return {"status": "success", "code": compiled_code}
 
 @app.post("/api/chat")
-def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_current_user)):
+def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     자연어로 flow(graph_data)를 생성/수정하는 메타 에이전트 챗봇.
     project_id를 LangGraph thread_id로 써서 같은 프로젝트 안에서는 대화 맥락이 이어진다.
@@ -622,11 +622,88 @@ def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_curren
             payload.message,
             thread_id=f"project-{payload.project_id}",
         )
+        
+        # ChatSession 저장 로직
+        if user:
+            session = db.query(models.ChatSession).filter(
+                models.ChatSession.user_id == user.id,
+                models.ChatSession.project_id == str(payload.project_id)
+            ).first()
+            
+            if not session:
+                title = payload.message[:30] + "..." if len(payload.message) > 30 else payload.message
+                session = models.ChatSession(
+                    user_id=user.id,
+                    project_id=str(payload.project_id),
+                    title=title,
+                    messages=[]
+                )
+                db.add(session)
+                db.commit()
+                db.refresh(session)
+            
+            # messages는 리스트인데, SQLAlchemy JSON 필드는 기본적으로 리스트를 반환할 수 있으나 할당 시 새 객체로 줘야 변경감지가 됨
+            msgs = list(session.messages) if session.messages else []
+            msgs.append({"role": "user", "content": payload.message})
+            msgs.append({"role": "ai", "content": reply})
+            session.messages = msgs
+            db.commit()
+
         return {"status": "success", "reply": reply, "graph_data": graph_data}
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"챗봇 처리 중 오류: {str(e)}")
+
+@app.get("/api/chat/sessions")
+def get_chat_sessions(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    sessions = db.query(models.ChatSession).filter(models.ChatSession.user_id == user.id).order_by(models.ChatSession.updated_at.desc()).all()
+    
+    result = []
+    for s in sessions:
+        # Check if project exists if project_id is numeric
+        is_existing_project = False
+        if s.project_id and s.project_id.isdigit():
+            proj = db.query(models.Project).filter(models.Project.id == int(s.project_id)).first()
+            if proj:
+                is_existing_project = True
+
+        result.append({
+            "id": s.id,
+            "project_id": s.project_id,
+            "title": s.title,
+            "messages": s.messages,
+            "updated_at": s.updated_at.isoformat(),
+            "is_existing_project": is_existing_project
+        })
+    return {"status": "success", "sessions": result}
+
+@app.get("/api/chat/session/{project_id}")
+def get_chat_session(project_id: str, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    session = db.query(models.ChatSession).filter(
+        models.ChatSession.user_id == user.id,
+        models.ChatSession.project_id == project_id
+    ).first()
+    
+    if not session:
+        return {"status": "success", "session": None}
+        
+    return {
+        "status": "success", 
+        "session": {
+            "id": session.id,
+            "project_id": session.project_id,
+            "title": session.title,
+            "messages": session.messages,
+            "updated_at": session.updated_at.isoformat()
+        }
+    }
 
 @app.post("/api/deploy/{project_id}")
 async def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db)):

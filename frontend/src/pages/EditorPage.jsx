@@ -118,6 +118,7 @@ function FlowContent() {
     ];
   });
   const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
 
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
   const [projectDescription, setProjectDescription] = useState('');
@@ -167,6 +168,19 @@ function FlowContent() {
         })));
         setEdges(data.graph_data.edges || []);
       }
+
+      // 챗봇 대화 기록 불러오기
+      if (token) {
+        try {
+          const chatRes = await axios.get(`/api/chat/session/${id}`, getAuthHeaders());
+          if (chatRes.data.session && chatRes.data.session.messages) {
+            setChatMessages(chatRes.data.session.messages);
+          }
+        } catch (chatErr) {
+          console.error("Failed to load chat history", chatErr);
+        }
+      }
+
     } catch (error) {
       console.error("Failed to load project", error);
       alert("Failed to load project or unauthorized.");
@@ -541,6 +555,7 @@ function FlowContent() {
     const userMessage = chatInput;
     setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatInput('');
+    setIsChatLoading(true);
     
     // Clear existing AI modifications and highlights when starting a new AI request
     setNodes(nds => nds.map(nd => ({ 
@@ -628,8 +643,10 @@ function FlowContent() {
       console.error(error);
       setChatMessages(prev => [
         ...prev,
-        { role: 'assistant', content: '오류가 발생했습니다: ' + (error.response?.data?.detail || error.message) }
+        { role: 'assistant', content: `에러가 발생했습니다: ${error.response?.data?.detail || error.message}` }
       ]);
+    } finally {
+      setIsChatLoading(false);
     }
   };
 
@@ -1046,6 +1063,31 @@ function FlowContent() {
               </div>
             </div>
           ))}
+          {isChatLoading && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start'
+            }}>
+              <div style={{
+                maxWidth: '85%',
+                padding: '0.75rem 1rem',
+                borderRadius: '12px',
+                background: 'var(--btn-active-bg)',
+                color: 'var(--text-color)',
+                fontSize: '0.9rem',
+                lineHeight: '1.4',
+                border: '1px solid var(--border-color)',
+                borderBottomLeftRadius: '4px'
+              }}>
+                <div className="typing-indicator" style={{ border: 'none', background: 'transparent', padding: 0, boxShadow: 'none', marginTop: 0 }}>
+                  <div className="typing-dot"></div>
+                  <div className="typing-dot"></div>
+                  <div className="typing-dot"></div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Chat Input */}

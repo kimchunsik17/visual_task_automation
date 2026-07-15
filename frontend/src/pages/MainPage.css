@@ -31,25 +31,26 @@
 .chat-history {
   flex: 1;
   width: 100%;
-  max-width: 800px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 2.5rem;
   padding-bottom: 2rem;
   padding-top: 1rem;
 }
 
 .chat-message {
   display: flex;
-  gap: 1rem;
+  gap: 1.5rem;
   align-items: flex-start;
-  max-width: 85%;
+  width: 100%;
+  max-width: 100%;
   animation: fadeIn 0.3s ease-out;
 }
 
 .chat-message.user {
-  align-self: flex-end;
-  flex-direction: row-reverse;
+  align-self: flex-start;
+  flex-direction: row;
 }
 
 .chat-message.ai {
@@ -72,21 +73,22 @@
 }
 
 .chat-bubble {
-  padding: 1rem 1.2rem;
-  border-radius: 18px;
-  font-size: 1rem;
-  line-height: 1.5;
+  padding: 0.2rem 0 0 0;
+  font-size: 1.05rem;
+  line-height: 1.7;
   color: var(--text-color);
+  background: transparent !important;
+  border: none !important;
+  width: 100%;
+  word-break: break-word;
 }
 
 .chat-message.user .chat-bubble {
-  background: var(--btn-active-bg);
-  border-bottom-right-radius: 4px;
+  background: transparent;
 }
 
 .chat-message.ai .chat-bubble {
-  background: rgba(96, 165, 250, 0.1);
-  border-bottom-left-radius: 4px;
+  background: transparent;
 }
 
 .chat-input-wrapper {

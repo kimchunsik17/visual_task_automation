@@ -7,6 +7,12 @@
   height: 100vh;
   position: sticky;
   top: 0;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.main-sidebar.collapsed {
+  width: 68px;
 }
 
 .main-sidebar-header {
@@ -15,6 +21,8 @@
   align-items: center;
   gap: 0.8rem;
   border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .brand-name {
@@ -22,6 +30,28 @@
   font-weight: 700;
   color: var(--text-color);
   letter-spacing: -0.5px;
+  transition: opacity 0.2s, width 0.2s;
+  opacity: 1;
+}
+
+.main-sidebar.collapsed .brand-name,
+.main-sidebar.collapsed .nav-item span,
+.main-sidebar.collapsed .user-info,
+.main-sidebar.collapsed .btn-logout {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.main-sidebar.collapsed .nav-item {
+  padding: 0.8rem 0;
+  justify-content: center;
+}
+
+.main-sidebar.collapsed .profile-pic-large {
+  width: 36px;
+  height: 36px;
 }
 
 .main-nav {
@@ -30,6 +60,7 @@
   padding: 1.5rem 1rem;
   gap: 0.3rem;
   flex: 1;
+  overflow: hidden;
 }
 
 .nav-item {
@@ -46,6 +77,8 @@
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .nav-item:hover {

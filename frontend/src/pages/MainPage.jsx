@@ -1,15 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import axios from 'axios';
 import { Plus, LayoutGrid, Sparkles, Wand2, ArrowRight, Zap, Bot, LibraryBig } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
+import ChatSidebar from '../ChatSidebar';
 import './MainPage.css';
 
 function MainPage() {
   const navigate = useNavigate();
   const { user, token } = useAuth();
   const [autoPrompt, setAutoPrompt] = useState('');
+  const [activeSidebar, setActiveSidebar] = useState('main'); // 'main' or 'chat'
 
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -53,6 +55,18 @@ function MainPage() {
       ]);
     } finally {
       setIsAutoGenerating(false);
+    }
+  };
+
+  const handleSelectSession = (session) => {
+    if (session.is_existing_project) {
+      navigate(`/editor/${session.project_id}`);
+    } else {
+      // Draft session: load messages into MainPage and use its draftId
+      draftIdRef.current = session.project_id;
+      setMessages(session.messages || []);
+      // Close the sidebar to focus on the loaded chat
+      setActiveSidebar('main');
     }
   };
 
@@ -101,29 +115,44 @@ function MainPage() {
   ];
 
   return (
-    <div className="main-page-layout">
-      <MainSidebar />
-      <div className="main-page-content" style={{ justifyContent: 'flex-start', overflowY: 'auto' }}>
-        {/* Hero */}
-        <div style={{ width: '100%', maxWidth: '900px', margin: '0 auto', padding: '2.5rem 2rem 0' }}>
-          <div style={{ marginBottom: '2.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
-              <Wand2 size={28} color="#60a5fa" />
-              <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#60a5fa', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Auto Flow</span>
+    <div className="main-page-layout" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      <MainSidebar 
+        isCollapsed={activeSidebar === 'chat'} 
+        onExpand={() => setActiveSidebar('main')}
+        onToggleChat={() => setActiveSidebar(prev => prev === 'chat' ? 'main' : 'chat')} 
+      />
+      <ChatSidebar 
+        isOpen={activeSidebar === 'chat'} 
+        onClose={() => setActiveSidebar('main')} 
+        onExpand={() => setActiveSidebar('chat')}
+        onSelectSession={handleSelectSession}
+      />
+
+      <div className="main-page-content" style={{ flex: 1, display: 'flex', flexDirection: 'row', overflowY: 'auto', background: 'var(--bg-color)' }}>
+        
+        {/* 중앙: 대화 및 메인 기능 (가운데 정렬) */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <div style={{ width: '100%', maxWidth: '900px', padding: '2.5rem 3rem', display: 'flex', flexDirection: 'column' }}>
+          {messages.length === 0 && (
+            <div style={{ marginBottom: '2.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                <Wand2 size={28} color="#60a5fa" />
+                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#60a5fa', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Auto Flow</span>
+              </div>
+              <h1 style={{ margin: '0 0 0.75rem 0', fontSize: '2.4rem', fontWeight: 800, lineHeight: 1.2, color: 'var(--text-color)' }}>
+                안녕하세요{user ? `, ${user.name.split(' ')[0]}님` : ''}! 👋<br />
+                <span style={{ background: 'linear-gradient(135deg, #60a5fa, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  무엇을 자동화할까요?
+                </span>
+              </h1>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '1.05rem', lineHeight: 1.6 }}>
+                노드를 연결하여 반복 업무를 워크플로우로 만들고, 한 번의 클릭으로 실행하세요.
+              </p>
             </div>
-            <h1 style={{ margin: '0 0 0.75rem 0', fontSize: '2.4rem', fontWeight: 800, lineHeight: 1.2, color: 'var(--text-color)' }}>
-              안녕하세요{user ? `, ${user.name.split(' ')[0]}님` : ''}! 👋<br />
-              <span style={{ background: 'linear-gradient(135deg, #60a5fa, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                무엇을 자동화할까요?
-              </span>
-            </h1>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '1.05rem', lineHeight: 1.6 }}>
-              노드를 연결하여 반복 업무를 워크플로우로 만들고, 한 번의 클릭으로 실행하세요.
-            </p>
-          </div>
+          )}
 
           {/* 채팅 내역 렌더링 */}
-          {messages.length > 0 && (
+          {(messages.length > 0 || isAutoGenerating) && (
             <div className="chat-history" style={{ marginBottom: '2rem' }}>
               {messages.map((msg, idx) => (
                 <div key={idx} className={`chat-message ${msg.role}`}>
@@ -135,6 +164,18 @@ function MainPage() {
                   </div>
                 </div>
               ))}
+              {isAutoGenerating && (
+                <div className="chat-message ai">
+                  <div className="chat-avatar ai-avatar">
+                    <Bot size={18} />
+                  </div>
+                  <div className="typing-indicator">
+                    <div className="typing-dot"></div>
+                    <div className="typing-dot"></div>
+                    <div className="typing-dot"></div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -168,49 +209,54 @@ function MainPage() {
               </button>
             </div>
           </div>
-
-          {/* 빠른 액션 카드 */}
-          <div style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Zap size={16} color="var(--text-muted)" />
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>빠른 시작</span>
+        </div>
+        </div>
+        {/* 우측 사이드바: 빠른 시작 */}
+        <div style={{ 
+          width: '280px', 
+          borderLeft: '1px solid var(--border-color)', 
+          padding: '1.5rem',
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'var(--card-bg)'
+        }}>
+          <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Zap size={18} color="#f59e0b" />
+            <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-color)' }}>빠른 시작</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '3rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {quickActions.map((qa, i) => (
               <button
                 key={i}
                 onClick={qa.action}
                 style={{
-                  background: 'var(--card-bg)',
+                  background: 'var(--bg-color)',
                   border: '1px solid var(--border-color)',
-                  borderRadius: '14px',
-                  padding: '1.5rem',
+                  borderRadius: '10px',
+                  padding: '0.75rem 1rem',
                   textAlign: 'left',
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
                   display: 'flex',
-                  flexDirection: 'column',
+                  alignItems: 'center',
                   gap: '0.75rem',
                 }}
                 onMouseOver={(e) => {
                   e.currentTarget.style.borderColor = qa.color;
-                  e.currentTarget.style.transform = 'translateY(-3px)';
-                  e.currentTarget.style.boxShadow = `0 8px 20px ${qa.color}20`;
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = `0 4px 12px ${qa.color}20`;
                 }}
                 onMouseOut={(e) => {
                   e.currentTarget.style.borderColor = 'var(--border-color)';
-                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.transform = 'none';
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               >
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: `${qa.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {qa.icon}
+                <div style={{ padding: '0.4rem', background: `${qa.color}15`, borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {React.cloneElement(qa.icon, { size: 20 })}
                 </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-color)' }}>{qa.title}</span>
-                    <ArrowRight size={14} color="var(--text-muted)" />
-                  </div>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{qa.desc}</p>
+                <div style={{ fontWeight: 600, color: 'var(--text-color)', fontSize: '0.9rem' }}>
+                  {qa.title}
                 </div>
               </button>
             ))}

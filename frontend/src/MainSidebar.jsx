@@ -6,7 +6,7 @@ import { useAuth } from './AuthContext';
 import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock } from 'lucide-react';
 import './MainSidebar.css';
 
-const MainSidebar = () => {
+const MainSidebar = ({ isCollapsed = false, onExpand, onToggleChat }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, login, logout, token } = useAuth();
@@ -38,7 +38,15 @@ const MainSidebar = () => {
   };
 
   return (
-    <aside className="main-sidebar">
+    <aside 
+      className={`main-sidebar ${isCollapsed ? 'collapsed' : ''}`} 
+      onClick={(e) => {
+        // 만약 축소된 상태에서 내비게이션 아이템이 아닌 바깥 영역이나 아이콘을 누르면 확장
+        if (isCollapsed && onExpand) {
+          onExpand();
+        }
+      }}
+    >
       <div className="main-sidebar-header">
         <Wand2 size={24} color="#60a5fa" />
         <span className="brand-name">Auto Flow</span>
@@ -46,26 +54,31 @@ const MainSidebar = () => {
 
       <nav className="main-nav">
         <button className={`nav-item ${location.pathname === '/' ? 'active' : ''}`} onClick={() => navigate('/')}>
-          <Home size={18} /> 홈
+          <Home size={18} /> <span>홈</span>
         </button>
         <button className={`nav-item ${location.pathname === '/workflows' ? 'active' : ''}`} onClick={() => navigate('/workflows')}>
-          <LayoutGrid size={18} /> 내 워크플로우
+          <LayoutGrid size={18} /> <span>내 워크플로우</span>
         </button>
         <button className={`nav-item ${location.pathname === '/templates' ? 'active' : ''}`} onClick={() => navigate('/templates')}>
-          <LibraryBig size={18} /> 커뮤니티 템플릿
+          <LibraryBig size={18} /> <span>커뮤니티 템플릿</span>
         </button>
         <button className={`nav-item ${location.pathname === '/bots' ? 'active' : ''}`} onClick={() => navigate('/bots')}>
-          <Bot size={18} /> 봇 관리
+          <Bot size={18} /> <span>봇 관리</span>
         </button>
         <button className={`nav-item ${location.pathname === '/scheduler' ? 'active' : ''}`} onClick={() => navigate('/scheduler')}>
-          <Clock size={18} /> 스케줄 관리
+          <Clock size={18} /> <span>스케줄 관리</span>
         </button>
         <button className={`nav-item ${location.pathname === '/statistics' ? 'active' : ''}`} onClick={() => navigate('/statistics')}>
-          <BarChart size={18} /> 통계
+          <BarChart size={18} /> <span>통계</span>
         </button>
+        {onToggleChat && (
+          <button className="nav-item" onClick={onToggleChat} style={{ color: '#a78bfa' }}>
+            <Wand2 size={18} /> <span>대화 기록</span>
+          </button>
+        )}
         <div className="nav-divider"></div>
         <button className={`nav-item ${location.pathname === '/settings' ? 'active' : ''}`} onClick={() => navigate('/settings')} style={{ position: 'relative' }}>
-          <Settings size={18} /> 설정
+          <Settings size={18} /> <span>설정</span>
           {pendingCount > 0 && (
             <span style={{
               position: 'absolute',

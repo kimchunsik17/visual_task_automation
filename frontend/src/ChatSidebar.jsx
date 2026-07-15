@@ -1,0 +1,103 @@
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+import { MessageSquare, ArrowRight, Clock, Box, RefreshCw } from 'lucide-react';
+import './ChatSidebar.css';
+
+const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchSessions();
+    }
+  }, [isOpen]);
+
+  const fetchSessions = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/chat/sessions', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setSessions(res.data.sessions || []);
+    } catch (error) {
+      console.error("Failed to load chat sessions", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div 
+      className={`chat-sidebar-container ${isOpen ? 'open' : ''}`}
+      onClick={(e) => {
+        if (!isOpen && onExpand) {
+          onExpand();
+        }
+      }}
+    >
+      <div className="chat-sidebar-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <MessageSquare size={18} color="#a78bfa" />
+          <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-color)' }}>대화 기록</h2>
+        </div>
+        <button className="btn-refresh" onClick={fetchSessions} title="새로고침">
+          <RefreshCw size={14} className={loading ? "spin" : ""} />
+        </button>
+      </div>
+      
+      <div className="chat-sidebar-content">
+        {loading ? (
+          <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>로딩 중...</div>
+        ) : sessions.length === 0 ? (
+          <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>대화 기록이 없습니다.</div>
+        ) : (
+          <div className="chat-session-list">
+            {sessions.map(session => (
+              <div 
+                key={session.id} 
+                className="chat-session-item"
+                onClick={() => onSelectSession && onSelectSession(session)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="session-header">
+                  <span className="session-title">{session.title}</span>
+                  <span className="session-date"><Clock size={12}/> {formatDate(session.updated_at)}</span>
+                </div>
+                <div className="session-footer">
+                  <div className="session-meta">
+                    <MessageSquare size={12}/> {Math.floor((session.messages?.length || 0) / 2)} 턴
+                    {session.is_existing_project && (
+                      <span className="project-badge"><Box size={12}/> 연결됨</span>
+                    )}
+                  </div>
+                  {session.is_existing_project && (
+                    <button 
+                      className="btn-go-project"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/editor/${session.project_id}`);
+                      }}
+                      title="해당 프로젝트 에디터로 이동"
+                    >
+                      에디터 열기 <ArrowRight size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ChatSidebar;
