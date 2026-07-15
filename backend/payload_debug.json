@@ -1,69 +1,94 @@
 {
-  "project_id": 12,
+  "project_id": 6,
   "nodes": [
     {
-      "id": "n1",
+      "id": "node_start",
       "type": "startNode",
       "data": {
+        "label": "시작",
         "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
         "tokenDisplayMode": "tokens",
-        "costCurrency": "KRW",
-        "isExecuting": false,
-        "executionStatus": "success"
-      }
-    },
-    {
-      "id": "n2",
-      "type": "promptNode",
-      "data": {
-        "userPrompt": "나는 이온규입니다",
-        "isTokenTrackingMode": false,
-        "predictedTokens": null,
-        "actualTokens": {
-          "input_tokens": 23,
-          "output_tokens": 15,
-          "total_tokens": 38,
-          "input_token_details": {
-            "audio": 0,
-            "cache_read": 0
-          },
-          "output_token_details": {
-            "audio": 0,
-            "reasoning": 0
-          }
-        },
-        "tokenDisplayMode": "tokens",
-        "costCurrency": "KRW",
-        "isExecuting": false,
-        "executionStatus": "success"
-      }
-    },
-    {
-      "id": "n3",
-      "type": "llmNode",
-      "data": {
-        "model": "gpt-4o-mini",
-        "systemPrompt": "너는 번역 전문가다. 한국어 입력을 영어로 바꿔서 출력해줘",
-        "isTokenTrackingMode": false,
-        "predictedTokens": null,
-        "actualTokens": null,
-        "tokenDisplayMode": "tokens",
-        "costCurrency": "KRW",
+        "costCurrency": "USD",
         "isExecuting": false,
         "executionStatus": null
       }
     },
     {
-      "id": "n4",
-      "type": "outputNode",
+      "id": "node_dyn",
+      "type": "dynamicInputNode",
       "data": {
+        "label": "토론 주제",
+        "inputLabel": "토론할 안건을 입력하세요",
         "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
         "tokenDisplayMode": "tokens",
-        "costCurrency": "KRW",
+        "costCurrency": "USD",
+        "testValue": "ai에 대한 의견",
+        "isExecuting": false,
+        "executionStatus": null
+      }
+    },
+    {
+      "id": "node_ma",
+      "type": "multiAgentNode",
+      "data": {
+        "label": "토론장",
+        "mode": "tool_agent",
+        "maxRounds": 3,
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "USD",
+        "isExecuting": false,
+        "executionStatus": null
+      }
+    },
+    {
+      "id": "node_llm1",
+      "type": "llmNode",
+      "data": {
+        "label": "찬성측 패널",
+        "model": "gpt-4o-mini",
+        "systemPrompt": "당신은 해당 주제에 무조건 찬성하는 입장입니다. 논리적으로 상대방을 설득하세요.",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "USD",
+        "isExecuting": false,
+        "executionStatus": null
+      }
+    },
+    {
+      "id": "node_llm2",
+      "type": "llmNode",
+      "data": {
+        "label": "반대측 패널",
+        "model": "gpt-4o-mini",
+        "systemPrompt": "당신은 해당 주제에 무조건 반대하는 입장입니다. 논리적으로 상대방의 주장을 반박하세요.",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "USD",
+        "isExecuting": false,
+        "executionStatus": null
+      }
+    },
+    {
+      "id": "node_out",
+      "type": "outputNode",
+      "data": {
+        "label": "토론 결과",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "USD",
         "isExecuting": false,
         "executionStatus": null
       }
@@ -71,19 +96,34 @@
   ],
   "edges": [
     {
-      "source": "n1",
-      "target": "n2",
-      "sourceHandle": null
+      "source": "node_start",
+      "target": "node_dyn",
+      "sourceHandle": "out",
+      "targetHandle": "in"
     },
     {
-      "source": "n2",
-      "target": "n3",
-      "sourceHandle": null
+      "source": "node_dyn",
+      "target": "node_ma",
+      "sourceHandle": "out",
+      "targetHandle": "in"
     },
     {
-      "source": "n3",
-      "target": "n4",
-      "sourceHandle": null
+      "source": "node_llm1",
+      "target": "node_ma",
+      "sourceHandle": "out",
+      "targetHandle": "tools"
+    },
+    {
+      "source": "node_llm2",
+      "target": "node_ma",
+      "sourceHandle": "out",
+      "targetHandle": "tools"
+    },
+    {
+      "source": "node_ma",
+      "target": "node_out",
+      "sourceHandle": "out",
+      "targetHandle": "in"
     }
   ]
 }

@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import shutil
@@ -237,7 +238,15 @@ def update_project(project_id: int, payload: ProjectCreate, user: models.User = 
     
     project.title = payload.title
     project.description = payload.description
-    project.graph_data = payload.graph_data
+    
+    old_graph_data = project.graph_data or {}
+    new_graph_data = payload.graph_data or {}
+    if isinstance(old_graph_data, dict) and isinstance(new_graph_data, dict):
+        if "discord_bot_token" in old_graph_data:
+            new_graph_data["discord_bot_token"] = old_graph_data["discord_bot_token"]
+            
+    project.graph_data = new_graph_data
+    flag_modified(project, "graph_data")
     project.is_public = payload.is_public
     db.commit()
     
@@ -567,6 +576,8 @@ async def deploy_project(project_id: int, payload: DeployPayload, db: Session = 
             new_data = dict(project.graph_data)
             new_data["discord_bot_token"] = payload.discord_bot_token
             project.graph_data = new_data
+            flag_modified(project, "graph_data")
+            db.commit()
             
             # 봇 시작
             discord_bot.start_discord_bot(project.id, payload.discord_bot_token)
@@ -706,6 +717,7 @@ async def delete_bot_endpoint(project_id: int, user: models.User = Depends(get_c
         if "discord_bot_token" in new_data:
             del new_data["discord_bot_token"]
             project.graph_data = new_data
+            flag_modified(project, "graph_data")
             
     project.deploy_mode = "chatbot"
     db.commit()
@@ -761,6 +773,7 @@ def update_bot_token(project_id: int, payload: TokenActionPayload, user: models.
         new_data = dict(project.graph_data)
         new_data["discord_bot_token"] = payload.new_discord_token
         project.graph_data = new_data
+        flag_modified(project, "graph_data")
         db.commit()
         
     if project.id in discord_bot._active_bots:
