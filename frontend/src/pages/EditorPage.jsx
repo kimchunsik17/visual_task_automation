@@ -18,10 +18,11 @@ import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode } from '../customNodes';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode , DetachedTextNode} from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 
 const nodeTypes = {
+  detachedText: DetachedTextNode,
   startNode: StartNode,
   scheduleNode: ScheduleNode,
   promptNode: PromptNode,
@@ -108,7 +109,7 @@ function FlowContent() {
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
   const [projectDescription, setProjectDescription] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isPublic, setIsPublic] = useState(false);
+  const [visibility, setVisibility] = useState('private');
   const [isOwner, setIsOwner] = useState(true); // Default true for new projects
   const [currentId, setCurrentId] = useState(projectId);
 
@@ -143,7 +144,7 @@ function FlowContent() {
       const data = res.data;
       setProjectTitle(data.title);
       setProjectDescription(data.description || '');
-      setIsPublic(data.is_public);
+      setVisibility(data.visibility || 'private');
       setIsOwner(user && user.id === data.owner_id);
       
       if (data.graph_data) {
@@ -159,7 +160,7 @@ function FlowContent() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (overrideVisibility = null) => {
     if (!user) {
       alert("프로젝트를 저장하려면 로그인이 필요합니다. 왼쪽 메뉴에서 구글 계정으로 로그인해주세요.");
       return null;
@@ -169,7 +170,7 @@ function FlowContent() {
         title: projectTitle,
         description: projectDescription,
         graph_data: getCurrentFlowData(),
-        is_public: isPublic
+        visibility: overrideVisibility !== null ? overrideVisibility : visibility
       };
 
       if (currentId) {
@@ -200,9 +201,54 @@ function FlowContent() {
     }
   };
 
-  const toggleShare = () => {
-    setIsPublic(!isPublic);
-  };
+
+  
+  
+  const onNodesDelete = useCallback((nodesToDelete) => {
+    setNodes((nds) => {
+      let updatedNodes = [...nds];
+      
+      nodesToDelete.forEach(node => {
+        if (node.type === 'detachedText') {
+          updatedNodes = updatedNodes.map(n => {
+            if (n.id === node.data.sourceId) {
+              const newData = { ...n.data };
+              newData[`isDetached_${node.data.fieldKey}`] = false;
+              return { ...n, data: newData };
+            }
+            return n;
+          });
+        }
+      });
+      
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
+  const onEdgesDelete = useCallback((edgesToDelete) => {
+    setNodes((nds) => {
+      let updatedNodes = [...nds];
+      let nodesToDelete = new Set();
+      
+      edgesToDelete.forEach(edge => {
+        const detachedNode = updatedNodes.find(n => (n.id === edge.source || n.id === edge.target) && n.type === 'detachedText');
+        if (detachedNode) {
+          nodesToDelete.add(detachedNode.id);
+          
+          updatedNodes = updatedNodes.map(n => {
+            if (n.id === detachedNode.data.sourceId) {
+              const newData = { ...n.data };
+              newData[`isDetached_${detachedNode.data.fieldKey}`] = false;
+              return { ...n, data: newData };
+            }
+            return n;
+          });
+        }
+      });
+      
+      return updatedNodes.filter(n => !nodesToDelete.has(n.id));
+    });
+  }, [setNodes]);
 
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
@@ -230,6 +276,63 @@ function FlowContent() {
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
+
+      
+      const popoutDataStr = event.dataTransfer.getData('application/reactflow-popout');
+      if (popoutDataStr) {
+        const popoutData = JSON.parse(popoutDataStr);
+        const position = screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        
+        const newNodeId = `popout_${popoutData.sourceId}_${popoutData.key}`;
+        
+        // Find source node to get initial text
+        setNodes((nds) => {
+          const sourceNode = nds.find(n => n.id === popoutData.sourceId);
+          if (!sourceNode) return nds;
+          
+          const initialValue = sourceNode.data[popoutData.key];
+          
+          // Add new node
+          const newNode = {
+            id: newNodeId,
+            type: 'detachedText',
+            position,
+            data: { 
+              label: '분리된 텍스트', 
+              onChange: onNodeDataChange, 
+              sourceId: popoutData.sourceId,
+              fieldKey: popoutData.key,
+              value: initialValue
+            },
+          };
+          
+          // Mark source as detached
+          const updatedNodes = nds.map(n => {
+             if (n.id === popoutData.sourceId) {
+                return { ...n, data: { ...n.data, [`isDetached_${popoutData.key}`]: true } };
+             }
+             return n;
+          });
+          
+          return updatedNodes.concat(newNode);
+        });
+        
+        // Add edge
+                setEdges((eds) => eds.concat({
+          id: `e_${newNodeId}-${popoutData.sourceId}`,
+          source: newNodeId,
+          target: popoutData.sourceId,
+          sourceHandle: 'out',
+          targetHandle: `popout-${popoutData.key}`,
+          animated: true,
+          style: { stroke: '#ec4899', strokeWidth: 2 }
+        }));
+        
+        return;
+      }
 
       const type = event.dataTransfer.getData('application/reactflow');
       if (typeof type === 'undefined' || !type) {
@@ -276,6 +379,26 @@ function FlowContent() {
   const { getIntersectingNodes } = useReactFlow();
 
   const onNodeDragStop = useCallback((event, node) => {
+    
+    if (node.type === 'detachedText') {
+      const intersections = getIntersectingNodes(node);
+      const parentNode = intersections.find(n => n.id === node.data.sourceId);
+      
+      if (parentNode) {
+        setEdges((eds) => eds.filter(e => e.source !== node.id && e.target !== node.id));
+        setNodes((nds) => nds.filter(n => n.id !== node.id).map(n => {
+          if (n.id === parentNode.id) {
+            const newData = { ...n.data };
+            newData[`isDetached_${node.data.fieldKey}`] = false;
+            
+            return { ...n, data: newData };
+          }
+          return n;
+        }));
+      }
+      return;
+    }
+
     if (node.type === 'loopNode') return;
 
     setNodes((nds) => {
@@ -422,10 +545,39 @@ function FlowContent() {
       // 챗봇이 flow를 바꿨으면 캔버스에 반영 — 기존 노드에 필요한 콜백(onChange/onDelete)을
       // handleLoadTemplate과 동일하게 다시 주입해줘야 편집/삭제가 계속 동작한다.
       if (graph_data) {
-        const loadedNodes = (graph_data.nodes || []).map(n => ({
-          ...n,
-          data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode },
-        }));
+        const currentNodes = getNodes();
+        const loadedNodes = (graph_data.nodes || []).map(n => {
+          const oldNode = currentNodes.find(on => String(on.id) === String(n.id));
+          const isNew = !oldNode;
+          
+          // data 중 onChange, onDelete 등을 제외하고 실제 내용만 비교
+          const cleanOldData = oldNode ? { ...oldNode.data } : {};
+          delete cleanOldData.onChange;
+          delete cleanOldData.onDelete;
+          delete cleanOldData.onClearAIHighlight;
+          delete cleanOldData.isAIModified;
+          
+          const cleanNewData = { ...n.data };
+          delete cleanNewData.onChange;
+          delete cleanNewData.onDelete;
+          delete cleanNewData.onClearAIHighlight;
+          delete cleanNewData.isAIModified;
+          
+          const isModified = oldNode && JSON.stringify(cleanOldData) !== JSON.stringify(cleanNewData);
+          
+          return {
+            ...n,
+            data: { 
+              ...n.data, 
+              isAIModified: isNew || isModified,
+              onChange: onNodeDataChange, 
+              onDelete: deleteNode,
+              onClearAIHighlight: (nodeId) => {
+                setNodes(nds => nds.map(nd => String(nd.id) === String(nodeId) ? { ...nd, data: { ...nd.data, isAIModified: false } } : nd));
+              }
+            },
+          };
+        });
         setNodes(loadedNodes);
         setEdges(graph_data.edges || []);
       }
@@ -572,14 +724,22 @@ function FlowContent() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {isOwner && (
             <>
-              <button 
-                className="btn-secondary" 
-                onClick={toggleShare}
-                style={{ background: isPublic ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: isPublic ? '#10b981' : 'var(--text-muted)', borderColor: isPublic ? '#10b981' : 'var(--border-color)' }}
-              >
-                <Share2 size={16} />
-                {isPublic ? '공개됨' : '비공개'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.3rem 0.6rem' }}>
+                <Share2 size={16} style={{ color: visibility === 'public' ? '#10b981' : visibility === 'friends' ? '#3b82f6' : 'var(--text-muted)' }} />
+                <select 
+                  value={visibility} 
+                  onChange={(e) => {
+                    const newVis = e.target.value;
+                    setVisibility(newVis);
+                    handleSave(newVis).then(s => s && console.log("Visibility updated automatically."));
+                  }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-color)', outline: 'none', fontSize: '0.85rem' }}
+                >
+                  <option value="private" style={{ background: 'var(--bg-color)', color: 'var(--text-color)' }}>비공개</option>
+                  <option value="friends" style={{ background: 'var(--bg-color)', color: 'var(--text-color)' }}>친구공개</option>
+                  <option value="public" style={{ background: 'var(--bg-color)', color: 'var(--text-color)' }}>공개</option>
+                </select>
+              </div>
               <button className="btn-secondary" onClick={() => { handleSave().then(s => s && alert("저장되었습니다.")); }}>
                 <Save size={16} />
                 저장
@@ -652,6 +812,8 @@ function FlowContent() {
             }))}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+              onEdgesDelete={onEdgesDelete}
+              onNodesDelete={onNodesDelete}
             onConnect={onConnect}
             onDrop={onDrop}
             onDragOver={onDragOver}

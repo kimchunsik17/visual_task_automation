@@ -75,12 +75,12 @@ function StatisticsPage() {
               <select 
                 value={timeRange} 
                 onChange={(e) => setTimeRange(e.target.value)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-color)', fontSize: '0.9rem', outline: 'none', cursor: 'pointer' }}
+                style={{ background: 'var(--card-bg)', border: 'none', color: 'var(--text-color)', fontSize: '0.9rem', outline: 'none', cursor: 'pointer' }}
               >
-                <option value="hourly">일간 (시간별)</option>
-                <option value="weekly">주간 (일별)</option>
-                <option value="monthly">월간 (일별)</option>
-                <option value="yearly">연간 (월별)</option>
+                <option value="hourly" style={{ background: 'var(--card-bg)', color: 'var(--text-color)' }}>일간 (시간별)</option>
+                <option value="weekly" style={{ background: 'var(--card-bg)', color: 'var(--text-color)' }}>주간 (일별)</option>
+                <option value="monthly" style={{ background: 'var(--card-bg)', color: 'var(--text-color)' }}>월간 (일별)</option>
+                <option value="yearly" style={{ background: 'var(--card-bg)', color: 'var(--text-color)' }}>연간 (월별)</option>
               </select>
             </div>
           </div>
@@ -120,7 +120,7 @@ function StatisticsPage() {
               </div>
 
               <div style={{ background: 'var(--card-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--card-shadow)' }}>
-                <h3 style={{ margin: '0 0 1.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <h3 style={{ margin: '0 0 1.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-color)' }}>
                   {timeRange === 'hourly' ? '최근 24시간 추이' : 
                    timeRange === 'monthly' ? '최근 30일 추이' : 
                    timeRange === 'yearly' ? '최근 12개월 추이' : '최근 7일 추이'}

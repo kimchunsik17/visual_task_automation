@@ -24,6 +24,7 @@ class Project(Base):
     description = Column(String, nullable=True)
     graph_data = Column(JSON, default=lambda: {"nodes": [], "edges": []})
     is_public = Column(Boolean, default=False)
+    visibility = Column(String, default="private") # 'public', 'private', 'friends'
     share_token = Column(String, unique=True, index=True, nullable=True)
     deploy_mode = Column(String, default="chatbot")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -83,3 +84,28 @@ class NodeMemory(Base):
     node_id = Column(String, index=True)
     history = Column(String, default='[]')
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+class Friendship(Base):
+    __tablename__ = "friendships"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    friend_id = Column(Integer, ForeignKey("users.id"), index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id], backref="friendships")
+    friend = relationship("User", foreign_keys=[friend_id])
+
+
+class FriendRequest(Base):
+    __tablename__ = "friend_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    from_user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    to_user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    status = Column(String, default="pending")  # 'pending', 'accepted', 'rejected'
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    from_user = relationship("User", foreign_keys=[from_user_id])
+    to_user = relationship("User", foreign_keys=[to_user_id])
+

@@ -99,7 +99,7 @@
 }
 
 .user-email {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 0.8rem;
 }
 

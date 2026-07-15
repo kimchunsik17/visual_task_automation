@@ -95,7 +95,7 @@
 }
 
 .run-list-item:hover {
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: var(--btn-active-bg);
 }
 
 .run-list-item.active {
@@ -257,12 +257,12 @@
   align-items: center;
   padding: 1rem 1.25rem;
   cursor: pointer;
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: var(--btn-active-bg);
   transition: background-color 0.2s;
 }
 
 .step-card-header:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--border-color);
 }
 
 .step-status {
@@ -283,7 +283,7 @@
 .step-type {
   font-weight: 600;
   font-size: 1.05rem;
-  color: #e2e8f0;
+  color: var(--text-color);
 }
 
 .step-id {
@@ -307,7 +307,7 @@
 .step-card-body {
   padding: 1.25rem;
   border-top: 1px solid var(--border-color);
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--btn-active-bg);
 }
 
 .error-box {
@@ -339,10 +339,10 @@
 .data-content {
   margin: 0;
   padding: 1rem;
-  background-color: #0f172a;
-  border: 1px solid #1e293b;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  color: #cbd5e1;
+  color: var(--text-color);
   font-family: monospace;
   font-size: 0.85rem;
   line-height: 1.5;
