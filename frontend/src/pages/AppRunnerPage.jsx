@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
-import { Play, Share2, Lock, Unlock, AlertTriangle, Copy, Download, Check, XCircle, Clock } from 'lucide-react';
+import { Play, Share2, Lock, Unlock, Users, AlertTriangle, Copy, Download, Check, XCircle, Clock } from 'lucide-react';
 import './AppRunnerPage.css';
 
 export default function AppRunnerPage() {
@@ -130,8 +130,10 @@ export default function AppRunnerPage() {
             <h1>{appInfo.title}</h1>
             <div className="app-meta">
               <span className="owner-badge">제작자: {appInfo.owner_name}</span>
-              {appInfo.is_public ? (
+              {appInfo.visibility === 'public' ? (
                 <span className="status-badge public"><Unlock size={14} /> 공개 (누구나 사용 가능)</span>
+              ) : appInfo.visibility === 'friends' ? (
+                <span className="status-badge friends" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)' }}><Users size={14} /> 친구공개 (친구만 사용 가능)</span>
               ) : (
                 <span className="status-badge private"><Lock size={14} /> 비공개 (권한 필요)</span>
               )}

@@ -98,7 +98,7 @@ function FlowContent() {
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
   const [projectDescription, setProjectDescription] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isPublic, setIsPublic] = useState(false);
+  const [visibility, setVisibility] = useState('private');
   const [isOwner, setIsOwner] = useState(true); // Default true for new projects
   const [currentId, setCurrentId] = useState(projectId);
 
@@ -133,7 +133,7 @@ function FlowContent() {
       const data = res.data;
       setProjectTitle(data.title);
       setProjectDescription(data.description || '');
-      setIsPublic(data.is_public);
+      setVisibility(data.visibility || 'private');
       setIsOwner(user && user.id === data.owner_id);
       
       if (data.graph_data) {
@@ -149,13 +149,13 @@ function FlowContent() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (overrideVisibility = null) => {
     try {
       const payload = {
         title: projectTitle,
         description: projectDescription,
         graph_data: getCurrentFlowData(),
-        is_public: isPublic
+        visibility: overrideVisibility !== null ? overrideVisibility : visibility
       };
 
       if (currentId) {
@@ -186,9 +186,6 @@ function FlowContent() {
     }
   };
 
-  const toggleShare = () => {
-    setIsPublic(!isPublic);
-  };
 
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
@@ -535,14 +532,22 @@ function FlowContent() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {isOwner && (
             <>
-              <button 
-                className="btn-secondary" 
-                onClick={toggleShare}
-                style={{ background: isPublic ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: isPublic ? '#10b981' : 'var(--text-muted)', borderColor: isPublic ? '#10b981' : 'var(--border-color)' }}
-              >
-                <Share2 size={16} />
-                {isPublic ? '공개됨' : '비공개'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.3rem 0.6rem' }}>
+                <Share2 size={16} style={{ color: visibility === 'public' ? '#10b981' : visibility === 'friends' ? '#3b82f6' : 'var(--text-muted)' }} />
+                <select 
+                  value={visibility} 
+                  onChange={(e) => {
+                    const newVis = e.target.value;
+                    setVisibility(newVis);
+                    handleSave(newVis).then(s => s && console.log("Visibility updated automatically."));
+                  }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-color)', outline: 'none', fontSize: '0.85rem' }}
+                >
+                  <option value="private" style={{ background: 'var(--bg-color)', color: 'var(--text-color)' }}>비공개</option>
+                  <option value="friends" style={{ background: 'var(--bg-color)', color: 'var(--text-color)' }}>친구공개</option>
+                  <option value="public" style={{ background: 'var(--bg-color)', color: 'var(--text-color)' }}>공개</option>
+                </select>
+              </div>
               <button className="btn-secondary" onClick={() => { handleSave().then(s => s && alert("저장되었습니다.")); }}>
                 <Save size={16} />
                 저장

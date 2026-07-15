@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
@@ -9,7 +9,21 @@ import './MainSidebar.css';
 const MainSidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, login, logout } = useAuth();
+  const { user, login, logout, token } = useAuth();
+  const [pendingCount, setPendingCount] = useState(0);
+
+  useEffect(() => {
+    if (!token) return;
+    const fetchCount = async () => {
+      try {
+        const res = await axios.get('/api/friends/pending-count', { headers: { Authorization: `Bearer ${token}` } });
+        setPendingCount(res.data.count);
+      } catch (e) {/* silent */}
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 5000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
@@ -47,8 +61,28 @@ const MainSidebar = () => {
           <BarChart size={18} /> 통계
         </button>
         <div className="nav-divider"></div>
-        <button className={`nav-item ${location.pathname === '/settings' ? 'active' : ''}`} onClick={() => navigate('/settings')}>
+        <button className={`nav-item ${location.pathname === '/settings' ? 'active' : ''}`} onClick={() => navigate('/settings')} style={{ position: 'relative' }}>
           <Settings size={18} /> 설정
+          {pendingCount > 0 && (
+            <span style={{
+              position: 'absolute',
+              top: '6px',
+              right: '8px',
+              background: '#ef4444',
+              color: '#fff',
+              borderRadius: '50%',
+              width: '18px',
+              height: '18px',
+              fontSize: '0.7rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              animation: 'pulse-opacity 2s ease-in-out infinite'
+            }}>
+              {pendingCount}
+            </span>
+          )}
         </button>
       </nav>
 

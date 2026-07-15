@@ -153,17 +153,17 @@ class ProjectCreate(BaseModel):
     title: str
     description: Optional[str] = None
     graph_data: Dict[str, Any]
-    is_public: bool = False
+    visibility: str = "private"
 
 @app.get("/api/projects/public")
 def get_public_projects(db: Session = Depends(get_db)):
-    projects = db.query(models.Project).filter(models.Project.is_public == True).all()
+    projects = db.query(models.Project).filter(models.Project.visibility == 'public').all()
     return [{"id": p.id, "title": p.title, "description": p.description, "owner": p.owner.name if p.owner else "Unknown", "updated_at": p.updated_at} for p in projects]
 
 @app.get("/api/projects/my")
 def get_my_projects(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
-    return [{"id": p.id, "title": p.title, "description": p.description, "is_public": p.is_public, "updated_at": p.updated_at} for p in projects]
+    return [{"id": p.id, "title": p.title, "description": p.description, "visibility": p.visibility, "updated_at": p.updated_at} for p in projects]
 
 @app.post("/api/projects")
 def create_project(payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -172,7 +172,7 @@ def create_project(payload: ProjectCreate, user: models.User = Depends(get_curre
         title=payload.title,
         description=payload.description,
         graph_data=payload.graph_data,
-        is_public=payload.is_public
+        visibility=payload.visibility
     )
     db.add(project)
     db.commit()
@@ -184,14 +184,19 @@ def get_project(project_id: int, user: models.User = Depends(get_current_user), 
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if not project.is_public and (not user or project.user_id != user.id):
+        
+    if project.visibility == 'private' and (not user or project.user_id != user.id):
         raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    elif project.visibility == 'friends':
+        if not user or (project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first()):
+            raise HTTPException(status_code=403, detail="Not authorized to view this project")
+
     return {
         "id": project.id,
         "title": project.title,
         "description": project.description,
         "graph_data": project.graph_data,
-        "is_public": project.is_public,
+        "visibility": project.visibility,
         "deploy_mode": project.deploy_mode,
         "owner_id": project.user_id,
         "owner_name": project.owner.name if project.owner else "Unknown"
@@ -220,7 +225,7 @@ def update_project(project_id: int, payload: ProjectCreate, user: models.User = 
     project.title = payload.title
     project.description = payload.description
     project.graph_data = payload.graph_data
-    project.is_public = payload.is_public
+    project.visibility = payload.visibility
     db.commit()
     return {"status": "success"}
 
@@ -244,7 +249,7 @@ def get_app_info(share_token: str, db: Session = Depends(get_db)):
         "id": project.id,
         "title": project.title,
         "description": project.description,
-        "is_public": project.is_public,
+        "visibility": project.visibility,
         "owner_name": project.owner.name if project.owner else "Unknown",
         "graph_data": project.graph_data
     }
@@ -259,28 +264,20 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
         raise HTTPException(status_code=404, detail="App not found")
     
     user = None
-    if not project.is_public:
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            raise HTTPException(status_code=403, detail="Authentication required for private app")
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(" ")[1]
         try:
             payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
             user = db.query(models.User).filter(models.User.id == payload_jwt.get("user_id")).first()
         except:
-            raise HTTPException(status_code=403, detail="Invalid token")
-        if not user:
-            raise HTTPException(status_code=403, detail="User not found")
-    else:
-        # even if public, if user is logged in, grab their ID
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(" ")[1]
-            try:
-                payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-                user = db.query(models.User).filter(models.User.id == payload_jwt.get("user_id")).first()
-            except:
-                pass
+            pass
+            
+    if project.visibility == 'private' and (not user or project.user_id != user.id):
+        raise HTTPException(status_code=403, detail="Authentication required for private app")
+    elif project.visibility == 'friends':
+        if not user or (project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first()):
+            raise HTTPException(status_code=403, detail="Friends-only access required")
 
     nodes = project.graph_data.get('nodes', [])
     edges = project.graph_data.get('edges', [])
@@ -451,8 +448,15 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
 def get_project_runs(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
     # Verify project access
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
-    if not project or (project.user_id != user.id and not project.is_public):
+    
+    if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+        
+    if project.visibility == 'private' and project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    elif project.visibility == 'friends':
+        if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
+            raise HTTPException(status_code=403, detail="Not authorized to view this project")
         
     runs = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.project_id == project_id).order_by(models.FlowExecutionLog.execution_time.desc()).limit(100).all()
     
@@ -473,8 +477,12 @@ def get_run_details(run_id: int, db: Session = Depends(get_db), user: models.Use
         raise HTTPException(status_code=404, detail="Run not found")
         
     project = db.query(models.Project).filter(models.Project.id == run.project_id).first()
-    if project and project.user_id != user.id and not project.is_public:
-        raise HTTPException(status_code=403, detail="Not authorized to view this run")
+    if project:
+        if project.visibility == 'private' and project.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to view this run")
+        elif project.visibility == 'friends':
+            if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
+                raise HTTPException(status_code=403, detail="Not authorized to view this run")
         
     steps = db.query(models.NodeExecutionLog).filter(models.NodeExecutionLog.flow_execution_id == run.id).order_by(models.NodeExecutionLog.id).all()
     
@@ -798,6 +806,7 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         y = now.year
         for i in range(12):
             usage[f"{y}-{m:02d}"] = 0
+            
             m -= 1
             if m == 0:
                 m = 12
@@ -872,6 +881,108 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         "chart_data": chart_data,
         "project_usage": project_usage
     }
+
+class FriendAddPayload(BaseModel):
+    email: str
+
+@app.get("/api/friends")
+def get_friends(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    friends = db.query(models.Friendship).filter(models.Friendship.user_id == user.id).all()
+    return [{"id": f.friend.id, "name": f.friend.name, "email": f.friend.email, "picture": f.friend.picture} for f in friends]
+
+@app.delete("/api/friends/{friend_id}")
+def remove_friend(friend_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    db.query(models.Friendship).filter(models.Friendship.user_id == user.id, models.Friendship.friend_id == friend_id).delete()
+    db.query(models.Friendship).filter(models.Friendship.user_id == friend_id, models.Friendship.friend_id == user.id).delete()
+    db.commit()
+    return {"status": "success"}
+
+# --- Friend Request Endpoints ---
+
+@app.post("/api/friends/request")
+def send_friend_request(payload: FriendAddPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    if payload.email == user.email:
+        raise HTTPException(status_code=400, detail="자기 자신에게는 친구 신청을 보낼 수 없습니다.")
+
+    target = db.query(models.User).filter(models.User.email == payload.email).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="해당 이메일의 사용자를 찾을 수 없습니다.")
+
+    # Already friends?
+    already = db.query(models.Friendship).filter(models.Friendship.user_id == user.id, models.Friendship.friend_id == target.id).first()
+    if already:
+        raise HTTPException(status_code=400, detail="이미 친구 상태입니다.")
+
+    # Pending request already sent?
+    pending = db.query(models.FriendRequest).filter(
+        models.FriendRequest.from_user_id == user.id,
+        models.FriendRequest.to_user_id == target.id,
+        models.FriendRequest.status == "pending"
+    ).first()
+    if pending:
+        raise HTTPException(status_code=400, detail="이미 친구 신청을 보냈습니다.")
+
+    req = models.FriendRequest(from_user_id=user.id, to_user_id=target.id, status="pending")
+    db.add(req)
+    db.commit()
+    return {"status": "success", "message": f"{target.name}님께 친구 신청을 보냈습니다."}
+
+@app.get("/api/friends/requests")
+def get_friend_requests(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """Get all pending friend requests received by the current user."""
+    requests = db.query(models.FriendRequest).filter(
+        models.FriendRequest.to_user_id == user.id,
+        models.FriendRequest.status == "pending"
+    ).all()
+    return [{
+        "id": r.id,
+        "from_user_id": r.from_user_id,
+        "name": r.from_user.name,
+        "email": r.from_user.email,
+        "picture": r.from_user.picture,
+        "created_at": r.created_at
+    } for r in requests]
+
+@app.get("/api/friends/pending-count")
+def get_pending_count(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    count = db.query(models.FriendRequest).filter(
+        models.FriendRequest.to_user_id == user.id,
+        models.FriendRequest.status == "pending"
+    ).count()
+    return {"count": count}
+
+@app.post("/api/friends/requests/{request_id}/accept")
+def accept_friend_request(request_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    req = db.query(models.FriendRequest).filter(
+        models.FriendRequest.id == request_id,
+        models.FriendRequest.to_user_id == user.id,
+        models.FriendRequest.status == "pending"
+    ).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="친구 신청을 찾을 수 없습니다.")
+
+    req.status = "accepted"
+    # Create mutual friendship
+    f1 = models.Friendship(user_id=user.id, friend_id=req.from_user_id)
+    f2 = models.Friendship(user_id=req.from_user_id, friend_id=user.id)
+    db.add(f1)
+    db.add(f2)
+    db.commit()
+    return {"status": "success", "message": "친구 신청을 수락했습니다."}
+
+@app.post("/api/friends/requests/{request_id}/reject")
+def reject_friend_request(request_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    req = db.query(models.FriendRequest).filter(
+        models.FriendRequest.id == request_id,
+        models.FriendRequest.to_user_id == user.id,
+        models.FriendRequest.status == "pending"
+    ).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="친구 신청을 찾을 수 없습니다.")
+
+    db.delete(req)
+    db.commit()
+    return {"status": "success", "message": "친구 신청을 거절했습니다."}
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
