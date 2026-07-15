@@ -20,7 +20,8 @@ const calculateNodeCost = (tokens, model, currency) => {
   const usdCost = (tokens / 1000000) * pricePer1M;
   
   if (currency === 'KRW') {
-    return `₩${Math.round(usdCost * 1400).toLocaleString()}`;
+    const krwRate = Number(localStorage.getItem('krwRate')) || 1400;
+    return `₩${Math.round(usdCost * krwRate).toLocaleString()}`;
   }
   return usdCost < 0.0001 ? `$${usdCost.toFixed(6)}` : `$${usdCost.toFixed(4)}`;
 };

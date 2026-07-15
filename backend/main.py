@@ -13,6 +13,9 @@ import shutil
 import jwt
 import datetime
 import uuid
+import time
+import requests
+import uuid
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
@@ -98,6 +101,29 @@ def get_current_user_required(user: models.User = Depends(get_current_user)):
 
 class AuthPayload(BaseModel):
     token: str
+
+EXCHANGE_RATE_CACHE = {
+    "rate": 1400.0,
+    "last_fetched": 0
+}
+
+@app.get("/api/exchange-rate")
+def get_exchange_rate():
+    current_time = time.time()
+    # Cache for 12 hours (43200 seconds)
+    if current_time - EXCHANGE_RATE_CACHE["last_fetched"] > 43200:
+        try:
+            res = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                rate = data.get("rates", {}).get("KRW")
+                if rate:
+                    EXCHANGE_RATE_CACHE["rate"] = float(rate)
+                    EXCHANGE_RATE_CACHE["last_fetched"] = current_time
+        except Exception as e:
+            print(f"Failed to fetch exchange rate: {e}")
+            
+    return {"status": "success", "krw_rate": EXCHANGE_RATE_CACHE["rate"]}
 
 @app.post("/api/auth/google")
 def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):

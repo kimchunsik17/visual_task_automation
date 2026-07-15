@@ -1,4 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { useEffect } from 'react';
+import axios from 'axios';
 import MainPage from './pages/MainPage';
 import EditorPage from './pages/EditorPage';
 import WorkflowsPage from './pages/WorkflowsPage';
@@ -10,6 +12,20 @@ import StatisticsPage from './pages/StatisticsPage';
 import ProjectRunsPage from './pages/ProjectRunsPage';
 
 function App() {
+  useEffect(() => {
+    const fetchExchangeRate = async () => {
+      try {
+        const res = await axios.get('/api/exchange-rate');
+        if (res.data?.krw_rate) {
+          localStorage.setItem('krwRate', res.data.krw_rate);
+        }
+      } catch (err) {
+        console.error('Failed to fetch exchange rate:', err);
+      }
+    };
+    fetchExchangeRate();
+  }, []);
+
   return (
     <Router>
       <Routes>

@@ -19,7 +19,8 @@ function StatisticsPage() {
     if (!tokens && tokens !== 0) return '-';
     if (tokenDisplayMode === 'cost') {
       const usdCost = (tokens / 1000000) * 2.5; // 평균 $2.5 / 1M tokens
-      return costCurrency === 'KRW' ? `₩${Math.round(usdCost * 1400).toLocaleString()}` : `$${usdCost.toFixed(4)}`;
+      const krwRate = Number(localStorage.getItem('krwRate')) || 1400;
+      return costCurrency === 'KRW' ? `₩${Math.round(usdCost * krwRate).toLocaleString()}` : `$${usdCost.toFixed(4)}`;
     }
     return tokens.toLocaleString();
   };
@@ -143,7 +144,8 @@ function StatisticsPage() {
                         tickFormatter={(value) => {
                           if (tokenDisplayMode === 'cost') {
                             const usdCost = (value / 1000000) * 2.5;
-                            return costCurrency === 'KRW' ? `₩${Math.round(usdCost * 1400).toLocaleString()}` : `$${usdCost.toFixed(2)}`;
+                            const krwRate = Number(localStorage.getItem('krwRate')) || 1400;
+                            return costCurrency === 'KRW' ? `₩${Math.round(usdCost * krwRate).toLocaleString()}` : `$${usdCost.toFixed(2)}`;
                           }
                           return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value;
                         }} 

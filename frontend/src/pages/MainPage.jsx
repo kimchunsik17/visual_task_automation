@@ -10,6 +10,31 @@ function MainPage() {
   const { user } = useAuth();
   const [autoPrompt, setAutoPrompt] = useState('');
 
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
+  const [messages, setMessages] = useState([]);
+
+  const handleAutoGenerate = async () => {
+    if (!autoPrompt.trim()) return;
+    
+    const userMessage = autoPrompt.trim();
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setAutoPrompt('');
+    setIsAutoGenerating(true);
+
+    // Simulate AI response delay
+    setTimeout(() => {
+      setMessages(prev => [...prev, { role: 'ai', content: '현재 llm 업무 자동화 기능은 구현 중에 있습니다.' }]);
+      setIsAutoGenerating(false);
+    }, 800);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleAutoGenerate();
+    }
+  };
+
   const quickActions = [
     {
       icon: <Plus size={28} color="#60a5fa" />,
@@ -69,17 +94,35 @@ function MainPage() {
             </p>
           </div>
 
-          {/* AI 입력창 - 구현 예정 뱃지 포함 */}
+          {messages.length > 0 && (
+            <div className="chat-history" style={{ marginBottom: '2rem', padding: '1rem', background: 'var(--card-bg)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              {messages.map((msg, index) => (
+                <div key={index} className={`chat-message ${msg.role}`} style={{ display: 'flex', gap: '0.8rem', marginBottom: '1rem', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
+                  {msg.role === 'ai' && (
+                    <div className="chat-avatar ai-avatar" style={{ background: 'var(--primary-color)', color: '#fff', padding: '0.5rem', borderRadius: '50%' }}>
+                      <Sparkles size={16} />
+                    </div>
+                  )}
+                  <div className="chat-bubble" style={{ background: msg.role === 'user' ? 'var(--primary-color)' : 'var(--bg-color)', color: msg.role === 'user' ? '#fff' : 'var(--text-color)', padding: '0.8rem 1rem', borderRadius: '12px', border: msg.role === 'ai' ? '1px solid var(--border-color)' : 'none', maxWidth: '80%' }}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* AI 입력창 */}
           <div className="auto-gen-container" style={{ marginBottom: '2.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
               <Sparkles size={16} color="#a78bfa" />
               <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#a78bfa' }}>AI 워크플로우 생성</span>
-              <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)', borderRadius: '50px' }}>준비 중</span>
+              <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)', borderRadius: '50px' }}>구현 중</span>
             </div>
             <textarea
               className="auto-gen-input"
               value={autoPrompt}
               onChange={(e) => setAutoPrompt(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="예: 매일 아침 8시에 해커뉴스 상위 5개 기사를 요약해서 이메일로 보내줘"
               style={{ minHeight: '60px' }}
             />
@@ -91,10 +134,10 @@ function MainPage() {
               </div>
               <button
                 className="btn-generate"
-                onClick={() => navigate('/editor')}
-                title="현재 AI 생성은 준비 중입니다. 에디터로 직접 이동합니다."
+                onClick={handleAutoGenerate}
+                disabled={isAutoGenerating || !autoPrompt.trim()}
               >
-                <Plus size={18} /> 에디터로 이동
+                <Sparkles size={18} /> {isAutoGenerating ? '생성 중...' : '워크플로우 생성'}
               </button>
             </div>
           </div>

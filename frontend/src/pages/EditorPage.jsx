@@ -84,7 +84,8 @@ function FlowContent() {
     if (!tokens && tokens !== 0) return '-';
     if (tokenDisplayMode === 'cost') {
       const usdCost = (tokens / 1000000) * 2.5; // 평균 $2.5 / 1M tokens
-      return costCurrency === 'KRW' ? `₩${Math.round(usdCost * 1400).toLocaleString()}` : `$${usdCost.toFixed(4)}`;
+      const krwRate = Number(localStorage.getItem('krwRate')) || 1400;
+      return costCurrency === 'KRW' ? `₩${Math.round(usdCost * krwRate).toLocaleString()}` : `$${usdCost.toFixed(4)}`;
     }
     return tokens.toLocaleString();
   };
