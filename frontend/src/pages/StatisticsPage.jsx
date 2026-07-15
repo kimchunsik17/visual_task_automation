@@ -19,7 +19,8 @@ function StatisticsPage() {
     if (!tokens && tokens !== 0) return '-';
     if (tokenDisplayMode === 'cost') {
       const usdCost = (tokens / 1000000) * 2.5; // 평균 $2.5 / 1M tokens
-      return costCurrency === 'KRW' ? `₩${Math.round(usdCost * 1400).toLocaleString()}` : `$${usdCost.toFixed(4)}`;
+      const krwRate = Number(localStorage.getItem('krwRate')) || 1400;
+      return costCurrency === 'KRW' ? `₩${Math.round(usdCost * krwRate).toLocaleString()}` : `$${usdCost.toFixed(4)}`;
     }
     return tokens.toLocaleString();
   };
@@ -89,7 +90,8 @@ function StatisticsPage() {
             <div className="loading-state">
               <p>통계 데이터를 불러오는 중...</p>
             </div>
-          ) : stats ? (
+          ) : stats && (stats.total_used > 0 || (stats.chart_data && stats.chart_data.length > 0)) ? (
+
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
                 <div style={{ background: 'var(--card-bg)', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--card-shadow)' }}>
@@ -142,7 +144,8 @@ function StatisticsPage() {
                         tickFormatter={(value) => {
                           if (tokenDisplayMode === 'cost') {
                             const usdCost = (value / 1000000) * 2.5;
-                            return costCurrency === 'KRW' ? `₩${Math.round(usdCost * 1400).toLocaleString()}` : `$${usdCost.toFixed(2)}`;
+                            const krwRate = Number(localStorage.getItem('krwRate')) || 1400;
+                            return costCurrency === 'KRW' ? `₩${Math.round(usdCost * krwRate).toLocaleString()}` : `$${usdCost.toFixed(2)}`;
                           }
                           return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value;
                         }} 
@@ -187,10 +190,25 @@ function StatisticsPage() {
               )}
             </>
           ) : (
-            <div className="empty-state">
-              <p>표시할 데이터가 없습니다.</p>
+            <div style={{ textAlign: 'center', padding: '4rem 2rem', background: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--border-color)', marginTop: '1rem' }}>
+              <div style={{ fontSize: '4rem', marginBottom: '1.5rem', lineHeight: 1 }}>📊</div>
+              <h3 style={{ margin: '0 0 0.75rem 0', color: 'var(--text-color)', fontSize: '1.3rem', fontWeight: 700 }}>아직 사용 기록이 없습니다</h3>
+              <p style={{ color: 'var(--text-muted)', margin: '0 0 2rem 0', fontSize: '0.95rem', lineHeight: 1.6, maxWidth: '360px', marginLeft: 'auto', marginRight: 'auto' }}>
+                워크플로우를 실행하면 이곳에 토큰 사용량과 실행 추이가 기록됩니다.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ background: 'var(--btn-active-bg)', borderRadius: '10px', padding: '1rem 1.5rem', minWidth: '140px' }}>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#60a5fa' }}>0</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.25rem' }}>총 사용 토큰</div>
+                </div>
+                <div style={{ background: 'var(--btn-active-bg)', borderRadius: '10px', padding: '1rem 1.5rem', minWidth: '140px' }}>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#34d399' }}>{stats?.remaining?.toLocaleString() || '-'}</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.25rem' }}>잔여 토큰</div>
+                </div>
+              </div>
             </div>
           )}
+
         </div>
       </div>
     </div>

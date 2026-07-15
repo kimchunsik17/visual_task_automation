@@ -43,7 +43,9 @@
         "tokenDisplayMode": "tokens",
         "costCurrency": "USD",
         "isExecuting": false,
-        "executionStatus": null
+        "executionStatus": null,
+        "isDetached_systemPrompt": true,
+        "isDetached_userPrompt": true
       }
     },
     {
@@ -51,6 +53,39 @@
       "type": "outputNode",
       "data": {
         "label": "결과 출력",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "USD",
+        "isExecuting": false,
+        "executionStatus": null
+      }
+    },
+    {
+      "id": "popout_node_2_systemPrompt",
+      "type": "detachedText",
+      "data": {
+        "label": "분리된 텍스트",
+        "sourceId": "node_2",
+        "fieldKey": "systemPrompt",
+        "value": "당신은 전문 번역가입니다. 주어진 텍스트를 한국어로 번역하세요.",
+        "isTokenTrackingMode": false,
+        "predictedTokens": null,
+        "actualTokens": null,
+        "tokenDisplayMode": "tokens",
+        "costCurrency": "USD",
+        "isExecuting": false,
+        "executionStatus": null
+      }
+    },
+    {
+      "id": "popout_node_2_userPrompt",
+      "type": "detachedText",
+      "data": {
+        "label": "분리된 텍스트",
+        "sourceId": "node_2",
+        "fieldKey": "userPrompt",
         "isTokenTrackingMode": false,
         "predictedTokens": null,
         "actualTokens": null,
@@ -79,6 +114,18 @@
       "target": "node_3",
       "sourceHandle": "out",
       "targetHandle": "in"
+    },
+    {
+      "source": "popout_node_2_systemPrompt",
+      "target": "node_2",
+      "sourceHandle": "out",
+      "targetHandle": "popout-systemPrompt"
+    },
+    {
+      "source": "popout_node_2_userPrompt",
+      "target": "node_2",
+      "sourceHandle": "out",
+      "targetHandle": "popout-userPrompt"
     }
   ]
 }
