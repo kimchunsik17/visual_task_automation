@@ -15,7 +15,7 @@ const BUILT_IN_TEMPLATES = [
         { id: 'node_1', type: 'templateAnalyzerNode', position: { x: 300, y: 150 }, data: { label: '템플릿 분석기', template_path: 'C:\\Users\\kimchunsik\\Desktop\\업무자동화 비주얼화\\backend\\uploads\\입사 지원서 .hwp', filename: '입사 지원서 .hwp' } },
         { id: 'node_info', type: 'valueNode', position: { x: 550, y: 150 }, data: { label: '지원자 정보', value: '홍길동은 네이버에서 3년간 마케팅 기획자로 일했습니다. 연락처는 010-1234-5678이며 마케팅 팀에 지원합니다.' } },
         { id: 'node_2', type: 'promptNode', position: { x: 850, y: 150 }, data: { label: '프롬프트', userPrompt: '다음 JSON 형식(keys)에 맞게 텍스트에서 정보를 추출해 줘. 반드시 JSON 형식으로만 대답해.' } },
-        { id: 'node_3', type: 'llmNode', position: { x: 1200, y: 150 }, data: { label: 'LLM', model: 'gemini-3.5-flash', systemPrompt: '당신은 정확한 데이터 추출 어시스턴트입니다.' } },
+        { id: 'node_3', type: 'llmNode', position: { x: 1200, y: 150 }, data: { label: 'LLM', model: 'gemini-1.5-flash', systemPrompt: '당신은 정확한 데이터 추출 어시스턴트입니다.' } },
         { id: 'node_4', type: 'fileModifierNode', position: { x: 1550, y: 150 }, data: { label: '자동 채우기', template_path: 'C:\\Users\\kimchunsik\\Desktop\\업무자동화 비주얼화\\backend\\uploads\\입사 지원서 .hwp', filename: '입사 지원서 .hwp', output_path: 'output_filled.hwp' } }
       ],
       edges: [
@@ -53,7 +53,7 @@ const BUILT_IN_TEMPLATES = [
       nodes: [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
         { id: 'node_dyn', type: 'dynamicInputNode', position: { x: 300, y: 150 }, data: { label: '동적 입력', inputLabel: '무엇이든 물어보세요!' } },
-        { id: 'node_llm', type: 'llmNode', position: { x: 650, y: 150 }, data: { label: 'LLM', model: 'gemini-3.5-flash', systemPrompt: '당신은 친절한 AI 어시스턴트입니다. 사용자의 질문에 답해주세요.' } },
+        { id: 'node_llm', type: 'llmNode', position: { x: 650, y: 150 }, data: { label: 'LLM', model: 'gemini-1.5-flash', systemPrompt: '당신은 친절한 AI 어시스턴트입니다. 사용자의 질문에 답해주세요.' } },
         { id: 'node_out', type: 'kakaoNode', position: { x: 1000, y: 150 }, data: { label: '카카오 알림톡', receiver: '기본 사용자' } }
       ],
       edges: [
@@ -73,7 +73,7 @@ const BUILT_IN_TEMPLATES = [
         { id: 'node_url', type: 'dynamicInputNode', position: { x: 300, y: 150 }, data: { label: '뉴스 URL 입력', inputLabel: '요약할 기사 URL을 입력하세요' } },
         { id: 'node_crawl', type: 'webCrawlerNode', position: { x: 550, y: 150 }, data: { label: '웹 크롤러', url: '' } },
         { id: 'node_prompt', type: 'promptNode', position: { x: 850, y: 150 }, data: { label: '요약 프롬프트', userPrompt: '다음 텍스트를 읽고 핵심 내용을 3줄로 요약해줘.' } },
-        { id: 'node_llm', type: 'llmNode', position: { x: 1150, y: 150 }, data: { label: 'LLM', model: 'gemini-3.5-flash', systemPrompt: '당신은 정확하고 빠른 뉴스 요약 전문가입니다.' } },
+        { id: 'node_llm', type: 'llmNode', position: { x: 1150, y: 150 }, data: { label: 'LLM', model: 'gemini-1.5-flash', systemPrompt: '당신은 정확하고 빠른 뉴스 요약 전문가입니다.' } },
         { id: 'node_email', type: 'emailNode', position: { x: 1450, y: 150 }, data: { label: '이메일 전송', toEmail: 'boss@company.com' } }
       ],
       edges: [
@@ -96,7 +96,7 @@ const BUILT_IN_TEMPLATES = [
         { id: 'node_class', type: 'llmNode', position: { x: 600, y: 250 }, data: { label: '분류기 LLM', model: 'gpt-4o-mini', systemPrompt: '고객 문의를 분석하여, 불만/환불 요청이면 "COMPLAINT", 단순 문의면 "NORMAL"이라고만 대답해라.' } },
         { id: 'node_cond', type: 'conditionNode', position: { x: 900, y: 250 }, data: { label: '불만 여부 확인', condition: 'Contains', value: 'COMPLAINT' } },
         { id: 'node_kakao', type: 'kakaoNode', position: { x: 1250, y: 100 }, data: { label: '담당자 알림 (카카오톡)', receiver: 'CS 담당자' } },
-        { id: 'node_reply', type: 'llmNode', position: { x: 1250, y: 400 }, data: { label: '자동 답변 LLM', model: 'gemini-3.5-flash', systemPrompt: '고객의 질문에 친절하게 답변하는 CS 봇입니다.' } },
+        { id: 'node_reply', type: 'llmNode', position: { x: 1250, y: 400 }, data: { label: '자동 답변 LLM', model: 'gemini-1.5-flash', systemPrompt: '고객의 질문에 친절하게 답변하는 CS 봇입니다.' } },
         { id: 'node_out', type: 'outputNode', position: { x: 1600, y: 400 }, data: { label: '최종 답변 출력' } }
       ],
       edges: [
@@ -181,7 +181,7 @@ const BUILT_IN_TEMPLATES = [
       nodes: [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
         { id: 'node_in', type: 'dynamicInputNode', position: { x: 300, y: 150 }, data: { label: '초안 입력', inputLabel: '초안 작성' } },
-        { id: 'node_llm', type: 'llmNode', position: { x: 600, y: 150 }, data: { label: 'LLM 교정기', model: 'gemini-3.5-flash', systemPrompt: '주어진 초안의 맞춤법을 교정하고 전문가처럼 윤문해줘.' } },
+        { id: 'node_llm', type: 'llmNode', position: { x: 600, y: 150 }, data: { label: 'LLM 교정기', model: 'gemini-1.5-flash', systemPrompt: '주어진 초안의 맞춤법을 교정하고 전문가처럼 윤문해줘.' } },
         { id: 'node_approval', type: 'humanApprovalNode', position: { x: 900, y: 150 }, data: { label: '담당자 승인', message: '교정된 글을 발행하시겠습니까?' } },
         { id: 'node_publish', type: 'httpRequestNode', position: { x: 1200, y: 150 }, data: { label: '발행 (웹훅)', method: 'POST', url: 'https://httpbin.org/post' } }
       ],
@@ -298,7 +298,7 @@ const BUILT_IN_TEMPLATES = [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
         { id: 'node_crawl', type: 'webCrawlerNode', position: { x: 300, y: 150 }, data: { label: '뉴스 크롤링', url: 'https://news.ycombinator.com' } },
         { id: 'node_parse', type: 'jsonParserNode', position: { x: 550, y: 150 }, data: { label: '본문 추출', mode: 'extract', extractKey: 'body' } },
-        { id: 'node_llm', type: 'llmNode', position: { x: 800, y: 150 }, data: { label: '요약기', model: 'gemini-3.5-flash', systemPrompt: '크롤링된 뉴스를 3개의 항목으로 요약하세요.' } },
+        { id: 'node_llm', type: 'llmNode', position: { x: 800, y: 150 }, data: { label: '요약기', model: 'gemini-1.5-flash', systemPrompt: '크롤링된 뉴스를 3개의 항목으로 요약하세요.' } },
         { id: 'node_approval', type: 'humanApprovalNode', position: { x: 1100, y: 150 }, data: { label: '승인 절차', message: '요약 내용을 이메일로 전송할까요?' } },
         { id: 'node_email', type: 'emailNode', position: { x: 1400, y: 150 }, data: { label: '이메일 발송', toEmail: 'team@example.com' } }
       ],
@@ -321,7 +321,7 @@ const BUILT_IN_TEMPLATES = [
       nodes: [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
         { id: 'node_dyn', type: 'dynamicInputNode', position: { x: 300, y: 150 }, data: { label: '사용자 채팅', inputLabel: '디스코드 메시지 입력' } },
-        { id: 'node_llm', type: 'llmNode', position: { x: 650, y: 150 }, data: { label: 'AI 답변 생성', model: 'gemini-3.5-flash', systemPrompt: '당신은 디스코드 서버의 유쾌한 AI 매니저입니다. 반말로 재치있게 답변해주세요.' } },
+        { id: 'node_llm', type: 'llmNode', position: { x: 650, y: 150 }, data: { label: 'AI 답변 생성', model: 'gemini-1.5-flash', systemPrompt: '당신은 디스코드 서버의 유쾌한 AI 매니저입니다. 반말로 재치있게 답변해주세요.' } },
         { id: 'node_out', type: 'outputNode', position: { x: 1000, y: 150 }, data: { label: '디스코드 전송 (출력)' } }
       ],
       edges: [

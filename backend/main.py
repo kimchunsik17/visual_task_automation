@@ -278,11 +278,12 @@ def get_app_info(share_token: str, db: Session = Depends(get_db)):
         "title": project.title,
         "description": project.description,
         "is_public": project.is_public,
-        "owner_name": project.owner.name if project.owner else "Unknown"
+        "owner_name": project.owner.name if project.owner else "Unknown",
+        "graph_data": project.graph_data
     }
 
 class AppExecutePayload(BaseModel):
-    pass # Reserved for future dynamic inputs
+    inputs: dict = {}
 
 @app.post("/api/apps/{share_token}/execute")
 def execute_app(share_token: str, request: Request, payload: AppExecutePayload = None, db: Session = Depends(get_db)):
@@ -318,7 +319,8 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
     edges = project.graph_data.get('edges', [])
     
     try:
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id)
+        kwargs = payload.inputs if payload and payload.inputs else {}
+        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id, **kwargs)
         
         db_log = models.FlowExecutionLog(
             user_id=user.id if user else None,
@@ -365,7 +367,7 @@ def estimate_tokens(payload: FlowPayload):
     
     # Simple mapping of model to max output tokens
     max_output_map = {
-        'gemini-3.5-flash': 8192,
+        'gemini-1.5-flash': 8192,
         'gemini-1.5-pro': 8192,
         'gpt-4o-mini': 16384,
         'gpt-4o': 4096,
@@ -380,7 +382,7 @@ def estimate_tokens(payload: FlowPayload):
             
             max_out = 0
             if node.get('type') == 'llmNode':
-                model = node.get('data', {}).get('model', 'gemini-3.5-flash')
+                model = node.get('data', {}).get('model', 'gemini-1.5-flash')
                 max_out = max_output_map.get(model, 4096)
                 
             node_details[node['id']] = {
