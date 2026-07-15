@@ -9,7 +9,6 @@
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   transition: all 0.2s ease;
@@ -98,6 +97,8 @@
   display: flex;
   border-top: 1px solid var(--border-color);
   background: var(--btn-active-bg);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
 }
 
 .btn-primary-action {
@@ -115,6 +116,7 @@
   cursor: pointer;
   transition: all 0.2s;
   border-right: 1px solid var(--border-color);
+  border-bottom-left-radius: 12px;
 }
 
 .btn-primary-action:hover {
@@ -149,6 +151,7 @@
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  border-bottom-right-radius: 12px;
 }
 
 .btn-icon:hover {

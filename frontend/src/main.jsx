@@ -1,3 +1,39 @@
+
+window.addEventListener('unhandledrejection', function(event) {
+  const div = document.createElement('div');
+  div.style.position = 'fixed';
+  div.style.top = '0';
+  div.style.left = '0';
+  div.style.width = '100vw';
+  div.style.height = '100vh';
+  div.style.backgroundColor = 'darkred';
+  div.style.color = 'white';
+  div.style.zIndex = '999999';
+  div.style.padding = '20px';
+  div.style.whiteSpace = 'pre-wrap';
+  div.style.overflow = 'auto';
+  div.innerHTML = '<h1>FATAL PROMISE ERROR</h1><pre>' + (event.reason?.stack || event.reason) + '</pre>';
+  document.body.appendChild(div);
+});
+
+
+window.addEventListener('error', function(event) {
+  const div = document.createElement('div');
+  div.style.position = 'fixed';
+  div.style.top = '0';
+  div.style.left = '0';
+  div.style.width = '100vw';
+  div.style.height = '100vh';
+  div.style.backgroundColor = 'darkred';
+  div.style.color = 'white';
+  div.style.zIndex = '999999';
+  div.style.padding = '20px';
+  div.style.whiteSpace = 'pre-wrap';
+  div.style.overflow = 'auto';
+  div.innerHTML = '<h1>FATAL BROWSER ERROR</h1><pre>' + event.error?.stack + '</pre><p>' + event.message + '</p>';
+  document.body.appendChild(div);
+});
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'

@@ -18,10 +18,11 @@ import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode } from '../customNodes';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode , DetachedTextNode} from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 
 const nodeTypes = {
+  detachedText: DetachedTextNode,
   startNode: StartNode,
   scheduleNode: ScheduleNode,
   promptNode: PromptNode,
@@ -196,6 +197,54 @@ function FlowContent() {
     setIsPublic(!isPublic);
   };
 
+  
+  
+  const onNodesDelete = useCallback((nodesToDelete) => {
+    setNodes((nds) => {
+      let updatedNodes = [...nds];
+      
+      nodesToDelete.forEach(node => {
+        if (node.type === 'detachedText') {
+          updatedNodes = updatedNodes.map(n => {
+            if (n.id === node.data.sourceId) {
+              const newData = { ...n.data };
+              newData[`isDetached_${node.data.fieldKey}`] = false;
+              return { ...n, data: newData };
+            }
+            return n;
+          });
+        }
+      });
+      
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
+  const onEdgesDelete = useCallback((edgesToDelete) => {
+    setNodes((nds) => {
+      let updatedNodes = [...nds];
+      let nodesToDelete = new Set();
+      
+      edgesToDelete.forEach(edge => {
+        const detachedNode = updatedNodes.find(n => (n.id === edge.source || n.id === edge.target) && n.type === 'detachedText');
+        if (detachedNode) {
+          nodesToDelete.add(detachedNode.id);
+          
+          updatedNodes = updatedNodes.map(n => {
+            if (n.id === detachedNode.data.sourceId) {
+              const newData = { ...n.data };
+              newData[`isDetached_${detachedNode.data.fieldKey}`] = false;
+              return { ...n, data: newData };
+            }
+            return n;
+          });
+        }
+      });
+      
+      return updatedNodes.filter(n => !nodesToDelete.has(n.id));
+    });
+  }, [setNodes]);
+
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
   const onDragOver = useCallback((event) => {
@@ -222,6 +271,63 @@ function FlowContent() {
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
+
+      
+      const popoutDataStr = event.dataTransfer.getData('application/reactflow-popout');
+      if (popoutDataStr) {
+        const popoutData = JSON.parse(popoutDataStr);
+        const position = screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        
+        const newNodeId = `popout_${popoutData.sourceId}_${popoutData.key}`;
+        
+        // Find source node to get initial text
+        setNodes((nds) => {
+          const sourceNode = nds.find(n => n.id === popoutData.sourceId);
+          if (!sourceNode) return nds;
+          
+          const initialValue = sourceNode.data[popoutData.key];
+          
+          // Add new node
+          const newNode = {
+            id: newNodeId,
+            type: 'detachedText',
+            position,
+            data: { 
+              label: '분리된 텍스트', 
+              onChange: onNodeDataChange, 
+              sourceId: popoutData.sourceId,
+              fieldKey: popoutData.key,
+              value: initialValue
+            },
+          };
+          
+          // Mark source as detached
+          const updatedNodes = nds.map(n => {
+             if (n.id === popoutData.sourceId) {
+                return { ...n, data: { ...n.data, [`isDetached_${popoutData.key}`]: true } };
+             }
+             return n;
+          });
+          
+          return updatedNodes.concat(newNode);
+        });
+        
+        // Add edge
+                setEdges((eds) => eds.concat({
+          id: `e_${newNodeId}-${popoutData.sourceId}`,
+          source: newNodeId,
+          target: popoutData.sourceId,
+          sourceHandle: 'out',
+          targetHandle: `popout-${popoutData.key}`,
+          animated: true,
+          style: { stroke: '#ec4899', strokeWidth: 2 }
+        }));
+        
+        return;
+      }
 
       const type = event.dataTransfer.getData('application/reactflow');
       if (typeof type === 'undefined' || !type) {
@@ -268,6 +374,26 @@ function FlowContent() {
   const { getIntersectingNodes } = useReactFlow();
 
   const onNodeDragStop = useCallback((event, node) => {
+    
+    if (node.type === 'detachedText') {
+      const intersections = getIntersectingNodes(node);
+      const parentNode = intersections.find(n => n.id === node.data.sourceId);
+      
+      if (parentNode) {
+        setEdges((eds) => eds.filter(e => e.source !== node.id && e.target !== node.id));
+        setNodes((nds) => nds.filter(n => n.id !== node.id).map(n => {
+          if (n.id === parentNode.id) {
+            const newData = { ...n.data };
+            newData[`isDetached_${node.data.fieldKey}`] = false;
+            
+            return { ...n, data: newData };
+          }
+          return n;
+        }));
+      }
+      return;
+    }
+
     if (node.type === 'loopNode') return;
 
     setNodes((nds) => {
@@ -414,10 +540,39 @@ function FlowContent() {
       // 챗봇이 flow를 바꿨으면 캔버스에 반영 — 기존 노드에 필요한 콜백(onChange/onDelete)을
       // handleLoadTemplate과 동일하게 다시 주입해줘야 편집/삭제가 계속 동작한다.
       if (graph_data) {
-        const loadedNodes = (graph_data.nodes || []).map(n => ({
-          ...n,
-          data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode },
-        }));
+        const currentNodes = getNodes();
+        const loadedNodes = (graph_data.nodes || []).map(n => {
+          const oldNode = currentNodes.find(on => String(on.id) === String(n.id));
+          const isNew = !oldNode;
+          
+          // data 중 onChange, onDelete 등을 제외하고 실제 내용만 비교
+          const cleanOldData = oldNode ? { ...oldNode.data } : {};
+          delete cleanOldData.onChange;
+          delete cleanOldData.onDelete;
+          delete cleanOldData.onClearAIHighlight;
+          delete cleanOldData.isAIModified;
+          
+          const cleanNewData = { ...n.data };
+          delete cleanNewData.onChange;
+          delete cleanNewData.onDelete;
+          delete cleanNewData.onClearAIHighlight;
+          delete cleanNewData.isAIModified;
+          
+          const isModified = oldNode && JSON.stringify(cleanOldData) !== JSON.stringify(cleanNewData);
+          
+          return {
+            ...n,
+            data: { 
+              ...n.data, 
+              isAIModified: isNew || isModified,
+              onChange: onNodeDataChange, 
+              onDelete: deleteNode,
+              onClearAIHighlight: (nodeId) => {
+                setNodes(nds => nds.map(nd => String(nd.id) === String(nodeId) ? { ...nd, data: { ...nd.data, isAIModified: false } } : nd));
+              }
+            },
+          };
+        });
         setNodes(loadedNodes);
         setEdges(graph_data.edges || []);
       }
@@ -644,6 +799,8 @@ function FlowContent() {
             }))}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+              onEdgesDelete={onEdgesDelete}
+              onNodesDelete={onNodesDelete}
             onConnect={onConnect}
             onDrop={onDrop}
             onDragOver={onDragOver}

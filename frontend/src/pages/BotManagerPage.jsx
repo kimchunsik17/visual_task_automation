@@ -1,10 +1,10 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
 import { GoogleLogin } from '@react-oauth/google';
-import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key, FileText, MoreVertical } from 'lucide-react';
+import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key, FileText, MoreVertical, Edit } from 'lucide-react';
 import './MainPage.css';
 import './BotManagerPage.css';
 
@@ -215,7 +215,7 @@ export default function BotManagerPage() {
                       {activeDropdown === bot.project_id && (
                         <div className="dropdown-menu">
                           <button className="dropdown-item" onClick={() => navigate(`/editor/${bot.project_id}`)}>
-                            <ExternalLink size={16} /> 에디터로
+                            <Edit size={16} /> 워크플로우 수정
                           </button>
                           <button className="dropdown-item" onClick={() => openTokenManager(bot.project_id)}>
                             <Key size={16} /> 토큰 관리
