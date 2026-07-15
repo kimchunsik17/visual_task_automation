@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
+import axios from 'axios';
 import { Plus, LayoutGrid, Sparkles, Wand2, ArrowRight, Zap, Bot, LibraryBig } from 'lucide-react';
 import axios from 'axios';
 import MainSidebar from '../MainSidebar';
@@ -8,7 +9,7 @@ import './MainPage.css';
 
 function MainPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [autoPrompt, setAutoPrompt] = useState('');
 
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
@@ -34,7 +35,8 @@ function MainPage() {
         message: userMessage,
         graph_data: { nodes: [], edges: [] },
       };
-      const res = await axios.post('/api/chat', payload, getAuthHeaders());
+      const authHeaders = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+      const res = await axios.post('/api/chat', payload, authHeaders);
       const { reply, graph_data } = res.data;
 
       if (reply) {
