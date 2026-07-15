@@ -220,7 +220,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}pass")
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node['type']}\', _start_{node_id}, result=\'Started\')")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
                 
@@ -254,7 +254,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
             lines.append(f"{indent}last_result = val_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -362,7 +362,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -618,7 +618,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             else:
                 lines.append(f"{indent}last_result = f\"[{input_label}]:\\n{{dyn_input_{node_id}}}\"")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
@@ -644,7 +644,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             else:
                 lines.append(f"{indent}last_result = crawl_res_{node_id}")
                 
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
@@ -684,7 +684,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}    res_text_{node_id} = f'Email Sending Failed: {{str(e)}}'")
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
@@ -737,7 +737,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = req_out_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"req_out_{node_id}", visited=visited)
@@ -782,7 +782,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = parser_out_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"parser_out_{node_id}", visited=visited)
@@ -816,7 +816,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 
             lines.append(f"{indent}last_result = merge_out_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"merge_out_{node_id}", visited=visited)
@@ -846,7 +846,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = db_out_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"db_out_{node_id}", visited=visited)
@@ -872,7 +872,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             
             lines.append(f"{indent}last_result = {prev_res_var if prev_res_var else 'last_result'}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
@@ -891,7 +891,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}res_text_{node_id} = output_data")
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -1066,7 +1066,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}else:")
             lines.append(f"{indent}    last_result = str(file_path_raw)")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
@@ -1157,7 +1157,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}    res_val_{node_id} = f'Error analyzing template: {{str(e)}}'")
             lines.append(f"{indent}last_result = res_val_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_val_{node_id}", visited=visited)
@@ -1238,7 +1238,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             lines.append(f"{indent}    res_text_{node_id} = f\"Error formatting file: {{str(e)}}\"")
             lines.append(f"{indent}last_result = res_text_{node_id}")
             
-            lines.append(f"{indent}log_step(\'{node_id}\', \'{node["type"]}\', _start_{node_id}, result=last_result)")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
             next_edges = forward_edges.get(node_id, [])
             if not next_edges:
                 lines.append(f"{indent}return last_result")
