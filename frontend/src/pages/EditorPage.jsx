@@ -150,6 +150,11 @@ function FlowContent() {
   };
 
   const handleSave = async (overrideVisibility = null) => {
+    if (!user) {
+      alert("프로젝트를 저장하려면 로그인이 필요합니다.");
+      return false;
+    }
+
     try {
       const payload = {
         title: projectTitle,

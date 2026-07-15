@@ -136,10 +136,14 @@ def delete_user_account(user: models.User = Depends(get_current_user_required), 
     # 1. Anonymize execution logs
     db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.user_id == user.id).update({models.FlowExecutionLog.user_id: None})
     
-    # 2. Delete bot logs for their projects
+    # 2. Delete bot logs and stop bots for their projects
     projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
     project_ids = [p.id for p in projects]
     if project_ids:
+        # Stop any running discord bots
+        for pid in project_ids:
+            discord_bot.stop_discord_bot(pid)
+            
         db.query(models.BotLog).filter(models.BotLog.project_id.in_(project_ids)).delete(synchronize_session=False)
         # 3. Delete projects
         db.query(models.Project).filter(models.Project.user_id == user.id).delete(synchronize_session=False)
@@ -158,12 +162,12 @@ class ProjectCreate(BaseModel):
 @app.get("/api/projects/public")
 def get_public_projects(db: Session = Depends(get_db)):
     projects = db.query(models.Project).filter(models.Project.visibility == 'public').all()
-    return [{"id": p.id, "title": p.title, "description": p.description, "owner": p.owner.name if p.owner else "Unknown", "updated_at": p.updated_at} for p in projects]
+    return [{"id": p.id, "title": p.title, "description": p.description, "owner": p.owner.name if p.owner else "Unknown", "updated_at": p.updated_at, "share_token": p.share_token} for p in projects]
 
 @app.get("/api/projects/my")
 def get_my_projects(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
-    return [{"id": p.id, "title": p.title, "description": p.description, "visibility": p.visibility, "updated_at": p.updated_at} for p in projects]
+    return [{"id": p.id, "title": p.title, "description": p.description, "visibility": p.visibility, "updated_at": p.updated_at, "share_token": p.share_token} for p in projects]
 
 @app.post("/api/projects")
 def create_project(payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -209,6 +213,12 @@ def delete_project(project_id: int, user: models.User = Depends(get_current_user
         raise HTTPException(status_code=404, detail="Project not found")
     if project.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this project")
+    
+    # Stop bot if running
+    discord_bot.stop_discord_bot(project_id)
+    
+    # Delete bot logs to avoid IntegrityError
+    db.query(models.BotLog).filter(models.BotLog.project_id == project_id).delete(synchronize_session=False)
     
     db.delete(project)
     db.commit()
