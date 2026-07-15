@@ -97,7 +97,7 @@
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--btn-active-bg);
   padding: 1.5rem;
   border-radius: 8px;
   border: 1px solid var(--border-color);
@@ -112,7 +112,7 @@
 .input-group label {
   font-size: 0.95rem;
   font-weight: 500;
-  color: #e2e8f0;
+  color: var(--text-color);
 }
 
 .input-group textarea {
@@ -169,7 +169,7 @@
 .app-result-area {
   padding: 2rem;
   border-top: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--btn-active-bg);
 }
 
 .app-result-area h3 {

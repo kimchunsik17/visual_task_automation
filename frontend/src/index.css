@@ -173,7 +173,7 @@ button, input, textarea {
 }
 
 .response-content {
-  background-color: rgba(0,0,0,0.2);
+  background-color: var(--btn-active-bg);
   border-radius: 0.5rem;
   padding: 1.25rem;
   padding-top: 0.5rem;

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
@@ -84,9 +84,13 @@ function WorkflowsPage() {
                     <h4 style={{ paddingRight: '2rem' }}>{project.title}</h4>
                     <p>{project.description || '설명이 없습니다.'}</p>
                     <div className="project-meta">
-                      <span className={`status-badge ${project.is_public ? 'public' : 'private'}`}>
-                        {project.is_public ? '공개' : '비공개'}
-                      </span>
+                      {project.visibility === 'public' ? (
+                        <span className="status-badge public">공개</span>
+                      ) : project.visibility === 'friends' ? (
+                        <span className="status-badge friends" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)' }}>친구공개</span>
+                      ) : (
+                        <span className="status-badge private">비공개</span>
+                      )}
                     </div>
                     <div className="card-actions" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
                       <button className="btn-secondary" onClick={() => navigate(`/editor/${project.id}`)} style={{ flex: 1 }}>
