@@ -466,14 +466,14 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
 
   const handleSave = () => {
     if (!newTemplateName.trim()) return alert('Please enter a template name.');
-    
+
     const newTemplate = {
       id: `usr-${Date.now()}`,
       name: newTemplateName.trim(),
       description: 'User saved template',
       data: currentFlowData()
     };
-    
+
     const updated = [...savedTemplates, newTemplate];
     localStorage.setItem('user_templates', JSON.stringify(updated));
     setSavedTemplates(updated);
@@ -497,17 +497,17 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
-        <button className="btn-icon" onClick={onClose} style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 10 }}><X size={20}/></button>
-        
+        <button className="btn-icon" onClick={onClose} style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 10 }}><X size={20} /></button>
+
         <div className="modal-header" style={{ paddingBottom: '0', display: 'block' }}>
           <div className="template-tabs" style={{ marginTop: '0.5rem' }}>
-            <button 
+            <button
               className={`template-tab ${activeTab === 'builtin' ? 'active' : ''}`}
               onClick={() => setActiveTab('builtin')}
             >
               기본 제공 템플릿
             </button>
-            <button 
+            <button
               className={`template-tab ${activeTab === 'my' ? 'active' : ''}`}
               onClick={() => setActiveTab('my')}
             >
@@ -518,9 +518,9 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
 
         <div className="modal-body">
           <div className="save-template-bar">
-            <input 
-              type="text" 
-              placeholder="현재 워크플로우를 저장할 이름을 입력하세요..." 
+            <input
+              type="text"
+              placeholder="현재 워크플로우를 저장할 이름을 입력하세요..."
               value={newTemplateName}
               onChange={e => setNewTemplateName(e.target.value)}
             />
@@ -536,7 +536,7 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
                   <div key={t.id} className="template-card">
                     <div className="template-card-header">
                       <h4>{t.name}</h4>
-                      <button className="btn-icon info-btn" onClick={() => setInfoTemplate(t)} title="사용 가이드"><Info size={16}/></button>
+                      <button className="btn-icon info-btn" onClick={() => setInfoTemplate(t)} title="사용 가이드"><Info size={16} /></button>
                     </div>
                     <p className="template-desc">{t.description}</p>
                     <button className="btn-load" onClick={() => loadTemplate(t)}>
@@ -561,7 +561,7 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
                       <div key={t.id} className="template-card user-template">
                         <div className="template-card-header">
                           <h4>{t.name}</h4>
-                          <button className="btn-icon delete" onClick={() => handleDelete(t.id)} title="삭제"><X size={16}/></button>
+                          <button className="btn-icon delete" onClick={() => handleDelete(t.id)} title="삭제"><X size={16} /></button>
                         </div>
                         <p className="template-desc">{t.description}</p>
                         <button className="btn-load" onClick={() => loadTemplate(t)}>
@@ -576,14 +576,14 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
           </div>
         </div>
       </div>
-      
+
       {/* Usage Info Popup */}
       {infoTemplate && (
         <div className="info-popup-overlay" onClick={() => setInfoTemplate(null)}>
           <div className="info-popup-content" onClick={e => e.stopPropagation()}>
             <div className="info-popup-header">
               <h3>{infoTemplate.name} 사용법</h3>
-              <button className="btn-icon" onClick={() => setInfoTemplate(null)}><X size={20}/></button>
+              <button className="btn-icon" onClick={() => setInfoTemplate(null)}><X size={20} /></button>
             </div>
             <div className="info-popup-body">
               <p style={{ whiteSpace: 'pre-line', lineHeight: '1.5', margin: '0 0 1rem 0' }}>

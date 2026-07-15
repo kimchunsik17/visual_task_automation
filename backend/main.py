@@ -41,6 +41,24 @@ app = FastAPI(title="Business Automation API")
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+import traceback
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    with open("error_log.txt", "a") as f:
+        f.write(f"{datetime.datetime.now()} - {str(request.url)} - {str(exc)}\n")
+        traceback.print_exc(file=f)
+    return JSONResponse(status_code=500, content={"message": "Internal Server Error", "details": str(exc)})
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    with open("error_log.txt", "a") as f:
+        f.write(f"{datetime.datetime.now()} - {str(request.url)} - Validation Error: {exc.errors()}\n")
+        f.write(f"Body: {exc.body}\n")
+    return JSONResponse(status_code=422, content={"detail": exc.errors(), "body": exc.body})
+
 # Setup CORS to allow requests from the React frontend
 app.add_middleware(
     CORSMiddleware,

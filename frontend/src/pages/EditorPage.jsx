@@ -18,7 +18,7 @@ import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode , DetachedTextNode, WebhookNode} from '../customNodes';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DetachedTextNode, WebhookNode } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 
 const nodeTypes = {
@@ -86,17 +86,17 @@ function FlowContent() {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [tokenUsage, setTokenUsage] = useState(null);
   const [executionLogs, setExecutionLogs] = useState([]);
-  
+
   const [isTokenTrackingMode, setIsTokenTrackingMode] = useState(false);
   const [estimatedTokens, setEstimatedTokens] = useState(null);
   const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
   const [systemLogs, setSystemLogs] = useState([]);
   const [isExecutionPanelOpen, setIsExecutionPanelOpen] = useState(false);
   const [executionPanelTab, setExecutionPanelTab] = useState('result'); // 'result' or 'logs'
-  
+
   const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
   const costCurrency = localStorage.getItem('costCurrency') || 'USD';
-  
+
   const formatTokenDisplay = (tokens) => {
     if (!tokens && tokens !== 0) return '-';
     if (tokenDisplayMode === 'cost') {
@@ -106,7 +106,7 @@ function FlowContent() {
     }
     return tokens.toLocaleString();
   };
-  
+
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState(() => {
     if (location.state?.prompt) {
@@ -142,12 +142,12 @@ function FlowContent() {
         data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
       })));
       setEdges(graph.edges || []);
-      
+
       if (location.state?.prompt) {
         setProjectTitle("AI 생성 워크플로우");
       }
     }
-      
+
     // Clear state to prevent re-triggering on reload
     if (location.state) {
       window.history.replaceState({}, document.title);
@@ -162,7 +162,7 @@ function FlowContent() {
       setProjectDescription(data.description || '');
       setVisibility(data.visibility || 'private');
       setIsOwner(user && user.id === data.owner_id);
-      
+
       if (data.graph_data) {
         setNodes(data.graph_data.nodes.map(n => ({
           ...n,
@@ -231,12 +231,12 @@ function FlowContent() {
   };
 
 
-  
-  
+
+
   const onNodesDelete = useCallback((nodesToDelete) => {
     setNodes((nds) => {
       let updatedNodes = [...nds];
-      
+
       nodesToDelete.forEach(node => {
         if (node.type === 'detachedText') {
           updatedNodes = updatedNodes.map(n => {
@@ -249,7 +249,7 @@ function FlowContent() {
           });
         }
       });
-      
+
       return updatedNodes;
     });
   }, [setNodes]);
@@ -258,12 +258,12 @@ function FlowContent() {
     setNodes((nds) => {
       let updatedNodes = [...nds];
       let nodesToDelete = new Set();
-      
+
       edgesToDelete.forEach(edge => {
         const detachedNode = updatedNodes.find(n => (n.id === edge.source || n.id === edge.target) && n.type === 'detachedText');
         if (detachedNode) {
           nodesToDelete.add(detachedNode.id);
-          
+
           updatedNodes = updatedNodes.map(n => {
             if (n.id === detachedNode.data.sourceId) {
               const newData = { ...n.data };
@@ -274,7 +274,7 @@ function FlowContent() {
           });
         }
       });
-      
+
       return updatedNodes.filter(n => !nodesToDelete.has(n.id));
     });
   }, [setNodes]);
@@ -306,7 +306,7 @@ function FlowContent() {
     (event) => {
       event.preventDefault();
 
-      
+
       const popoutDataStr = event.dataTransfer.getData('application/reactflow-popout');
       if (popoutDataStr) {
         const popoutData = JSON.parse(popoutDataStr);
@@ -314,43 +314,43 @@ function FlowContent() {
           x: event.clientX,
           y: event.clientY,
         });
-        
+
         const newNodeId = `popout_${popoutData.sourceId}_${popoutData.key}`;
-        
+
         // Find source node to get initial text
         setNodes((nds) => {
           const sourceNode = nds.find(n => n.id === popoutData.sourceId);
           if (!sourceNode) return nds;
-          
+
           const initialValue = sourceNode.data[popoutData.key];
-          
+
           // Add new node
           const newNode = {
             id: newNodeId,
             type: 'detachedText',
             position,
-            data: { 
-              label: '분리된 텍스트', 
-              onChange: onNodeDataChange, 
+            data: {
+              label: '분리된 텍스트',
+              onChange: onNodeDataChange,
               sourceId: popoutData.sourceId,
               fieldKey: popoutData.key,
               value: initialValue
             },
           };
-          
+
           // Mark source as detached
           const updatedNodes = nds.map(n => {
-             if (n.id === popoutData.sourceId) {
-                return { ...n, data: { ...n.data, [`isDetached_${popoutData.key}`]: true } };
-             }
-             return n;
+            if (n.id === popoutData.sourceId) {
+              return { ...n, data: { ...n.data, [`isDetached_${popoutData.key}`]: true } };
+            }
+            return n;
           });
-          
+
           return updatedNodes.concat(newNode);
         });
-        
+
         // Add edge
-                setEdges((eds) => eds.concat({
+        setEdges((eds) => eds.concat({
           id: `e_${newNodeId}-${popoutData.sourceId}`,
           source: newNodeId,
           target: popoutData.sourceId,
@@ -359,7 +359,7 @@ function FlowContent() {
           animated: true,
           style: { stroke: '#ec4899', strokeWidth: 2 }
         }));
-        
+
         return;
       }
 
@@ -388,14 +388,14 @@ function FlowContent() {
             const w = ln.measured?.width || ln.width || 250;
             const h = ln.measured?.height || ln.height || 200;
             if (position.x >= ln.position.x && position.x <= ln.position.x + w &&
-                position.y >= ln.position.y && position.y <= ln.position.y + h) {
-                newNode.parentNode = ln.id;
-                newNode.position = {
-                  x: position.x - ln.position.x,
-                  y: position.y - ln.position.y
-                };
-                newNode.extent = 'parent';
-                break;
+              position.y >= ln.position.y && position.y <= ln.position.y + h) {
+              newNode.parentNode = ln.id;
+              newNode.position = {
+                x: position.x - ln.position.x,
+                y: position.y - ln.position.y
+              };
+              newNode.extent = 'parent';
+              break;
             }
           }
         }
@@ -408,18 +408,18 @@ function FlowContent() {
   const { getIntersectingNodes } = useReactFlow();
 
   const onNodeDragStop = useCallback((event, node) => {
-    
+
     if (node.type === 'detachedText') {
       const intersections = getIntersectingNodes(node);
       const parentNode = intersections.find(n => n.id === node.data.sourceId);
-      
+
       if (parentNode) {
         setEdges((eds) => eds.filter(e => e.source !== node.id && e.target !== node.id));
         setNodes((nds) => nds.filter(n => n.id !== node.id).map(n => {
           if (n.id === parentNode.id) {
             const newData = { ...n.data };
             newData[`isDetached_${node.data.fieldKey}`] = false;
-            
+
             return { ...n, data: newData };
           }
           return n;
@@ -447,21 +447,21 @@ function FlowContent() {
               extent: 'parent',
             };
           } else if (!loopNode && n.parentNode) {
-              const parent = nds.find(p => p.id === n.parentNode);
-              const absX = n.position.x + (parent?.position.x || 0);
-              const absY = n.position.y + (parent?.position.y || 0);
-              
-              const updatedNode = { ...n };
-              delete updatedNode.parentNode;
-              delete updatedNode.extent;
-              
-              return {
-                ...updatedNode,
-                position: { x: absX, y: absY }
-              };
+            const parent = nds.find(p => p.id === n.parentNode);
+            const absX = n.position.x + (parent?.position.x || 0);
+            const absY = n.position.y + (parent?.position.y || 0);
+
+            const updatedNode = { ...n };
+            delete updatedNode.parentNode;
+            delete updatedNode.extent;
+
+            return {
+              ...updatedNode,
+              position: { x: absX, y: absY }
+            };
           }
         }
-        
+
         if (n.type === 'loopNode' && n.zIndex !== -1) {
           return { ...n, zIndex: -1 };
         }
@@ -484,11 +484,11 @@ function FlowContent() {
     setResponse('Running graph on backend...');
     setIsExecutionPanelOpen(true);
     setExecutionPanelTab('result');
-    
+
     try {
       const currentNodes = getNodes();
       const currentEdges = getEdges();
-      
+
       const payload = {
         project_id: savedId,
         nodes: currentNodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
@@ -512,11 +512,11 @@ function FlowContent() {
     setIsLoading(true);
     setIsCompiled(true);
     setResponse('Compiling graph to Python code...');
-    
+
     try {
       const currentNodes = getNodes();
       const currentEdges = getEdges();
-      
+
       const payload = {
         nodes: currentNodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
         edges: currentEdges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
@@ -560,11 +560,11 @@ function FlowContent() {
     setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatInput('');
     setIsChatLoading(true);
-    
+
     // Clear existing AI modifications and highlights when starting a new AI request
-    setNodes(nds => nds.map(nd => ({ 
-      ...nd, 
-      data: { ...nd.data, isAIModified: false, aiChanges: null } 
+    setNodes(nds => nds.map(nd => ({
+      ...nd,
+      data: { ...nd.data, isAIModified: false, aiChanges: null }
     })));
 
     try {
@@ -585,25 +585,25 @@ function FlowContent() {
       if (graph_data) {
         const currentNodes = getNodes();
         const newLogs = [`> AI 작업 시작: "${userMessage}"`];
-        
+
         const loadedNodes = (graph_data.nodes || []).map(n => {
           const oldNode = currentNodes.find(on => String(on.id) === String(n.id));
           const isNew = !oldNode;
-          
+
           // data 중 onChange, onDelete 등을 제외하고 실제 내용만 비교
           const cleanOldData = oldNode ? { ...oldNode.data } : {};
           delete cleanOldData.onChange;
           delete cleanOldData.onDelete;
           delete cleanOldData.onClearAIHighlight;
           delete cleanOldData.isAIModified;
-          
+
           const cleanNewData = { ...n.data };
           delete cleanNewData.onChange;
           delete cleanNewData.onDelete;
           delete cleanNewData.onClearAIHighlight;
           delete cleanNewData.isAIModified;
           delete cleanNewData.aiChanges;
-          
+
           let aiChanges = [];
           if (oldNode) {
             for (const key of Object.keys(cleanNewData)) {
@@ -612,22 +612,22 @@ function FlowContent() {
               }
             }
           }
-          
+
           const isModified = oldNode && JSON.stringify(cleanOldData) !== JSON.stringify(cleanNewData);
-          
+
           if (isNew) {
             newLogs.push(`[생성] 새로운 노드가 추가되었습니다: ${n.type} (ID: ${n.id})`);
           } else if (isModified) {
             newLogs.push(`[수정] 노드가 변경되었습니다: ${n.type} (ID: ${n.id}) - 변경된 속성: ${aiChanges.map(c => c.key).join(', ')}`);
           }
-          
+
           return {
             ...n,
-            data: { 
-              ...n.data, 
+            data: {
+              ...n.data,
               isAIModified: isNew || isModified,
               aiChanges: (isNew || isModified) ? aiChanges : null,
-              onChange: onNodeDataChange, 
+              onChange: onNodeDataChange,
               onDelete: deleteNode,
               onClearAIHighlight: (nodeId) => {
                 setNodes(nds => nds.map(nd => String(nd.id) === String(nodeId) ? { ...nd, data: { ...nd.data, isAIModified: false } } : nd));
@@ -637,7 +637,7 @@ function FlowContent() {
         });
         setNodes(loadedNodes);
         setEdges(graph_data.edges || []);
-        
+
         if (newLogs.length > 1) {
           setSystemLogs(prev => [...prev, ...newLogs]);
           setIsTerminalOpen(true);
@@ -657,7 +657,7 @@ function FlowContent() {
   const enrichedNodes = useMemo(() => {
     return nodes.map(n => {
       const log = executionLogs.find(l => String(l.node_id) === String(n.id));
-      
+
       let nodeClass = n.className || '';
       if (isLoading) {
         nodeClass = `${nodeClass} node-executing`.trim();
@@ -693,9 +693,9 @@ function FlowContent() {
           <button onClick={() => navigate('/')} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: 0 }}>
             <ArrowLeft size={18} />
           </button>
-          
+
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <button 
+            <button
               onClick={() => setIsDrawerOpen(!isDrawerOpen)}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0.2rem 0.5rem', borderRadius: '4px' }}
               className="project-title-btn"
@@ -720,14 +720,14 @@ function FlowContent() {
             </button>
 
             {isTokenDrawerOpen && (
-              <div style={{ 
+              <div style={{
                 position: 'absolute', top: '100%', left: '100%', marginTop: '0.5rem', marginLeft: '1rem',
-                background: 'var(--card-bg)', border: '1px solid var(--border-color)', 
+                background: 'var(--card-bg)', border: '1px solid var(--border-color)',
                 borderRadius: '8px', padding: '1.5rem', width: '320px',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 100 
+                boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 100
               }}>
                 <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#60a5fa', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>워크플로우 토큰 통계</h3>
-                
+
                 <div style={{ marginBottom: '1rem' }}>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>1회 실행 예상 (Min ~ Max)</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-color)' }}>
@@ -745,21 +745,21 @@ function FlowContent() {
             )}
 
             {isDrawerOpen && (
-              <div style={{ 
-                position: 'absolute', top: '100%', left: 0, marginTop: '0.5rem', 
-                background: 'var(--card-bg)', border: '1px solid var(--border-color)', 
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, marginTop: '0.5rem',
+                background: 'var(--card-bg)', border: '1px solid var(--border-color)',
                 borderRadius: '8px', padding: '1rem', width: '300px',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 100 
+                boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 100
               }}>
                 <div style={{ marginBottom: '1rem' }}>
                   <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>프로젝트 제목</label>
-                  <input 
-                    type="text" 
-                    value={projectTitle} 
+                  <input
+                    type="text"
+                    value={projectTitle}
                     onChange={(e) => setProjectTitle(e.target.value)}
                     disabled={!isOwner}
-                    style={{ 
-                      width: '100%', background: 'var(--btn-active-bg)', border: '1px solid var(--border-color)', 
+                    style={{
+                      width: '100%', background: 'var(--btn-active-bg)', border: '1px solid var(--border-color)',
                       color: 'var(--text-color)', fontSize: '0.9rem', padding: '0.5rem', borderRadius: '4px', outline: 'none',
                       boxSizing: 'border-box'
                     }}
@@ -767,14 +767,14 @@ function FlowContent() {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>프로젝트 명세 (Description)</label>
-                  <textarea 
-                    value={projectDescription} 
+                  <textarea
+                    value={projectDescription}
                     onChange={(e) => setProjectDescription(e.target.value)}
                     disabled={!isOwner}
                     rows={4}
                     placeholder="이 워크플로우에 대한 설명이나 기획 의도를 적어두세요."
-                    style={{ 
-                      width: '100%', background: 'var(--btn-active-bg)', border: '1px solid var(--border-color)', 
+                    style={{
+                      width: '100%', background: 'var(--btn-active-bg)', border: '1px solid var(--border-color)',
                       color: 'var(--text-color)', fontSize: '0.9rem', padding: '0.5rem', borderRadius: '4px', outline: 'none',
                       resize: 'none', boxSizing: 'border-box'
                     }}
@@ -786,14 +786,14 @@ function FlowContent() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          
+
           {/* Project Management Group */}
           {isOwner && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.3rem 0.6rem' }}>
                 <Share2 size={16} style={{ color: visibility === 'public' ? '#10b981' : visibility === 'friends' ? '#3b82f6' : 'var(--text-muted)' }} />
-                <select 
-                  value={visibility} 
+                <select
+                  value={visibility}
                   onChange={(e) => {
                     const newVis = e.target.value;
                     setVisibility(newVis);
@@ -855,12 +855,12 @@ function FlowContent() {
             }} style={{ color: '#f59e0b', borderColor: '#f59e0b' }} title="예상 비용 계산">
               <BrainCircuit size={16} />
             </button>
-            <button 
-              className="btn-secondary" 
+            <button
+              className="btn-secondary"
               onClick={() => setIsTokenTrackingMode(!isTokenTrackingMode)}
-              style={{ 
-                borderColor: isTokenTrackingMode ? '#3b82f6' : 'var(--border-color)', 
-                color: isTokenTrackingMode ? '#3b82f6' : 'var(--text-muted)' 
+              style={{
+                borderColor: isTokenTrackingMode ? '#3b82f6' : 'var(--border-color)',
+                color: isTokenTrackingMode ? '#3b82f6' : 'var(--text-muted)'
               }}
               title="비용 추적 모드"
             >
@@ -875,27 +875,27 @@ function FlowContent() {
           </button>
         </div>
       </header>
-      
+
       <main className="main-content">
         <Sidebar />
         <div className="flow-wrapper" ref={reactFlowWrapper}>
           <ReactFlow
             nodes={enrichedNodes}
-            edges={edges.map(e => ({ 
-              ...e, 
+            edges={edges.map(e => ({
+              ...e,
               animated: isLoading || e.animated,
               style: { ...e.style, stroke: isLoading ? '#10b981' : (e.style?.stroke || '#475569') }
             }))}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-              onEdgesDelete={onEdgesDelete}
-              onNodesDelete={onNodesDelete}
+            onEdgesDelete={onEdgesDelete}
+            onNodesDelete={onNodesDelete}
             onConnect={onConnect}
             onDrop={onDrop}
             onDragOver={onDragOver}
             onNodeDragStop={onNodeDragStop}
             nodeTypes={nodeTypes}
-            defaultEdgeOptions={{ 
+            defaultEdgeOptions={{
               style: { strokeWidth: 2, stroke: 'var(--text-muted)' },
               type: 'smoothstep'
             }}
@@ -904,7 +904,7 @@ function FlowContent() {
             colorMode={appTheme}
           >
             <Controls />
-            <MiniMap 
+            <MiniMap
               nodeColor={(node) => {
                 switch (node.type) {
                   case 'startNode': return '#22c55e';
@@ -930,30 +930,30 @@ function FlowContent() {
             <Background variant="dots" gap={12} size={1} color="#334155" />
           </ReactFlow>
         </div>
-        
+
 
       </main>
 
-      <TemplateModal 
-        isOpen={isTemplateModalOpen} 
+      <TemplateModal
+        isOpen={isTemplateModalOpen}
         onClose={() => setIsTemplateModalOpen(false)}
         onLoad={handleLoadTemplate}
         currentFlowData={getCurrentFlowData}
       />
 
       {isDeployModalOpen && currentId && (
-        <DeployModal 
-          isOpen={isDeployModalOpen} 
-          onClose={() => setIsDeployModalOpen(false)} 
-          project={{ id: currentId, title: projectTitle }} 
+        <DeployModal
+          isOpen={isDeployModalOpen}
+          onClose={() => setIsDeployModalOpen(false)}
+          project={{ id: currentId, title: projectTitle }}
           onDeployConfigSaved={(mode) => {
-             // Deployment config saved successfully
+            // Deployment config saved successfully
           }}
         />
       )}
 
       {/* LLM Assistant Floating Button */}
-      <button 
+      <button
         onClick={() => setIsAssistantOpen(!isAssistantOpen)}
         style={{
           position: 'fixed',
@@ -1099,7 +1099,7 @@ function FlowContent() {
               fontSize: '0.9rem'
             }}
           />
-          <button 
+          <button
             onClick={handleSendChat}
             disabled={!chatInput.trim()}
             style={{
@@ -1185,7 +1185,7 @@ function FlowContent() {
                 <TerminalSquare size={16} /> 시스템 로그
               </button>
             </div>
-            <button 
+            <button
               onClick={() => setIsExecutionPanelOpen(false)}
               style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.5rem' }}
             >
@@ -1217,8 +1217,8 @@ function FlowContent() {
                     (response && typeof response === 'string' && (response.startsWith('uploads/') || response.startsWith('uploads\\'))) ? (
                       <div>
                         <p style={{ color: 'var(--text-color)' }}>File generated successfully:</p>
-                        <a 
-                          href={`http://localhost:8000/${response.replace(/\\/g, '/')}`} 
+                        <a
+                          href={`http://localhost:8000/${response.replace(/\\/g, '/')}`}
                           target="_blank" rel="noreferrer"
                           style={{ display: 'inline-block', padding: '8px 16px', background: '#3b82f6', color: '#fff', textDecoration: 'none', borderRadius: '6px', marginTop: '10px', fontWeight: 500 }}
                         >
@@ -1250,7 +1250,7 @@ function FlowContent() {
           </div>
         </div>
       )}
-      
+
       {/* Execution Panel Toggle Button (if closed) */}
       {!isExecutionPanelOpen && (response || systemLogs.length > 0) && (
         <button
