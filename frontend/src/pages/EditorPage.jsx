@@ -92,9 +92,17 @@ function FlowContent() {
   };
   
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([
-    { role: 'assistant', content: '안녕하세요! 워크플로우 수정을 도와드릴까요? 원하시는 구성을 말씀해 주세요. (예: 이메일 전송 노드를 추가하고 슬랙 알림을 연결해줘)' }
-  ]);
+  const [chatMessages, setChatMessages] = useState(() => {
+    if (location.state?.prompt) {
+      return [
+        { role: 'user', content: location.state.prompt },
+        { role: 'assistant', content: `"${location.state.prompt}" 기능을 수행하는 봇 초안을 만들었어요!\n\n워크플로우 구성을 추가로 수정하거나 다듬을 부분이 있다면 언제든 말씀해 주세요.` }
+      ];
+    }
+    return [
+      { role: 'assistant', content: '안녕하세요! 워크플로우 수정을 도와드릴까요? 원하시는 구성을 말씀해 주세요. (예: 이메일 전송 노드를 추가하고 슬랙 알림을 연결해줘)' }
+    ];
+  });
   const [chatInput, setChatInput] = useState('');
 
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
