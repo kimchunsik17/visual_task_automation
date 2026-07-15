@@ -47,9 +47,9 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
       } else {
-        const goApp = window.confirm("배포가 완료되었습니다! 지금 구형 뷰어 페이지로 이동하시겠습니까?");
+        const goApp = window.confirm("배포가 완료되었습니다! 지금 챗봇/폼 뷰어 페이지로 이동하시겠습니까?");
         if (goApp) {
-          window.open(`/app/${project.id}`, '_blank');
+          window.open(`/viewer/${project.id}`, '_blank');
         }
         if (onDeployConfigSaved) onDeployConfigSaved(deployMode);
       }

@@ -1,15 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Play, LibraryBig, Search, X } from 'lucide-react';
+import { Play, LibraryBig, Search, X, Download } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
+import { useAuth } from '../AuthContext';
 import './MainPage.css';
 
 function TemplatesPage() {
   const navigate = useNavigate();
+  const { user, token } = useAuth();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [importing, setImporting] = useState(null);
 
   const fetchProjects = async () => {
     try {
@@ -25,6 +28,44 @@ function TemplatesPage() {
   useEffect(() => {
     fetchProjects();
   }, []);
+
+  const handleImport = async (project) => {
+    if (!user || !token) {
+      alert("템플릿을 가져오려면 로그인이 필요합니다.");
+      return;
+    }
+    
+    try {
+      setImporting(project.id);
+      
+      // 1. 원본 프로젝트 데이터 불러오기
+      const res = await axios.get(`/api/projects/${project.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const originalData = res.data;
+      
+      // 2. 내 계정에 새 프로젝트(사본) 생성
+      const createRes = await axios.post('/api/projects', {
+        title: `${originalData.title} (사본)`,
+        description: originalData.description,
+        graph_data: originalData.graph_data,
+        visibility: 'private'
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      const newProjectId = createRes.data.id;
+      
+      // 3. 에디터로 이동
+      navigate(`/editor/${newProjectId}`);
+      
+    } catch (error) {
+      console.error('Error importing project:', error);
+      alert("템플릿 가져오기에 실패했습니다.");
+    } finally {
+      setImporting(null);
+    }
+  };
 
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return projects;
@@ -108,9 +149,21 @@ function TemplatesPage() {
                         by {project.owner}
                       </span>
                     </div>
-                    <div className="card-actions">
-                      <button className="btn-secondary" onClick={() => navigate(`/editor/${project.id}`)} style={{ flex: 1 }}>
-                        <Play size={14} /> 열기 및 실행
+                    <div className="card-actions" style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button 
+                        className="btn-secondary" 
+                        onClick={() => navigate(`/editor/${project.id}`)} 
+                        style={{ flex: 1, padding: '0.5rem' }}
+                      >
+                        <Play size={14} /> 실행
+                      </button>
+                      <button 
+                        className="btn-primary" 
+                        onClick={() => handleImport(project)} 
+                        disabled={importing === project.id}
+                        style={{ flex: 1, padding: '0.5rem' }}
+                      >
+                        <Download size={14} /> {importing === project.id ? '복사중...' : '가져오기'}
                       </button>
                     </div>
                   </div>

@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
@@ -89,6 +89,8 @@ function FlowContent() {
   const [isTokenTrackingMode, setIsTokenTrackingMode] = useState(false);
   const [estimatedTokens, setEstimatedTokens] = useState(null);
   const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   
   const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
   const costCurrency = localStorage.getItem('costCurrency') || 'USD';
@@ -539,6 +541,12 @@ function FlowContent() {
     const userMessage = chatInput;
     setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatInput('');
+    
+    // Clear existing AI modifications and highlights when starting a new AI request
+    setNodes(nds => nds.map(nd => ({ 
+      ...nd, 
+      data: { ...nd.data, isAIModified: false, aiChanges: null } 
+    })));
 
     try {
       const payload = {
@@ -557,6 +565,8 @@ function FlowContent() {
       // handleLoadTemplate과 동일하게 다시 주입해줘야 편집/삭제가 계속 동작한다.
       if (graph_data) {
         const currentNodes = getNodes();
+        const newLogs = [`> AI 작업 시작: "${userMessage}"`];
+        
         const loadedNodes = (graph_data.nodes || []).map(n => {
           const oldNode = currentNodes.find(on => String(on.id) === String(n.id));
           const isNew = !oldNode;
@@ -573,14 +583,31 @@ function FlowContent() {
           delete cleanNewData.onDelete;
           delete cleanNewData.onClearAIHighlight;
           delete cleanNewData.isAIModified;
+          delete cleanNewData.aiChanges;
+          
+          let aiChanges = [];
+          if (oldNode) {
+            for (const key of Object.keys(cleanNewData)) {
+              if (JSON.stringify(cleanOldData[key]) !== JSON.stringify(cleanNewData[key])) {
+                aiChanges.push({ key, old: cleanOldData[key], new: cleanNewData[key] });
+              }
+            }
+          }
           
           const isModified = oldNode && JSON.stringify(cleanOldData) !== JSON.stringify(cleanNewData);
+          
+          if (isNew) {
+            newLogs.push(`[생성] 새로운 노드가 추가되었습니다: ${n.type} (ID: ${n.id})`);
+          } else if (isModified) {
+            newLogs.push(`[수정] 노드가 변경되었습니다: ${n.type} (ID: ${n.id}) - 변경된 속성: ${aiChanges.map(c => c.key).join(', ')}`);
+          }
           
           return {
             ...n,
             data: { 
               ...n.data, 
               isAIModified: isNew || isModified,
+              aiChanges: (isNew || isModified) ? aiChanges : null,
               onChange: onNodeDataChange, 
               onDelete: deleteNode,
               onClearAIHighlight: (nodeId) => {
@@ -591,6 +618,11 @@ function FlowContent() {
         });
         setNodes(loadedNodes);
         setEdges(graph_data.edges || []);
+        
+        if (newLogs.length > 1) {
+          setSystemLogs(prev => [...prev, ...newLogs]);
+          setIsTerminalOpen(true);
+        }
       }
     } catch (error) {
       console.error(error);
@@ -1063,6 +1095,92 @@ function FlowContent() {
           </button>
         </div>
       </div>
+
+      {/* Terminal UI */}
+      {isTerminalOpen && (
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: '260px',
+          right: 0,
+          height: '200px',
+          background: '#1e1e1e',
+          color: '#00ff00',
+          fontFamily: 'monospace',
+          borderTop: '1px solid #333',
+          zIndex: 900,
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 -4px 10px rgba(0,0,0,0.3)'
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '4px 12px',
+            background: '#2d2d2d',
+            borderBottom: '1px solid #444',
+            fontSize: '0.8rem',
+            color: '#aaa'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <TerminalSquare size={14} /> AI 시스템 로그
+            </div>
+            <button 
+              onClick={() => setIsTerminalOpen(false)}
+              style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: '2px' }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div style={{
+            flex: 1,
+            padding: '12px',
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            fontSize: '0.85rem'
+          }}>
+            {systemLogs.length === 0 ? (
+              <span style={{ color: '#666' }}>로그가 없습니다.</span>
+            ) : (
+              systemLogs.map((log, i) => (
+                <div key={i} style={{ wordBreak: 'break-all' }}>
+                  {log.startsWith('>') ? <span style={{ color: '#00bfff', marginTop: '8px', display: 'inline-block' }}>{log}</span> : log}
+                </div>
+              ))
+            )}
+            <div ref={el => el?.scrollIntoView()} />
+          </div>
+        </div>
+      )}
+      
+      {/* Terminal Toggle Button (if closed) */}
+      {!isTerminalOpen && systemLogs.length > 0 && (
+        <button
+          onClick={() => setIsTerminalOpen(true)}
+          style={{
+            position: 'fixed',
+            bottom: '1rem',
+            left: '280px',
+            background: '#2d2d2d',
+            color: '#aaa',
+            border: '1px solid #444',
+            borderRadius: '4px',
+            padding: '4px 8px',
+            fontSize: '0.8rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            zIndex: 800
+          }}
+        >
+          <TerminalSquare size={14} /> 로그 보기
+        </button>
+      )}
+
     </div>
   );
 }

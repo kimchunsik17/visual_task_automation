@@ -144,12 +144,24 @@ const AppViewerPage = () => {
 
     setChatHistory(prev => [...prev, { role: 'user', content: userMsg }]);
     setCurrentMessage('');
+    
+    const targetNode = dynamicNodes.length > 0 ? dynamicNodes[0] : null;
+    const targetNodeId = targetNode ? targetNode.id : 'default_input';
+    
+    let finalInput = userMsg;
+    // 만약 타겟 노드가 파일 입력을 받는 노드이고 파일이 첨부되어 있다면, 텍스트 대신 파일 경로만 전달
+    if (targetNode?.data?.inputType === 'file' && attachedFile) {
+      finalInput = attachedFile.path;
+    }
+    
     setAttachedFile(null);
 
-    const targetNodeId = dynamicNodes.length > 0 ? dynamicNodes[0].id : 'default_input';
+    const res = await executeFlow({ [targetNodeId]: finalInput });
     
-    const res = await executeFlow({ [targetNodeId]: userMsg });
-    setChatHistory(prev => [...prev, { role: 'bot', content: res.result }]);
+    // 객체(Object) 등 문자열이 아닌 결과값이 반환될 경우 렌더링 오류를 막기 위해 변환
+    const finalContent = typeof res.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res.result || '');
+    
+    setChatHistory(prev => [...prev, { role: 'bot', content: finalContent }]);
   };
 
   if (isLoading) return <div style={{ color: 'var(--text-color)', padding: '2rem' }}>로딩 중...</div>;
