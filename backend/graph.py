@@ -591,7 +591,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
             else:
                 lines.append(f"{indent}    pass")
                 
-        elif node['type'] == 'dynamicInputNode':
+        elif node['type'] in ('dynamicInputNode', 'webhookNode'):
             lines.append(f"{indent}# --- Dynamic Input Node ({node_id}) ---")
             lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
             input_label = node.get('data', {}).get('inputLabel', 'Input').replace('"', '\\"')
@@ -698,6 +698,39 @@ def compile_workflow(nodes: list, edges: list) -> str:
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+                
+        elif node['type'] == 'discordNode':
+            lines.append(f"{indent}# --- Discord Node ({node_id}) ---")
+            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+            webhook_url = node.get('data', {}).get('webhookUrl', '').replace('"', '\\"')
+            message = node.get('data', {}).get('message', '').replace('"', '\\"').replace('\n', '\\n')
+            
+            lines.append(f"{indent}import requests")
+            lines.append(f"{indent}import json")
+            lines.append(f"{indent}discord_webhook_{node_id} = \"{webhook_url}\"")
+            lines.append(f"{indent}discord_msg_{node_id} = \"{message}\" if \"{message}\" else str({prev_res_var if prev_res_var else 'last_result'})")
+            lines.append(f"{indent}if discord_webhook_{node_id}:")
+            lines.append(f"{indent}    try:")
+            lines.append(f"{indent}        payload_{node_id} = {{'content': discord_msg_{node_id}}}")
+            lines.append(f"{indent}        resp_{node_id} = requests.post(discord_webhook_{node_id}, json=payload_{node_id}, timeout=10)")
+            lines.append(f"{indent}        if resp_{node_id}.status_code in [200, 204]:")
+            lines.append(f"{indent}            print(f'\\n[Discord Webhook Success]\\n')")
+            lines.append(f"{indent}            res_text_{node_id} = 'Discord Send Success'")
+            lines.append(f"{indent}        else:")
+            lines.append(f"{indent}            print(f'\\n[Discord Webhook Failed: {{resp_{node_id}.status_code}}]\\n')")
+            lines.append(f"{indent}            res_text_{node_id} = f'Discord Send Failed: {{resp_{node_id}.status_code}}'")
+            lines.append(f"{indent}    except Exception as e:")
+            lines.append(f"{indent}        print(f'\\n[Discord Webhook Error: {{str(e)}}]\\n')")
+            lines.append(f"{indent}        res_text_{node_id} = f'Discord Send Error: {{str(e)}}'")
+            lines.append(f"{indent}else:")
+            lines.append(f"{indent}    print(f'\\n[Discord Webhook Skipped: No URL provided]\\n')")
+            lines.append(f"{indent}    res_text_{node_id} = 'Discord Webhook Skipped'")
+            
+            lines.append(f"{indent}last_result = res_text_{node_id}")
+            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+            next_edges = forward_edges.get(node_id, [])
+            for target_id, handle in next_edges:
+                generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)
                 
         elif node['type'] == 'httpRequestNode':
             lines.append(f"{indent}# --- HTTP Request Node ({node_id}) ---")

@@ -64,86 +64,107 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
 
   return (
     <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="modal-content" style={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', width: '500px', maxWidth: '90vw', padding: '1.5rem', position: 'relative' }}>
+      <div className="modal-content" style={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', width: '650px', maxWidth: '90vw', padding: '1.5rem', position: 'relative', display: 'flex', flexDirection: 'column', maxHeight: '85vh' }}>
         <button onClick={onClose} style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
           <X size={20} />
         </button>
         
-        <h2 style={{ margin: '0 0 1.5rem 0', color: 'var(--text-color)', fontSize: '1.3rem' }}>워크플로우 배포</h2>
+        <h2 style={{ margin: '0 0 1.5rem 0', color: 'var(--text-color)', fontSize: '1.3rem' }}>🚀 워크플로우 배포</h2>
         
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto', paddingRight: '0.5rem', flex: 1 }}>
           
-          <div 
-            onClick={() => setDeployMode('apprunner')}
-            style={{ padding: '1rem', border: `2px solid ${deployMode === 'apprunner' ? '#3b82f6' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'apprunner' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', textAlign: 'center', gridColumn: '1 / -1' }}
-          >
-            <LayoutTemplate size={32} color={deployMode === 'apprunner' ? '#3b82f6' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', color: 'var(--text-color)' }}>App Runner (전문가용 독립 웹사이트)</h3>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>에디터를 숨기고 오직 워크플로우 실행 및 결과 확인만 가능한 깨끗한 고유 링크를 생성합니다.</p>
-          </div>
-
-          <div 
-            onClick={() => setDeployMode('chatbot')}
-            style={{ padding: '1rem', border: `2px solid ${deployMode === 'chatbot' ? '#10b981' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'chatbot' ? 'rgba(16, 185, 129, 0.1)' : 'transparent', textAlign: 'center' }}
-          >
-            <Bot size={32} color={deployMode === 'chatbot' ? '#10b981' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'var(--text-color)' }}>Web App (Chatbot)</h3>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>대화형 챗봇 인터페이스로 배포합니다.</p>
-          </div>
-          
-          <div 
-            onClick={() => setDeployMode('form')}
-            style={{ padding: '1rem', border: `2px solid ${deployMode === 'form' ? '#10b981' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'form' ? 'rgba(16, 185, 129, 0.1)' : 'transparent', textAlign: 'center' }}
-          >
-            <LayoutTemplate size={32} color={deployMode === 'form' ? '#10b981' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'var(--text-color)' }}>Web App (Form)</h3>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>단순한 입력 폼과 버튼 형태의 페이지로 배포합니다.</p>
-          </div>
-
-          <div 
-            onClick={() => setDeployMode('fastapi')}
-            style={{ padding: '1rem', border: `2px solid ${deployMode === 'fastapi' ? '#eab308' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'fastapi' ? 'rgba(234, 179, 8, 0.1)' : 'transparent', textAlign: 'center' }}
-          >
-            <Code2 size={32} color={deployMode === 'fastapi' ? '#eab308' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'var(--text-color)' }}>FastAPI Server</h3>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>독립적인 백엔드 서버 파이썬 스크립트를 다운로드합니다.</p>
-          </div>
-
-          <div 
-            onClick={() => setDeployMode('mcp')}
-            style={{ padding: '1rem', border: `2px solid ${deployMode === 'mcp' ? '#8b5cf6' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'mcp' ? 'rgba(139, 92, 246, 0.1)' : 'transparent', textAlign: 'center' }}
-          >
-            <Download size={32} color={deployMode === 'mcp' ? '#8b5cf6' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'var(--text-color)' }}>MCP Server</h3>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Claude Desktop용 MCP 서버 스크립트를 다운로드합니다.</p>
-          </div>
-          
-          <div 
-            onClick={() => setDeployMode('discord')}
-            style={{ padding: '1rem', border: `2px solid ${deployMode === 'discord' ? '#ec4899' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: deployMode === 'discord' ? 'rgba(236, 72, 153, 0.1)' : 'transparent', textAlign: 'center', gridColumn: '1 / -1' }}
-          >
-            <MessageSquare size={32} color={deployMode === 'discord' ? '#ec4899' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'var(--text-color)' }}>Discord Bot (Interactive)</h3>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>디스코드 봇으로 작동시켜 채팅 채널에서 워크플로우를 실행합니다.</p>
-            {deployMode === 'discord' && (
-              <div style={{ marginTop: '1rem', textAlign: 'left' }} onClick={e => e.stopPropagation()}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-color)', fontSize: '0.9rem' }}>디스코드 봇 토큰 (Discord Bot Token)</label>
-                <input 
-                  type="password"
-                  value={discordToken}
-                  onChange={(e) => setDiscordToken(e.target.value)}
-                  placeholder="디스코드 개발자 포털에서 발급받은 토큰 입력"
-                  style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
-                />
+          {/* Category 1: Web Apps */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>Web Applications</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+              <div 
+                onClick={() => setDeployMode('apprunner')}
+                style={{ padding: '1rem', border: `2px solid ${deployMode === 'apprunner' ? '#3b82f6' : 'var(--border-color)'}`, borderRadius: '10px', cursor: 'pointer', backgroundColor: deployMode === 'apprunner' ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-color)', textAlign: 'center', transition: 'all 0.2s', boxShadow: deployMode === 'apprunner' ? '0 0 12px rgba(59, 130, 246, 0.3)' : 'none' }}
+              >
+                <LayoutTemplate size={28} color={deployMode === 'apprunner' ? '#3b82f6' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
+                <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--text-color)' }}>App Runner</h4>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>독립형 실행 웹사이트</p>
               </div>
-            )}
+
+              <div 
+                onClick={() => setDeployMode('chatbot')}
+                style={{ padding: '1rem', border: `2px solid ${deployMode === 'chatbot' ? '#10b981' : 'var(--border-color)'}`, borderRadius: '10px', cursor: 'pointer', backgroundColor: deployMode === 'chatbot' ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-color)', textAlign: 'center', transition: 'all 0.2s', boxShadow: deployMode === 'chatbot' ? '0 0 12px rgba(16, 185, 129, 0.3)' : 'none' }}
+              >
+                <Bot size={28} color={deployMode === 'chatbot' ? '#10b981' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
+                <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--text-color)' }}>Chatbot</h4>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>대화형 챗봇 인터페이스</p>
+              </div>
+              
+              <div 
+                onClick={() => setDeployMode('form')}
+                style={{ padding: '1rem', border: `2px solid ${deployMode === 'form' ? '#10b981' : 'var(--border-color)'}`, borderRadius: '10px', cursor: 'pointer', backgroundColor: deployMode === 'form' ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-color)', textAlign: 'center', transition: 'all 0.2s', boxShadow: deployMode === 'form' ? '0 0 12px rgba(16, 185, 129, 0.3)' : 'none' }}
+              >
+                <LayoutTemplate size={28} color={deployMode === 'form' ? '#10b981' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
+                <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--text-color)' }}>Form</h4>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>단순 입력 폼 인터페이스</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Category 2: API & Code */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>APIs & Code</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div 
+                onClick={() => setDeployMode('fastapi')}
+                style={{ padding: '1rem', border: `2px solid ${deployMode === 'fastapi' ? '#eab308' : 'var(--border-color)'}`, borderRadius: '10px', cursor: 'pointer', backgroundColor: deployMode === 'fastapi' ? 'rgba(234, 179, 8, 0.1)' : 'var(--bg-color)', textAlign: 'center', transition: 'all 0.2s', boxShadow: deployMode === 'fastapi' ? '0 0 12px rgba(234, 179, 8, 0.3)' : 'none' }}
+              >
+                <Code2 size={28} color={deployMode === 'fastapi' ? '#eab308' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
+                <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--text-color)' }}>FastAPI Server</h4>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>독립 백엔드 코드 다운로드</p>
+              </div>
+
+              <div 
+                onClick={() => setDeployMode('mcp')}
+                style={{ padding: '1rem', border: `2px solid ${deployMode === 'mcp' ? '#8b5cf6' : 'var(--border-color)'}`, borderRadius: '10px', cursor: 'pointer', backgroundColor: deployMode === 'mcp' ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-color)', textAlign: 'center', transition: 'all 0.2s', boxShadow: deployMode === 'mcp' ? '0 0 12px rgba(139, 92, 246, 0.3)' : 'none' }}
+              >
+                <Download size={28} color={deployMode === 'mcp' ? '#8b5cf6' : 'var(--text-muted)'} style={{ margin: '0 auto 0.5rem' }} />
+                <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--text-color)' }}>MCP Server</h4>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>Claude Desktop용 연동 서버</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Category 3: Integrations */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>Integrations</h3>
+            <div 
+              onClick={() => setDeployMode('discord')}
+              style={{ padding: '1.25rem', border: `2px solid ${deployMode === 'discord' ? '#ec4899' : 'var(--border-color)'}`, borderRadius: '10px', cursor: 'pointer', backgroundColor: deployMode === 'discord' ? 'rgba(236, 72, 153, 0.1)' : 'var(--bg-color)', transition: 'all 0.2s', boxShadow: deployMode === 'discord' ? '0 0 12px rgba(236, 72, 153, 0.3)' : 'none', display: 'flex', flexDirection: 'column' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <MessageSquare size={32} color={deployMode === 'discord' ? '#ec4899' : 'var(--text-muted)'} />
+                <div style={{ flex: 1 }}>
+                  <h4 style={{ margin: '0 0 0.25rem', fontSize: '1rem', color: 'var(--text-color)' }}>Discord Bot (Interactive)</h4>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>디스코드 채팅 채널에서 봇을 통해 워크플로우를 실행합니다.</p>
+                </div>
+              </div>
+              
+              {deployMode === 'discord' && (
+                <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed var(--border-color)', textAlign: 'left' }} onClick={e => e.stopPropagation()}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-color)', fontSize: '0.85rem' }}>Discord Bot Token</label>
+                  <input 
+                    type="password"
+                    value={discordToken}
+                    onChange={(e) => setDiscordToken(e.target.value)}
+                    placeholder="디스코드 개발자 포털에서 발급받은 토큰 입력"
+                    style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', background: 'var(--btn-active-bg)', color: 'var(--text-color)', border: '1px solid var(--border-color)', outline: 'none' }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-color)' }}>
           <button className="btn-secondary" onClick={onClose} disabled={isDeploying}>취소</button>
           <button className="btn-run" onClick={handleDeploy} disabled={isDeploying || (deployMode === 'discord' && !discordToken.trim())}>
-            {isDeploying ? '배포 중...' : (deployMode === 'fastapi' || deployMode === 'mcp' ? '코드 다운로드' : '배포하기')}
+            {isDeploying ? '처리 중...' : (deployMode === 'fastapi' || deployMode === 'mcp' ? '코드 다운로드' : '배포하기')}
           </button>
         </div>
       </div>

@@ -64,7 +64,17 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
               <div 
                 key={session.id} 
                 className="chat-session-item"
-                onClick={() => onSelectSession && onSelectSession(session)}
+                onClick={() => {
+                  if (onSelectSession) {
+                    onSelectSession(session);
+                  } else {
+                    if (session.is_existing_project) {
+                      navigate(`/editor/${session.project_id}`);
+                    } else {
+                      navigate(`/`);
+                    }
+                  }
+                }}
                 style={{ cursor: 'pointer' }}
               >
                 <div className="session-header">

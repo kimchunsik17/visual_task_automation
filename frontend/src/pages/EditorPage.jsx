@@ -18,10 +18,11 @@ import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode , DetachedTextNode} from '../customNodes';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode , DetachedTextNode, WebhookNode} from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 
 const nodeTypes = {
+  webhookNode: WebhookNode,
   detachedText: DetachedTextNode,
   startNode: StartNode,
   scheduleNode: ScheduleNode,
@@ -90,7 +91,8 @@ function FlowContent() {
   const [estimatedTokens, setEstimatedTokens] = useState(null);
   const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
   const [systemLogs, setSystemLogs] = useState([]);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [isExecutionPanelOpen, setIsExecutionPanelOpen] = useState(false);
+  const [executionPanelTab, setExecutionPanelTab] = useState('result'); // 'result' or 'logs'
   
   const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
   const costCurrency = localStorage.getItem('costCurrency') || 'USD';
@@ -480,6 +482,8 @@ function FlowContent() {
     setIsCompiled(false);
     setExecutionLogs([]); // Clear previous logs
     setResponse('Running graph on backend...');
+    setIsExecutionPanelOpen(true);
+    setExecutionPanelTab('result');
     
     try {
       const currentNodes = getNodes();
@@ -781,9 +785,11 @@ function FlowContent() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          
+          {/* Project Management Group */}
           {isOwner && (
-            <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.3rem 0.6rem' }}>
                 <Share2 size={16} style={{ color: visibility === 'public' ? '#10b981' : visibility === 'friends' ? '#3b82f6' : 'var(--text-muted)' }} />
                 <select 
@@ -800,59 +806,70 @@ function FlowContent() {
                   <option value="public" style={{ background: 'var(--bg-color)', color: 'var(--text-color)' }}>공개</option>
                 </select>
               </div>
-              <button className="btn-secondary" onClick={() => { handleSave().then(s => s && alert("저장되었습니다.")); }}>
+              <button className="btn-secondary" onClick={() => { handleSave().then(s => s && alert("저장되었습니다.")); }} title="저장">
                 <Save size={16} />
-                저장
               </button>
-              {currentId && (
-                <button className="btn-secondary" onClick={handleOpenDeployModal} style={{ borderColor: '#8b5cf6', color: '#8b5cf6' }}>
-                  <Wand2 size={16} />
-                  배포
-                </button>
-              )}
-            </>
+            </div>
           )}
-          {currentId && (
-            <button className="btn-secondary" onClick={() => navigate(`/project/${currentId}/runs`)} style={{ borderColor: '#10b981', color: '#10b981' }}>
-              <History size={16} />
-              Run History
+
+          <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }}></div>
+
+          {/* Tools Group */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button className="btn-secondary" onClick={() => setIsTemplateModalOpen(true)} title="템플릿 불러오기">
+              <Folder size={16} />
             </button>
-          )}
-          <button className="btn-secondary" onClick={async () => {
-            try {
-              const payload = {
-                nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
-                edges: edges.map(e => ({ source: e.source, target: e.target }))
-              };
-              const res = await axios.post('/api/estimate', payload);
-              if (res.data.status === 'success') {
-                setEstimatedTokens(res.data);
-                alert(`[예상 소모 ${tokenDisplayMode === 'cost' ? '비용' : '토큰량'}]\n최소 ${formatTokenDisplay(res.data.total_estimated_tokens)} ~ 최대 ${formatTokenDisplay(res.data.total_max_tokens)} ${tokenDisplayMode === 'cost' ? '' : 'tokens'}`);
-              } else {
-                alert(`${tokenDisplayMode === 'cost' ? '비용' : '토큰'} 계산 실패: ` + res.data.message);
+            {currentId && (
+              <button className="btn-secondary" onClick={() => navigate(`/project/${currentId}/runs`)} style={{ color: '#10b981', borderColor: '#10b981' }} title="실행 기록">
+                <History size={16} />
+              </button>
+            )}
+            {isOwner && currentId && (
+              <button className="btn-secondary" onClick={handleOpenDeployModal} style={{ color: '#8b5cf6', borderColor: '#8b5cf6' }} title="배포">
+                <Wand2 size={16} />
+              </button>
+            )}
+          </div>
+
+          <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }}></div>
+
+          {/* Token Optimization Group */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button className="btn-secondary" onClick={async () => {
+              try {
+                const payload = {
+                  nodes: nodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+                  edges: edges.map(e => ({ source: e.source, target: e.target }))
+                };
+                const res = await axios.post('/api/estimate', payload);
+                if (res.data.status === 'success') {
+                  setEstimatedTokens(res.data);
+                  alert(`[예상 소모 ${tokenDisplayMode === 'cost' ? '비용' : '토큰량'}]\n최소 ${formatTokenDisplay(res.data.total_estimated_tokens)} ~ 최대 ${formatTokenDisplay(res.data.total_max_tokens)} ${tokenDisplayMode === 'cost' ? '' : 'tokens'}`);
+                } else {
+                  alert(`${tokenDisplayMode === 'cost' ? '비용' : '토큰'} 계산 실패: ` + res.data.message);
+                }
+              } catch (error) {
+                console.error(error);
+                alert('예상 토큰 계산 중 오류가 발생했습니다.');
               }
-            } catch (error) {
-              console.error(error);
-              alert('예상 토큰 계산 중 오류가 발생했습니다.');
-            }
-          }} style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>
-            예상 토큰 계산
-          </button>
-          
-          <button 
-            className="btn-secondary" 
-            onClick={() => setIsTokenTrackingMode(!isTokenTrackingMode)}
-            style={{ 
-              borderColor: isTokenTrackingMode ? '#3b82f6' : 'var(--border-color)', 
-              color: isTokenTrackingMode ? '#3b82f6' : 'var(--text-muted)' 
-            }}
-          >
-            추적 모드 {isTokenTrackingMode ? 'ON' : 'OFF'}
-          </button>
-          <button className="btn-run" onClick={() => setIsTemplateModalOpen(true)} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}>
-            <Folder size={16} />
-          </button>
-          <button className="btn-run" onClick={runFlow} disabled={isLoading}>
+            }} style={{ color: '#f59e0b', borderColor: '#f59e0b' }} title="예상 비용 계산">
+              <BrainCircuit size={16} />
+            </button>
+            <button 
+              className="btn-secondary" 
+              onClick={() => setIsTokenTrackingMode(!isTokenTrackingMode)}
+              style={{ 
+                borderColor: isTokenTrackingMode ? '#3b82f6' : 'var(--border-color)', 
+                color: isTokenTrackingMode ? '#3b82f6' : 'var(--text-muted)' 
+              }}
+              title="비용 추적 모드"
+            >
+              추적 {isTokenTrackingMode ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          {/* Primary Action */}
+          <button className="btn-run" onClick={runFlow} disabled={isLoading} style={{ marginLeft: '0.5rem' }}>
             <Play size={18} />
             {isLoading ? '실행 중...' : '실행'}
           </button>
@@ -914,42 +931,7 @@ function FlowContent() {
           </ReactFlow>
         </div>
         
-        <aside className="response-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2>Execution Result</h2>
-          {isTokenTrackingMode && tokenUsage && (
-            <div style={{ padding: '0.8rem', margin: '0 1rem 1rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6', borderRadius: '8px', fontSize: '0.85rem' }}>
-              <div style={{ fontWeight: 'bold', color: '#60a5fa', marginBottom: '0.5rem' }}>
-                {tokenDisplayMode === 'cost' ? '소모 비용 (Estimated Cost)' : '토큰 사용량 (Token Usage)'}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                <span>총 {tokenDisplayMode === 'cost' ? '비용' : '소모 토큰'}: {formatTokenDisplay(tokenUsage.total_tokens)}</span>
-                <span>입력: {formatTokenDisplay(tokenUsage.total_input)} / 출력: {formatTokenDisplay(tokenUsage.total_output)}</span>
-              </div>
-            </div>
-          )}
-          <div className="response-content" style={{ flex: 1, overflowY: 'auto' }}>
-            {isCompiled ? (
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                <code>{response || 'Run or Compile the flow to see the results here.'}</code>
-              </pre>
-            ) : (
-              (response && typeof response === 'string' && (response.startsWith('uploads/') || response.startsWith('uploads\\'))) ? (
-                <div>
-                  <p>File generated successfully:</p>
-                  <a 
-                    href={`http://localhost:8000/${response.replace(/\\/g, '/')}`} 
-                    target="_blank" rel="noreferrer"
-                    style={{ display: 'inline-block', padding: '8px 16px', background: '#3b82f6', color: 'var(--text-color)', textDecoration: 'none', borderRadius: '4px', marginTop: '10px' }}
-                  >
-                    Download File
-                  </a>
-                </div>
-              ) : (
-                <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{response || 'Run or Compile the flow to see the results here.'}</div>
-              )
-            )}
-          </div>
-        </aside>
+
       </main>
 
       <TemplateModal 
@@ -1138,88 +1120,164 @@ function FlowContent() {
         </div>
       </div>
 
-      {/* Terminal UI */}
-      {isTerminalOpen && (
+      {/* Unified Execution Panel */}
+      {isExecutionPanelOpen && (
         <div style={{
           position: 'fixed',
           bottom: 0,
-          left: '260px',
+          left: 0,
           right: 0,
-          height: '200px',
-          background: '#1e1e1e',
-          color: '#00ff00',
-          fontFamily: 'monospace',
-          borderTop: '1px solid #333',
+          height: '35vh',
+          minHeight: '250px',
+          background: 'var(--card-bg)',
+          borderTop: '1px solid var(--border-color)',
           zIndex: 900,
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 -4px 10px rgba(0,0,0,0.3)'
+          boxShadow: '0 -10px 30px rgba(0,0,0,0.5)',
+          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          transform: 'translateY(0)'
         }}>
+          {/* Header & Tabs */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            padding: '4px 12px',
-            background: '#2d2d2d',
-            borderBottom: '1px solid #444',
-            fontSize: '0.8rem',
-            color: '#aaa'
+            background: 'var(--bg-color)',
+            borderBottom: '1px solid var(--border-color)',
+            padding: '0 1rem'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <TerminalSquare size={14} /> AI 시스템 로그
+            <div style={{ display: 'flex' }}>
+              <button
+                onClick={() => setExecutionPanelTab('result')}
+                style={{
+                  padding: '1rem 1.5rem',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: executionPanelTab === 'result' ? '2px solid #60a5fa' : '2px solid transparent',
+                  color: executionPanelTab === 'result' ? '#60a5fa' : 'var(--text-muted)',
+                  fontWeight: executionPanelTab === 'result' ? 600 : 400,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  fontSize: '0.9rem'
+                }}
+              >
+                <Play size={16} /> 결과 (Result)
+              </button>
+              <button
+                onClick={() => setExecutionPanelTab('logs')}
+                style={{
+                  padding: '1rem 1.5rem',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: executionPanelTab === 'logs' ? '2px solid #a78bfa' : '2px solid transparent',
+                  color: executionPanelTab === 'logs' ? '#a78bfa' : 'var(--text-muted)',
+                  fontWeight: executionPanelTab === 'logs' ? 600 : 400,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  fontSize: '0.9rem'
+                }}
+              >
+                <TerminalSquare size={16} /> 시스템 로그
+              </button>
             </div>
             <button 
-              onClick={() => setIsTerminalOpen(false)}
-              style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: '2px' }}
+              onClick={() => setIsExecutionPanelOpen(false)}
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.5rem' }}
             >
-              <X size={16} />
+              <X size={20} />
             </button>
           </div>
-          <div style={{
-            flex: 1,
-            padding: '12px',
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-            fontSize: '0.85rem'
-          }}>
-            {systemLogs.length === 0 ? (
-              <span style={{ color: '#666' }}>로그가 없습니다.</span>
-            ) : (
-              systemLogs.map((log, i) => (
-                <div key={i} style={{ wordBreak: 'break-all' }}>
-                  {log.startsWith('>') ? <span style={{ color: '#00bfff', marginTop: '8px', display: 'inline-block' }}>{log}</span> : log}
+
+          {/* Content Area */}
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {executionPanelTab === 'result' && (
+              <div style={{ padding: '1.5rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                {isTokenTrackingMode && tokenUsage && (
+                  <div style={{ padding: '0.8rem', marginBottom: '1rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                    <div style={{ fontWeight: 'bold', color: '#60a5fa', marginBottom: '0.5rem' }}>
+                      {tokenDisplayMode === 'cost' ? '소모 비용 (Estimated Cost)' : '토큰 사용량 (Token Usage)'}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                      <span>총 {tokenDisplayMode === 'cost' ? '비용' : '소모 토큰'}: {formatTokenDisplay(tokenUsage.total_tokens)}</span>
+                      <span>입력: {formatTokenDisplay(tokenUsage.total_input)} / 출력: {formatTokenDisplay(tokenUsage.total_output)}</span>
+                    </div>
+                  </div>
+                )}
+                <div style={{ flex: 1, background: 'var(--bg-color)', borderRadius: '8px', padding: '1rem', border: '1px solid var(--border-color)', overflowY: 'auto' }}>
+                  {isCompiled ? (
+                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--text-color)' }}>
+                      <code>{response || 'Run or Compile the flow to see the results here.'}</code>
+                    </pre>
+                  ) : (
+                    (response && typeof response === 'string' && (response.startsWith('uploads/') || response.startsWith('uploads\\'))) ? (
+                      <div>
+                        <p style={{ color: 'var(--text-color)' }}>File generated successfully:</p>
+                        <a 
+                          href={`http://localhost:8000/${response.replace(/\\/g, '/')}`} 
+                          target="_blank" rel="noreferrer"
+                          style={{ display: 'inline-block', padding: '8px 16px', background: '#3b82f6', color: '#fff', textDecoration: 'none', borderRadius: '6px', marginTop: '10px', fontWeight: 500 }}
+                        >
+                          Download File
+                        </a>
+                      </div>
+                    ) : (
+                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: 'var(--text-color)', fontSize: '0.95rem', lineHeight: '1.6' }}>{response || '대기 중...'}</div>
+                    )
+                  )}
                 </div>
-              ))
+              </div>
             )}
-            <div ref={el => el?.scrollIntoView()} />
+
+            {executionPanelTab === 'logs' && (
+              <div style={{ flex: 1, padding: '1rem', background: '#1e1e1e', color: '#00ff00', fontFamily: 'monospace', fontSize: '0.85rem', overflowY: 'auto' }}>
+                {systemLogs.length === 0 ? (
+                  <span style={{ color: '#666' }}>로그가 없습니다.</span>
+                ) : (
+                  systemLogs.map((log, i) => (
+                    <div key={i} style={{ wordBreak: 'break-all', marginBottom: '4px' }}>
+                      {log.startsWith('>') ? <span style={{ color: '#00bfff', marginTop: '8px', display: 'inline-block' }}>{log}</span> : log}
+                    </div>
+                  ))
+                )}
+                <div ref={el => el?.scrollIntoView()} />
+              </div>
+            )}
           </div>
         </div>
       )}
       
-      {/* Terminal Toggle Button (if closed) */}
-      {!isTerminalOpen && systemLogs.length > 0 && (
+      {/* Execution Panel Toggle Button (if closed) */}
+      {!isExecutionPanelOpen && (response || systemLogs.length > 0) && (
         <button
-          onClick={() => setIsTerminalOpen(true)}
+          onClick={() => setIsExecutionPanelOpen(true)}
           style={{
             position: 'fixed',
-            bottom: '1rem',
-            left: '280px',
-            background: '#2d2d2d',
-            color: '#aaa',
-            border: '1px solid #444',
-            borderRadius: '4px',
-            padding: '4px 8px',
-            fontSize: '0.8rem',
+            bottom: '1.5rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'var(--card-bg)',
+            color: 'var(--text-color)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '20px',
+            padding: '0.5rem 1.5rem',
+            fontSize: '0.9rem',
+            fontWeight: 500,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            zIndex: 800
+            gap: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            zIndex: 800,
+            transition: 'all 0.2s'
           }}
         >
-          <TerminalSquare size={14} /> 로그 보기
+          <Play size={16} color="#60a5fa" />
+          실행 결과 보기
         </button>
       )}
 

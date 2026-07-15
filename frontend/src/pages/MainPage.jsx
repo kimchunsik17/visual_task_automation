@@ -4,14 +4,12 @@ import { useAuth } from '../AuthContext';
 import axios from 'axios';
 import { Plus, LayoutGrid, Sparkles, Wand2, ArrowRight, Zap, Bot, LibraryBig } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
-import ChatSidebar from '../ChatSidebar';
 import './MainPage.css';
 
 function MainPage() {
   const navigate = useNavigate();
   const { user, token } = useAuth();
   const [autoPrompt, setAutoPrompt] = useState('');
-  const [activeSidebar, setActiveSidebar] = useState('main'); // 'main' or 'chat'
 
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -65,8 +63,6 @@ function MainPage() {
       // Draft session: load messages into MainPage and use its draftId
       draftIdRef.current = session.project_id;
       setMessages(session.messages || []);
-      // Close the sidebar to focus on the loaded chat
-      setActiveSidebar('main');
     }
   };
 
@@ -117,14 +113,7 @@ function MainPage() {
   return (
     <div className="main-page-layout" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <MainSidebar 
-        isCollapsed={activeSidebar === 'chat'} 
-        onExpand={() => setActiveSidebar('main')}
-        onToggleChat={() => setActiveSidebar(prev => prev === 'chat' ? 'main' : 'chat')} 
-      />
-      <ChatSidebar 
-        isOpen={activeSidebar === 'chat'} 
-        onClose={() => setActiveSidebar('main')} 
-        onExpand={() => setActiveSidebar('chat')}
+        isCollapsed={false}
         onSelectSession={handleSelectSession}
       />
 

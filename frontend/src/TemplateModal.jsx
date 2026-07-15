@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Save, Folder, X, Play, Info } from 'lucide-react';
 import './TemplateModal.css';
 
@@ -393,6 +393,51 @@ const BUILT_IN_TEMPLATES = [
         { id: 'e_ma-out', source: 'node_ma', target: 'node_out', sourceHandle: 'out', targetHandle: 'in' }
       ]
     }
+  },
+  {
+    id: 'builtin-hackathon-1',
+    name: '🛍️ 스마트스토어 -> 카카오 알림톡 자동화 (해커톤 시연용)',
+    description: '웹훅으로 들어온 스마트스토어 주문 정보를 바탕으로 구매자에게 카카오 알림톡을 발송합니다.',
+    usage: 'Mock 서버(포트 3001)의 대시보드에서 가짜 주문 웹훅을 트리거하면, 이 워크플로우가 데이터를 받아 알림톡을 전송하게 됩니다.',
+    data: {
+      nodes: [
+        { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
+        { id: 'node_in', type: 'webhookNode', position: { x: 300, y: 150 }, data: { label: '주문 웹훅 수신', webhookUrl: '/webhook/naver-order' } },
+        { id: 'node_parse', type: 'jsonParserNode', position: { x: 600, y: 150 }, data: { label: '정보 추출 (ProductOrder)', mode: 'extract', extractKey: 'ProductOrder' } },
+        { id: 'node_kakao', type: 'kakaoNode', position: { x: 900, y: 150 }, data: { label: '카카오 알림톡 발송', receiver: '{{ProductOrder.BuyerId}}', templateCode: 'order_complete' } },
+        { id: 'node_out', type: 'outputNode', position: { x: 1200, y: 150 }, data: { label: '완료' } }
+      ],
+      edges: [
+        { id: 'e_start-i', source: 'node_start', target: 'node_in', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_i-p', source: 'node_in', target: 'node_parse', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_p-k', source: 'node_parse', target: 'node_kakao', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_k-o', source: 'node_kakao', target: 'node_out', sourceHandle: 'out', targetHandle: 'in' }
+      ]
+    }
+  },
+  {
+    id: 'builtin-hackathon-2',
+    name: '🏢 B2B 고객 리드(Lead) 분석 및 슬랙 알림',
+    description: '고객 문의가 접수되면 LLM이 중요도를 분석하고, 긴급 건인 경우 즉시 슬랙으로 알림을 전송합니다.',
+    data: {
+      nodes: [
+        { id: 'node_start', type: 'startNode', position: { x: 50, y: 250 }, data: { label: '시작' } },
+        { id: 'node_in', type: 'dynamicInputNode', position: { x: 300, y: 250 }, data: { label: '신규 리드 정보', inputLabel: '예: 100명 규모의 회사에서 도입을 원합니다.' } },
+        { id: 'node_llm', type: 'llmNode', position: { x: 600, y: 250 }, data: { label: '중요도 분석기 (LLM)', model: 'gpt-4o-mini', systemPrompt: '문의 내용을 보고 예상 매출이 높거나 긴급한 건이면 "URGENT", 아니면 "NORMAL"로 분류하세요.' } },
+        { id: 'node_cond', type: 'conditionNode', position: { x: 900, y: 250 }, data: { label: '긴급 판별', condition: 'Contains', value: 'URGENT' } },
+        { id: 'node_slack', type: 'httpRequestNode', position: { x: 1200, y: 100 }, data: { label: 'Slack 긴급 알림', method: 'POST', url: 'https://hooks.slack.com/services/T000/B000/XXX', headers: '{"Content-Type": "application/json"}' } },
+        { id: 'node_out1', type: 'outputNode', position: { x: 1550, y: 100 }, data: { label: '알림 완료' } },
+        { id: 'node_out2', type: 'outputNode', position: { x: 1200, y: 400 }, data: { label: '일반 처리' } }
+      ],
+      edges: [
+        { id: 'e_s-i', source: 'node_start', target: 'node_in', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_i-l', source: 'node_in', target: 'node_llm', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_l-c', source: 'node_llm', target: 'node_cond', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_c-s', source: 'node_cond', target: 'node_slack', sourceHandle: 'true', targetHandle: 'in' },
+        { id: 'e_s-o1', source: 'node_slack', target: 'node_out1', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_c-o2', source: 'node_cond', target: 'node_out2', sourceHandle: 'false', targetHandle: 'in' }
+      ]
+    }
   }
 
 ];
@@ -401,6 +446,8 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [newTemplateName, setNewTemplateName] = useState('');
   const [infoTemplate, setInfoTemplate] = useState(null);
+
+  const [activeTab, setActiveTab] = useState('builtin');
 
   useEffect(() => {
     if (isOpen) {
@@ -449,65 +496,82 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2><Folder size={20} /> Templates Manager</h2>
-          <button className="btn-icon" onClick={onClose}><X size={20}/></button>
+      <div className="modal-content" style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+        <button className="btn-icon" onClick={onClose} style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 10 }}><X size={20}/></button>
+        
+        <div className="modal-header" style={{ paddingBottom: '0', display: 'block' }}>
+          <div className="template-tabs" style={{ marginTop: '0.5rem' }}>
+            <button 
+              className={`template-tab ${activeTab === 'builtin' ? 'active' : ''}`}
+              onClick={() => setActiveTab('builtin')}
+            >
+              기본 제공 템플릿
+            </button>
+            <button 
+              className={`template-tab ${activeTab === 'my' ? 'active' : ''}`}
+              onClick={() => setActiveTab('my')}
+            >
+              내 템플릿 ({savedTemplates.length})
+            </button>
+          </div>
         </div>
 
         <div className="modal-body">
-          <div className="template-section">
-            <h3>Save Current Flow</h3>
-            <div className="save-flow-row">
-              <input 
-                type="text" 
-                placeholder="Enter template name..." 
-                value={newTemplateName}
-                onChange={e => setNewTemplateName(e.target.value)}
-              />
-              <button className="btn-primary" onClick={handleSave}>
-                <Save size={16} /> Save
-              </button>
-            </div>
+          <div className="save-template-bar">
+            <input 
+              type="text" 
+              placeholder="현재 워크플로우를 저장할 이름을 입력하세요..." 
+              value={newTemplateName}
+              onChange={e => setNewTemplateName(e.target.value)}
+            />
+            <button className="btn-primary" onClick={handleSave}>
+              <Save size={16} /> 저장
+            </button>
           </div>
 
-          <div className="template-section">
-            <h3>Built-in Templates</h3>
-            <div className="template-grid">
-              {BUILT_IN_TEMPLATES.map(t => (
-                <div key={t.id} className="template-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <h4>{t.name}</h4>
-                    <button className="btn-icon" onClick={() => setInfoTemplate(t)} title="사용 가이드"><Info size={16}/></button>
-                  </div>
-                  <p>{t.description}</p>
-                  <button className="btn-load" onClick={() => loadTemplate(t)}>
-                    <Play size={16} /> Load
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="template-section">
-            <h3>My Saved Templates</h3>
-            {savedTemplates.length === 0 ? (
-              <p className="empty-text">No saved templates yet.</p>
-            ) : (
+          <div className="template-scroll-area">
+            {activeTab === 'builtin' && (
               <div className="template-grid">
-                {savedTemplates.map(t => (
-                  <div key={t.id} className="template-card user-template">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {BUILT_IN_TEMPLATES.map(t => (
+                  <div key={t.id} className="template-card">
+                    <div className="template-card-header">
                       <h4>{t.name}</h4>
-                      <button className="btn-icon delete" onClick={() => handleDelete(t.id)}><X size={16}/></button>
+                      <button className="btn-icon info-btn" onClick={() => setInfoTemplate(t)} title="사용 가이드"><Info size={16}/></button>
                     </div>
-                    <p>{t.description}</p>
+                    <p className="template-desc">{t.description}</p>
                     <button className="btn-load" onClick={() => loadTemplate(t)}>
-                      <Play size={16} /> Load
+                      <Play size={16} /> 이 템플릿 사용하기
                     </button>
                   </div>
                 ))}
               </div>
+            )}
+
+            {activeTab === 'my' && (
+              <>
+                {savedTemplates.length === 0 ? (
+                  <div className="empty-state">
+                    <Folder size={48} color="var(--border-color)" />
+                    <p>저장된 템플릿이 없습니다.</p>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>상단에서 현재 워크플로우를 저장해보세요.</span>
+                  </div>
+                ) : (
+                  <div className="template-grid">
+                    {savedTemplates.map(t => (
+                      <div key={t.id} className="template-card user-template">
+                        <div className="template-card-header">
+                          <h4>{t.name}</h4>
+                          <button className="btn-icon delete" onClick={() => handleDelete(t.id)} title="삭제"><X size={16}/></button>
+                        </div>
+                        <p className="template-desc">{t.description}</p>
+                        <button className="btn-load" onClick={() => loadTemplate(t)}>
+                          <Play size={16} /> 불러오기
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

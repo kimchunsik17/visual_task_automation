@@ -26,6 +26,7 @@ const Sidebar = () => {
     { type: 'outputNode', label: '결과 출력', icon: <LogOut size={16} />, color: '#f97316', category: 'core' },
     
     { type: 'dynamicInputNode', label: '동적 입력', icon: <Keyboard size={16} />, color: '#d946ef', category: 'input' },
+    { type: 'webhookNode', label: '웹훅 수신', icon: <Globe size={16} />, color: '#0ea5e9', category: 'input' },
     { type: 'valueNode', label: '변수 (값)', icon: <Variable size={16} />, color: '#ec4899', category: 'input' },
     
     { type: 'promptNode', label: '프롬프트', icon: <MessageSquare size={16} />, color: '#3b82f6', category: 'ai' },

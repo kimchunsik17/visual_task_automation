@@ -1703,3 +1703,40 @@ export const DetachedTextNode = ({ id, data }) => {
     </div>
   );
 };
+
+export const WebhookNode = ({ id, data }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const isAIModified = data.isAIModified;
+  const handleNodeClick = () => {
+    if (data.isAIModified && data.onClearAIHighlight) {
+      data.onClearAIHighlight(id);
+    }
+  };
+
+  return (
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} webhook-node ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '220px' : undefined }}>
+      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #0ea5e9, #0284c7)' }}>
+        {isExpanded ? <ChevronDown size={14} color="white"/> : <ChevronRight size={14} color="white"/>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white' }}><Globe size={16} /> {data.label || '웹훅 수신'}</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      {isExpanded && (
+        <div className="node-body">
+          <label>Webhook URL (경로)</label>
+          <input
+            type="text"
+            className="nodrag"
+            defaultValue={data.webhookUrl || '/webhook/your-endpoint'}
+            onChange={(e) => data.onChange(id, 'webhookUrl', e.target.value)}
+            placeholder="/webhook/my-trigger"
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          />
+          <div style={{fontSize: '11px', color: '#666', marginTop: '4px'}}>
+            이 URL로 POST 요청이 오면 플로우가 시작됩니다.
+          </div>
+        </div>
+      )}
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};

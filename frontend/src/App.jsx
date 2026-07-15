@@ -11,6 +11,7 @@ import BotManagerPage from './pages/BotManagerPage';
 import StatisticsPage from './pages/StatisticsPage';
 import ProjectRunsPage from './pages/ProjectRunsPage';
 import SchedulerPage from './pages/SchedulerPage';
+import WebhookManagerPage from './pages/WebhookManagerPage';
 import AppViewerPage from './pages/AppViewerPage';
 
 function App() {
@@ -39,6 +40,7 @@ function App() {
         <Route path="/project/:projectId/runs" element={<ProjectRunsPage />} />
         <Route path="/app/:shareToken" element={<AppRunnerPage />} />
         <Route path="/viewer/:projectId" element={<AppViewerPage />} />
+        <Route path="/webhooks" element={<WebhookManagerPage />} />
         <Route path="/bots" element={<BotManagerPage />} />
         <Route path="/scheduler" element={<SchedulerPage />} />
         <Route path="/statistics" element={<StatisticsPage />} />

@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Depends, File, UploadFile, HTTPException, status, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -244,6 +245,42 @@ def get_project(project_id: int, user: models.User = Depends(get_current_user), 
         "owner_id": project.user_id,
         "owner_name": project.owner.name if project.owner else "Unknown"
     }
+
+@app.get("/api/webhooks")
+def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
+    webhooks = []
+    
+    for p in projects:
+        graph_data = p.graph_data or {}
+        nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
+        for n in nodes:
+            if isinstance(n, dict) and n.get('type') == 'webhookNode':
+                # Get last run time
+                last_run = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.project_id == p.id).order_by(models.FlowExecutionLog.execution_time.desc()).first()
+                last_triggered = "최근 실행 기록 없음"
+                if last_run:
+                    diff = datetime.datetime.utcnow() - last_run.execution_time
+                    if diff.days > 0:
+                        last_triggered = f"{diff.days}일 전"
+                    elif diff.seconds >= 3600:
+                        last_triggered = f"{diff.seconds // 3600}시간 전"
+                    elif diff.seconds >= 60:
+                        last_triggered = f"{diff.seconds // 60}분 전"
+                    else:
+                        last_triggered = "방금 전"
+                        
+                webhooks.append({
+                    "id": f"wh-{p.id}-{n.get('id')}",
+                    "projectId": p.id,
+                    "title": p.title,
+                    "url": f"http://localhost:8000/webhook/{p.id}",
+                    "status": "Active",
+                    "lastTriggered": last_triggered
+                })
+                break
+                
+    return webhooks
 
 @app.delete("/api/projects/{project_id}")
 def delete_project(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -810,6 +847,58 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
         db.rollback()
         
     return {"status": "success", "result": result_text, "token_usage": tokens}
+
+@app.api_route("/webhook/{endpoint_id}", methods=["GET", "POST"])
+async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depends(get_db)):
+    # For hackathon MVP, map endpoint_id to a project, or find the first one with a webhook node
+    try:
+        project_id = int(endpoint_id)
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    except ValueError:
+        project = None
+        projects = db.query(models.Project).all()
+        for p in projects:
+            graph_data = p.graph_data or {}
+            nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
+            if any(n.get('type') == 'webhookNode' for n in nodes):
+                project = p
+                break
+                
+    if not project:
+        return JSONResponse(status_code=404, content={"status": "error", "detail": "Webhook endpoint not found"})
+        
+    # Get payload
+    try:
+        if request.method == "POST":
+            payload = await request.json()
+        else:
+            payload = dict(request.query_params)
+    except Exception:
+        payload = {}
+        
+    # Find the webhookNode ID in the graph
+    graph_data = project.graph_data or {}
+    nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
+    edges = graph_data.get('edges', []) if isinstance(graph_data, dict) else []
+    webhook_node_id = None
+    for n in nodes:
+        if isinstance(n, dict) and n.get('type') == 'webhookNode':
+            webhook_node_id = n.get('id')
+            break
+            
+    if not webhook_node_id:
+        return JSONResponse(status_code=400, content={"status": "error", "detail": "Project does not contain a webhook node"})
+        
+    # Run the workflow
+    import json
+    inputs = {webhook_node_id: json.dumps(payload, ensure_ascii=False)}
+    
+    try:
+        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='webhook_' + str(project.id), project_id=project.id, **inputs)
+        return {"status": "success", "result": result_text}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
+
 
 @app.get("/api/bots")
 def get_active_bots(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):

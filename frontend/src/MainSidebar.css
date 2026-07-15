@@ -13,6 +13,7 @@
 
 .main-sidebar.collapsed {
   width: 68px;
+  cursor: pointer;
 }
 
 .main-sidebar-header {
