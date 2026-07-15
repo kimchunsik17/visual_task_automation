@@ -122,6 +122,22 @@ function MainPage() {
             </p>
           </div>
 
+          {/* 채팅 내역 렌더링 */}
+          {messages.length > 0 && (
+            <div className="chat-history" style={{ marginBottom: '2rem' }}>
+              {messages.map((msg, idx) => (
+                <div key={idx} className={`chat-message ${msg.role}`}>
+                  <div className={`chat-avatar ${msg.role === 'ai' ? 'ai-avatar' : ''}`} style={msg.role !== 'ai' ? { background: '#4b5563', color: '#fff' } : {}}>
+                    {msg.role === 'ai' ? <Bot size={18} /> : (user?.name?.[0] || 'U')}
+                  </div>
+                  <div className="chat-bubble">
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* AI 입력창 */}
           <div className="auto-gen-container" style={{ marginBottom: '2.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
