@@ -62,6 +62,14 @@ def start_discord_bot(project_id: int, token: str):
                 if not project:
                     return "Error: Project not found.", {}, []
                 
+                # 토큰 체크 및 봇 정지
+                user = db.query(models.User).filter(models.User.id == project.user_id).first()
+                if user and user.token_balance <= 0:
+                    stop_discord_bot(project_id)
+                    project.deploy_mode = 'chatbot'
+                    db.commit()
+                    return "토큰을 모두 소진하여 디스코드 봇이 정지되었습니다. 토큰 충전 후 봇을 다시 배포해주세요.", {}, []
+                
                 nodes = project.graph_data.get('nodes', [])
                 edges = project.graph_data.get('edges', [])
                 return run_workflow(nodes, edges, db=db, session_id=str(message.author), project_id=project_id, default_input=content)
@@ -99,6 +107,10 @@ def start_discord_bot(project_id: int, token: str):
 
                 total_tokens = tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0
                 if total_tokens > 0:
+                    user = db.query(models.User).filter(models.User.id == owner_id).first()
+                    if user:
+                        user.token_balance -= total_tokens
+
                     exec_log = models.FlowExecutionLog(
                         user_id=owner_id,
                         project_id=project_id,
@@ -152,7 +164,11 @@ def boot_existing_discord_bots(db: Session):
     """
     projects = db.query(models.Project).filter(models.Project.deploy_mode == "discord").all()
     for p in projects:
-        token = p.graph_data.get("discord_bot_token")
+        if p.graph_data and p.graph_data.get("discord_bot_stopped"):
+            print(f"Skipping stopped Discord Bot for project {p.id}")
+            continue
+            
+        token = p.graph_data.get("discord_bot_token") if p.graph_data else None
         if token:
             print(f"Booting up Discord Bot for project {p.id}")
             start_discord_bot(p.id, token)

@@ -22,6 +22,17 @@ def execute_scheduled_project(project_id: int):
             print(f"[Scheduler] Project {project_id} not found.")
             return
 
+        # 토큰 체크 및 스케줄 중지
+        user = db.query(models.User).filter(models.User.id == project.user_id).first()
+        if user and user.token_balance <= 0:
+            print(f"[Scheduler] Project {project_id} skipped: insufficient tokens.")
+            job_id = f"project_{project_id}"
+            if scheduler.get_job(job_id):
+                scheduler.remove_job(job_id)
+            project.deploy_mode = 'chatbot'
+            db.commit()
+            return
+
         nodes = project.graph_data.get('nodes', [])
         edges = project.graph_data.get('edges', [])
         
@@ -39,6 +50,11 @@ def execute_scheduled_project(project_id: int):
         owner_id = project.user_id
         total_tokens = tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0
         
+        if total_tokens > 0:
+            user = db.query(models.User).filter(models.User.id == owner_id).first()
+            if user:
+                user.token_balance -= total_tokens
+
         exec_log = models.FlowExecutionLog(
             user_id=owner_id,
             project_id=project_id,

@@ -350,6 +350,10 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
         if not user or (project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first()):
             raise HTTPException(status_code=403, detail="Friends-only access required")
 
+    owner = db.query(models.User).filter(models.User.id == project.user_id).first()
+    if owner and owner.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="앱 소유자의 토큰이 모두 소진되어 앱을 실행할 수 없습니다.")
+
     nodes = project.graph_data.get('nodes', [])
     edges = project.graph_data.get('edges', [])
     
@@ -357,12 +361,16 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
         kwargs = payload.inputs if payload and payload.inputs else {}
         result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id, **kwargs)
         
+        total_tokens = tokens.get('total_tokens', 0) if tokens else 0
+        if owner and total_tokens > 0:
+            owner.token_balance -= total_tokens
+
         db_log = models.FlowExecutionLog(
             user_id=user.id if user else None,
             project_id=project.id,
             payload="App Runner Execution",
             result=result_text,
-            total_tokens=tokens.get('total_tokens', 0) if tokens else 0,
+            total_tokens=total_tokens,
             token_usage_details=tokens,
             status="success"
         )
@@ -440,6 +448,9 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
     Receives graph data from frontend, runs LangGraph logic,
     saves execution to DB, and returns the result.
     """
+    if user and user.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다. 토큰을 충전해 주세요.")
+
     import json
     with open("payload_debug.json", "w", encoding="utf-8") as f:
         json.dump(payload.dict(), f, ensure_ascii=False, indent=2)
@@ -478,12 +489,17 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
     # 2. Save log to PostgreSQL (or SQLite fallback)
     try:
         flow_status = "error" if "❌" in result_text or "Error" in result_text else "success"
+        
+        total_tokens = tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0
+        if user and total_tokens > 0:
+            user.token_balance -= total_tokens
+
         db_log = models.FlowExecutionLog(
             user_id=user.id if user else None,
             project_id=payload.project_id,
             payload=json.dumps(payload.dict()),
             result=result_text,
-            total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
+            total_tokens=total_tokens,
             token_usage_details=tokens if isinstance(tokens, dict) else None,
             status=flow_status,
             error_message=result_text if flow_status == "error" else None
@@ -597,6 +613,9 @@ def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_curren
     graph_data는 여기서 저장하지 않는다 — 프론트가 매번 현재 캔버스 상태를 보내고,
     돌아온 graph_data를 캔버스에 반영한 뒤 원할 때 /api/projects로 별도 저장한다.
     """
+    if user and user.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
+
     try:
         reply, graph_data = run_agent_turn(
             payload.graph_data,
@@ -689,15 +708,22 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
+    if user and user.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다.")
+
     result_text, tokens, logs = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **payload.inputs)
     
     import json
     try:
+        total_tokens = tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0
+        if user and total_tokens > 0:
+            user.token_balance -= total_tokens
+
         db_log = models.FlowExecutionLog(
             user_id=user.id if user else None,
             payload=json.dumps({"project_id": project_id, "inputs": payload.inputs}),
             result=result_text,
-            total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
+            total_tokens=total_tokens,
             token_usage_details=tokens if isinstance(tokens, dict) else None
         )
         db.add(db_log)
@@ -737,6 +763,13 @@ async def stop_bot_endpoint(project_id: int, user: models.User = Depends(get_cur
         raise HTTPException(status_code=404, detail="Project not found")
     
     discord_bot.stop_discord_bot(project_id)
+    
+    # Save stopped state
+    graph_data = dict(project.graph_data) if project.graph_data else {}
+    graph_data["discord_bot_stopped"] = True
+    project.graph_data = graph_data
+    db.commit()
+    
     return {"status": "success", "message": "Bot stopped"}
 
 @app.post("/api/bots/{project_id}/start")
@@ -748,7 +781,17 @@ async def start_bot_endpoint(project_id: int, user: models.User = Depends(get_cu
     token = project.graph_data.get("discord_bot_token")
     if not token:
         raise HTTPException(status_code=400, detail="No Discord token saved for this project")
+    
+    # Check tokens before starting
+    if user and user.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 봇을 시작할 수 없습니다.")
         
+    # Save active state
+    graph_data = dict(project.graph_data) if project.graph_data else {}
+    graph_data["discord_bot_stopped"] = False
+    project.graph_data = graph_data
+    db.commit()
+
     discord_bot.start_discord_bot(project_id, token)
     return {"status": "success", "message": "Bot started"}
 
@@ -951,8 +994,9 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
     import datetime
     
     total_used = db.query(func.sum(models.FlowExecutionLog.total_tokens)).filter(models.FlowExecutionLog.user_id == user.id).scalar() or 0
-    total_allocated = 10000000 # 10M tokens allocated for demo
-    remaining = max(0, total_allocated - total_used)
+    remaining = user.token_balance
+    total_allocated = remaining + total_used # Just a fallback calculation
+    print(f"[DEBUG] /api/statistics called by User ID {user.id} ({user.name}). Returning remaining: {remaining}, total_used: {total_used}")
     
     now = datetime.datetime.utcnow()
     chart_data = []

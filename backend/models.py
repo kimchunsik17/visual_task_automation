@@ -11,6 +11,7 @@ class User(Base):
     email = Column(String, index=True)
     name = Column(String)
     picture = Column(String)
+    token_balance = Column(Integer, default=50000)
 
     projects = relationship("Project", back_populates="owner")
 
