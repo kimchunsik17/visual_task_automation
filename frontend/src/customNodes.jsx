@@ -27,6 +27,63 @@ const calculateNodeCost = (tokens, model, currency) => {
 };
 
 
+
+const DetachedHandleRenderer = ({ id, fieldKey }) => {
+  const updateNodeInternals = useUpdateNodeInternals();
+  const detachedNodeId = `popout_${id}_${fieldKey}`;
+  const detachedNodeX = useStore((s) => {
+    const map = s.nodeLookup || s.nodeInternals;
+    if (!map) return 0;
+    const node = map.get(detachedNodeId);
+    return node ? (node.positionAbsolute?.x ?? node.position?.x ?? 0) : 0;
+  });
+  const parentNodeX = useStore((s) => {
+    const map = s.nodeLookup || s.nodeInternals;
+    if (!map) return 0;
+    const node = map.get(id);
+    return node ? (node.positionAbsolute?.x ?? node.position?.x ?? 0) : 0;
+  });
+
+  const isOnLeft = detachedNodeX < parentNodeX;
+
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [isOnLeft, id, updateNodeInternals]);
+
+  return (
+    <Handle
+      className="popout-handle"
+      type="target"
+      position={isOnLeft ? Position.Left : Position.Right}
+      id={`popout-${fieldKey}`}
+      style={{
+        left: isOnLeft ? '-10px' : '100%',
+        top: '20px',
+        background: '#ec4899',
+        width: '10px',
+        height: '10px',
+        border: '2px solid white',
+        borderRadius: '50%',
+        transition: 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        zIndex: 10
+      }}
+    />
+  );
+};
+
+export const NodeDetachedHandles = ({ id, data }) => {
+  if (!data) return null;
+  const detachedKeys = Object.keys(data).filter(k => k.startsWith('isDetached_') && data[k]);
+  return (
+    <>
+      {detachedKeys.map(k => {
+        const fieldKey = k.replace('isDetached_', '');
+        return <DetachedHandleRenderer key={fieldKey} id={id} fieldKey={fieldKey} />;
+      })}
+    </>
+  );
+};
+
 export const DraggableTextarea = ({ id, fieldKey, value, onChange, placeholder, isDetached }) => {
   const [isEditing, setIsEditing] = useState(false);
   const updateNodeInternals = useUpdateNodeInternals();
@@ -45,11 +102,7 @@ export const DraggableTextarea = ({ id, fieldKey, value, onChange, placeholder, 
     return node ? (node.positionAbsolute?.x ?? node.position?.x ?? 0) : 0;
   });
 
-  const isOnLeft = isDetached && detachedNodeX < parentNodeX;
-
-  useEffect(() => {
-    if (isDetached) updateNodeInternals(id);
-  }, [isOnLeft, isDetached, id, updateNodeInternals]);
+  
 
   const handleDragStart = (e) => {
     e.stopPropagation();
@@ -57,29 +110,7 @@ export const DraggableTextarea = ({ id, fieldKey, value, onChange, placeholder, 
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  if (isDetached) {
-    return (
-      <div style={{ position: 'relative', height: '0px', width: '100%', transition: 'all 0.3s ease-in-out' }}>
-        <Handle
-          className="popout-handle"
-          type="target"
-          position={isOnLeft ? Position.Left : Position.Right}
-          id={`popout-${fieldKey}`}
-          style={{
-            left: isOnLeft ? '-10px' : '100%',
-            top: '10px',
-            background: '#ec4899',
-            width: '10px',
-            height: '10px',
-            border: '2px solid white',
-            borderRadius: '50%',
-            transition: 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            zIndex: 10
-          }}
-        />
-      </div>
-    );
-  }
+  if (isDetached) return null;
 
   return isEditing ? (
     <textarea
@@ -112,6 +143,7 @@ export const DraggableTextarea = ({ id, fieldKey, value, onChange, placeholder, 
       }}
     >
       {typeof value === 'object' ? JSON.stringify(value) : (value || "더블클릭하여 수정하세요... (드래그하여 밖으로 분리)")}
+
     </div>
   );
 };
@@ -139,6 +171,8 @@ export const StartNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -176,6 +210,8 @@ export const PromptNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -279,6 +315,8 @@ export const LLMNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -356,6 +394,8 @@ export const ValueNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -383,6 +423,8 @@ export const OutputNode = ({ id, data }) => {
           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Final Result</div>
         </div>
       )}
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -496,6 +538,8 @@ export const ConditionNode = ({ id, data }) => {
 
         </div>
       )}
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -605,6 +649,8 @@ export const BreakNode = ({ id, data }) => {
           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Exit Loop</div>
         </div>
       )}
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -652,6 +698,8 @@ export const PythonNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -692,6 +740,8 @@ export const TokenizerNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -722,6 +772,8 @@ export const DistributorNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -810,6 +862,8 @@ export const FileModifierNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -887,6 +941,8 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -984,6 +1040,8 @@ export const DynamicInputNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1020,6 +1078,8 @@ export const WebCrawlerNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1064,6 +1124,8 @@ export const EmailNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1101,6 +1163,8 @@ export const KakaoNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1137,6 +1201,8 @@ export const DelayNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1185,6 +1251,8 @@ export const JsonParserNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1224,6 +1292,8 @@ export const MergeNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1283,6 +1353,8 @@ export const HttpRequestNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1321,6 +1393,8 @@ export const DatabaseNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1350,6 +1424,8 @@ export const HumanApprovalNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1403,6 +1479,8 @@ export const DynamicNode = ({ id, data, type }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1467,6 +1545,8 @@ export const MultiAgentNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1504,6 +1584,8 @@ export const ScheduleNode = ({ id, data }) => {
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1550,6 +1632,8 @@ export const DiscordNode = ({ id, data }) => {
           </div>
         </div>
       )}
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
@@ -1613,6 +1697,8 @@ export const DetachedTextNode = ({ id, data }) => {
           left: isOnLeft ? '100%' : '0%',
         }}
       />
+      <NodeDetachedHandles id={id} data={data} />
+
     </div>
   );
 };
