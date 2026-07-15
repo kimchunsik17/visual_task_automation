@@ -115,7 +115,7 @@ NODE_CATALOG = """\
   일반적) 뒤에 연결한다 — 그렇지 않으면 빈칸이 하나도 안 채워진 채로 조용히 저장된다.
 - promptNode는 항상 인접한 llmNode와 짝으로 사용한다.
 - llmNode의 model은 사용자가 특정 모델을 요청하지 않는 한 기본값 gpt-4o-mini를 쓴다.
-- 요청이 모호하면 임의로 복잡하게 확대 해석하지 말고, 가장 단순한 구조로 만들거나 먼저 사용자에게 되물어본다.
+- 사용자의 요청이 짧거나 모호하더라도 가급적 되묻지 말고, 실무에서 흔히 쓰이는 자동화 패턴(예: 실패 시 알림, 조건에 따른 분기, 중요 작업 전 승인 등)을 유추하여 알아서 똑똑하게 비선형(분기, 반복, 병합 등) 워크플로우 초안을 구성한다. 사용자는 생성된 초안을 보고 나중에 수정하면 되므로, 챗봇이 주도적으로 풍부한 형태의 초안을 제시해야 한다.
 - (미세수정 시) 기존 노드로 이미 처리 가능하면 새 노드를 추가하지 말고 update_node로 기존 노드를 고친다.
 - **기본은 항상 단일 경로다.** 노드 A에서 노드 B로 가는 길은 하나만 만든다. 예를 들어 "결과를 3초 뒤에
   보여줘"처럼 중간 처리 단계(delayNode 등)가 필요하면 그 단계를 경유하는 경로 하나만 만들고,
@@ -373,6 +373,54 @@ FEWSHOT = """\
   {"id":"e5","source":"n5","target":"n6"}
 ]}
 # ↑ 정기적으로 실행해야 하므로 startNode 대신 scheduleNode(cronExpression 포함)로 시작한다.
+
+[예시12] 요청: "매일 아침에 해커뉴스 크롤링해서 좋은 글 있으면 요약해서 카카오톡으로 보내줘"
+{"nodes":[
+  {"id":"n1","type":"scheduleNode","data":{"cronExpression":"0 9 * * *"}},
+  {"id":"n2","type":"webCrawlerNode","data":{"url":"https://news.ycombinator.com"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 뉴스들 중에서 IT 업계 트렌드에 맞는 '좋은 글'이 있는지 판별하고 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"뉴스 큐레이터"}},
+  {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"r1","operator":"Contains","value":"좋은 글 있음"}]}},
+  {"id":"n6","type":"humanApprovalNode","data":{"message":"카카오톡으로 발송할까요?"}},
+  {"id":"n7","type":"kakaoNode","data":{"receiver":""}},
+  {"id":"n8","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n9","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6","sourceHandle":"r1"},
+  {"id":"e6","source":"n6","target":"n7"},
+  {"id":"e7","source":"n7","target":"n8"},
+  {"id":"e8","source":"n5","target":"n8","sourceHandle":"else"},
+  {"id":"e9","source":"n8","target":"n9"}
+]}
+# ↑ 짧은 요청이지만 조건 분기(conditionNode), 사람 승인(humanApprovalNode), 카카오톡 발송(kakaoNode), 병합(mergeNode)을 알아서 적절히 구성했다.
+
+[예시13] 요청: "메일 들어오면 감성 분석해서 악플이면 슬랙으로 알림 보내고, 아니면 디스코드로 보내줘"
+{"nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"수신된 이메일 내용","testValue":"이 서비스 정말 최악이네요. 환불해주세요."}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 내용이 악플(부정적)인지 판단해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"감성 분석가"}},
+  {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"r1","operator":"Contains","value":"부정적"}]}},
+  {"id":"n6","type":"slackNode","data":{"channel":"#alerts","message":"악플이 접수되었습니다!"}},
+  {"id":"n7","type":"discordNode","data":{"botToken":"","channelId":""}},
+  {"id":"n8","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n9","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6","sourceHandle":"r1"},
+  {"id":"e6","source":"n5","target":"n7","sourceHandle":"else"},
+  {"id":"e7","source":"n6","target":"n8"},
+  {"id":"e8","source":"n7","target":"n8"},
+  {"id":"e9","source":"n8","target":"n9"}
+]}
+# ↑ 갈라졌던 엣지들(n6->n8, n7->n8)이 mergeNode로 정상적으로 합류했다.
 """
 
 
