@@ -1283,6 +1283,11 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, checkpointer=
     reply = result["messages"][-1].content
 
     final_graph = get_current_graph()
+
+    # If the AI did not modify the graph in this turn, just return as is without warnings.
+    if g.nodes == final_graph.nodes and g.edges == final_graph.edges:
+        return reply, graph_data
+
     ok, errs = validate_flow(final_graph)  # require_complete=True(기본값) — 최종 완결성 게이트
     if ok:
         response_graph_data = auto_layout(final_graph)

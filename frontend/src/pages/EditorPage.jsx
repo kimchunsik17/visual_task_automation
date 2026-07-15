@@ -778,7 +778,6 @@ function FlowContent() {
               const res = await axios.post('/api/estimate', payload);
               if (res.data.status === 'success') {
                 setEstimatedTokens(res.data);
-                if (!isTokenTrackingMode) setIsTokenTrackingMode(true);
                 alert(`[예상 소모 ${tokenDisplayMode === 'cost' ? '비용' : '토큰량'}]\n최소 ${formatTokenDisplay(res.data.total_estimated_tokens)} ~ 최대 ${formatTokenDisplay(res.data.total_max_tokens)} ${tokenDisplayMode === 'cost' ? '' : 'tokens'}`);
               } else {
                 alert(`${tokenDisplayMode === 'cost' ? '비용' : '토큰'} 계산 실패: ` + res.data.message);
