@@ -65,6 +65,16 @@ function FlowContent() {
   const location = useLocation();
   const { user, token } = useAuth();
   const reactFlowWrapper = useRef(null);
+
+  const [appTheme, setAppTheme] = useState(document.documentElement.getAttribute('data-theme') || 'dark');
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setAppTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
+
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
@@ -826,7 +836,7 @@ function FlowContent() {
             }}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
-            colorMode="system"
+            colorMode={appTheme}
           >
             <Controls />
             <MiniMap 
