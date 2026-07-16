@@ -658,6 +658,32 @@ def get_project_runs(project_id: int, db: Session = Depends(get_db), user: model
         } for run in runs
     ]
 
+@app.get("/api/projects/{project_id}/evaluations")
+def get_project_evaluations(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
+    # Verify project access
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if project.visibility == 'private' and project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    elif project.visibility == 'friends':
+        if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
+            raise HTTPException(status_code=403, detail="Not authorized to view this project")
+        
+    evals = db.query(models.EvaluationLog).filter(models.EvaluationLog.project_id == project_id).order_by(models.EvaluationLog.created_at.desc()).limit(100).all()
+    
+    return [
+        {
+            "id": e.id,
+            "score": e.score,
+            "test_case_count": e.test_case_count,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+            "report": e.report
+        } for e in evals
+    ]
+
 @app.get("/api/runs/{run_id}")
 def get_run_details(run_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
     run = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.id == run_id).first()

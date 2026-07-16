@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square, Network } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square, Network, TestTube } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
@@ -146,7 +146,13 @@ function FlowContent() {
   const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
   const [systemLogs, setSystemLogs] = useState([]);
   const [isExecutionPanelOpen, setIsExecutionPanelOpen] = useState(false);
-  const [executionPanelTab, setExecutionPanelTab] = useState('result'); // 'result' or 'logs'
+  const [executionPanelTab, setExecutionPanelTab] = useState('result'); // 'result' or 'logs' or 'evaluation'
+  const [executionPanelHeight, setExecutionPanelHeight] = useState(300); // initial height in px
+
+  // Evaluation States
+  const [isEvaluating, setIsEvaluating] = useState(false);
+  const [evalStep, setEvalStep] = useState(0);
+  const [evaluationReport, setEvaluationReport] = useState(null);
 
   const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
   const costCurrency = localStorage.getItem('costCurrency') || 'USD';
@@ -626,6 +632,58 @@ function FlowContent() {
     });
   }, [getIntersectingNodes, setNodes]);
 
+  const evaluateFlow = async () => {
+    const savedId = await handleSave();
+    if (!savedId) {
+      alert("프로젝트 저장에 실패하여 평가를 취소합니다.");
+      return;
+    }
+
+    // Warn about cost if necessary, or just run
+    const confirmed = window.confirm("워크플로우 평가는 다중 LLM 에이전트(Dataset 생성, 실행, 평가, 종합)를 활용하므로 다수의 API 호출이 발생합니다. (테스트 케이스 3개, 외부 API 노드가 있다면 그대로 1회 실행됩니다.)\\n\\n계속하시겠습니까?");
+    if (!confirmed) return;
+
+    setIsEvaluating(true);
+    setEvalStep(0);
+    setEvaluationReport(null);
+    setIsExecutionPanelOpen(true);
+    setExecutionPanelTab('evaluation');
+
+    // Simulate progress steps
+    const stepInterval = setInterval(() => {
+      setEvalStep(prev => (prev < 3 ? prev + 1 : prev));
+    }, 5000);
+
+    try {
+      const currentNodes = getNodes();
+      const currentEdges = getEdges();
+
+      const payload = {
+        project_id: savedId,
+        title: projectTitle,
+        description: projectDescription,
+        graph_data: {
+          nodes: currentNodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+          edges: currentEdges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
+        }
+      };
+
+      const res = await axios.post('/api/evaluate', payload, getAuthHeaders());
+      if (res.data.status === 'success') {
+        setEvaluationReport(res.data.report);
+      } else {
+        alert('평가 실패: ' + res.data.message);
+      }
+    } catch (error) {
+      console.error(error);
+      const detail = error.response?.data?.detail || error.message;
+      alert(`평가 중 오류가 발생했습니다: ${detail}`);
+    } finally {
+      clearInterval(stepInterval);
+      setIsEvaluating(false);
+    }
+  };
+
   const runFlow = async () => {
     // 자동 저장 (실행 전)
     const savedId = await handleSave();
@@ -1071,11 +1129,19 @@ function FlowContent() {
             </button>
           </div>
 
-          {/* Primary Action */}
-          <button className="btn-run" onClick={runFlow} disabled={isLoading} style={{ marginLeft: '0.5rem' }}>
-            <Play size={18} />
-            {isLoading ? '실행 중...' : '실행'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.5rem' }}>
+            {/* Evaluation Action */}
+            <button className="btn-secondary" onClick={evaluateFlow} disabled={isEvaluating || isLoading} style={{ color: '#10b981', borderColor: '#10b981' }}>
+              <TestTube size={18} />
+              {isEvaluating ? '평가 중...' : '평가'}
+            </button>
+            
+            {/* Primary Action */}
+            <button className="btn-run" onClick={runFlow} disabled={isLoading || isEvaluating}>
+              <Play size={18} />
+              {isLoading ? '실행 중...' : '실행'}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -1377,17 +1443,53 @@ function FlowContent() {
           bottom: 0,
           left: 0,
           right: 0,
-          height: '35vh',
+          height: `${executionPanelHeight}px`,
           minHeight: '250px',
+          maxHeight: '90vh',
           background: 'var(--card-bg)',
           borderTop: '1px solid var(--border-color)',
           zIndex: 900,
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 -10px 30px rgba(0,0,0,0.5)',
-          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
           transform: 'translateY(0)'
         }}>
+          {/* Resize Handle */}
+          <div 
+            style={{
+              height: '8px',
+              width: '100%',
+              background: 'transparent',
+              cursor: 'ns-resize',
+              position: 'absolute',
+              top: '-4px',
+              zIndex: 901,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const startY = e.clientY;
+              const startHeight = executionPanelHeight;
+              
+              const onMouseMove = (moveEvent) => {
+                const delta = startY - moveEvent.clientY;
+                setExecutionPanelHeight(Math.max(250, Math.min(window.innerHeight * 0.9, startHeight + delta)));
+              };
+              
+              const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+              };
+              
+              document.addEventListener('mousemove', onMouseMove);
+              document.addEventListener('mouseup', onMouseUp);
+            }}
+          >
+            <div style={{ width: '40px', height: '4px', background: 'var(--border-color)', borderRadius: '2px', opacity: 0.5 }}></div>
+          </div>
+
           {/* Header & Tabs */}
           <div style={{
             display: 'flex',
@@ -1429,18 +1531,46 @@ function FlowContent() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
-                  fontSize: '0.9rem'
+                  transition: 'all 0.2s'
                 }}
               >
-                <TerminalSquare size={16} /> 시스템 로그
+                <TerminalSquare size={16} /> 실행 로그 (Logs)
+              </button>
+              <button
+                onClick={() => setExecutionPanelTab('evaluation')}
+                style={{
+                  padding: '1rem 1.5rem',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: executionPanelTab === 'evaluation' ? '2px solid #10b981' : '2px solid transparent',
+                  color: executionPanelTab === 'evaluation' ? '#10b981' : 'var(--text-muted)',
+                  fontWeight: executionPanelTab === 'evaluation' ? 600 : 400,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <TestTube size={16} /> 평가 결과 (Eval)
               </button>
             </div>
-            <button
-              onClick={() => setIsExecutionPanelOpen(false)}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.5rem' }}
-            >
-              <X size={20} />
-            </button>
+
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                onClick={() => setIsExecutionPanelOpen(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '0.5rem',
+                  borderRadius: '4px',
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Content Area */}
@@ -1496,6 +1626,118 @@ function FlowContent() {
                 )}
                 <div ref={el => el?.scrollIntoView()} />
               </div>
+            )}
+            
+            {executionPanelTab === 'evaluation' && (
+                <div style={{ padding: '1.5rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto' }}>
+                  {isEvaluating ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '2rem' }}>
+                      <div className="spinner" style={{ width: '50px', height: '50px', border: '4px solid rgba(16, 185, 129, 0.2)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '300px' }}>
+                        {[
+                          "워크플로우 분석 및 Dataset 생성",
+                          "테스트 케이스 시뮬레이션 실행",
+                          "AI 심사위원의 결과 상세 채점",
+                          "최종 리포트 종합 및 제안 도출"
+                        ].map((stepText, idx) => {
+                          const isActive = evalStep === idx;
+                          const isDone = evalStep > idx;
+                          return (
+                            <div key={idx} style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '1rem',
+                              opacity: isDone ? 0.6 : isActive ? 1 : 0.3,
+                              transition: 'opacity 0.3s'
+                            }}>
+                              <div style={{ 
+                                width: '24px', height: '24px', 
+                                borderRadius: '50%', 
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                background: isDone ? '#10b981' : isActive ? 'transparent' : 'rgba(255,255,255,0.1)',
+                                border: isActive ? '2px solid #10b981' : 'none',
+                                color: isDone ? '#fff' : isActive ? '#10b981' : '#888',
+                                fontSize: '0.8rem',
+                                fontWeight: 'bold'
+                              }}>
+                                {isDone ? '✓' : (idx + 1)}
+                              </div>
+                              <span style={{ 
+                                color: isActive ? '#10b981' : 'var(--text-color)', 
+                                fontWeight: isActive ? 600 : 400 
+                              }}>
+                                {stepText}
+                                {isActive && <span style={{ animation: 'blink 1.5s infinite' }}>...</span>}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : evaluationReport ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', background: 'var(--card-bg)', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100px', height: '100px', borderRadius: '50%', border: `8px solid ${evaluationReport.score >= 80 ? '#10b981' : evaluationReport.score >= 50 ? '#f59e0b' : '#ef4444'}` }}>
+                          <span style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-color)' }}>{evaluationReport.score}</span>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-color)' }}>종합 평가 리포트</h3>
+                          <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.5 }}>{evaluationReport.summary}</p>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <h4 style={{ margin: '0 0 1rem 0', color: 'var(--text-color)' }}>테스트 케이스 상세</h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          {evaluationReport.test_results?.map((tc, idx) => (
+                            <div key={idx} style={{ background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1.2rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text-color)' }}>Test Case {idx + 1}</span>
+                                <span style={{ fontWeight: 600, color: tc.score >= 40 ? '#10b981' : tc.score >= 25 ? '#f59e0b' : '#ef4444' }}>Score: {tc.score}/50</span>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                                <div>
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>입력 (Input)</div>
+                                  <div style={{ background: 'var(--card-bg)', padding: '0.8rem', borderRadius: '6px', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{tc.input}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>예상 동작 (Expected)</div>
+                                  <div style={{ background: 'var(--card-bg)', padding: '0.8rem', borderRadius: '6px', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{tc.expected}</div>
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>실제 결과 (Actual)</div>
+                                <div style={{ background: tc.error ? 'rgba(239, 68, 68, 0.1)' : 'var(--card-bg)', border: tc.error ? '1px solid rgba(239, 68, 68, 0.3)' : 'none', padding: '0.8rem', borderRadius: '6px', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>
+                                  {tc.error ? tc.error : tc.actual}
+                                </div>
+                              </div>
+                              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>AI 심사위원 피드백</div>
+                                <div style={{ color: 'var(--text-color)', fontSize: '0.9rem', lineHeight: 1.5 }}>{tc.feedback}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {evaluationReport.suggestions?.length > 0 && (
+                        <div>
+                          <h4 style={{ margin: '0 0 1rem 0', color: '#f59e0b' }}>💡 개선 제안</h4>
+                          <ul style={{ margin: 0, paddingLeft: '1.5rem', color: 'var(--text-color)', lineHeight: 1.6 }}>
+                            {evaluationReport.suggestions.map((sug, idx) => (
+                              <li key={idx} style={{ marginBottom: '0.5rem' }}>{sug}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>상단의 '평가' 버튼을 눌러 워크플로우를 채점해보세요.</span>
+                    </div>
+                  )}
+                </div>
             )}
           </div>
         </div>

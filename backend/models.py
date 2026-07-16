@@ -122,3 +122,16 @@ class ChatSession(Base):
     
     user = relationship("User", backref="chat_sessions")
 
+class EvaluationLog(Base):
+    __tablename__ = "evaluation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    project_id = Column(Integer, nullable=True, index=True)
+    score = Column(Integer, default=0)
+    report = Column(JSON, default=dict)
+    test_case_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id], backref="evaluation_logs")
+
