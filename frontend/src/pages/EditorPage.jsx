@@ -701,10 +701,20 @@ function FlowContent() {
         delete nData.onChange;
         delete nData.onDelete;
         delete nData.onExpandChange;
+        delete nData.onClearAIHighlight;
+        delete nData.isAIModified;
+        delete nData.aiChanges;
         return { id: n.id, type: n.type, position: n.position, data: nData };
       }),
       edges: getEdges()
     };
+  };
+
+  const handleClearAllHighlights = () => {
+    setNodes(nds => nds.map(nd => ({
+      ...nd,
+      data: { ...nd.data, isAIModified: false, aiChanges: null }
+    })));
   };
 
   const handleSendChat = async () => {
@@ -751,19 +761,20 @@ function FlowContent() {
           const oldNode = currentNodes.find(on => String(on.id) === String(n.id));
           const isNew = !oldNode;
 
-          // data 중 onChange, onDelete 등을 제외하고 실제 내용만 비교
-          const cleanOldData = oldNode ? { ...oldNode.data } : {};
-          delete cleanOldData.onChange;
-          delete cleanOldData.onDelete;
-          delete cleanOldData.onClearAIHighlight;
-          delete cleanOldData.isAIModified;
+          const stripUIProps = (dataObj) => {
+            if (!dataObj) return {};
+            const clean = { ...dataObj };
+            delete clean.onChange;
+            delete clean.onDelete;
+            delete clean.onExpandChange;
+            delete clean.onClearAIHighlight;
+            delete clean.isAIModified;
+            delete clean.aiChanges;
+            return clean;
+          };
 
-          const cleanNewData = { ...n.data };
-          delete cleanNewData.onChange;
-          delete cleanNewData.onDelete;
-          delete cleanNewData.onClearAIHighlight;
-          delete cleanNewData.isAIModified;
-          delete cleanNewData.aiChanges;
+          const cleanOldData = stripUIProps(oldNode ? oldNode.data : null);
+          const cleanNewData = stripUIProps(n.data);
 
           let aiChanges = [];
           if (oldNode) {
@@ -802,7 +813,8 @@ function FlowContent() {
 
         if (newLogs.length > 1) {
           setSystemLogs(prev => [...prev, ...newLogs]);
-          setIsTerminalOpen(true);
+          setIsExecutionPanelOpen(true);
+          setExecutionPanelTab('logs');
         }
       }
     } catch (error) {
@@ -1080,6 +1092,7 @@ function FlowContent() {
             onDrop={onDrop}
             onDragOver={onDragOver}
             onNodeDragStop={onNodeDragStop}
+            onPaneClick={handleClearAllHighlights}
             nodeTypes={nodeTypes}
             defaultEdgeOptions={{
               style: { strokeWidth: 2, stroke: 'var(--text-muted)' },
