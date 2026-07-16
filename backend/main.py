@@ -107,10 +107,15 @@ async def upload_file(file: UploadFile = File(...)):
     Receives a file from the frontend and saves it to the uploads/ directory.
     Returns the file path.
     """
-    file_path = os.path.join("uploads", file.filename)
+    # Prevent path traversal by extracting only the base filename
+    safe_filename = os.path.basename(file.filename)
+    if not safe_filename:
+        safe_filename = str(uuid.uuid4())
+        
+    file_path = os.path.join("uploads", safe_filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    return {"status": "success", "file_path": file_path, "filename": file.filename}
+    return {"status": "success", "file_path": file_path, "filename": safe_filename}
 
 security = HTTPBearer(auto_error=False)
 
@@ -552,19 +557,15 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다. 토큰을 충전해 주세요.")
 
-    import json
-    with open("payload_debug.json", "w", encoding="utf-8") as f:
-        json.dump(payload.dict(), f, ensure_ascii=False, indent=2)
-        
     # 1. Run LangGraph
     try:
         result_text, tokens, logs = run_workflow(payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id)
         
         # Check if run_workflow returned an error string
         if "► Flow 1 Error:" in result_text or "Error calling model" in result_text:
-            if "RESOURCE_EXHAUSTED" in result_text or "429" in result_text:
+            if "RESOURCE_EXHAUSTED" in result_text or "429" in result_text or "Quota exceeded" in result_text:
                 result_text = "❌ AI API 크레딧이 소진되었습니다. AI Studio 또는 OpenAI에서 크레딧을 충전해 주세요."
-            elif "AuthenticationError" in result_text or "401" in result_text:
+            elif "AuthenticationError" in result_text or "401" in result_text or "API_KEY_INVALID" in result_text:
                 result_text = "❌ AI API 키가 유효하지 않습니다. .env 파일의 API 키를 확인해 주세요."
             elif "Network" in result_text or "Connection" in result_text:
                 result_text = f"❌ 네트워크 오류가 발생했습니다."
@@ -577,9 +578,9 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
         tokens = {}
         logs = []
         # API 크레딧 소진 오류 안내
-        if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+        if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg or "Quota exceeded" in error_msg:
             result_text = "❌ AI API 크레딧이 소진되었습니다. AI Studio 또는 OpenAI에서 크레딧을 충전해 주세요."
-        elif "AuthenticationError" in error_msg or "401" in error_msg:
+        elif "AuthenticationError" in error_msg or "401" in error_msg or "API_KEY_INVALID" in error_msg:
             result_text = "❌ AI API 키가 유효하지 않습니다. .env 파일의 API 키를 확인해 주세요."
         elif "Network" in error_msg or "Connection" in error_msg:
             result_text = f"❌ 네트워크 오류가 발생했습니다: {error_msg}"
@@ -806,6 +807,24 @@ def get_chat_session(project_id: str, user: models.User = Depends(get_current_us
             "updated_at": session.updated_at.isoformat()
         }
     }
+
+@app.delete("/api/chat/session/{session_id}")
+def delete_chat_session(session_id: int, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    session = db.query(models.ChatSession).filter(
+        models.ChatSession.id == session_id,
+        models.ChatSession.user_id == user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+        
+    db.delete(session)
+    db.commit()
+    
+    return {"status": "success"}
 
 @app.post("/api/deploy/{project_id}")
 async def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db)):
@@ -1544,6 +1563,8 @@ def reject_friend_request(request_id: int, user: models.User = Depends(get_curre
     db.delete(req)
     db.commit()
     return {"status": "success", "message": "친구 신청을 거절했습니다."}
+
+
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

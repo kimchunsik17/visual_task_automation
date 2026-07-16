@@ -78,8 +78,9 @@ def compile_workflow(nodes: list, edges: list) -> str:
         roots = [n for n in nodes if n['id'] not in has_incoming and not n.get('parentNode') and n['type'] != 'llmNode' and n['id'] not in tool_node_ids]
         
         if not roots:
-            # Final fallback
-            roots = [n for n in nodes if not n.get('parentNode')]
+            # Final fallback: probably a cycle with no start node. Pick the first top-level node.
+            top_level = [n for n in nodes if not n.get('parentNode')]
+            roots = [top_level[0]] if top_level else []
             
     if not roots:
         return "Error: No valid starting node found."
