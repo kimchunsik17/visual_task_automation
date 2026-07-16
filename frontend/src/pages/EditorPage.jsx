@@ -1224,9 +1224,22 @@ function FlowContent() {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'flex-start'
+              alignItems: 'flex-start',
+              gap: '8px'
             }}>
-              <div style={{
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '28px', height: '28px', borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #c084fc, #9333ea)',
+                  display: 'flex', justifyContent: 'center', alignItems: 'center',
+                  color: '#fff',
+                  boxShadow: '0 2px 4px rgba(147, 51, 234, 0.3)'
+                }}>
+                  <Bot size={16} />
+                </div>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>AI가 워크플로우를 그리고 있습니다...</span>
+              </div>
+              <div className="chat-bubble-generating" style={{
                 maxWidth: '85%',
                 padding: '0.75rem 1rem',
                 borderRadius: '12px',
@@ -1234,13 +1247,13 @@ function FlowContent() {
                 color: 'var(--text-color)',
                 fontSize: '0.9rem',
                 lineHeight: '1.4',
-                border: '1px solid var(--border-color)',
+                border: '1px solid #8b5cf6',
                 borderBottomLeftRadius: '4px'
               }}>
                 <div className="typing-indicator" style={{ border: 'none', background: 'transparent', padding: 0, boxShadow: 'none', marginTop: 0 }}>
-                  <div className="typing-dot"></div>
-                  <div className="typing-dot"></div>
-                  <div className="typing-dot"></div>
+                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
+                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
+                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
                 </div>
               </div>
             </div>

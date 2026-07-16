@@ -145,11 +145,10 @@ NODE_CATALOG = """\
 # LLM이 추측하면 안 되므로 항상 None으로 초기화하고, auto_layout에서 채운다.
 NodeType = Literal[
     "startNode", "promptNode", "llmNode", "tokenizerNode", "conditionNode",
-    "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode",
-    "webCrawlerNode", "outputNode", "valueNode", "distributorNode", "breakNode",
-    "templateAnalyzerNode", "fileModifierNode", "emailNode", "databaseNode",
-    "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
-    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode"
+    "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode", "webCrawlerNode",
+    "outputNode", "valueNode", "distributorNode", "breakNode", "templateAnalyzerNode", "fileModifierNode",
+    "emailNode", "databaseNode", "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
+    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode", "webhookNode", "paymentLinkNode"
 ]
 
 
