@@ -220,11 +220,11 @@ def get_llm(session_id=None, tags=None):
     if has_langfuse:
         if tags is None:
             tags = ["agent_generation"]
+        handler = CallbackHandler()
+        metadata = {}
         if session_id:
-            handler = CallbackHandler(session_id=f"generation-{session_id}", tags=tags)
-        else:
-            handler = CallbackHandler(tags=tags)
-        llm = llm.with_config(callbacks=[handler])
+            metadata["langfuse_session_id"] = f"generation-{session_id}"
+        llm = llm.with_config(callbacks=[handler], metadata=metadata, tags=tags)
     return llm
     # Gemini로 되돌리려면 위 두 줄 대신:
     # from langchain_google_genai import ChatGoogleGenerativeAI
