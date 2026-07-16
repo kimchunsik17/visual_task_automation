@@ -14,6 +14,7 @@ import SchedulerPage from './pages/SchedulerPage';
 import WebhookManagerPage from './pages/WebhookManagerPage';
 import AppViewerPage from './pages/AppViewerPage';
 import ApiCenterPage from './pages/ApiCenterPage';
+import CustomAlert from './CustomAlert';
 
 function App() {
   useEffect(() => {
@@ -47,6 +48,7 @@ function App() {
         <Route path="/scheduler" element={<SchedulerPage />} />
         <Route path="/statistics" element={<StatisticsPage />} />
       </Routes>
+      <CustomAlert />
     </Router>
   );
 }

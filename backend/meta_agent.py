@@ -1311,11 +1311,6 @@ def _validate_node_data(n: FlowNode) -> List[str]:
         if mode not in ("supervisor", "group_chat"):
             errors.append(f"{n.id}(multiAgentNode)의 mode는 'supervisor' 또는 'group_chat'이어야 한다 (현재: {mode!r})")
 
-    # TODO(가드레일 미구현 — 2026-07-15 예나 결정: 리스크 알고 지금은 제약 없이 추가함, 나중에 추가할 것):
-    #   1) query가 SELECT로 시작하지 않으면 에러 처리(INSERT/UPDATE/DELETE/DROP/ALTER 등 차단)
-    #   2) AGENT_SYSTEM_PROMPT에 "파괴적 쿼리는 실행 전 사용자 확인" 지시 추가
-    #      (generate_flow는 구조화 출력 강제라 되묻기 불가 — ReAct 에이전트 도구 호출 레이어에서만 가능)
-    #   3) show_flow/_summarize_node_data에서 connectionString 마스킹(현재는 평문 노출)
     elif n.type == "databaseNode":
         if not d.get("connectionString"):
             errors.append(f"{n.id}(databaseNode)에 connectionString이 없다")
@@ -1323,9 +1318,9 @@ def _validate_node_data(n: FlowNode) -> List[str]:
         if not query:
             errors.append(f"{n.id}(databaseNode)에 query가 없다")
         else:
-            # 가드레일: 구조/권한을 파괴하는 쿼리는 무조건 막고, WHERE 없는 DELETE/UPDATE(테이블
-            # 전체 대상)도 막는다. 세미콜론으로 여러 문장이 이어질 수 있어 문장 단위로 검사한다.
-            blocked = {"DROP", "TRUNCATE", "ALTER", "GRANT", "REVOKE"}
+            # 가드레일: 데이터베이스 보호를 위해 SELECT(또는 WITH) 쿼리만 허용합니다.
+            # INSERT, UPDATE, DELETE, DROP 등 파괴적 쿼리나 데이터 변경 쿼리는 차단합니다.
+            allowed_starts = {"SELECT", "WITH"}
             for stmt in query.split(";"):
                 stmt = stmt.strip()
                 if not stmt:
@@ -1333,16 +1328,13 @@ def _validate_node_data(n: FlowNode) -> List[str]:
                 stmt_upper = stmt.upper()
                 m = re.match(r"^(\w+)", stmt_upper)
                 first_word = m.group(1) if m else ""
-                if first_word in blocked:
+                
+                if first_word not in allowed_starts:
                     errors.append(
-                        f"{n.id}(databaseNode)의 query에 '{first_word}' 같은 구조 파괴/권한 변경 쿼리는 허용되지 않는다 — "
-                        "테이블/스키마를 통째로 지우거나 권한을 바꾸는 작업은 이 노드로 실행할 수 없다"
+                        f"{n.id}(databaseNode)의 query에 '{first_word}' 명령어는 허용되지 않습니다. "
+                        "보안 및 무결성을 위해 이 노드에서는 오직 SELECT 쿼리만 실행할 수 있습니다."
                     )
-                elif first_word in ("DELETE", "UPDATE") and not re.search(r"\bWHERE\b", stmt_upper):
-                    errors.append(
-                        f"{n.id}(databaseNode)의 {first_word} 쿼리에 WHERE 조건이 없다 — "
-                        "조건 없이 실행하면 테이블의 모든 행이 삭제/변경된다. 대상을 좁히는 WHERE 절을 추가하라"
-                    )
+                    break # 한 문장이라도 위반하면 차단
 
     # startNode·outputNode·valueNode·distributorNode·breakNode는 data가 없어도(또는 비어있어도)
     # 실행이 깨지지 않으므로 필수 필드 에러로 보진 않는다.
@@ -1808,8 +1800,6 @@ AGENT_SYSTEM_PROMPT = (
     '답변에서 "테스트용으로 \'Hello, how are you?\'라는 예시 문장을 넣어뒀어요. 실제로 실행할 때는 그때 '
     '입력하는 문장이 대신 들어갑니다." 처럼 그대로 안내한다\n'
     '- 사용자: "안녕" → 도구 호출 없이 그냥 인사만 한다 (예: "안녕하세요! 어떤 워크플로우를 만들어드릴까요?")\n'
-    '- 사용자: "채용 자동화 봇 만들어줘" (단순한 요청) → 사용자가 구체적으로 말하지 않아도 RAG로 제공된 템플릿들을 참고하여 예외 처리, 실패 알림, 분기 등을 포함한 [크고 복잡한 비선형적 워크플로우]를 상상한 뒤, 이 복잡한 내용을 구체적인 문자열로 만들어서 `generate_flow("입력: ... 조건분기: ... 알림: ...")` 도구 하나에 인자로 넘겨 한 번에 완성한다.\n'
-    '- ⚠️ 단, 유추한 로직이 사용자의 원래 목적 자체를 완전히 벗어나는 경우(예: 채용을 물어봤는데 마케팅 봇을 만드는 경우)에만 채팅창에서 2~3가지 선택지를 제안하여 묻고, 그 외에는 사용자가 묻지 않은 디테일까지 전부 살을 붙여서 최대한 복잡하고 멋진 노드 그래프를 바로 생성한다.\n'
     "# ↑ 초안 5개. 실패 사례 생기는 대로 팀원 C가 계속 보강할 자리."
 )
 
@@ -1831,20 +1821,37 @@ def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpoint
     from langchain.agents import create_agent
 
     tools, get_current_graph = make_tools(graph_data, complexity_level=complexity_level)
+    
+    prompt = AGENT_SYSTEM_PROMPT
+    if complexity_level == "high":
+        prompt += (
+            '\n- 사용자: "채용 자동화 봇 만들어줘" (단순한 요청) → 사용자가 구체적으로 말하지 않아도 예외 처리, '
+            '실패 알림, 분기 등을 포함한 [크고 복잡한 비선형적 워크플로우]를 상상한 뒤, 이 복잡한 내용을 '
+            '구체적인 문자열로 만들어서 `generate_flow("입력: ... 조건분기: ... 알림: ...")` 도구 하나에 인자로 '
+            '넘겨 한 번에 완성한다.\n'
+            '- ⚠️ 단, 유추한 로직이 원래 목적을 벗어나는 경우에만 묻고, 그 외에는 사용자가 묻지 않은 디테일까지 '
+            '전부 살을 붙여서 최대한 복잡하고 멋진 노드 그래프를 바로 생성한다.\n'
+        )
+    elif complexity_level == "low":
+        prompt += (
+            '\n- ⚠️ [빠름 모드 주의] 사용자가 짧게 요청하면, 상상해서 살을 붙이지 말고 최대한 단순하고 직관적으로 '
+            '요청된 필수 기능만 포함하여 `generate_flow`에 넘겨라. 복잡한 예외 처리나 알림 노드를 임의로 추가하지 마라.\n'
+        )
+
     agent = create_agent(
         get_llm(),
         tools=tools,
-        system_prompt=AGENT_SYSTEM_PROMPT,
+        system_prompt=prompt,
         checkpointer=checkpointer or _get_default_checkpointer(),
     )
     return agent, get_current_graph
 
 
-def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_level: str = "low", checkpointer=None) -> Tuple[str, dict]:
+async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_level: str = "low", checkpointer=None) -> Tuple[str, dict]:
     """대화 한 턴을 실행한다. /api/chat은 이 함수를 그대로 감싸기만 하면 된다.
 
     흐름: graph_data(raw dict, 프론트가 보낸 것) → FlowGraph로 파싱 → 이번 요청 전용 에이전트 조립
-    → agent.invoke → 끝나면 최종 완결성 게이트(validate_flow, require_complete=True 기본값) →
+    → agent.ainvoke → 끝나면 최종 완결성 게이트(validate_flow, require_complete=True 기본값) →
     통과하면 auto_layout한 graph_data, 실패하면 원본 graph_data 그대로 반환.
 
     반환: (reply: str, graph_data: dict) — API 응답 {reply, graph_data}에 그대로 매핑된다.
@@ -1862,7 +1869,7 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_le
     # 추가적인 프롬프트 조작(rag_context 첨부)은 하지 않습니다.
     final_message = message
 
-    result = agent.invoke(
+    result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": final_message}]},
         {"configurable": {"thread_id": thread_id}},
     )

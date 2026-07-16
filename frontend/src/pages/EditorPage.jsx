@@ -34,9 +34,9 @@ const getLayoutedElements = (nodes, edges, direction = 'LR') => {
   // nodesep: vertical distance between nodes in the same layer
   dagreGraph.setGraph({ 
     rankdir: direction, 
-    ranksep: 250, 
-    nodesep: 150,
-    edgesep: 100
+    ranksep: 150, 
+    nodesep: 80,
+    edgesep: 50
   });
 
   nodes.forEach((node) => {
@@ -183,6 +183,7 @@ function FlowContent() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [complexityLevel, setComplexityLevel] = useState('low');
   const messagesEndRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -780,6 +781,12 @@ function FlowContent() {
     })));
   };
 
+  const handleCancelChat = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
   const handleSendChat = async () => {
     if (!chatInput.trim()) return;
 
@@ -801,7 +808,12 @@ function FlowContent() {
         graph_data: getCurrentFlowData(),
         complexity_level: complexityLevel,
       };
-      const res = await axios.post('/api/chat', payload, getAuthHeaders());
+      
+      abortControllerRef.current = new AbortController();
+      const res = await axios.post('/api/chat', payload, {
+        ...getAuthHeaders(),
+        signal: abortControllerRef.current.signal
+      });
       const { reply, graph_data } = res.data;
 
       if (reply) {
@@ -881,6 +893,13 @@ function FlowContent() {
         }
       }
     } catch (error) {
+      if (axios.isCancel(error)) {
+        setChatMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: '사용자에 의해 생성이 취소되었습니다.' }
+        ]);
+        return;
+      }
       console.error(error);
       setChatMessages(prev => [
         ...prev,
@@ -927,7 +946,7 @@ function FlowContent() {
     <div className="app-container">
       <header className="header" style={{ position: 'relative', padding: '0.8rem 1.5rem', background: 'var(--card-bg)', borderBottom: '1px solid var(--border-color)', zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button onClick={() => navigate('/')} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: 0 }}>
+          <button onClick={() => navigate(-1)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: 0 }}>
             <ArrowLeft size={18} />
           </button>
 
@@ -1081,7 +1100,7 @@ function FlowContent() {
               <Folder size={16} />
             </button>
             {currentId && (
-              <button className="btn-secondary" onClick={() => navigate(`/project/${currentId}/runs`)} style={{ color: '#10b981', borderColor: '#10b981' }} title="실행 기록">
+              <button className="btn-secondary" onClick={() => navigate(`/project/${currentId}/runs`, { state: { fromEditor: true } })} style={{ color: '#10b981', borderColor: '#10b981' }} title="실행 기록">
                 <History size={16} />
               </button>
             )}
@@ -1414,24 +1433,45 @@ function FlowContent() {
                 fontSize: '0.9rem'
               }}
             />
-            <button 
-              onClick={handleSendChat}
-              disabled={!chatInput.trim()}
-              style={{
-                background: chatInput.trim() ? 'var(--primary-color)' : 'var(--btn-active-bg)',
-                border: 'none',
-                borderRadius: '8px',
-                width: '44px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--text-color)',
-                cursor: chatInput.trim() ? 'pointer' : 'not-allowed',
-                transition: 'background 0.2s'
-              }}
-            >
-              <Send size={18} />
-            </button>
+            {isChatLoading ? (
+              <button 
+                onClick={handleCancelChat}
+                style={{
+                  background: '#ef4444',
+                  border: 'none',
+                  borderRadius: '8px',
+                  width: '44px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s'
+                }}
+                title="생성 취소"
+              >
+                <Square size={16} fill="currentColor" />
+              </button>
+            ) : (
+              <button 
+                onClick={handleSendChat}
+                disabled={!chatInput.trim()}
+                style={{
+                  background: chatInput.trim() ? 'var(--primary-color)' : 'var(--btn-active-bg)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  width: '44px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--text-color)',
+                  cursor: chatInput.trim() ? 'pointer' : 'not-allowed',
+                  transition: 'background 0.2s'
+                }}
+              >
+                <Send size={18} />
+              </button>
+            )}
           </div>
         </div>
       </div>

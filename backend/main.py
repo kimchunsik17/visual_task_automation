@@ -838,8 +838,11 @@ def compile_flow(payload: FlowPayload):
     compiled_code = compile_workflow(payload.nodes, payload.edges)
     return {"status": "success", "code": compiled_code}
 
+import asyncio
+from starlette.concurrency import run_in_threadpool
+
 @app.post("/api/chat")
-def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     자연어로 flow(graph_data)를 생성/수정하는 메타 에이전트 챗봇.
     project_id를 LangGraph thread_id로 써서 같은 프로젝트 안에서는 대화 맥락이 이어진다.
@@ -850,7 +853,7 @@ def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_curren
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
 
     try:
-        reply, graph_data = run_agent_turn(
+        reply, graph_data = await run_agent_turn(
             payload.graph_data,
             payload.message,
             thread_id=f"project-{payload.project_id}",
@@ -859,31 +862,47 @@ def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_curren
         
         # ChatSession 저장 로직
         if user:
-            session = db.query(models.ChatSession).filter(
-                models.ChatSession.user_id == user.id,
-                models.ChatSession.project_id == str(payload.project_id)
-            ).first()
-            
-            if not session:
-                title = payload.message[:30] + "..." if len(payload.message) > 30 else payload.message
-                session = models.ChatSession(
-                    user_id=user.id,
-                    project_id=str(payload.project_id),
-                    title=title,
-                    messages=[]
-                )
-                db.add(session)
+            def save_session():
+                session = db.query(models.ChatSession).filter(
+                    models.ChatSession.user_id == user.id,
+                    models.ChatSession.project_id == str(payload.project_id)
+                ).first()
+                
+                if not session:
+                    try:
+                        from langchain_openai import ChatOpenAI
+                        from langchain_core.messages import SystemMessage, HumanMessage
+                        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+                        res = llm.invoke([
+                            SystemMessage(content="주어진 사용자의 요청을 바탕으로 워크플로우 대화 기록의 제목을 15자 내외로 매우 짧게 요약해줘. 따옴표 없이 결과만 출력해. (예: 해커뉴스 요약 봇, 날씨 알리미 등)"),
+                            HumanMessage(content=payload.message)
+                        ])
+                        title = res.content.strip().replace('"', '').replace("'", "")
+                    except Exception as e:
+                        title = payload.message[:30] + "..." if len(payload.message) > 30 else payload.message
+                    session = models.ChatSession(
+                        user_id=user.id,
+                        project_id=str(payload.project_id),
+                        title=title,
+                        messages=[]
+                    )
+                    db.add(session)
+                    db.commit()
+                    db.refresh(session)
+                
+                # messages는 리스트인데, SQLAlchemy JSON 필드는 기본적으로 리스트를 반환할 수 있으나 할당 시 새 객체로 줘야 변경감지가 됨
+                msgs = list(session.messages) if session.messages else []
+                msgs.append({"role": "user", "content": payload.message})
+                msgs.append({"role": "ai", "content": reply})
+                session.messages = msgs
                 db.commit()
-                db.refresh(session)
-            
-            # messages는 리스트인데, SQLAlchemy JSON 필드는 기본적으로 리스트를 반환할 수 있으나 할당 시 새 객체로 줘야 변경감지가 됨
-            msgs = list(session.messages) if session.messages else []
-            msgs.append({"role": "user", "content": payload.message})
-            msgs.append({"role": "ai", "content": reply})
-            session.messages = msgs
-            db.commit()
+                
+            await run_in_threadpool(save_session)
 
         return {"status": "success", "reply": reply, "graph_data": graph_data}
+    except asyncio.CancelledError:
+        print(f"Chat generation cancelled by client for project {payload.project_id}")
+        return {"status": "cancelled", "message": "Client disconnected or cancelled"}
     except Exception as e:
         import traceback
         traceback.print_exc()

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, CheckCircle2, XCircle, Clock, Database, ChevronDown, ChevronRight, Zap, TestTube } from 'lucide-react';
 import './ProjectRunsPage.css';
@@ -7,6 +7,7 @@ import './ProjectRunsPage.css';
 function ProjectRunsPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [activeTab, setActiveTab] = useState('runs'); // 'runs' or 'evaluations'
   
@@ -105,7 +106,13 @@ function ProjectRunsPage() {
     <div className="runs-page-container">
       <header className="runs-header">
         <div className="runs-header-left">
-          <button className="back-btn" onClick={() => navigate(`/editor/${projectId}`)}>
+          <button className="back-btn" onClick={() => {
+            if (location.state?.fromEditor) {
+              navigate(-1);
+            } else {
+              navigate(`/editor/${projectId}`);
+            }
+          }}>
             <ArrowLeft size={18} />
             <span>Back to Editor</span>
           </button>

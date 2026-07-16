@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, ArrowRight, Clock, Box, RefreshCw, Trash2 } from 'lucide-react';
+import { MessageSquare, ArrowRight, Clock, Box, RefreshCw, Trash2, Plus } from 'lucide-react';
 import './ChatSidebar.css';
 
 const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
@@ -48,9 +48,8 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
       });
       // 성공 시 목록 다시 불러오기
       fetchSessions();
-      if (currentSessionId === sessionId) {
-        navigate('/chat'); // 현재 열려있는 세션을 삭제했다면 메인으로 이동
-      }
+      // 만약 현재 열려있는 세션이 삭제되었다면 메인 화면 상태로 돌리기 위해 선택 초기화 콜백 호출 가능
+      // (현재는 에러를 방지하기 위해 undefined 변수 참조를 제거함)
     } catch (error) {
       console.error("Failed to delete session:", error);
       alert("삭제에 실패했습니다.");
@@ -72,9 +71,18 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
           <MessageSquare size={18} color="#a78bfa" />
           <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-color)' }}>대화 기록</h2>
         </div>
-        <button className="btn-refresh" onClick={fetchSessions} title="새로고침">
-          <RefreshCw size={14} className={loading ? "spin" : ""} />
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            className="btn-refresh" 
+            onClick={() => navigate('/', { state: { newChat: true } })} 
+            title="새 채팅 시작"
+          >
+            <Plus size={16} />
+          </button>
+          <button className="btn-refresh" onClick={fetchSessions} title="새로고침">
+            <RefreshCw size={14} className={loading ? "spin" : ""} />
+          </button>
+        </div>
       </div>
       
       <div className="chat-sidebar-content">
@@ -92,48 +100,17 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
                   if (onSelectSession) {
                     onSelectSession(session);
                   } else {
-                    if (session.is_existing_project) {
-                      navigate(`/editor/${session.project_id}`);
-                    } else {
-                      navigate(`/`);
-                    }
+                    navigate('/', { state: { session } });
                   }
                 }}
                 style={{ cursor: 'pointer' }}
               >
                 <div className="session-header">
-                  <span className="session-title">{session.title}</span>
-                  <span className="session-date"><Clock size={12}/> {formatDate(session.updated_at)}</span>
-                </div>
-                <div className="session-footer">
-                  <div className="session-meta">
-                    <MessageSquare size={12}/> 메시지 {session.messages?.length || 0}개
-                    {session.is_existing_project && (
-                      <span className="project-badge"><Box size={12}/> 연결됨</span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button 
-                      className="btn-delete-session"
-                      onClick={(e) => handleDeleteSession(e, session.id)}
-                      title="대화 기록 삭제"
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--text-muted)',
-                        cursor: 'pointer',
-                        padding: '4px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '4px',
-                        transition: 'background 0.2s, color 0.2s'
-                      }}
-                      onMouseOver={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
-                      onMouseOut={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                  <MessageSquare size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                  <span className="session-title" title={session.title}>{session.title}</span>
+                  {session.is_existing_project && <Box size={12} color="#10b981" title="앱 연동됨" style={{ flexShrink: 0 }} />}
+                  
+                  <div className="session-actions">
                     {session.is_existing_project && (
                       <button 
                         className="btn-go-project"
@@ -143,9 +120,16 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
                         }}
                         title="해당 프로젝트 에디터로 이동"
                       >
-                        에디터 열기 <ArrowRight size={14} />
+                        <ArrowRight size={14} />
                       </button>
                     )}
+                    <button 
+                      className="btn-delete-session"
+                      onClick={(e) => handleDeleteSession(e, session.id)}
+                      title="대화 기록 삭제"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
               </div>

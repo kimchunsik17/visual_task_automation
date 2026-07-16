@@ -21,7 +21,7 @@ class UserApiKey(Base):
     __tablename__ = "user_api_keys"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     provider = Column(String, index=True) # e.g. openai, gemini, kakao, discord, slack
     api_key = Column(String) # Encrypted or raw for MVP
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -33,7 +33,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     title = Column(String, default="Untitled Project")
     description = Column(String, nullable=True)
     graph_data = Column(JSON, default=lambda: {"nodes": [], "edges": []})
@@ -83,7 +83,7 @@ class BotLog(Base):
     __tablename__ = "bot_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     username = Column(String)
     message = Column(String)
     response = Column(String)
@@ -103,8 +103,8 @@ class Friendship(Base):
     __tablename__ = "friendships"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
-    friend_id = Column(Integer, ForeignKey("users.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    friend_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     user = relationship("User", foreign_keys=[user_id], backref="friendships")
@@ -115,8 +115,8 @@ class FriendRequest(Base):
     __tablename__ = "friend_requests"
 
     id = Column(Integer, primary_key=True, index=True)
-    from_user_id = Column(Integer, ForeignKey("users.id"), index=True)
-    to_user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    from_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    to_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     status = Column(String, default="pending")  # 'pending', 'accepted', 'rejected'
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -126,7 +126,7 @@ class FriendRequest(Base):
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     project_id = Column(String, index=True, nullable=True) # string since it might be 'draft-123' or '45'
     title = Column(String)
     messages = Column(JSON, default=list) # [{role: 'user', content: '...'}, {role: 'ai', content: '...'}]
@@ -139,7 +139,7 @@ class EvaluationLog(Base):
     __tablename__ = "evaluation_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     project_id = Column(Integer, nullable=True, index=True)
     score = Column(Integer, default=0)
     report = Column(JSON, default=dict)

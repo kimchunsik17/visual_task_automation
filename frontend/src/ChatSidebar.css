@@ -79,84 +79,76 @@
 .chat-session-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
 .chat-session-item {
-  background: var(--bg-color);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 1rem;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  position: relative;
+  border: 1px solid transparent;
 }
 .chat-session-item:hover {
-  border-color: #a78bfa;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  background: var(--btn-active-bg);
 }
 
 .session-header {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
 }
 
 .session-title {
-  font-weight: 500;
-  font-size: 0.95rem;
+  font-weight: 400;
+  font-size: 0.9rem;
   color: var(--text-color);
-  line-height: 1.4;
-  word-break: break-word;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.session-date {
-  font-size: 0.75rem;
-  color: var(--text-muted);
+.session-actions {
   display: flex;
-  align-items: center;
   gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, transparent, var(--btn-active-bg) 20%, var(--btn-active-bg) 100%);
+  padding-left: 1rem;
 }
 
-.session-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px dashed var(--border-color);
-  padding-top: 12px;
+.chat-session-item:hover .session-actions {
+  opacity: 1;
 }
 
-.session-meta {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.project-badge {
-  background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
-  padding: 2px 6px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid rgba(16, 185, 129, 0.2);
-}
-
-.btn-go-project {
-  background: var(--primary-color);
-  color: white;
+.btn-delete-session, .btn-go-project {
+  background: transparent;
   border: none;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  cursor: pointer;
+  justify-content: center;
+  border-radius: 4px;
   transition: all 0.2s;
 }
+
+.btn-delete-session:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
 .btn-go-project:hover {
-  background: var(--primary-hover);
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
 }
