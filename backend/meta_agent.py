@@ -209,7 +209,7 @@ class FlowGraph(BaseModel):
 import os
 has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))
 if has_langfuse:
-    from langfuse.callback import CallbackHandler
+    from langfuse.langchain import CallbackHandler
 
 # ── LLM 준비 (제공자 교체 지점) ──────────────────────────────────────────
 def get_llm(session_id=None, tags=None):
