@@ -158,15 +158,20 @@ def compile_workflow(nodes: list, edges: list) -> str:
         if node['type'] == 'llmNode':
             node_id = node['id']
             model = node.get('data', {}).get('model', 'gemini-1.5-flash')
+            api_key = node.get('data', {}).get('apiKey', '')
+            
             sys_prompt = node.get('data', {}).get('systemPrompt', 'You are a helpful assistant.').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"    # --- LLM Node ({node_id}) ---")
             
             if model == "gpt-4o" or model == "gpt-4o-mini":
-                lines.append(f"    llm_{node_id} = ChatOpenAI(model=\"{model}\", max_retries=0)")
-            elif model == "claude-3-5-sonnet":
-                lines.append(f"    llm_{node_id} = ChatAnthropic(model_name=\"claude-3-5-sonnet-20240620\", max_retries=0)")
+                api_key_arg = f', api_key="{api_key}"' if api_key else ''
+                lines.append(f"    llm_{node_id} = ChatOpenAI(model=\"{model}\", max_retries=0{api_key_arg})")
+            elif "claude" in model:
+                api_key_arg = f', api_key="{api_key}"' if api_key else ''
+                lines.append(f"    llm_{node_id} = ChatAnthropic(model_name=\"{model}\", max_retries=0{api_key_arg})")
             else:
-                lines.append(f"    llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\", max_retries=0)")
+                api_key_arg = f', google_api_key="{api_key}"' if api_key else ''
+                lines.append(f"    llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\", max_retries=0{api_key_arg})")
                 
             lines.append(f"    sys_prompt_{node_id} = \"{sys_prompt}\"")
     
@@ -251,11 +256,33 @@ def compile_workflow(nodes: list, edges: list) -> str:
     return "\n".join(lines)
 
 
-def run_workflow(nodes: list, edges: list, db=None, **kwargs):
+def run_workflow(nodes: list, edges: list, db=None, project_id=None, **kwargs):
     """
     Compiles the graph into Python code and dynamically executes it using exec().
     Returns a tuple (result_text, token_usage_dict).
     """
+    if db and project_id:
+        import models
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+        if project and project.user_id:
+            api_keys = db.query(models.UserApiKey).filter(models.UserApiKey.user_id == project.user_id).all()
+            api_key_map = {f"{{{{API_CENTER:{k.provider}}}}}": k.api_key for k in api_keys}
+            
+            def replace_api_keys(obj):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        if isinstance(v, str) and v in api_key_map:
+                            obj[k] = api_key_map[v]
+                        elif isinstance(v, (dict, list)):
+                            replace_api_keys(v)
+                elif isinstance(obj, list):
+                    for i in range(len(obj)):
+                        if isinstance(obj[i], str) and obj[i] in api_key_map:
+                            obj[i] = api_key_map[obj[i]]
+                        elif isinstance(obj[i], (dict, list)):
+                            replace_api_keys(obj[i])
+            replace_api_keys(nodes)
+
     python_code = compile_workflow(nodes, edges)
     
     if python_code.startswith("Error"):

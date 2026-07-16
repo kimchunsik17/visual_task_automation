@@ -195,6 +195,78 @@ def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
         traceback.print_exc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid Google token: {str(e)}")
 
+
+class SudoAuthPayload(BaseModel):
+    token: str
+
+@app.post("/api/auth/sudo")
+def verify_sudo_token(payload: SudoAuthPayload, db: Session = Depends(get_db)):
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            payload.token, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID, 
+            clock_skew_in_seconds=600
+        )
+        google_id = idinfo['sub']
+        user = db.query(models.User).filter(models.User.google_id == google_id).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+            
+        sudo_token = jwt.encode(
+            {"user_id": user.id, "sudo": True, "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=15)},
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM
+        )
+        return {"sudo_token": sudo_token}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid Google token for sudo")
+
+def get_sudo_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    if not credentials:
+        raise HTTPException(status_code=401, detail="No sudo token")
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if not payload.get("sudo"):
+            raise HTTPException(status_code=403, detail="Not a sudo token")
+        user_id = payload.get("user_id")
+        return db.query(models.User).filter(models.User.id == user_id).first()
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid sudo token")
+
+class ApiKeyCreate(BaseModel):
+    provider: str
+    api_key: str
+
+@app.get("/api/user/apikeys")
+def get_api_keys(user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    keys = db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id).all()
+    def mask_key(k):
+        if not k: return ""
+        if len(k) > 12:
+            return k[:6] + "*" * (len(k) - 10) + k[-4:]
+        return "*" * len(k)
+        
+    return [{"provider": k.provider, "masked_key": mask_key(k.api_key)} for k in keys]
+
+@app.post("/api/user/apikeys")
+def save_api_key(payload: ApiKeyCreate, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    key = db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id, models.UserApiKey.provider == payload.provider).first()
+    if key:
+        key.api_key = payload.api_key
+    else:
+        key = models.UserApiKey(user_id=user.id, provider=payload.provider, api_key=payload.api_key)
+        db.add(key)
+    db.commit()
+    return {"status": "success"}
+
+@app.delete("/api/user/apikeys/{provider}")
+def delete_api_key(provider: str, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id, models.UserApiKey.provider == provider).delete()
+    db.commit()
+    return {"status": "success"}
+
 @app.delete("/api/users/me")
 async def delete_user_account(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     # 1. Anonymize execution logs
