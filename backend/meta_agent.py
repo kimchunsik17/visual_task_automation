@@ -170,6 +170,8 @@ class FlowEdge(BaseModel):
 
 
 class FlowGraph(BaseModel):
+    title: Optional[str] = Field(default="", description="워크플로우의 짧은 제목 (LLM이 작성)")
+    description: Optional[str] = Field(default="", description="워크플로우에 대한 설명 (LLM이 작성)")
     nodes: List[FlowNode]
     edges: List[FlowEdge]
 
@@ -957,7 +959,12 @@ def auto_layout(g: FlowGraph) -> dict:
         "data": n.data,
     } for n in g.nodes]
     edges = [e.model_dump() for e in g.edges]
-    return {"nodes": nodes, "edges": edges}
+    return {
+        "title": getattr(g, "title", ""),
+        "description": getattr(g, "description", ""),
+        "nodes": nodes,
+        "edges": edges
+    }
 
 
 def _topo_order(ids: List[str], edges: List[FlowEdge]) -> List[str]:
@@ -1387,7 +1394,12 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_le
 
     반환: (reply: str, graph_data: dict) — API 응답 {reply, graph_data}에 그대로 매핑된다.
     """
-    g = FlowGraph(nodes=graph_data.get("nodes", []), edges=graph_data.get("edges", []))
+    g = FlowGraph(
+        title=graph_data.get("title", ""),
+        description=graph_data.get("description", ""),
+        nodes=graph_data.get("nodes", []),
+        edges=graph_data.get("edges", [])
+    )
     agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer)
 
     # Medium, High 모드 모두 내부 도구(_generate_flow_tool)에서 RAG 및 검색을 처리하므로
@@ -1403,7 +1415,7 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_le
     final_graph = get_current_graph()
 
     # If the AI did not modify the graph in this turn, just return as is without warnings.
-    if g.nodes == final_graph.nodes and g.edges == final_graph.edges:
+    if g.nodes == final_graph.nodes and g.edges == final_graph.edges and g.title == final_graph.title and g.description == final_graph.description:
         return reply, graph_data
 
     ok, errs = validate_flow(final_graph)  # require_complete=True(기본값) — 최종 완결성 게이트

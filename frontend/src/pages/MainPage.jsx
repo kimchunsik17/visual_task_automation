@@ -41,11 +41,7 @@ function MainPage() {
       const { reply, graph_data } = res.data;
 
       if (reply) {
-        setMessages(prev => [...prev, { role: 'ai', content: reply }]);
-      }
-
-      if (graph_data?.nodes?.length > 0) {
-        navigate('/editor', { state: { initialGraph: graph_data, prompt: userMessage } });
+        setMessages(prev => [...prev, { role: 'ai', content: reply, graph_data, prompt: userMessage }]);
       }
     } catch (error) {
       console.error(error);
@@ -152,6 +148,30 @@ function MainPage() {
                   </div>
                   <div className="chat-bubble">
                     {msg.content}
+                    {msg.graph_data?.nodes?.length > 0 && (
+                      <div style={{ marginTop: '1rem' }}>
+                        <button 
+                          onClick={() => navigate('/editor', { state: { initialGraph: msg.graph_data, prompt: msg.prompt || '' } })}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.6rem 1.2rem',
+                            background: 'var(--primary-color)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '8px',
+                            fontSize: '0.9rem',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            boxShadow: '0 4px 12px rgba(99,102,241,0.3)',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          에디터로 이동하기 <ArrowRight size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

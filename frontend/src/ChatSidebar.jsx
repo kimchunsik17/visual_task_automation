@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, ArrowRight, Clock, Box, RefreshCw } from 'lucide-react';
+import { MessageSquare, ArrowRight, Clock, Box, RefreshCw, Trash2 } from 'lucide-react';
 import './ChatSidebar.css';
 
 const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
@@ -26,6 +26,20 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
       console.error("Failed to load chat sessions", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteSession = async (e, sessionId) => {
+    e.stopPropagation();
+    if (!window.confirm("이 대화 기록을 삭제하시겠습니까?")) return;
+    try {
+      await axios.delete(`/api/chat/sessions/${sessionId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      fetchSessions();
+    } catch (error) {
+      console.error("Failed to delete session", error);
+      alert("삭제에 실패했습니다.");
     }
   };
 
@@ -88,18 +102,41 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
                       <span className="project-badge"><Box size={12}/> 연결됨</span>
                     )}
                   </div>
-                  {session.is_existing_project && (
+                  <div style={{ display: 'flex', gap: '4px' }}>
                     <button 
-                      className="btn-go-project"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/editor/${session.project_id}`);
+                      className="btn-delete-session"
+                      onClick={(e) => handleDeleteSession(e, session.id)}
+                      title="대화 기록 삭제"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '4px',
+                        transition: 'background 0.2s, color 0.2s'
                       }}
-                      title="해당 프로젝트 에디터로 이동"
+                      onMouseOver={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
+                      onMouseOut={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
                     >
-                      에디터 열기 <ArrowRight size={14} />
+                      <Trash2 size={14} />
                     </button>
-                  )}
+                    {session.is_existing_project && (
+                      <button 
+                        className="btn-go-project"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/editor/${session.project_id}`);
+                        }}
+                        title="해당 프로젝트 에디터로 이동"
+                      >
+                        에디터 열기 <ArrowRight size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

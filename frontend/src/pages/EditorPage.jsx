@@ -198,8 +198,14 @@ function FlowContent() {
       })));
       setEdges(graph.edges || []);
 
-      if (location.state?.prompt) {
+      if (graph.title) {
+        setProjectTitle(graph.title);
+      } else if (location.state?.prompt) {
         setProjectTitle("AI 생성 워크플로우");
+      }
+      
+      if (graph.description) {
+        setProjectDescription(graph.description);
       }
     }
 
@@ -688,6 +694,8 @@ function FlowContent() {
 
   const getCurrentFlowData = () => {
     return {
+      title: projectTitle !== 'Untitled Project' ? projectTitle : '',
+      description: projectDescription,
       nodes: getNodes().map(n => {
         const nData = { ...n.data };
         delete nData.onChange;
@@ -730,6 +738,12 @@ function FlowContent() {
       // 챗봇이 flow를 바꿨으면 캔버스에 반영 — 기존 노드에 필요한 콜백(onChange/onDelete)을
       // handleLoadTemplate과 동일하게 다시 주입해줘야 편집/삭제가 계속 동작한다.
       if (graph_data) {
+        if (graph_data.title && (!projectTitle || projectTitle === 'Untitled Project' || projectTitle === 'AI 생성 워크플로우')) {
+          setProjectTitle(graph_data.title);
+        }
+        if (graph_data.description && (!projectDescription || projectDescription === '')) {
+          setProjectDescription(graph_data.description);
+        }
         const currentNodes = getNodes();
         const newLogs = [`> AI 작업 시작: "${userMessage}"`];
 
