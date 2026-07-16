@@ -167,6 +167,117 @@ app.post('/mock/kakao/alimtalk', (req, res) => {
     });
 });
 
+// ==========================================
+// 4. 결제 링크 생성 및 가상 결제창 (Payment Mock)
+// ==========================================
+const mockOrders = {};
+
+app.post('/mock/payment/create-link', (req, res) => {
+    const { provider, orderData } = req.body;
+    
+    if (!provider || !orderData) {
+        return res.status(400).json({ error: "provider and orderData are required" });
+    }
+
+    const orderId = "ORD-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+    mockOrders[orderId] = { provider, orderData };
+
+    const checkoutUrl = `http://localhost:${PORT}/mock/payment/checkout/${orderId}`;
+    
+    console.log(chalk.magenta.bold(`\n💳 [Payment Link Created] `) + chalk.white(`Provider: ${provider}, OrderID: ${orderId}`));
+    res.json({ checkoutUrl, orderId });
+});
+
+app.get('/mock/payment/checkout/:orderId', (req, res) => {
+    const { orderId } = req.params;
+    const order = mockOrders[orderId];
+
+    if (!order) {
+        return res.status(404).send("<h1>결제 정보를 찾을 수 없습니다.</h1><p>잘못되거나 만료된 결제 링크입니다.</p>");
+    }
+
+    let itemsHtml = "";
+    let totalAmount = 0;
+    
+    try {
+        const data = typeof order.orderData === 'string' ? JSON.parse(order.orderData) : order.orderData;
+        if (data.items && Array.isArray(data.items)) {
+            itemsHtml = data.items.map(item => `<li>${item.name} x ${item.qty} (₩${parseInt(item.price).toLocaleString()})</li>`).join('');
+            totalAmount = data.items.reduce((sum, item) => sum + (parseInt(item.price) * parseInt(item.qty)), 0);
+        } else if (data.amount) {
+            itemsHtml = `<li>${data.orderName || '주문 상품'} (₩${parseInt(data.amount).toLocaleString()})</li>`;
+            totalAmount = parseInt(data.amount);
+        } else {
+            itemsHtml = `<li>주문 정보: ${JSON.stringify(data)}</li>`;
+            totalAmount = "별도 확인";
+        }
+    } catch (e) {
+        itemsHtml = `<li>요청 데이터 파싱 실패 또는 텍스트 데이터: ${order.orderData}</li>`;
+        totalAmount = "확인 불가";
+    }
+
+    const providerName = order.provider.toLowerCase() === 'naver' ? '네이버페이' : '토스페이먼츠';
+    const bgColor = order.provider.toLowerCase() === 'naver' ? '#03c75a' : '#3182f6';
+
+    res.send(`
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>\${providerName} 안전 결제</title>
+            <style>
+                body { font-family: 'Segoe UI', sans-serif; background-color: #f2f4f6; color: #333; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+                .checkout-card { background: white; width: 100%; max-width: 400px; border-radius: 16px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); overflow: hidden; }
+                .header { background: \${bgColor}; color: white; padding: 20px; text-align: center; font-size: 20px; font-weight: bold; }
+                .content { padding: 25px; }
+                .section-title { font-size: 14px; font-weight: bold; color: #8b95a1; margin-bottom: 10px; margin-top: 20px; text-transform: uppercase; }
+                .section-title:first-child { margin-top: 0; }
+                ul { list-style: none; padding: 0; margin: 0 0 15px 0; border-bottom: 1px solid #f2f4f6; padding-bottom: 15px; }
+                li { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 15px; }
+                .total { display: flex; justify-content: space-between; font-size: 18px; font-weight: bold; color: \${bgColor}; margin-top: 15px; }
+                .customer-info { background: #f9fafb; padding: 15px; border-radius: 8px; font-size: 14px; margin-bottom: 20px; }
+                .customer-info p { margin: 5px 0; color: #4e5968; }
+                .customer-info strong { color: #333; }
+                button { width: 100%; background: \${bgColor}; color: white; border: none; padding: 16px; font-size: 16px; font-weight: bold; border-radius: 12px; cursor: pointer; transition: opacity 0.2s; }
+                button:hover { opacity: 0.9; }
+                .secure-badge { text-align: center; font-size: 12px; color: #b0b8c1; margin-top: 15px; display: flex; align-items: center; justify-content: center; gap: 5px; }
+            </style>
+        </head>
+        <body>
+            <div class="checkout-card">
+                <div class="header">
+                    \${providerName} 결제
+                </div>
+                <div class="content">
+                    <div class="section-title">주문 상품 정보</div>
+                    <ul>
+                        \${itemsHtml}
+                    </ul>
+                    <div class="total">
+                        <span>총 결제금액</span>
+                        <span>₩\${typeof totalAmount === 'number' ? totalAmount.toLocaleString() : totalAmount}</span>
+                    </div>
+
+                    <div class="section-title">주문자 정보 (자동 연동)</div>
+                    <div class="customer-info">
+                        <p><strong>배송지:</strong> 등록된 기본 배송지 (서울시 강남구 테헤란로 123)</p>
+                        <p><strong>연락처:</strong> 010-****-1234</p>
+                        <p><strong>이메일:</strong> user@example.com</p>
+                        <p style="font-size: 12px; color: #8b95a1; margin-top: 10px;">* \${providerName}에 등록된 안심 회원 정보로 안전하게 결제됩니다.</p>
+                    </div>
+
+                    <button onclick="alert('결제가 성공적으로 완료되었습니다! (시뮬레이션)')">₩\${typeof totalAmount === 'number' ? totalAmount.toLocaleString() : totalAmount} 결제하기</button>
+                    <div class="secure-badge">
+                        🔒 안전한 256-bit 암호화 결제
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+    `);
+});
+
 app.listen(PORT, () => {
     console.log(chalk.cyan.bold(`\n======================================================`));
     console.log(chalk.cyan.bold(` 🚀 MVP Demo Mock API Server running on port ${PORT}`));
