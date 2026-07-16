@@ -1192,7 +1192,8 @@ export const EmailNode = ({ id, data }) => {
       </div>
       {isExpanded && (
         <div className="node-body">
-          <label>수신자 이메일</label>
+          <ApiKeyInput id={id} data={data} provider="google_smtp" fieldKey="smtp_credentials" placeholder="SMTP 계정 (이메일:앱비밀번호)" />
+          <label style={{ marginTop: '0.5rem' }}>수신자 이메일</label>
           <input
             type="email"
             className="nodrag"

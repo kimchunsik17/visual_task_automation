@@ -49,7 +49,17 @@ const PROVIDERS = [
       "1. [Discord Developer Portal](https://discord.com/developers/applications)에 접속합니다.",
       "2. 'New Application'을 클릭해 봇을 만듭니다.",
       "3. 좌측 'Bot' 메뉴로 이동 후 'Reset Token'을 눌러 토큰을 발급합니다.",
-      "4. 해당 토큰을 복사하여 붙여넣습니다."
+    ]
+  },
+  { 
+    id: 'google_smtp', 
+    name: 'Gmail SMTP', 
+    icon: '📧',
+    guide: [
+      "1. 구글 계정 관리에 들어가서 2단계 인증을 활성화합니다.",
+      "2. '앱 비밀번호(App Passwords)'를 검색하여 새 앱 비밀번호를 생성합니다.",
+      "3. 16자리 앱 비밀번호가 생성됩니다.",
+      "4. 본인 이메일과 생성된 비밀번호를 '이메일:앱비밀번호' 형식(예: user@gmail.com:abcd1234efgh)으로 붙여넣습니다."
     ]
   }
 ];
