@@ -10,6 +10,7 @@ function MainPage() {
   const navigate = useNavigate();
   const { user, token } = useAuth();
   const [autoPrompt, setAutoPrompt] = useState('');
+  const [complexityLevel, setComplexityLevel] = useState('low');
 
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -33,6 +34,7 @@ function MainPage() {
         project_id: draftIdRef.current,
         message: userMessage,
         graph_data: { nodes: [], edges: [] },
+        complexity_level: complexityLevel,
       };
       const authHeaders = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
       const res = await axios.post('/api/chat', payload, authHeaders);
@@ -174,6 +176,31 @@ function MainPage() {
               <Sparkles size={16} color="#a78bfa" />
               <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#a78bfa' }}>AI 워크플로우 생성</span>
               <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)', borderRadius: '50px' }}>구현 중</span>
+              
+              <div style={{ display: 'flex', gap: '0.5rem', marginLeft: 'auto' }}>
+                {['low', 'medium', 'high'].map(level => (
+                  <label key={level} style={{
+                    fontSize: '0.75rem',
+                    color: complexityLevel === level ? '#fff' : 'var(--text-muted)',
+                    background: complexityLevel === level ? 'var(--primary-color)' : 'transparent',
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    border: `1px solid ${complexityLevel === level ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                    transition: 'all 0.2s'
+                  }}>
+                    <input 
+                      type="radio" 
+                      name="main_complexity" 
+                      value={level} 
+                      checked={complexityLevel === level} 
+                      onChange={() => setComplexityLevel(level)} 
+                      style={{ display: 'none' }} 
+                    />
+                    {level === 'low' ? '빠름' : level === 'medium' ? '일반' : '정밀'}
+                  </label>
+                ))}
+              </div>
             </div>
             <textarea
               className="auto-gen-input"

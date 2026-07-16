@@ -122,6 +122,7 @@ function FlowContent() {
   });
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [complexityLevel, setComplexityLevel] = useState('low');
 
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
   const [projectDescription, setProjectDescription] = useState('');
@@ -591,6 +592,7 @@ function FlowContent() {
         project_id: String(currentId || projectId || 'draft'),
         message: userMessage,
         graph_data: getCurrentFlowData(),
+        complexity_level: complexityLevel,
       };
       const res = await axios.post('/api/chat', payload, getAuthHeaders());
       const { reply, graph_data } = res.data;
@@ -1108,51 +1110,78 @@ function FlowContent() {
           )}
         </div>
 
-        {/* Chat Input */}
+        {/* Chat Input & Options */}
         <div style={{
           padding: '1rem',
           borderTop: '1px solid var(--border-color)',
           display: 'flex',
+          flexDirection: 'column',
           gap: '0.5rem',
           background: 'var(--btn-active-bg)',
           borderBottomLeftRadius: '16px',
           borderBottomRightRadius: '16px'
         }}>
-          <input
-            type="text"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
-            placeholder="AI에게 수정사항을 요청하세요..."
-            style={{
-              flex: 1,
-              background: 'var(--btn-active-bg)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '8px',
-              padding: '0.75rem 1rem',
-              color: 'var(--text-color)',
-              outline: 'none',
-              fontSize: '0.9rem'
-            }}
-          />
-          <button
-            onClick={handleSendChat}
-            disabled={!chatInput.trim()}
-            style={{
-              background: chatInput.trim() ? 'var(--primary-color)' : 'var(--btn-active-bg)',
-              border: 'none',
-              borderRadius: '8px',
-              width: '44px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-color)',
-              cursor: chatInput.trim() ? 'pointer' : 'not-allowed',
-              transition: 'background 0.2s'
-            }}
-          >
-            <Send size={18} />
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.2rem' }}>
+            {['low', 'medium', 'high'].map(level => (
+              <label key={level} style={{
+                fontSize: '0.8rem',
+                color: complexityLevel === level ? '#fff' : 'var(--text-muted)',
+                background: complexityLevel === level ? 'var(--primary-color)' : 'transparent',
+                padding: '0.2rem 0.6rem',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                border: `1px solid ${complexityLevel === level ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                transition: 'all 0.2s'
+              }}>
+                <input 
+                  type="radio" 
+                  name="complexity" 
+                  value={level} 
+                  checked={complexityLevel === level} 
+                  onChange={() => setComplexityLevel(level)} 
+                  style={{ display: 'none' }} 
+                />
+                {level === 'low' ? '빠름' : level === 'medium' ? '일반' : '정밀'}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
+              placeholder="AI에게 수정사항을 요청하세요..."
+              style={{
+                flex: 1,
+                background: 'var(--btn-active-bg)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                padding: '0.75rem 1rem',
+                color: 'var(--text-color)',
+                outline: 'none',
+                fontSize: '0.9rem'
+              }}
+            />
+            <button 
+              onClick={handleSendChat}
+              disabled={!chatInput.trim()}
+              style={{
+                background: chatInput.trim() ? 'var(--primary-color)' : 'var(--btn-active-bg)',
+                border: 'none',
+                borderRadius: '8px',
+                width: '44px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-color)',
+                cursor: chatInput.trim() ? 'pointer' : 'not-allowed',
+                transition: 'background 0.2s'
+              }}
+            >
+              <Send size={18} />
+            </button>
+          </div>
         </div>
       </div>
 

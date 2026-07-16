@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 # ── ① 노드 카탈로그 (핵심 11종) ────────────────────────────────────────────
 # 여기에 노드를 한 줄씩 추가하면 챗봇이 다룰 수 있는 노드가 늘어난다(P2 확장).
 NODE_CATALOG = """\
-[사용 가능한 노드 — 이 21종만 사용한다]
+[사용 가능한 노드 — 이 28종만 사용한다]
 - startNode      : 플로우 시작점. data 없음. 모든 플로우는 이 노드에서 시작한다.
 - scheduleNode   : 주기적으로 자동 실행되는 플로우의 시작점. data.cronExpression(문자열, 예: "0 7 * * *"). startNode 대신 사용한다.
 - promptNode     : 사용자 프롬프트. data.userPrompt(문자열).
@@ -56,6 +56,7 @@ NODE_CATALOG = """\
 - breakNode      : 반복을 즉시 멈춘다. data 없음. 반드시 distributorNode 하류(반복 구조 안)에서만
                    쓴다 — 반복 구조 밖에 두면 실행 자체가 SyntaxError로 깨진다. 보통 conditionNode와
                    짝을 이뤄 "특정 조건을 만나면 반복을 멈춘다"는 용도로 쓴다.
+- webhookNode    : 외부 시스템의 Webhook 요청을 수신하는 진입점. data.method(GET|POST|PUT|DELETE 등), data.path(문자열, 엔드포인트 경로). startNode 대신 진입점으로 사용할 수 있다.
 - httpRequestNode: 외부 API 호출. data.method(GET|POST|PUT|DELETE), data.url(문자열),
                    data.headers(JSON 문자열, 생략 가능), data.body(JSON 문자열, 생략 가능).
 - jsonParserNode : JSON 파싱/변환. data.mode(parse|stringify|extract). extract일 때만 data.extractKey(문자열) 필요.
@@ -118,12 +119,9 @@ NODE_CATALOG = """\
 - llmNode의 model은 사용자가 특정 모델을 요청하지 않는 한 기본값 gpt-4o-mini를 쓴다.
 - 사용자의 요청이 짧거나 모호하더라도 가급적 되묻지 말고, 실무에서 흔히 쓰이는 자동화 패턴(예: 실패 시 알림, 조건에 따른 분기, 중요 작업 전 승인 등)을 유추하여 알아서 똑똑하게 비선형(분기, 반복, 병합 등) 워크플로우 초안을 구성한다. 사용자는 생성된 초안을 보고 나중에 수정하면 되므로, 챗봇이 주도적으로 풍부한 형태의 초안을 제시해야 한다.
 - (미세수정 시) 기존 노드로 이미 처리 가능하면 새 노드를 추가하지 말고 update_node로 기존 노드를 고친다.
-- **기본은 항상 단일 경로다.** 노드 A에서 노드 B로 가는 길은 하나만 만든다. 예를 들어 "결과를 3초 뒤에
-  보여줘"처럼 중간 처리 단계(delayNode 등)가 필요하면 그 단계를 경유하는 경로 하나만 만들고,
-  같은 목적지로 가는 직행 경로를 별도로 추가하지 않는다(예: llm→output과 llm→delay→output을
-  동시에 만들지 않는다 — 하나만 남긴다). 여러 경로로 갈라졌다가 같은 노드에서 다시 합류하는 구조는
-  사용자가 "동시에"/"병렬로"/"두 가지 다" 처럼 명시적으로 여러 갈래를 요청한 경우가 아니면 만들지 않는다.
-  (조건분기(conditionNode)는 예외 — 런타임에 규칙 중 하나만 타므로 여러 갈래가 원래 정상이다.)
+- **불필요한 중복 엣지(Edge) 연결 금지.** 목적지가 같은데 불필요하게 직행 경로와 우회 경로를 동시에 만들지 않는다(예: llm→output과 llm→delay→output을 동시에 연결하지 마라 — delay를 거치는 하나만 남긴다).
+- **적극적인 비선형 구조 활용.** 조건 분기(conditionNode), 병렬 처리(하나의 노드에서 여러 노드로 동시에 분기), 반복 분배(distributorNode, loopNode) 등을 적극 활용하여 프로덕트급 파이프라인을 구축한다. 
+- 여러 갈래로 병렬 처리된 흐름이 나중에 다시 합쳐져야 할 때는 반드시 `mergeNode`를 사용하여 안전하게 병합한다. (conditionNode의 조건 분기도 추후 합류 시 mergeNode 사용)
 
 [연결 규칙]
 - 순환(cycle) 금지. 노드는 앞에서 뒤로만 연결한다.
@@ -149,7 +147,7 @@ NodeType = Literal[
     "webCrawlerNode", "outputNode", "valueNode", "distributorNode", "breakNode",
     "templateAnalyzerNode", "fileModifierNode", "emailNode", "databaseNode",
     "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
-    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode"
+    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode", "webhookNode"
 ]
 
 
@@ -190,6 +188,25 @@ def get_llm():
 SYSTEM = (
     "너는 노코드 agent 빌더의 설계 도우미다. 사용자의 요청을 읽고, "
     "아래 노드만으로 실행 가능한 워크플로우(graph_data)를 만든다.\n\n" + NODE_CATALOG
+)
+
+# Medium 모드 전용 시스템 프롬프트 — 템플릿 구조를 유지하면서 파라미터만 수정
+MEDIUM_SYSTEM = (
+    "너는 노코드 agent 빌더의 설계 도우미다. 아래에 주어진 **기존 워크플로우 템플릿**의 "
+    "구조(노드 배치, 엣지 연결, 분기/병합/반복 패턴)를 골격으로 삼아, "
+    "노드의 data(프롬프트, URL, 이메일, 시스템 프롬프트 등 파라미터)만 "
+    "사용자의 요청에 맞게 수정해서 새 워크플로우를 만든다.\n\n"
+    "**반드시 지켜야 할 원칙:**\n"
+    "1. 템플릿의 비선형 구조(conditionNode 분기, mergeNode 병합, distributorNode/loopNode 반복, "
+    "humanApprovalNode 승인 등)를 최대한 유지하라. 단순 선형으로 축소하지 마라.\n"
+    "2. 노드의 type과 엣지 연결은 가급적 그대로 유지하되, data 필드의 값(userPrompt, systemPrompt, "
+    "url, toEmail, channel, rules의 value 등)을 사용자 요청의 맥락에 맞게 바꿔라.\n"
+    "3. 사용자가 짧게 말해도, 이 템플릿의 풍부한 구조가 프로덕트급 워크플로우의 뼈대이다. "
+    "절대 단순화하지 마라.\n"
+    "4. 단, 사용자 요청에 반드시 필요하지만 템플릿에 없는 노드는 추가해도 되고, "
+    "요청과 완전히 무관한 노드는 제거해도 된다.\n"
+    "5. 노드 id(n1, n2...), 엣지 id(e1, e2...)는 다시 매길 수 있다.\n\n"
+    + NODE_CATALOG
 )
 
 # few-shot 예시 — 생성 품질을 좌우하는 핵심. 실패 사례를 여기에 계속 보강한다(팀원 C).
@@ -444,6 +461,52 @@ def generate_flow(user_request: str) -> FlowGraph:
     return _strip_positions(llm.invoke(messages))
 
 
+def generate_flow_from_template(user_request: str, template: FlowGraph) -> FlowGraph:
+    """Medium 모드 전용: Pre-translated DB에서 가져온 템플릿의 구조를 골격으로 유지하면서
+    파라미터만 사용자 요청에 맞게 수정한다.
+
+    템플릿이 비선형(분기/병합/반복)이면 결과도 자연스럽게 비선형 구조를 유지한다.
+    사용자가 짧게 말해도 프로덕트급 워크플로우가 나오는 핵심 메커니즘."""
+    from langchain_openai import ChatOpenAI
+    llm = ChatOpenAI(model="gpt-4o", temperature=0).with_structured_output(FlowGraph, method="function_calling")
+    messages = [
+        ("system", MEDIUM_SYSTEM),
+        ("user",
+         f"아래는 참고할 워크플로우 템플릿이다:\n{template.model_dump_json()}\n\n"
+         f'이 템플릿의 구조(노드 타입 배치, 엣지 연결, 분기/병합/반복 패턴)를 **절대 단순화하지 말고 최대한 유지**하면서, '
+         f'노드의 data 필드(프롬프트, URL, 이메일 등)만 다음 사용자 요청에 맞게 수정해줘: "{user_request}"\n'
+         f'(주의: 기존 템플릿의 노드들을 함부로 삭제하지 말고 구조를 보존하라)'),
+    ]
+    return _strip_positions(llm.invoke(messages))
+
+
+def translate_n8n_to_flow(raw_n8n_json: str, user_request: str) -> FlowGraph:
+    """High 모드 전용: n8n 원본 JSON을 우리 FlowGraph로 번역함과 동시에,
+    사용자 요청에 맞게 파라미터를 수정하여 한 번에 반환한다."""
+    llm = get_llm().with_structured_output(FlowGraph, method="function_calling")
+    mapping_guide = """
+[n8n 고급 노드 매핑 필수 가이드]
+- n8n의 `n8n-nodes-base.switch` 또는 `n8n-nodes-base.if` 노드: 반드시 `conditionNode`로 변환하라.
+- n8n의 `n8n-nodes-base.splitInBatches` 또는 반복/루프 노드: 반드시 `distributorNode`나 `loopNode`로 변환하라.
+- n8n의 병합/Merge 기능 노드: 반드시 여러 경로를 합치는 `mergeNode`로 변환하라.
+- n8n의 Webhook 트리거: `webhookNode`로 변환하라.
+- **[매우 중요]** 카탈로그에 명시되지 않은 외부 서비스 연동 노드는 절대 새로운 노드 이름을 상상해서(Hallucinate) 만들지 말고, 무조건 범용 API 호출 노드인 `httpRequestNode`로 퉁쳐서(대체해서) 변환하라.
+- 단순 선형 구조로 뭉뚱그리지 말고 원본의 분기, 병합, 반복 로직을 최대한 살려라.
+"""
+    system_content = (
+        "너는 노코드 템플릿 번역 및 설계 전문가다. 원본 n8n 템플릿 JSON이 주어지면, "
+        "아래 규칙과 스키마에 맞게 우리의 React Flow 기반 노드 데이터로 완벽하게 번역하라.\n"
+        "단, 번역하는 과정에서 노드의 data(프롬프트, URL, 이메일 등)는 "
+        "반드시 다음 **[사용자 요청]**에 맞게 수정하여 반영해야 한다.\n\n"
+        "[사용자 요청]\n" + user_request + "\n\n" + mapping_guide + "\n\n" + NODE_CATALOG + "\n\n[예시 참고]\n" + FEWSHOT
+    )
+    messages = [
+        ("system", system_content),
+        ("user", f"다음 n8n 템플릿 구조를 바탕으로, 사용자 요청에 맞는 워크플로우로 변환해줘:\n\n{raw_n8n_json}")
+    ]
+    return _strip_positions(llm.invoke(messages))
+
+
 # ── ④ 수정 ───────────────────────────────────────────────────────────────
 def modify_flow(existing: FlowGraph, user_request: str) -> FlowGraph:
     llm = get_llm().with_structured_output(FlowGraph, method="function_calling")
@@ -510,9 +573,9 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
 
     # 1~2) 시작/종료 — 완성본 검사일 때만
     if require_complete:
-        start_count = types.count("startNode") + types.count("scheduleNode")
+        start_count = types.count("startNode") + types.count("scheduleNode") + types.count("webhookNode")
         if start_count != 1:
-            errors.append(f"시작 노드(startNode 또는 scheduleNode)는 정확히 1개여야 한다 (현재 {start_count}개)")
+            errors.append(f"시작 노드(startNode, scheduleNode 또는 webhookNode)는 정확히 1개여야 한다 (현재 {start_count}개)")
         if "outputNode" not in types:
             errors.append("outputNode(종료)가 없다")
 
@@ -607,6 +670,9 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
             if u in seen:
                 continue
             seen.add(u)
+            u_node = nodes_by_id.get(u)
+            if u_node and u_node.type == "mergeNode":
+                continue  # mergeNode 이후로는 병합된 단일 경로로 취급하므로 탐색 중지
             stack.extend(forward.get(u, []))
         return seen
 
@@ -622,6 +688,7 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
             for j in range(i + 1, len(children)):
                 c1, c2 = children[i], children[j]
                 shared = reach[c1] & reach[c2]
+                shared = {s for s in shared if nodes_by_id.get(s) and nodes_by_id[s].type != "mergeNode"}
                 if shared:
                     key = (n.id, c1, c2)
                     if key in reported_diamonds:
@@ -629,8 +696,8 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
                     reported_diamonds.add(key)
                     errors.append(
                         f"{n.id}에서 나간 경로 여러 개({c1}, {c2} 방향)가 {', '.join(sorted(shared))}에서 "
-                        "다시 합쳐진다 — merge 기능이 없어 해당 노드가 중복 실행된다. 사용자가 병렬/동시 "
-                        "실행을 명시적으로 요청하지 않았다면 하나의 경로만 남겨라"
+                        "다시 합쳐진다 — merge 기능이 없어 해당 노드가 중복 실행된다. 여러 갈래를 합치려면 "
+                        "반드시 mergeNode를 사이에 두어 병합해라."
                     )
 
     # 10) webCrawlerNode: url이 비어있으면 직전 노드가 실제로 URL을 줄 수 있어야 한다
@@ -1019,7 +1086,7 @@ def _dynamic_input_note(n: FlowNode) -> Optional[str]:
     return f"{n.id}(dynamicInputNode)에 마땅한 예시가 없어 testValue를 비워뒀다 — 실제 실행 시 호출자가 넘긴 값으로 채워짐을 답변에서 알려줄 것"
 
 
-def make_tools(initial_graph: FlowGraph) -> Tuple[List, Callable[[], FlowGraph]]:
+def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple[List, Callable[[], FlowGraph]]:
     """요청 하나(=대화 한 턴)마다 호출. (도구 6개 리스트, 현재 그래프를 꺼내는 함수) 튜플을 반환한다.
 
     두 번째 값 get_current_graph()가 필요한 이유: 도구들이 참조하는 그릇(state)은 클로저 안에
@@ -1169,16 +1236,65 @@ def make_tools(initial_graph: FlowGraph) -> Tuple[List, Callable[[], FlowGraph]]
         """완전히 새로운 flow를 통째로 생성해서 기존 flow를 전부 대체한다.
         "~봇 만들어줘"처럼 처음부터 새로 만드는 요청에만 쓴다.
         기존 flow에 노드를 붙이거나 일부만 고치는 요청에는 add_node/connect_nodes/update_node를 쓴다."""
-        g = generate_flow(request)  # 모듈 최상단의 ③ 생성 함수(LLM 호출) 재사용
-        ok, errs = validate_flow(g)  # 완전한 그래프를 한 번에 만드므로 require_complete=True(기본값) 그대로
+        
+        g = None
+        template = None
+        mode_label = "few-shot"
+        
+        if complexity_level == "high":
+            # ── High 모드: n8n API 실시간 검색 + 번역 + 파라미터 수정 ──
+            from n8n_client import extract_search_keyword, search_best_n8n_template, get_n8n_workflow_json
+            keyword = extract_search_keyword(request)
+            print(f"High mode keyword: {keyword}")
+            best_wf = search_best_n8n_template(keyword)
+            if best_wf:
+                print(f"High mode found template: {best_wf['name']}")
+                raw_json = get_n8n_workflow_json(best_wf['id'])
+                if raw_json:
+                    try:
+                        g = translate_n8n_to_flow(raw_json, request)
+                        mode_label = f"실시간 n8n 번역 기반 ({best_wf['name']})"
+                    except Exception as e:
+                        print(f"High mode translation failed: {e}")
+
+        elif complexity_level == "medium":
+            # ── Medium 모드: Pre-translated DB에서 템플릿 검색 → 구조 유지 + 파라미터 수정 ──
+            try:
+                from rag_utils import search_and_parse_template
+                template_data = search_and_parse_template(request)
+                if template_data:
+                    template = FlowGraph(
+                        nodes=template_data.get("nodes", []),
+                        edges=template_data.get("edges", []),
+                    )
+                    mode_label = "사전 번역 템플릿 기반"
+            except Exception as e:
+                print(f"Medium mode template search failed: {e}")
+
+        # High/Medium에서 템플릿을 못 찾았거나 Medium 모드일 때
+        if not g:
+            if template:
+                g = generate_flow_from_template(request, template)
+            else:
+                g = generate_flow(request)  # low 모드 또는 fallback
+
+        # ── Validation + 재시도 ──
+        ok, errs = validate_flow(g)
         if not ok:
             retry = f'{request}\n\n(직전 생성이 아래 이유로 잘못됐다. 고쳐서 다시: {"; ".join(errs)})'
-            g = generate_flow(retry)
+            if mode_label.startswith("실시간 n8n"):
+                # High 모드는 재번역이 무거우므로 fallback으로 돌리거나 다시 생성
+                g = generate_flow(retry)
+            elif template:
+                g = generate_flow_from_template(retry, template)
+            else:
+                g = generate_flow(retry)
             ok, errs = validate_flow(g)
+            
         if not ok:
             return _fail(f"생성 실패(기존 flow 유지): {errs}")
         state["graph"] = g
-        msg = f"새 플로우 생성됨: 노드 {len(g.nodes)}개, 엣지 {len(g.edges)}개"
+        msg = f"새 플로우 생성됨 ({mode_label}): 노드 {len(g.nodes)}개, 엣지 {len(g.edges)}개"
         notes = [n for n in (_dynamic_input_note(node) for node in g.nodes) if n]
         if notes:
             msg += "\n" + "\n".join(notes)
@@ -1210,19 +1326,19 @@ AGENT_SYSTEM_PROMPT = (
     "고쳐달라고 하면 아래 도구를 써서 실제로 graph_data를 편집한다.\n\n"
     + NODE_CATALOG +
     "\n[도구 사용 지침]\n"
-    "- 완전히 새로 만드는 요청(\"~봇 만들어줘\")에는 generate_flow를 쓴다.\n"
-    "- 기존 flow에 붙이거나 일부만 고치는 요청에는 add_node/connect_nodes/update_node/delete_node를 쓴다.\n"
-    "- 노드 id가 뭔지 확실하지 않으면 먼저 show_flow로 현재 상태를 확인하고 나서 편집한다.\n"
-    "- 그래프 편집과 무관한 잡담(인사, 이 앱이 뭔지 설명 등)에는 도구를 부르지 말고 그냥 대화로 답한다.\n"
-    "- 요청이 너무 모호해서 어떤 노드가 필요한지 판단할 수 없으면, 임의로 짐작해서 도구를 부르지 말고 "
-    "먼저 무엇을 원하는지 구체적으로 되묻는다. 특히 대화가 길어져서 이전 요청들과 섞여 헷갈릴 수 있는 "
-    "상황일수록(예: 여러 flow를 이미 만들어본 뒤) 짐작하지 말고 먼저 확인한다.\n"
-    "- 도구 응답에 '⚠️ 연속 N회 실패' 경고가 붙으면, 같은 방식을 반복하지 말고 사용자에게 무엇이 "
-    "막혔는지 설명하고 어떻게 할지 물어본다.\n"
-    "- 도구 응답에 'dynamicInputNode의 testValue를...' 같은 안내 문장이 붙어 있으면, 그 내용을 반드시 "
-    "최종 답변에 그대로(추측해서 다른 값을 지어내지 말고) 포함시켜 사용자에게 알려준다 — 예시값인지, "
-    "비워뒀는지를 사용자가 알아야 실제 실행 때 뭐가 들어가는지 헷갈리지 않는다.\n"
-    "\n[예시]\n"
+    '- 완전히 새로 만드는 요청("~봇 만들어줘")에는 반드시 `generate_flow` 하나만 호출한다. 절대 여러 번의 `add_node`를 병렬로 호출해서 직접 조립하지 마라.\n'
+    '- 기존 flow에 붙이거나 일부만 고치는 요청에는 add_node/connect_nodes/update_node/delete_node를 쓴다.\n'
+    '- 노드 id가 뭔지 확실하지 않으면 먼저 show_flow로 현재 상태를 확인하고 나서 편집한다.\n'
+    '- 그래프 편집과 무관한 잡담(인사, 이 앱이 뭔지 설명 등)에는 도구를 부르지 말고 그냥 대화로 답한다.\n'
+    '- 요청이 너무 모호해서 어떤 노드가 필요한지 판단할 수 없으면, 임의로 짐작해서 도구를 부르지 말고 '
+    '먼저 무엇을 원하는지 구체적으로 되묻는다. 특히 대화가 길어져서 이전 요청들과 섞여 헷갈릴 수 있는 '
+    '상황일수록(예: 여러 flow를 이미 만들어본 뒤) 짐작하지 말고 먼저 확인한다.\n'
+    '- 도구 응답에 \'⚠️ 연속 N회 실패\' 경고가 붙으면, 같은 방식을 반복하지 말고 사용자에게 무엇이 '
+    '막혔는지 설명하고 어떻게 할지 물어본다.\n'
+    '- 도구 응답에 \'dynamicInputNode의 testValue를...\' 같은 안내 문장이 붙어 있으면, 그 내용을 반드시 '
+    '최종 답변에 그대로(추측해서 다른 값을 지어내지 말고) 포함시켜 사용자에게 알려준다 — 예시값인지, '
+    '비워뒀는지를 사용자가 알아야 실제 실행 때 뭐가 들어가는지 헷갈리지 않는다.\n'
+    '\n[예시]\n'
     '- 사용자: "PDF 요약봇 만들어줘" → generate_flow("PDF 요약봇 만들어줘") 호출\n'
     '- 사용자: "요약 뒤에 번역 추가해줘" → show_flow로 현재 노드 확인 → add_node로 promptNode·llmNode 추가 → connect_nodes로 연결\n'
     '- 사용자: "모델을 gpt-4o로 바꿔줘" → show_flow로 llmNode id 확인 → update_node(그 id, {"model": "gpt-4o"})\n'
@@ -1230,11 +1346,9 @@ AGENT_SYSTEM_PROMPT = (
     '"n2(dynamicInputNode)의 testValue를 예시로 \'Hello, how are you?\'로 채웠다..." 같은 note가 붙으면, '
     '답변에서 "테스트용으로 \'Hello, how are you?\'라는 예시 문장을 넣어뒀어요. 실제로 실행할 때는 그때 '
     '입력하는 문장이 대신 들어갑니다." 처럼 그대로 안내한다\n'
-    '- 사용자: "안녕" → 도구 호출 없이 그냥 인사만 한다\n'
-    '- 사용자: "뭔가 자동화해줘" (구체적인 목적·입력·출력이 없는 모호한 요청) → 도구를 부르지 않고 '
-    '"어떤 작업을 자동화하고 싶으신가요? 예를 들어 문서 요약, 외부 API 연동, 정해진 시간마다 알림 보내기 '
-    '등 목적을 알려주시면 그에 맞는 flow를 만들어드릴게요." 처럼 구체적으로 되묻는다. '
-    "(실패 사례: 이 요청에 임의로 노드를 추가해서 기존 flow와 뒤섞인 적 있음 — 절대 짐작해서 만들지 말 것)\n"
+    '- 사용자: "안녕" → 도구 호출 없이 그냥 인사만 한다 (예: "안녕하세요! 어떤 워크플로우를 만들어드릴까요?")\n'
+    '- 사용자: "채용 자동화 봇 만들어줘" (단순한 요청) → 사용자가 구체적으로 말하지 않아도 RAG로 제공된 템플릿들을 참고하여 예외 처리, 실패 알림, 분기 등을 포함한 [크고 복잡한 비선형적 워크플로우]를 상상한 뒤, 이 복잡한 내용을 구체적인 문자열로 만들어서 `generate_flow("입력: ... 조건분기: ... 알림: ...")` 도구 하나에 인자로 넘겨 한 번에 완성한다.\n'
+    '- ⚠️ 단, 유추한 로직이 사용자의 원래 목적 자체를 완전히 벗어나는 경우(예: 채용을 물어봤는데 마케팅 봇을 만드는 경우)에만 채팅창에서 2~3가지 선택지를 제안하여 묻고, 그 외에는 사용자가 묻지 않은 디테일까지 전부 살을 붙여서 최대한 복잡하고 멋진 노드 그래프를 바로 생성한다.\n'
     "# ↑ 초안 5개. 실패 사례 생기는 대로 팀원 C가 계속 보강할 자리."
 )
 
@@ -1251,11 +1365,11 @@ def _get_default_checkpointer():
     return _default_checkpointer
 
 
-def build_agent(graph_data: FlowGraph, checkpointer=None):
+def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None):
     """이번 요청 전용 에이전트 + get_current_graph 접근자를 만든다. (tools, agent 둘 다 요청마다 새로 만듦.)"""
     from langchain.agents import create_agent
 
-    tools, get_current_graph = make_tools(graph_data)
+    tools, get_current_graph = make_tools(graph_data, complexity_level=complexity_level)
     agent = create_agent(
         get_llm(),
         tools=tools,
@@ -1265,7 +1379,7 @@ def build_agent(graph_data: FlowGraph, checkpointer=None):
     return agent, get_current_graph
 
 
-def run_agent_turn(graph_data: dict, message: str, thread_id: str, checkpointer=None) -> Tuple[str, dict]:
+def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_level: str = "low", checkpointer=None) -> Tuple[str, dict]:
     """대화 한 턴을 실행한다. /api/chat은 이 함수를 그대로 감싸기만 하면 된다.
 
     흐름: graph_data(raw dict, 프론트가 보낸 것) → FlowGraph로 파싱 → 이번 요청 전용 에이전트 조립
@@ -1275,10 +1389,14 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, checkpointer=
     반환: (reply: str, graph_data: dict) — API 응답 {reply, graph_data}에 그대로 매핑된다.
     """
     g = FlowGraph(nodes=graph_data.get("nodes", []), edges=graph_data.get("edges", []))
-    agent, get_current_graph = build_agent(g, checkpointer=checkpointer)
+    agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer)
+
+    # Medium, High 모드 모두 내부 도구(_generate_flow_tool)에서 RAG 및 검색을 처리하므로
+    # 추가적인 프롬프트 조작(rag_context 첨부)은 하지 않습니다.
+    final_message = message
 
     result = agent.invoke(
-        {"messages": [{"role": "user", "content": message}]},
+        {"messages": [{"role": "user", "content": final_message}]},
         {"configurable": {"thread_id": thread_id}},
     )
     reply = result["messages"][-1].content

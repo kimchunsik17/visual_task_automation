@@ -20,3 +20,5 @@ discord.py
 bs4
 
 apscheduler
+chromadb
+langchain-chroma
