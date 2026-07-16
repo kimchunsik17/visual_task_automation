@@ -54,6 +54,7 @@ class _CategoryPick(BaseModel):
 
 
 _known_categories_cache: Optional[List[str]] = None
+_category_examples_cache: Optional[Dict[str, List[str]]] = None
 
 
 def _get_known_categories() -> List[str]:
@@ -77,19 +78,55 @@ def _get_known_categories() -> List[str]:
         return []
 
 
+def _get_category_examples() -> Dict[str, List[str]]:
+    """카테고리 이름 → 그 안에 실제로 들어있는 템플릿 이름들. 카테고리 이름만 보고는 안이 뭔지
+    알 수 없어서(예: '사내 정책 문의 챗봇'을 OpenAI_and_LLMs로 잘못 고르는 경우가 실측 확인됨 —
+    이름만으로는 HR_and_Recruitment보다 그럴듯해 보임) 분류 프롬프트에 실제 템플릿 이름을 예시로
+    보여준다. _get_known_categories()와 마찬가지로 프로세스 생존 기간 캐시."""
+    global _category_examples_cache
+    if _category_examples_cache is not None:
+        return _category_examples_cache
+    try:
+        store = get_vector_store(TRANSLATED_COLLECTION)
+        raw = store._collection.get(include=["metadatas"])
+        metadatas = raw.get("metadatas", []) or []
+        examples: Dict[str, List[str]] = {}
+        for m in metadatas:
+            if not m:
+                continue
+            cat, name = m.get("category"), m.get("name")
+            if cat and name:
+                examples.setdefault(cat, []).append(name)
+        _category_examples_cache = examples
+        return examples
+    except Exception as e:
+        print(f"Error fetching category examples from ChromaDB: {e}")
+        _category_examples_cache = {}
+        return {}
+
+
 def _classify_category(query: str) -> Optional[str]:
     """사용자 요청을 실제 존재하는 카테고리 중 하나로 분류. 실패/애매하면 None
     (호출자가 필터 없이 검색하도록)."""
     categories = _get_known_categories()
     if not categories:
         return None
+    examples = _get_category_examples()
     from meta_agent import get_llm
     llm = get_llm().with_structured_output(_CategoryPick, method="function_calling")
+
+    def _line(c: str) -> str:
+        names = examples.get(c, [])
+        if names:
+            return f"- {c} (예: {', '.join(names)})"
+        return f"- {c}"
+
     prompt = (
         f"사용자 요청: '{query}'\n\n"
         "아래 카테고리 목록 중 이 요청과 가장 관련 있는 것을 정확히 하나만 골라라. "
-        "애매하거나 딱 맞는 게 없으면 category를 빈 문자열로 반환해라.\n\n"
-        "[카테고리 목록]\n" + "\n".join(f"- {c}" for c in categories)
+        "카테고리 이름만 보지 말고, 괄호 안 예시 템플릿 이름이 실제로 이 요청과 제일 가까운 "
+        "카테고리를 우선해라. 애매하거나 딱 맞는 게 없으면 category를 빈 문자열로 반환해라.\n\n"
+        "[카테고리 목록]\n" + "\n".join(_line(c) for c in categories)
     )
     try:
         res = llm.invoke([("user", prompt)])

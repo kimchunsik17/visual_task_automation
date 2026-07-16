@@ -18,7 +18,7 @@ meta_agent.py — "말로 만드는 Agent 빌더"의 메타 agent (MVP 골격)
 ■ 실행:  python meta_agent.py        (아래 __main__의 데모가 돈다)
 ■ 설치:  backend/requirements.txt에 필요한 패키지 이미 포함(langgraph·langchain-openai 등).
          create_agent를 쓰려면 core langchain 패키지도 필요 — 없으면 `pip install langchain>=0.3`.
-■ 키:    OPENAI_API_KEY 환경변수(backend/.env) — get_llm()이 gpt-4o-mini 기본 사용.
+■ 키:    OPENAI_API_KEY 환경변수(backend/.env) — get_llm()이 gpt-5.4-mini 기본 사용.
 """
 
 from __future__ import annotations
@@ -27,6 +27,12 @@ from typing import Literal, List, Dict, Any, Optional, Tuple, Callable
 from collections import defaultdict, deque
 from pydantic import BaseModel, Field
 
+
+# httpRequestNode/webCrawlerNode의 url을 실제로 모를 때 쓰는 채움 표시자. validate_flow는
+# url이 "비어있지 않은 문자열"이면 통과시키므로 스키마는 만족하면서도, 실행 엔진(node_generators/
+# action_nodes.py)이 이 정확한 문자열을 보면 진짜 요청을 시도하지 않고 안내 메시지로 대체한다.
+# 두 파일에서 정확히 같은 문자열을 써야 하므로 값을 바꿀 땐 action_nodes.py도 같이 바꿀 것.
+PLACEHOLDER_URL = "REPLACE_WITH_ACTUAL_URL"
 
 # ── ① 노드 카탈로그 (핵심 11종) ────────────────────────────────────────────
 # 여기에 노드를 한 줄씩 추가하면 챗봇이 다룰 수 있는 노드가 늘어난다(P2 확장).
@@ -97,6 +103,14 @@ NODE_CATALOG = """\
 
 [생성 원칙]
 - discordNode를 생성할 때 사용자가 프롬프트에서 봇 토큰이나 Webhook URL을 명시적으로 알려주지 않았다면, 절대 임의의 가짜 값(예: "your-token", "1234")을 지어내서 채우지 말고 botToken과 channelId를 빈 문자열("")로 둔다. 그리고 반드시 답변에서 "디스코드 발송 노드를 구성했습니다. 실제 발송을 위해서는 화면에서 디스코드 노드를 클릭한 뒤, 본인의 봇 토큰(또는 웹훅 주소)을 직접 입력해 주세요."라고 친절하게 안내한다.
+- httpRequestNode/webCrawlerNode를 새로 만들거나 기존 템플릿을 참고할 때, 실제로 호출 가능한 URL을
+  모른다면(사용자가 안 줬고, 참고한 템플릿에도 url이 정확히 "REPLACE_WITH_ACTUAL_URL"로 남아있다면)
+  절대 그럴듯해 보이는 가짜 URL을 지어내지 말고 url을 정확히 "REPLACE_WITH_ACTUAL_URL" 문자열
+  그대로 둔다(빈 문자열 금지 — httpRequestNode는 빈 url이면 검증에서 막힌다). 그리고 반드시
+  답변에서 "⚠️ OOO 노드에 실제 API 주소를 입력해 주셔야 이 부분이 정상 작동합니다."처럼 어떤
+  노드에 뭘 채워야 하는지 구체적으로 안내한다 — 이 워크플로우를 실행하면 그 노드에서 "채워넣어야
+  하는 필드가 있습니다. AI와 대화하는 창을 참고해주세요"라는 안내가 뜨는데, 사용자가 이 채팅
+  창의 설명과 그 실행 결과 안내를 서로 연결할 수 있어야 하기 때문이다.
 - dynamicInputNode의 testValue를 사용자가 명시적으로 주지 않았다면: 문맥에 맞는 그럴듯한 예시값을 채우거나
   (마땅치 않으면 비워둬도 된다), 반드시 답변에서 "사용자가 값을 안 줘서 예시로 OOO를 채웠다" 또는
   "예시가 마땅치 않아 비워뒀다"는 사실을 알려준다 — 실제 값이 아니라 미리보기용 임시값이라는 걸
@@ -177,9 +191,10 @@ class FlowGraph(BaseModel):
 
 # ── LLM 준비 (제공자 교체 지점) ──────────────────────────────────────────
 def get_llm():
-    """메타 agent가 쓸 LLM. 현재 OpenAI. 제공자 교체는 여기만 바꾸면 된다."""
+    """메타 agent가 쓸 LLM. 현재 OpenAI. 제공자 교체는 여기만 바꾸면 된다.
+    gpt-5 계열 reasoning 모델은 temperature 파라미터를 거부/무시하므로 넘기지 않는다."""
     from langchain_openai import ChatOpenAI
-    return ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    return ChatOpenAI(model="gpt-5.4-mini")
     # Gemini로 되돌리려면 위 두 줄 대신:
     # from langchain_google_genai import ChatGoogleGenerativeAI
     # return ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0)
@@ -480,29 +495,27 @@ def generate_flow_from_template(user_request: str, template: FlowGraph) -> FlowG
     return _strip_positions(llm.invoke(messages))
 
 
-def translate_n8n_to_flow(raw_n8n_json: str, user_request: str) -> FlowGraph:
-    """High 모드 전용: n8n 원본 JSON을 우리 FlowGraph로 번역함과 동시에,
-    사용자 요청에 맞게 파라미터를 수정하여 한 번에 반환한다."""
+# 정밀 모드 전용 시스템 프롬프트 — 템플릿 없이, 요청을 더 꼼꼼히 해석해서 살을 붙여 만든다
+PRECISE_SYSTEM = (
+    "너는 노코드 agent 빌더의 설계 전문가다. 사용자의 요청을 읽고, "
+    "아래 노드만으로 실행 가능한 프로덕트급 워크플로우(graph_data)를 만든다.\n\n"
+    "**반드시 지켜야 할 원칙:**\n"
+    "1. 사용자가 짧게 말해도 뼈대만 만들지 마라. 요청의 의도를 꼼꼼히 해석해서, "
+    "실제 서비스로 바로 쓸 수 있는 수준까지 살을 붙여라 — 필요하다면 데이터 가공, "
+    "조건 분기, 에러/예외 상황 처리, 결과 알림 같은 보조 노드도 스스로 판단해서 추가하라.\n"
+    "2. 단, 카탈로그에 없는 노드 타입을 상상해서 만들지 말고, 항상 아래 노드 목록 안에서만 조합하라.\n"
+    "3. 단순 선형 구조로 뭉뚱그리지 말고, 요청 성격에 맞으면 분기/병합/반복 구조를 적극 활용하라.\n\n"
+    + NODE_CATALOG
+)
+
+
+def generate_flow_precise(user_request: str) -> FlowGraph:
+    """정밀 모드 전용: 템플릿 검색 없이, 사용자 요청을 더 꼼꼼히 해석해서
+    프로덕트급 수준으로 살을 붙여 생성한다."""
     llm = get_llm().with_structured_output(FlowGraph, method="function_calling")
-    mapping_guide = """
-[n8n 고급 노드 매핑 필수 가이드]
-- n8n의 `n8n-nodes-base.switch` 또는 `n8n-nodes-base.if` 노드: 반드시 `conditionNode`로 변환하라.
-- n8n의 `n8n-nodes-base.splitInBatches` 또는 반복/루프 노드: 반드시 `distributorNode`나 `loopNode`로 변환하라.
-- n8n의 병합/Merge 기능 노드: 반드시 여러 경로를 합치는 `mergeNode`로 변환하라.
-- n8n의 Webhook 트리거: `webhookNode`로 변환하라.
-- **[매우 중요]** 카탈로그에 명시되지 않은 외부 서비스 연동 노드는 절대 새로운 노드 이름을 상상해서(Hallucinate) 만들지 말고, 무조건 범용 API 호출 노드인 `httpRequestNode`로 퉁쳐서(대체해서) 변환하라.
-- 단순 선형 구조로 뭉뚱그리지 말고 원본의 분기, 병합, 반복 로직을 최대한 살려라.
-"""
-    system_content = (
-        "너는 노코드 템플릿 번역 및 설계 전문가다. 원본 n8n 템플릿 JSON이 주어지면, "
-        "아래 규칙과 스키마에 맞게 우리의 React Flow 기반 노드 데이터로 완벽하게 번역하라.\n"
-        "단, 번역하는 과정에서 노드의 data(프롬프트, URL, 이메일 등)는 "
-        "반드시 다음 **[사용자 요청]**에 맞게 수정하여 반영해야 한다.\n\n"
-        "[사용자 요청]\n" + user_request + "\n\n" + mapping_guide + "\n\n" + NODE_CATALOG + "\n\n[예시 참고]\n" + FEWSHOT
-    )
     messages = [
-        ("system", system_content),
-        ("user", f"다음 n8n 템플릿 구조를 바탕으로, 사용자 요청에 맞는 워크플로우로 변환해줘:\n\n{raw_n8n_json}")
+        ("system", PRECISE_SYSTEM + "\n\n" + FEWSHOT),
+        ("user", f'요청: "{user_request}"\n위 규칙에 맞는, 실제 서비스 수준으로 구체화된 graph_data를 만들어줘.'),
     ]
     return _strip_positions(llm.invoke(messages))
 
@@ -559,6 +572,14 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
           없음). 연결된 이전 노드가 없거나 직전 노드가 startNode뿐이면 채울 JSON이 없어 에러 없이
           빈칸이 하나도 안 채워진 원본이 그대로 저장된다(webCrawlerNode의 10)과 달리 우회 필드가
           없어 항상 검사한다).
+      13) outputNode에서 나가는 엣지가 있으면 안 됨 — outputNode는 실행 엔진에서 즉시 return하는
+          노드라(generate_output_node 확인 결과) 그 뒤에 연결된 노드는 절대 실행되지 않는다(죽은 코드).
+          템플릿 기반 생성 시 원본 템플릿의 무관한 잔여 노드가 지워지지 않고 outputNode 뒤에 그대로
+          매달리는 사례가 실제로 발견됨 — 그래프 편집기에는 "연결"된 것처럼 보여서 눈치채기 어렵다.
+      14) 고아 노드 — 시작 노드(startNode/scheduleNode/webhookNode)가 아닌데 들어오는 엣지가 하나도
+          없으면 영원히 실행될 방법이 없다. multiAgentNode/fileModifierNode에 targetHandle이
+          'tools'/'template'인 엣지의 소스는 예외(그래프 컴파일러도 이 핸들은 제어 흐름이 아닌
+          배선으로 취급해 별도로 다룬다).                    ← require_complete=True일 때만
 
     require_complete=False면 1)·2)(시작/종료 완결성)를 건너뛴다. add_node 등으로 그래프를
     한 노드씩 쌓는 도중에는 당연히 startNode나 outputNode가 아직 없는 "미완성" 상태를 거치므로,
@@ -750,6 +771,31 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
     has_cycle, stuck = _has_cycle(ids, g.edges)
     if has_cycle:
         errors.append(f"순환(cycle)이 있다 — 관련 노드: {', '.join(stuck)} (노드는 앞으로만 연결해야 한다)")
+
+    # 13) outputNode에서 나가는 엣지 금지 — 뒤에 뭘 연결해도 실행 엔진이 절대 안 탄다(죽은 코드)
+    for e in g.edges:
+        source_node = nodes_by_id.get(e.source)
+        if source_node and source_node.type == "outputNode":
+            errors.append(
+                f"엣지 {e.id}: outputNode {source_node.id}에서 나가는 엣지가 있다 — "
+                "outputNode는 결과를 즉시 반환하고 끝나서 그 뒤에 연결된 노드는 절대 실행되지 않는다. "
+                "필요 없는 노드면 삭제하고, 필요하면 outputNode보다 앞으로 연결을 옮겨라"
+            )
+
+    # 14) 고아 노드 — 시작 노드가 아닌데 들어오는 엣지가 하나도 없음(require_complete일 때만:
+    # add_node 등으로 그리는 중에는 아직 안 이어진 노드가 정상적으로 있을 수 있다)
+    if require_complete:
+        start_types = {"startNode", "scheduleNode", "webhookNode"}
+        targets_with_incoming = {e.target for e in g.edges}
+        tool_or_template_sources = {e.source for e in g.edges if e.targetHandle in ("tools", "template")}
+        for n in g.nodes:
+            if n.type in start_types or n.id in tool_or_template_sources:
+                continue
+            if n.id not in targets_with_incoming:
+                errors.append(
+                    f"{n.id}({n.type})는 시작 노드가 아닌데 들어오는 엣지가 없다 — "
+                    "고아 노드라 절대 실행되지 않는다. 앞 노드에 연결하거나 필요 없으면 삭제하라"
+                )
 
     return (len(errors) == 0, errors)
 
@@ -1242,23 +1288,12 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
         mode_label = "few-shot"
         
         if complexity_level == "high":
-            # ── High 모드: n8n API 실시간 검색 + 번역 + 파라미터 수정 ──
-            from n8n_client import extract_search_keyword, search_best_n8n_template, get_n8n_workflow_json
-            keyword = extract_search_keyword(request)
-            print(f"High mode keyword: {keyword}")
-            best_wf = search_best_n8n_template(keyword)
-            if best_wf:
-                print(f"High mode found template: {best_wf['name']}")
-                raw_json = get_n8n_workflow_json(best_wf['id'])
-                if raw_json:
-                    try:
-                        g = translate_n8n_to_flow(raw_json, request)
-                        mode_label = f"실시간 n8n 번역 기반 ({best_wf['name']})"
-                    except Exception as e:
-                        print(f"High mode translation failed: {e}")
+            # ── 정밀 모드: 템플릿 검색 없이, 요청을 더 꼼꼼히 해석해서 살을 붙여 생성 ──
+            g = generate_flow_precise(request)
+            mode_label = "정밀 생성"
 
         elif complexity_level == "medium":
-            # ── Medium 모드: Pre-translated DB에서 템플릿 검색 → 구조 유지 + 파라미터 수정 ──
+            # ── 확장 모드: Pre-translated DB에서 템플릿 검색 → 구조 유지 + 파라미터 수정 ──
             try:
                 from rag_utils import search_and_parse_template
                 template_data = search_and_parse_template(request)
@@ -1271,7 +1306,7 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
             except Exception as e:
                 print(f"Medium mode template search failed: {e}")
 
-        # High/Medium에서 템플릿을 못 찾았거나 Medium 모드일 때
+        # 확장 모드에서 템플릿을 못 찾았을 때
         if not g:
             if template:
                 g = generate_flow_from_template(request, template)
@@ -1282,9 +1317,8 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
         ok, errs = validate_flow(g)
         if not ok:
             retry = f'{request}\n\n(직전 생성이 아래 이유로 잘못됐다. 고쳐서 다시: {"; ".join(errs)})'
-            if mode_label.startswith("실시간 n8n"):
-                # High 모드는 재번역이 무거우므로 fallback으로 돌리거나 다시 생성
-                g = generate_flow(retry)
+            if mode_label == "정밀 생성":
+                g = generate_flow_precise(retry)
             elif template:
                 g = generate_flow_from_template(retry, template)
             else:
@@ -1391,7 +1425,7 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_le
     g = FlowGraph(nodes=graph_data.get("nodes", []), edges=graph_data.get("edges", []))
     agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer)
 
-    # Medium, High 모드 모두 내부 도구(_generate_flow_tool)에서 RAG 및 검색을 처리하므로
+    # 확장, 정밀 모드 모두 내부 도구(_generate_flow_tool)에서 RAG/생성을 처리하므로
     # 추가적인 프롬프트 조작(rag_context 첨부)은 하지 않습니다.
     final_message = message
 

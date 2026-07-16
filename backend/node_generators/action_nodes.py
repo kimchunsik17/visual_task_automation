@@ -1,6 +1,18 @@
 import datetime
 import json
 from node_registry import node_registry
+from meta_agent import PLACEHOLDER_URL
+
+
+def _emit_needs_input(node_id, node_type, indent, lines, forward_edges, generate_block_fn, active_llm_id, visited, out_var):
+    """url이 아직 PLACEHOLDER_URL(실제 값 미입력)인 경우 공통으로 쓰는 블록.
+    진짜 요청을 시도하지 않고, 사용자에게 채팅창을 참고하라는 안내로 대체한 뒤 다음 노드로 넘어간다."""
+    lines.append(f"{indent}{out_var} = '⚠️ 채워넣어야 하는 필드가 있습니다. AI와 대화하는 창을 참고해주세요. (노드: {node_id})'")
+    lines.append(f"{indent}last_result = {out_var}")
+    lines.append(f"{indent}log_step('{node_id}', '{node_type}', _start_{node_id}, result=last_result, error='URL이 아직 채워지지 않음(PLACEHOLDER_URL)')")
+    for target_id, handle in forward_edges.get(node_id, []):
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=out_var, visited=visited)
+
 
 @node_registry.register('httpRequestNode')
 def generate_http_request_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
@@ -10,7 +22,11 @@ def generate_http_request_node(node_id, node, indent, active_llm_id, prev_res_va
     url = node.get('data', {}).get('url', '').replace('"', '\\"')
     headers_str = node.get('data', {}).get('headers', '{}')
     body_str = node.get('data', {}).get('body', '{}')
-    
+
+    if url == PLACEHOLDER_URL:
+        _emit_needs_input(node_id, node['type'], indent, lines, forward_edges, generate_block_fn, active_llm_id, visited, f"req_out_{node_id}")
+        return
+
     lines.append(f"{indent}import requests")
     lines.append(f"{indent}import json")
     lines.append(f"{indent}try:")
@@ -52,6 +68,11 @@ def generate_web_crawler_node(node_id, node, indent, active_llm_id, prev_res_var
     lines.append(f"{indent}# --- Web Crawler Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     url = node.get('data', {}).get('url', '').replace('"', '\\"')
+
+    if url == PLACEHOLDER_URL:
+        _emit_needs_input(node_id, node['type'], indent, lines, forward_edges, generate_block_fn, active_llm_id, visited, f"crawl_res_{node_id}")
+        return
+
     lines.append(f"{indent}try:")
     if url:
         lines.append(f"{indent}    target_url_{node_id} = \"{url}\"")
