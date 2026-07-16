@@ -29,20 +29,6 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
     }
   };
 
-  const handleDeleteSession = async (e, sessionId) => {
-    e.stopPropagation();
-    if (!window.confirm("이 대화 기록을 삭제하시겠습니까?")) return;
-    try {
-      await axios.delete(`/api/chat/sessions/${sessionId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      fetchSessions();
-    } catch (error) {
-      console.error("Failed to delete session", error);
-      alert("삭제에 실패했습니다.");
-    }
-  };
-
   const formatDate = (dateString) => {
     if (!dateString) return '';
     const utcDateString = dateString.endsWith('Z') ? dateString : dateString + 'Z';
@@ -57,13 +43,17 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
     }
     
     try {
-      await axios.delete(`/api/chat/session/${sessionId}`, {
+      await axios.delete(`/api/chat/sessions/${sessionId}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      // 성공 시 목록 다시 불러오기
+      fetchSessions();
+      if (currentSessionId === sessionId) {
+        navigate('/chat'); // 현재 열려있는 세션을 삭제했다면 메인으로 이동
+      }
     } catch (error) {
-      console.error("Failed to delete session", error);
-      alert('삭제에 실패했습니다.');
+      console.error("Failed to delete session:", error);
+      alert("삭제에 실패했습니다.");
     }
   };
 
