@@ -13,14 +13,67 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square, Network } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
 import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DetachedTextNode, WebhookNode } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
+import dagre from 'dagre';
 
+const getLayoutedElements = (nodes, edges, direction = 'LR') => {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+  // Average estimated node dimensions
+  const fallbackWidth = 320;
+  const fallbackHeight = 200;
+
+  // ranksep: horizontal distance between layers (LR)
+  // nodesep: vertical distance between nodes in the same layer
+  dagreGraph.setGraph({ 
+    rankdir: direction, 
+    ranksep: 250, 
+    nodesep: 150,
+    edgesep: 100
+  });
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { 
+      width: node.measured?.width || fallbackWidth, 
+      height: node.measured?.height || fallbackHeight 
+    });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  // Force all edges to bezier curves to prevent straight line overlaps
+  const layoutedEdges = edges.map(edge => ({
+    ...edge,
+    type: 'bezier'
+  }));
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    const width = node.measured?.width || fallbackWidth;
+    const height = node.measured?.height || fallbackHeight;
+    // Shift dagre node position (anchor=center) to top-left
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - width / 2,
+        y: nodeWithPosition.y - height / 2,
+      },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges: layoutedEdges };
+};
 const nodeTypes = {
   webhookNode: WebhookNode,
   detachedText: DetachedTextNode,
@@ -140,7 +193,7 @@ function FlowContent() {
       const graph = location.state.initialGraph;
       setNodes(graph.nodes.map(n => ({
         ...n,
-        data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
+        data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange }
       })));
       setEdges(graph.edges || []);
 
@@ -167,7 +220,7 @@ function FlowContent() {
       if (data.graph_data) {
         setNodes(data.graph_data.nodes.map(n => ({
           ...n,
-          data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
+          data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange }
         })));
         setEdges(data.graph_data.edges || []);
         setIsLive(data.graph_data.is_live || false);
@@ -321,6 +374,78 @@ function FlowContent() {
     setEdges((eds) => eds.filter((edge) => edge.source !== idToDelete && edge.target !== idToDelete));
   }, [setNodes, setEdges]);
 
+  // ── Node expand/collapse push logic ──
+  // Tracks which nodes are currently expanded
+  const expandedNodesRef = useRef(new Set());
+  // Tracks the push deltas applied to other nodes when a node was expanded
+  // Format: { [expandedNodeId]: { [pushedNodeId]: { dx, dy } } }
+  const pushDeltasRef = useRef({});
+
+  const COLLAPSED_W = 140;   // px in flow coordinates
+  const COLLAPSED_H = 140;
+  const EXPANDED_W  = 320;   // approximate expanded width
+  const EXPANDED_H  = 260;   // approximate expanded height
+  const PUSH_MARGIN = 40;    // extra breathing room
+
+  const onExpandChange = useCallback((expandedId, isExpanded) => {
+    setNodes((nds) => {
+      const expandedNode = nds.find(n => n.id === expandedId);
+      if (!expandedNode) return nds;
+
+      if (isExpanded) {
+        expandedNodesRef.current.add(expandedId);
+        
+        const ex = expandedNode.position.x;
+        const ey = expandedNode.position.y;
+        const dw = EXPANDED_W - COLLAPSED_W;
+        const dh = EXPANDED_H - COLLAPSED_H;
+        
+        const currentPushes = {};
+
+        const newNds = nds.map(n => {
+          if (n.id === expandedId) return n;
+          const nx = n.position.x;
+          const ny = n.position.y;
+
+          let dx = 0;
+          let dy = 0;
+
+          // Push right: node is to the right of the expanding node
+          if (nx > ex + COLLAPSED_W - 10) {
+            dx = dw + PUSH_MARGIN;
+          }
+          // Push down: node is below the expanding node (and horizontally overlapping)
+          if (ny > ey + COLLAPSED_H - 10 && nx < ex + EXPANDED_W + PUSH_MARGIN && nx + COLLAPSED_W > ex - PUSH_MARGIN) {
+            dy = dh + PUSH_MARGIN;
+          }
+
+          if (dx === 0 && dy === 0) return n;
+          
+          currentPushes[n.id] = { dx, dy };
+          return { ...n, position: { x: nx + dx, y: ny + dy } };
+        });
+        
+        pushDeltasRef.current[expandedId] = currentPushes;
+        return newNds;
+        
+      } else {
+        expandedNodesRef.current.delete(expandedId);
+        
+        const appliedPushes = pushDeltasRef.current[expandedId];
+        if (!appliedPushes) return nds;
+        delete pushDeltasRef.current[expandedId];
+
+        return nds.map(n => {
+          if (n.id === expandedId) return n;
+          const push = appliedPushes[n.id];
+          if (!push) return n;
+          
+          return { ...n, position: { x: n.position.x - push.dx, y: n.position.y - push.dy } };
+        });
+      }
+    });
+  }, [setNodes]);
+
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
@@ -396,7 +521,7 @@ function FlowContent() {
         id: getId(),
         type,
         position,
-        data: { label: `${type} node`, onChange: onNodeDataChange, onDelete: deleteNode },
+        data: { label: `${type} node`, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange },
         zIndex: type === 'loopNode' ? -1 : 1,
       };
 
@@ -554,7 +679,7 @@ function FlowContent() {
   const handleLoadTemplate = (templateData) => {
     const loadedNodes = templateData.nodes.map(n => ({
       ...n,
-      data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
+      data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange }
     }));
     setNodes(loadedNodes);
     setEdges(templateData.edges || []);
@@ -566,6 +691,7 @@ function FlowContent() {
         const nData = { ...n.data };
         delete nData.onChange;
         delete nData.onDelete;
+        delete nData.onExpandChange;
         return { id: n.id, type: n.type, position: n.position, data: nData };
       }),
       edges: getEdges()
@@ -648,6 +774,7 @@ function FlowContent() {
               aiChanges: (isNew || isModified) ? aiChanges : null,
               onChange: onNodeDataChange,
               onDelete: deleteNode,
+              onExpandChange,
               onClearAIHighlight: (nodeId) => {
                 setNodes(nds => nds.map(nd => String(nd.id) === String(nodeId) ? { ...nd, data: { ...nd.data, isAIModified: false } } : nd));
               }
@@ -852,6 +979,13 @@ function FlowContent() {
                 {isLive ? "라이브 중지" : "라이브 시작"}
               </button>
             )}
+            <button className="btn-secondary" onClick={() => {
+              const layouted = getLayoutedElements(getNodes(), getEdges(), 'LR');
+              setNodes([...layouted.nodes]);
+              setEdges([...layouted.edges]);
+            }} title="자동 정렬 (Beautify)" style={{ color: '#14b8a6', borderColor: '#14b8a6' }}>
+              <Network size={16} /> 정렬
+            </button>
             <button className="btn-secondary" onClick={() => setIsTemplateModalOpen(true)} title="템플릿 불러오기">
               <Folder size={16} />
             </button>
@@ -933,11 +1067,16 @@ function FlowContent() {
             nodeTypes={nodeTypes}
             defaultEdgeOptions={{
               style: { strokeWidth: 2, stroke: 'var(--text-muted)' },
-              type: 'smoothstep'
+              type: 'bezier'
             }}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
             colorMode={appTheme}
+            panOnDrag={[1, 2]}
+            selectionOnDrag={true}
+            selectionMode="partial"
+            panOnScroll={true}
+            onContextMenu={(e) => e.preventDefault()}
           >
             <Controls />
             <MiniMap

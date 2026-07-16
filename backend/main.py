@@ -288,6 +288,10 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
                     else:
                         last_triggered = "방금 전"
                 node_url = n.get('data', {}).get('webhookUrl', '').strip()
+                if node_url.startswith('http://') or node_url.startswith('https://'):
+                    from urllib.parse import urlparse
+                    node_url = urlparse(node_url).path
+
                 if not node_url:
                     node_url = f"/webhook/{p.id}"
                 elif not node_url.startswith('/webhook/'):
@@ -907,7 +911,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
         
     return {"status": "success", "result": result_text, "token_usage": tokens}
 
-@app.api_route("/webhook/{endpoint_id}", methods=["GET", "POST"])
+@app.api_route("/webhook/{endpoint_id:path}", methods=["GET", "POST"])
 async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depends(get_db)):
     projects = db.query(models.Project).all()
     project = None
@@ -924,9 +928,20 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
         for n in nodes:
             if isinstance(n, dict) and n.get('type') == 'webhookNode':
                 node_url = n.get('data', {}).get('webhookUrl', '').strip()
-                node_endpoint = node_url.rstrip('/').split('/')[-1] if node_url else ''
-                print(f"Checking project {p.id}: node_url='{node_url}', node_endpoint='{node_endpoint}' against '{endpoint_id}'")
-                if node_endpoint == endpoint_id:
+                if node_url.startswith('http://') or node_url.startswith('https://'):
+                    from urllib.parse import urlparse
+                    node_url = urlparse(node_url).path
+                
+                if not node_url:
+                    node_endpoint = str(p.id)
+                else:
+                    node_endpoint = node_url.replace('/webhook/', '', 1) if node_url.startswith('/webhook/') else node_url.strip('/')
+                
+                req_endpoint = endpoint_id.replace('http://localhost:8000/webhook/', '', 1) if endpoint_id.startswith('http://localhost:8000/webhook/') else endpoint_id
+                req_endpoint = req_endpoint.strip('/')
+                
+                print(f"Checking project {p.id}: node_endpoint='{node_endpoint}' against '{req_endpoint}'")
+                if node_endpoint == req_endpoint:
                     project = p
                     webhook_node_id = n.get('id')
                     print(f"Matched project {p.id}!")
