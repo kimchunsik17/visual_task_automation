@@ -85,7 +85,17 @@ def generate_python_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     lines.append(f"{indent}input_data = {prev_res_var if prev_res_var else 'last_result'}")
     lines.append(f"{indent}output_data = input_data # Default fallback")
     
-    if user_code.strip():
+    # RCE Basic Protection (Blacklist filtering)
+    dangerous_keywords = ['import os', 'import subprocess', 'import sys', 'import shutil', '__import__', 'eval(', 'exec(']
+    is_safe = True
+    for kw in dangerous_keywords:
+        if kw in user_code:
+            is_safe = False
+            break
+            
+    if not is_safe:
+        lines.append(f"{indent}raise Exception('Security Error: Execution of dangerous system commands is blocked in PythonNode.')")
+    elif user_code.strip():
         for line in user_code.split('\n'):
             lines.append(f"{indent}{line}")
             

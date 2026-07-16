@@ -256,6 +256,8 @@ function MainPage() {
         {/* 우측 사이드바: 빠른 시작 */}
         <div style={{ 
           width: '280px', 
+          minWidth: '280px',
+          flexShrink: 0,
           borderLeft: '1px solid var(--border-color)', 
           padding: '1.5rem',
           display: 'flex',

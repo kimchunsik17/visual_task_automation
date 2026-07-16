@@ -44,9 +44,29 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
+    if (!dateString) return '';
+    const utcDateString = dateString.endsWith('Z') ? dateString : dateString + 'Z';
+    const date = new Date(utcDateString);
     return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
+
+  const handleDeleteSession = async (e, sessionId) => {
+    e.stopPropagation();
+    if (!window.confirm('이 대화 기록을 정말 삭제하시겠습니까?')) {
+      return;
+    }
+    
+    try {
+      await axios.delete(`/api/chat/session/${sessionId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+    } catch (error) {
+      console.error("Failed to delete session", error);
+      alert('삭제에 실패했습니다.');
+    }
+  };
+
 
   return (
     <div 
@@ -97,7 +117,7 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
                 </div>
                 <div className="session-footer">
                   <div className="session-meta">
-                    <MessageSquare size={12}/> {Math.floor((session.messages?.length || 0) / 2)} 턴
+                    <MessageSquare size={12}/> 메시지 {session.messages?.length || 0}개
                     {session.is_existing_project && (
                       <span className="project-badge"><Box size={12}/> 연결됨</span>
                     )}

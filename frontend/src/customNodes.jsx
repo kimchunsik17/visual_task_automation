@@ -27,6 +27,48 @@ const calculateNodeCost = (tokens, model, currency) => {
   return usdCost < 0.0001 ? `$${usdCost.toFixed(6)}` : `$${usdCost.toFixed(4)}`;
 };
 
+const ApiKeyInput = ({ id, data, provider, fieldKey = 'apiKey', placeholder = 'API Key' }) => {
+  const isApiCenter = data[`${fieldKey}_source`] === 'apicenter';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+      <label>{placeholder}</label>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <select 
+          className="nodrag"
+          value={data[`${fieldKey}_source`] || 'manual'}
+          onChange={(e) => {
+            data.onChange(id, `${fieldKey}_source`, e.target.value);
+            if (e.target.value === 'apicenter') {
+               data.onChange(id, fieldKey, `{{API_CENTER:${provider}}}`);
+            } else {
+               data.onChange(id, fieldKey, '');
+            }
+          }}
+          style={{ padding: '0.25rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', fontSize: '0.8rem', width: '100%' }}
+        >
+          <option value="manual">직접 입력 (또는 시스템 환경변수)</option>
+          <option value="apicenter">API 센터 연동</option>
+        </select>
+      </div>
+      {!isApiCenter && (
+        <input
+          type="password"
+          className="nodrag"
+          value={data[fieldKey] || ''}
+          onChange={(e) => data.onChange(id, fieldKey, e.target.value)}
+          placeholder="시스템에 저장된 기본 키를 쓰려면 비워두세요"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+        />
+      )}
+      {isApiCenter && (
+        <div style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid #10b981', fontSize: '0.8rem', textAlign: 'center' }}>
+          API 센터에서 안전하게 불러옵니다
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 
 const DetachedHandleRenderer = ({ id, fieldKey }) => {
@@ -270,6 +312,14 @@ export const LLMNode = ({ id, data }) => {
               <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
             </optgroup>
           </select>
+          
+          <ApiKeyInput 
+            id={id} 
+            data={data} 
+            provider={(data.model || 'gemini').includes('gpt') ? 'openai' : (data.model || 'gemini').includes('claude') ? 'anthropic' : 'gemini'} 
+            fieldKey="apiKey" 
+            placeholder="AI API Key" 
+          />
 
           <label>System Prompt</label>
           <DraggableTextarea id={id} fieldKey="systemPrompt" value={data.systemPrompt} onChange={data.onChange} placeholder="System instructions..." isDetached={data.isDetached_systemPrompt} />
@@ -1189,15 +1239,8 @@ export const KakaoNode = ({ id, data }) => {
       {isExpanded && (
         <div className="node-body">
           <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>* 이전 노드의 결과값이 카카오톡 메시지로 전송됩니다.</p>
-          <label style={{ marginTop: '0.5rem' }}>Access Token (필수)</label>
-          <input
-            type="password"
-            className="nodrag"
-            defaultValue={data.accessToken || ''}
-            onChange={(e) => data.onChange(id, 'accessToken', e.target.value)}
-            placeholder="Kakao REST API Access Token"
-            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
-          />
+          <ApiKeyInput id={id} data={data} provider="kakao" fieldKey="accessToken" placeholder="Access Token" />
+
           <label>수신자 (옵션)</label>
           <input
             type="text"
@@ -1386,15 +1429,7 @@ export const HttpRequestNode = ({ id, data }) => {
             onChange={(e) => data.onChange(id, 'url', e.target.value)}
             style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
           />
-          <label>Headers (JSON)</label>
-          <input
-            type="text"
-            className="nodrag"
-            placeholder='{"Authorization": "Bearer token"}'
-            defaultValue={data.headers || ''}
-            onChange={(e) => data.onChange(id, 'headers', e.target.value)}
-            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
-          />
+          <ApiKeyInput id={id} data={data} provider="openai" fieldKey="headers" placeholder="Headers (JSON)" />
           <label>Body (JSON)</label>
           <DraggableTextarea id={id} fieldKey="body" value={data.body} onChange={data.onChange} placeholder="{" isDetached={data.isDetached_body} />
         </div>
@@ -1656,16 +1691,7 @@ export const DiscordNode = ({ id, data }) => {
       </div>
       {isExpanded && (
         <div className="node-body">
-          <div className="input-group">
-            <label>Bot Token 또는 Webhook URL</label>
-            <input
-              type="password"
-              className="nodrag"
-              value={data.botToken || ''}
-              onChange={(e) => data.onChange(id, 'botToken', e.target.value)}
-              placeholder="Bot token / Webhook"
-            />
-          </div>
+          <ApiKeyInput id={id} data={data} provider="discord" fieldKey="botToken" placeholder="Bot Token 또는 Webhook URL" />
           <div className="input-group">
             <label>채널 ID (Webhook시 생략)</label>
             <input
