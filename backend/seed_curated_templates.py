@@ -2349,6 +2349,751 @@ tpl88 = FlowGraph(
     ],
 )
 
+# ── 89. 법인카드 사용 내역 이상 지출 승인 ───────────────────────────────
+tpl89 = FlowGraph(
+    title="법인카드 사용 내역 이상 지출 승인",
+    description="법인카드 사용 내역이 이상 지출로 판단되면 사람 승인을 거치고, 정상이면 자동 정산한다.",
+    nodes=[
+        node("n1", "webhookNode"),
+        node("n2", "promptNode", {"userPrompt": "이 법인카드 사용 내역이 사용 목적과 무관하거나 금액이 비정상적으로 큰지 판단해서 '이상' 또는 '정상' 중 하나로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 법인카드 사용 내역을 검토하는 회계 감사 담당자다"}),
+        node("n4", "conditionNode", {"rules": [{"id": "abnormal", "operator": "Contains", "value": "이상"}]}),
+        node("n5", "humanApprovalNode"),
+        node("n6", "valueNode", {"value": "이상 지출 사용 내역이 승인되어 정산 처리됩니다"}),
+        node("n7", "valueNode", {"value": "이상 지출로 판단되어 정산이 보류되었습니다"}),
+        node("n8", "valueNode", {"value": "정상 사용 내역으로 자동 정산되었습니다"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "abnormal"),
+        edge("e5", "n5", "n6", "approved"),
+        edge("e6", "n5", "n7", "rejected"),
+        edge("e7", "n4", "n8", "else"),
+        edge("e8", "n6", "n9"),
+        edge("e9", "n7", "n9"),
+        edge("e10", "n8", "n9"),
+        edge("e11", "n9", "n10"),
+    ],
+)
+
+# ── 90. 외부 API 연동 요청 보안 검토 승인 ───────────────────────────────
+tpl90 = FlowGraph(
+    title="외부 API 연동 요청 보안 검토 승인",
+    description="외부 API 연동 요청이 민감 정보 접근을 포함하면 사람 승인을 거치고, 일반 요청이면 자동 승인한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "외부 API 연동 요청 정보", "testValue": "결제 대행사 API, 카드정보 조회 권한 요청"}),
+        node("n3", "promptNode", {"userPrompt": "이 연동 요청이 민감 정보(카드/주민번호 등) 접근 권한을 포함하는지 판단해서 '민감' 또는 '일반' 중 하나로만 답해"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 외부 API 연동 요청의 보안 위험을 검토하는 보안 담당자다"}),
+        node("n5", "conditionNode", {"rules": [{"id": "sensitive", "operator": "Contains", "value": "민감"}]}),
+        node("n6", "humanApprovalNode"),
+        node("n7", "httpRequestNode", {"method": "POST", "url": "https://api.example.com/integrations/approve"}),
+        node("n8", "valueNode", {"value": "연동 요청이 반려되었습니다(보안 검토 미통과)"}),
+        node("n9", "httpRequestNode", {"method": "POST", "url": "https://api.example.com/integrations/approve"}),
+        node("n10", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n11", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "sensitive"),
+        edge("e6", "n6", "n7", "approved"),
+        edge("e7", "n6", "n8", "rejected"),
+        edge("e8", "n5", "n9", "else"),
+        edge("e9", "n7", "n10"),
+        edge("e10", "n8", "n10"),
+        edge("e11", "n9", "n10"),
+        edge("e12", "n10", "n11"),
+    ],
+)
+
+# ── 91. 고객 계정 삭제 요청 승인 처리 ────────────────────────────────────
+tpl91 = FlowGraph(
+    title="고객 계정 삭제 요청 승인 처리",
+    description="계정에 미완료 주문이나 미정산 잔액이 있으면 사람 승인을 거치고, 없으면 즉시 삭제한다.",
+    nodes=[
+        node("n1", "webhookNode"),
+        node("n2", "promptNode", {"userPrompt": "이 계정에 미완료된 주문이나 미정산 잔액이 있는지 판단해서 '보류필요' 또는 '즉시가능' 중 하나로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 계정 삭제 요청을 검토하는 고객관리 담당자다"}),
+        node("n4", "conditionNode", {"rules": [{"id": "hold", "operator": "Contains", "value": "보류필요"}]}),
+        node("n5", "humanApprovalNode"),
+        node("n6", "httpRequestNode", {"method": "DELETE", "url": "https://api.example.com/accounts/delete"}),
+        node("n7", "valueNode", {"value": "계정 삭제 요청이 반려되었습니다"}),
+        node("n8", "httpRequestNode", {"method": "DELETE", "url": "https://api.example.com/accounts/delete"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "hold"),
+        edge("e5", "n5", "n6", "approved"),
+        edge("e6", "n5", "n7", "rejected"),
+        edge("e7", "n4", "n8", "else"),
+        edge("e8", "n6", "n9"),
+        edge("e9", "n7", "n9"),
+        edge("e10", "n8", "n9"),
+        edge("e11", "n9", "n10"),
+    ],
+)
+
+# ── 92. 마케팅 캠페인 예산 집행 승인 ─────────────────────────────────────
+tpl92 = FlowGraph(
+    title="마케팅 캠페인 예산 집행 승인",
+    description="캠페인 예산이 기준을 초과하면 사람 승인을, 소액이면 자동 승인을 거쳐 집행한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "캠페인 예산 집행 요청", "testValue": "인스타그램 광고 캠페인, 500만원"}),
+        node("n3", "promptNode", {"userPrompt": "이 예산이 200만원을 초과하는지 판단해서 '고액' 또는 '소액' 중 하나로만 답해"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 마케팅 캠페인 예산을 검토하는 담당자다"}),
+        node("n5", "conditionNode", {"rules": [{"id": "high", "operator": "Contains", "value": "고액"}]}),
+        node("n6", "humanApprovalNode"),
+        node("n7", "slackNode", {"channel": "#marketing", "message": "캠페인 예산이 승인되어 집행됩니다"}),
+        node("n8", "valueNode", {"value": "캠페인 예산 집행이 반려되었습니다"}),
+        node("n9", "slackNode", {"channel": "#marketing", "message": "소액 캠페인 예산이 자동 승인되어 집행됩니다"}),
+        node("n10", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n11", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "high"),
+        edge("e6", "n6", "n7", "approved"),
+        edge("e7", "n6", "n8", "rejected"),
+        edge("e8", "n5", "n9", "else"),
+        edge("e9", "n7", "n10"),
+        edge("e10", "n8", "n10"),
+        edge("e11", "n9", "n10"),
+        edge("e12", "n10", "n11"),
+    ],
+)
+
+# ── 93. 협력사 계약 해지 요청 검토 승인 ──────────────────────────────────
+tpl93 = FlowGraph(
+    title="협력사 계약 해지 요청 검토 승인",
+    description="계약 해지 요청에 분쟁 소지가 있으면 사람 승인을 거치고, 단순 해지면 자동 처리한다.",
+    nodes=[
+        node("n1", "webhookNode"),
+        node("n2", "promptNode", {"userPrompt": "이 계약 해지 요청에 위약금이나 법적 분쟁 소지가 있는지 판단해서 '분쟁소지' 또는 '단순해지' 중 하나로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 협력사 계약 해지를 검토하는 법무 담당자다"}),
+        node("n4", "conditionNode", {"rules": [{"id": "risk", "operator": "Contains", "value": "분쟁소지"}]}),
+        node("n5", "humanApprovalNode"),
+        node("n6", "databaseNode", {"connectionString": "postgresql://user:pass@localhost/contracts", "query": "UPDATE contracts SET status='terminated' WHERE id=1"}),
+        node("n7", "valueNode", {"value": "계약 해지가 반려되었습니다"}),
+        node("n8", "databaseNode", {"connectionString": "postgresql://user:pass@localhost/contracts", "query": "UPDATE contracts SET status='terminated' WHERE id=1"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "risk"),
+        edge("e5", "n5", "n6", "approved"),
+        edge("e6", "n5", "n7", "rejected"),
+        edge("e7", "n4", "n8", "else"),
+        edge("e8", "n6", "n9"),
+        edge("e9", "n7", "n9"),
+        edge("e10", "n8", "n9"),
+        edge("e11", "n9", "n10"),
+    ],
+)
+
+# ── 94. 재택근무 신청 규정 검토 승인 ─────────────────────────────────────
+tpl94 = FlowGraph(
+    title="재택근무 신청 규정 검토 승인",
+    description="재택근무 신청이 사내 규정 횟수를 초과하면 사람 승인을 거치고, 규정 내면 자동 승인한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "재택근무 신청 내용", "testValue": "주 3회 재택, 사유: 육아"}),
+        node("n3", "promptNode", {"userPrompt": "이 신청이 사내 규정상 주 2회 이내인지 판단해서 '규정초과' 또는 '규정내' 중 하나로만 답해"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 재택근무 신청을 검토하는 인사 담당자다"}),
+        node("n5", "conditionNode", {"rules": [{"id": "over", "operator": "Contains", "value": "규정초과"}]}),
+        node("n6", "humanApprovalNode"),
+        node("n7", "emailNode", {"toEmail": "employee@example.com", "subject": "재택근무 신청이 승인되었습니다"}),
+        node("n8", "valueNode", {"value": "재택근무 신청이 반려되었습니다(규정 초과)"}),
+        node("n9", "emailNode", {"toEmail": "employee@example.com", "subject": "재택근무 신청이 승인되었습니다"}),
+        node("n10", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n11", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "over"),
+        edge("e6", "n6", "n7", "approved"),
+        edge("e7", "n6", "n8", "rejected"),
+        edge("e8", "n5", "n9", "else"),
+        edge("e9", "n7", "n10"),
+        edge("e10", "n8", "n10"),
+        edge("e11", "n9", "n10"),
+        edge("e12", "n10", "n11"),
+    ],
+)
+
+# ── 95. 보험 약관 Q&A 어시스턴트 ─────────────────────────────────────────
+tpl95 = FlowGraph(
+    title="보험 약관 Q&A 어시스턴트",
+    description="보험 약관에 대한 질문에 약관 내용을 근거로 답변한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "보험 약관 관련 질문", "testValue": "실손 보험에서 통원치료도 보장되나요?"}),
+        node("n3", "promptNode", {"userPrompt": "이 질문에 대해 보험 약관 내용을 근거로 답변해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 보험 약관을 해석해주는 상담원이다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 96. 여행 상품 안내 챗봇 ──────────────────────────────────────────────
+tpl96 = FlowGraph(
+    title="여행 상품 안내 챗봇",
+    description="여행 상품 문의에 상품 정보를 근거로 답변한다.",
+    nodes=[
+        node("n1", "webhookNode"),
+        node("n2", "promptNode", {"userPrompt": "이 문의에 대해 여행 상품 정보를 바탕으로 답변해줘"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 여행 상품을 안내하는 여행사 상담원이다"}),
+        node("n4", "kakaoNode", {"receiver": ""}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 97. 사내 회의실 예약 안내 챗봇 ───────────────────────────────────────
+tpl97 = FlowGraph(
+    title="사내 회의실 예약 안내 챗봇",
+    description="회의실 예약 문의에 예약 현황과 규정을 근거로 답변한다.",
+    nodes=[
+        node("n1", "webhookNode"),
+        node("n2", "promptNode", {"userPrompt": "이 문의에 대해 회의실 예약 현황과 규정을 바탕으로 답변해줘"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 사내 회의실 예약을 안내하는 총무 담당자다"}),
+        node("n4", "kakaoNode", {"receiver": ""}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 98. API 사용법 문의 챗봇 ─────────────────────────────────────────────
+tpl98 = FlowGraph(
+    title="API 사용법 문의 챗봇",
+    description="API 사용법 질문에 API 문서를 근거로 답변한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "API 사용법 질문", "testValue": "인증 토큰은 어떻게 갱신하나요?"}),
+        node("n3", "promptNode", {"userPrompt": "이 질문에 대해 API 문서를 근거로 답변해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 API 사용법을 안내하는 개발자 지원 담당자다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 99. 매장 재고 조회 챗봇 ──────────────────────────────────────────────
+tpl99 = FlowGraph(
+    title="매장 재고 조회 챗봇",
+    description="매장 재고를 조회해 고객 문의에 답변한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "상품명 및 재고 문의", "testValue": "강남점에 A상품 재고 있나요?"}),
+        node("n3", "httpRequestNode", {"method": "GET", "url": "https://api.example.com/stores/inventory"}),
+        node("n4", "promptNode", {"userPrompt": "이 재고 데이터를 바탕으로 고객 질문에 답변해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 매장 재고를 안내하는 상담원이다"}),
+        node("n6", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+    ],
+)
+
+# ── 100. 구독 서비스 요금제 안내 챗봇 ────────────────────────────────────
+tpl100 = FlowGraph(
+    title="구독 서비스 요금제 안내 챗봇",
+    description="구독 서비스 요금제 문의에 요금제 정보를 바탕으로 답변한다.",
+    nodes=[
+        node("n1", "webhookNode"),
+        node("n2", "promptNode", {"userPrompt": "이 문의에 대해 요금제 정보를 바탕으로 답변해줘"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 구독 서비스 요금제를 안내하는 상담원이다"}),
+        node("n4", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+    ],
+)
+
+# ── 101. 이벤트 초대장 문구 자동 생성 ────────────────────────────────────
+tpl101 = FlowGraph(
+    title="이벤트 초대장 문구 자동 생성",
+    description="이벤트 정보를 바탕으로 초대장 문구를 작성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "이벤트 정보(행사명, 일시, 장소)", "testValue": "창립 10주년 기념 행사, 2026-09-01, 그랜드홀"}),
+        node("n3", "promptNode", {"userPrompt": "이 정보를 바탕으로 초대장 문구를 작성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 이벤트 초대장 문구를 작성하는 담당자다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 102. 제품 사용 설명서 초안 생성 ──────────────────────────────────────
+tpl102 = FlowGraph(
+    title="제품 사용 설명서 초안 생성",
+    description="제품 기능 목록을 바탕으로 사용 설명서 초안을 작성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "제품 기능 목록", "testValue": "전원 버튼, 무선 충전, 방수 기능"}),
+        node("n3", "promptNode", {"userPrompt": "이 기능 목록을 바탕으로 사용 설명서 초안을 작성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 제품 사용 설명서를 작성하는 테크니컬 라이터다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 103. 고객 감사 메일 문구 생성 ────────────────────────────────────────
+tpl103 = FlowGraph(
+    title="고객 감사 메일 문구 생성",
+    description="고객 정보와 구매 내역을 바탕으로 감사 메일 문구를 작성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "고객 정보 및 구매 내역", "testValue": "3년 단골 고객, 최근 프리미엄 멤버십 갱신"}),
+        node("n3", "promptNode", {"userPrompt": "이 정보를 바탕으로 진심어린 감사 메일 문구를 작성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 고객 감사 메일을 작성하는 CS 담당자다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 104. 브랜드 슬로건 아이디어 생성 ─────────────────────────────────────
+tpl104 = FlowGraph(
+    title="브랜드 슬로건 아이디어 생성",
+    description="브랜드 컨셉과 타겟을 바탕으로 슬로건 아이디어를 제안한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "브랜드 컨셉 및 타겟", "testValue": "친환경 화장품, 20-30대 여성 타겟"}),
+        node("n3", "promptNode", {"userPrompt": "이 컨셉을 바탕으로 브랜드 슬로건 아이디어 5개를 제안해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 브랜드 슬로건을 만드는 카피라이터다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 105. 교육 콘텐츠 퀴즈 문항 생성 ──────────────────────────────────────
+tpl105 = FlowGraph(
+    title="교육 콘텐츠 퀴즈 문항 생성",
+    description="학습 주제와 내용을 바탕으로 객관식 퀴즈 문항을 생성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "학습 주제 및 내용 요약", "testValue": "파이썬 기초 문법(변수, 반복문, 조건문)"}),
+        node("n3", "promptNode", {"userPrompt": "이 학습 내용을 바탕으로 객관식 퀴즈 문항 5개를 생성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 교육 콘텐츠 퀴즈를 만드는 강사다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 106. 팟캐스트 에피소드 요약 노트 생성 ────────────────────────────────
+tpl106 = FlowGraph(
+    title="팟캐스트 에피소드 요약 노트 생성",
+    description="팟캐스트 에피소드 스크립트를 바탕으로 요약 노트와 하이라이트를 작성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "팟캐스트 에피소드 스크립트 또는 요약", "testValue": "이번 화는 스타트업 투자 유치 경험담을 다룹니다"}),
+        node("n3", "promptNode", {"userPrompt": "이 내용을 바탕으로 에피소드 요약 노트와 하이라이트를 작성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 팟캐스트 에피소드 노트를 작성하는 콘텐츠 에디터다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 107. 명함 이미지 연락처 데이터 추출 ──────────────────────────────────
+tpl107 = FlowGraph(
+    title="명함 이미지 연락처 데이터 추출",
+    description="명함 내용에서 연락처 정보를 추출해 CRM에 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "명함 이미지 경로 또는 텍스트", "testValue": "홍길동 팀장, ABC상사, 010-1234-5678, hong@abc.com"}),
+        node("n3", "promptNode", {"userPrompt": "이 명함 내용에서 이름, 직함, 회사, 전화번호, 이메일을 JSON 형태로 추출해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 명함에서 연락처 정보를 추출하는 어시스턴트다"}),
+        node("n5", "jsonParserNode", {"mode": "parse"}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": "https://api.example.com/contacts"}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 108. 표준 견적서 자동 생성 ───────────────────────────────────────────
+tpl108 = FlowGraph(
+    title="표준 견적서 자동 생성",
+    description="견적 항목과 금액을 표준 견적서 템플릿의 빈칸에 채워 생성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "견적 항목 및 금액", "testValue": "웹사이트 제작 500만원, 유지보수 월 30만원"}),
+        node("n3", "templateAnalyzerNode", {"template_path": "/templates/quotation.docx"}),
+        node("n4", "promptNode", {"userPrompt": "이 템플릿의 빈칸에 채울 값을 견적 정보를 바탕으로 JSON으로 만들어줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 견적서를 작성하는 영업 담당자다"}),
+        node("n6", "fileModifierNode", {"template_path": "/templates/quotation.docx"}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 109. 학술 논문 초록 구조화 추출 ──────────────────────────────────────
+tpl109 = FlowGraph(
+    title="학술 논문 초록 구조화 추출",
+    description="논문 초록에서 연구 목적, 방법, 결과, 결론을 구조화해서 정리한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "논문 초록 텍스트", "testValue": "본 연구는 트랜스포머 기반 모델의 효율성을 개선하는 방법을 제안한다"}),
+        node("n3", "promptNode", {"userPrompt": "이 초록에서 연구 목적, 방법, 결과, 결론을 구조화해서 정리해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 논문 초록을 구조화하는 연구 보조원이다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 110. 배송 송장 데이터 추출 및 저장 ───────────────────────────────────
+tpl110 = FlowGraph(
+    title="배송 송장 데이터 추출 및 저장",
+    description="배송 송장 PDF에서 발송인/수취인/운송장번호를 추출해 데이터베이스에 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "배송 송장 PDF 경로", "testValue": "/uploads/shipping_invoice_202607.pdf"}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 송장 내용에서 발송인, 수취인, 운송장번호, 배송비를 JSON 형태로 추출해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 배송 송장에서 정형 데이터를 추출하는 물류 담당자다"}),
+        node("n6", "jsonParserNode", {"mode": "parse"}),
+        node("n7", "databaseNode", {"connectionString": "postgresql://user:pass@localhost/logistics", "query": "INSERT INTO shipments (raw_json) VALUES ('data')"}),
+        node("n8", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n7", "n8"),
+    ],
+)
+
+# ── 111. 개인정보 동의서 자동 초안 생성 ──────────────────────────────────
+tpl111 = FlowGraph(
+    title="개인정보 동의서 자동 초안 생성",
+    description="수집 목적과 항목을 개인정보 동의서 템플릿의 빈칸에 채워 초안을 생성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "수집 목적 및 항목", "testValue": "이벤트 응모, 이름/연락처/이메일 수집"}),
+        node("n3", "templateAnalyzerNode", {"template_path": "/templates/privacy_consent.docx"}),
+        node("n4", "promptNode", {"userPrompt": "이 템플릿의 빈칸에 채울 값을 수집 목적과 항목을 바탕으로 JSON으로 만들어줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 개인정보 동의서를 작성하는 법무 담당자다"}),
+        node("n6", "fileModifierNode", {"template_path": "/templates/privacy_consent.docx"}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 112. 매일 신규 채용 공고 수집 및 요약 다이제스트 ────────────────────
+tpl112 = FlowGraph(
+    title="매일 신규 채용 공고 수집 및 요약 다이제스트",
+    description="매일 채용 공고를 수집해 관련 직군 공고만 골라 요약하고 슬랙으로 알린다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 8 * * *"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": "https://api.example.com/jobs/recent"}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode"),
+        node("n5", "promptNode", {"userPrompt": "이 채용 공고가 백엔드/데이터 직군과 관련 있는지 판단하고, 관련 있으면 핵심 내용을 한 줄로 요약해줘. 관련 없으면 정확히 'SKIP'이라고만 답해"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 채용 공고를 큐레이션하는 담당자다"}),
+        node("n7", "conditionNode", {"rules": [{"id": "skip", "operator": "Contains", "value": "SKIP"}]}),
+        node("n8", "slackNode", {"channel": "#job-digest", "message": "오늘의 채용 공고가 있습니다"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n7", "n8", "else"),
+        edge("e8", "n8", "n9"),
+        edge("e9", "n7", "n9", "skip"),
+        edge("e10", "n4", "n10", "done"),
+    ],
+)
+
+# ── 113. 주간 GitHub 이슈 우선순위 분류 다이제스트 ──────────────────────
+tpl113 = FlowGraph(
+    title="주간 GitHub 이슈 우선순위 분류 다이제스트",
+    description="주간 GitHub 이슈 중 긴급 우선순위 항목만 골라 요약하고 슬랙으로 알린다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 9 * * 1"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": "https://api.github.com/repos/example/repo/issues"}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode"),
+        node("n5", "promptNode", {"userPrompt": "이 이슈가 긴급 우선순위인지 판단하고, 긴급이면 핵심 내용을 한 줄로 요약해줘. 긴급이 아니면 정확히 'SKIP'이라고만 답해"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 GitHub 이슈 우선순위를 분류하는 프로젝트 매니저다"}),
+        node("n7", "conditionNode", {"rules": [{"id": "skip", "operator": "Contains", "value": "SKIP"}]}),
+        node("n8", "slackNode", {"channel": "#dev-priorities", "message": "이번 주 긴급 이슈가 있습니다"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n7", "n8", "else"),
+        edge("e8", "n8", "n9"),
+        edge("e9", "n7", "n9", "skip"),
+        edge("e10", "n4", "n10", "done"),
+    ],
+)
+
+# ── 114. 고객 설문 응답 일괄 감성 분석 다이제스트 ───────────────────────
+tpl114 = FlowGraph(
+    title="고객 설문 응답 일괄 감성 분석 다이제스트",
+    description="고객 설문 응답 중 부정적인 응답만 골라 요약하고 슬랙으로 알린다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 10 * * *"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": "https://api.example.com/surveys/recent"}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode"),
+        node("n5", "promptNode", {"userPrompt": "이 설문 응답이 부정적인 감성인지 판단하고, 부정적이면 핵심 불만 내용을 한 줄로 요약해줘. 부정적이지 않으면 정확히 'SKIP'이라고만 답해"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 고객 설문 응답의 감성을 분석하는 CS 담당자다"}),
+        node("n7", "conditionNode", {"rules": [{"id": "skip", "operator": "Contains", "value": "SKIP"}]}),
+        node("n8", "slackNode", {"channel": "#customer-voice", "message": "부정적인 설문 응답이 감지되었습니다"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n7", "n8", "else"),
+        edge("e8", "n8", "n9"),
+        edge("e9", "n7", "n9", "skip"),
+        edge("e10", "n4", "n10", "done"),
+    ],
+)
+
+# ── 115. 매일 환율 변동 모니터링 알림 ───────────────────────────────────
+tpl115 = FlowGraph(
+    title="매일 환율 변동 모니터링 알림",
+    description="매일 환율을 조회해 변동폭이 큰 통화만 골라 슬랙으로 알린다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 9 * * *"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": "https://api.example.com/fx/rates"}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode"),
+        node("n5", "promptNode", {"userPrompt": "이 통화 환율이 전일 대비 2% 이상 변동했는지 판단하고, 변동이 크면 한 줄로 요약해줘. 변동이 작으면 정확히 'SKIP'이라고만 답해"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 환율 변동을 모니터링하는 재무 담당자다"}),
+        node("n7", "conditionNode", {"rules": [{"id": "skip", "operator": "Contains", "value": "SKIP"}]}),
+        node("n8", "slackNode", {"channel": "#finance-alerts", "message": "환율 변동 알림입니다"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n7", "n8", "else"),
+        edge("e8", "n8", "n9"),
+        edge("e9", "n7", "n9", "skip"),
+        edge("e10", "n4", "n10", "done"),
+    ],
+)
+
+# ── 116. 면접 후기 긍/부정 분류 및 저장 라우팅 ──────────────────────────
+tpl116 = FlowGraph(
+    title="면접 후기 긍/부정 분류 및 저장 라우팅",
+    description="면접 후기의 감성을 판별해 긍정/부정 테이블에 각각 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "면접 후기 내용", "testValue": "면접관이 친절했고 질문도 명확했습니다"}),
+        node("n3", "promptNode", {"userPrompt": "이 면접 후기가 긍정적인지 부정적인지 판단해서 '긍정' 또는 '부정' 중 하나로만 답해"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 면접 후기의 감성을 분류하는 채용 담당자다"}),
+        node("n5", "conditionNode", {"rules": [{"id": "positive", "operator": "Contains", "value": "긍정"}]}),
+        node("n6", "databaseNode", {"connectionString": "postgresql://user:pass@localhost/reviews", "query": "INSERT INTO positive_reviews (text) VALUES ('review')"}),
+        node("n7", "databaseNode", {"connectionString": "postgresql://user:pass@localhost/reviews", "query": "INSERT INTO negative_reviews (text) VALUES ('review')"}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "positive"),
+        edge("e6", "n5", "n7", "else"),
+        edge("e7", "n6", "n8"),
+        edge("e8", "n7", "n8"),
+        edge("e9", "n8", "n9"),
+    ],
+)
+
+# ── 117. 웹훅 이벤트 유형별 처리 라우팅 ──────────────────────────────────
+tpl117 = FlowGraph(
+    title="웹훅 이벤트 유형별 처리 라우팅",
+    description="웹훅 이벤트 유형을 분류해 각각 다른 처리 API로 라우팅한다.",
+    nodes=[
+        node("n1", "webhookNode"),
+        node("n2", "promptNode", {"userPrompt": "이 이벤트 페이로드를 보고 'payment', 'signup', 'cancellation' 중 하나로만 분류해서 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 웹훅 이벤트 유형을 분류하는 시스템 담당자다"}),
+        node("n4", "conditionNode", {"rules": [
+            {"id": "payment", "operator": "Contains", "value": "payment"},
+            {"id": "signup", "operator": "Contains", "value": "signup"},
+        ]}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": "https://api.example.com/handlers/payment"}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": "https://api.example.com/handlers/signup"}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": "https://api.example.com/handlers/cancellation"}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "payment"),
+        edge("e5", "n4", "n6", "signup"),
+        edge("e6", "n4", "n7", "else"),
+        edge("e7", "n5", "n8"),
+        edge("e8", "n6", "n8"),
+        edge("e9", "n7", "n8"),
+        edge("e10", "n8", "n9"),
+    ],
+)
+
+# ── 118. 이메일 첨부파일 유형별 처리 라우팅 ─────────────────────────────
+tpl118 = FlowGraph(
+    title="이메일 첨부파일 유형별 처리 라우팅",
+    description="이메일 첨부파일 유형을 분류해 각각 다른 테이블에 저장한다.",
+    nodes=[
+        node("n1", "webhookNode"),
+        node("n2", "promptNode", {"userPrompt": "이 이메일 첨부파일이 'invoice', 'resume', 'contract' 중 어떤 유형인지 판단해서 하나로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 이메일 첨부파일 유형을 분류하는 담당자다"}),
+        node("n4", "conditionNode", {"rules": [
+            {"id": "invoice", "operator": "Contains", "value": "invoice"},
+            {"id": "resume", "operator": "Contains", "value": "resume"},
+        ]}),
+        node("n5", "databaseNode", {"connectionString": "postgresql://user:pass@localhost/docs", "query": "INSERT INTO invoices (file) VALUES ('doc')"}),
+        node("n6", "databaseNode", {"connectionString": "postgresql://user:pass@localhost/docs", "query": "INSERT INTO resumes (file) VALUES ('doc')"}),
+        node("n7", "databaseNode", {"connectionString": "postgresql://user:pass@localhost/docs", "query": "INSERT INTO contracts (file) VALUES ('doc')"}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "invoice"),
+        edge("e5", "n4", "n6", "resume"),
+        edge("e6", "n4", "n7", "else"),
+        edge("e7", "n5", "n8"),
+        edge("e8", "n6", "n8"),
+        edge("e9", "n7", "n8"),
+        edge("e10", "n8", "n9"),
+    ],
+)
+
 # 카테고리는 원본 n8n 소스 폴더명(서비스 브랜드 기준)이 아니라, 우리 엔진이 실제로 다르게
 # 만드는 축인 "워크플로우 구조 패턴" 기준으로 재편했다(2026-07-16). 예: WhatsApp/Telegram/Discord는
 # 우리 엔진에선 다 kakaoNode/discordNode 같은 범용 메시지 노드로 흡수되기 때문에 서비스명으로
@@ -2443,6 +3188,36 @@ TEMPLATES = [
     ("고객 문의 채널별 자동 라우팅", "Classification_and_Routing", tpl86),
     ("버그 리포트 심각도 분류 및 이슈 등록", "Classification_and_Routing", tpl87),
     ("인바운드 리드 소스별 CRM 라우팅", "Classification_and_Routing", tpl88),
+    ("법인카드 사용 내역 이상 지출 승인", "Approval_Workflows", tpl89),
+    ("외부 API 연동 요청 보안 검토 승인", "Approval_Workflows", tpl90),
+    ("고객 계정 삭제 요청 승인 처리", "Approval_Workflows", tpl91),
+    ("마케팅 캠페인 예산 집행 승인", "Approval_Workflows", tpl92),
+    ("협력사 계약 해지 요청 검토 승인", "Approval_Workflows", tpl93),
+    ("재택근무 신청 규정 검토 승인", "Approval_Workflows", tpl94),
+    ("보험 약관 Q&A 어시스턴트", "QA_Chatbots_and_Assistants", tpl95),
+    ("여행 상품 안내 챗봇", "QA_Chatbots_and_Assistants", tpl96),
+    ("사내 회의실 예약 안내 챗봇", "QA_Chatbots_and_Assistants", tpl97),
+    ("API 사용법 문의 챗봇", "QA_Chatbots_and_Assistants", tpl98),
+    ("매장 재고 조회 챗봇", "QA_Chatbots_and_Assistants", tpl99),
+    ("구독 서비스 요금제 안내 챗봇", "QA_Chatbots_and_Assistants", tpl100),
+    ("이벤트 초대장 문구 자동 생성", "Content_Generation", tpl101),
+    ("제품 사용 설명서 초안 생성", "Content_Generation", tpl102),
+    ("고객 감사 메일 문구 생성", "Content_Generation", tpl103),
+    ("브랜드 슬로건 아이디어 생성", "Content_Generation", tpl104),
+    ("교육 콘텐츠 퀴즈 문항 생성", "Content_Generation", tpl105),
+    ("팟캐스트 에피소드 요약 노트 생성", "Content_Generation", tpl106),
+    ("명함 이미지 연락처 데이터 추출", "Document_Processing", tpl107),
+    ("표준 견적서 자동 생성", "Document_Processing", tpl108),
+    ("학술 논문 초록 구조화 추출", "Document_Processing", tpl109),
+    ("배송 송장 데이터 추출 및 저장", "Document_Processing", tpl110),
+    ("개인정보 동의서 자동 초안 생성", "Document_Processing", tpl111),
+    ("매일 신규 채용 공고 수집 및 요약 다이제스트", "Batch_List_Processing_and_Digests", tpl112),
+    ("주간 GitHub 이슈 우선순위 분류 다이제스트", "Batch_List_Processing_and_Digests", tpl113),
+    ("고객 설문 응답 일괄 감성 분석 다이제스트", "Batch_List_Processing_and_Digests", tpl114),
+    ("매일 환율 변동 모니터링 알림", "Batch_List_Processing_and_Digests", tpl115),
+    ("면접 후기 긍/부정 분류 및 저장 라우팅", "Classification_and_Routing", tpl116),
+    ("웹훅 이벤트 유형별 처리 라우팅", "Classification_and_Routing", tpl117),
+    ("이메일 첨부파일 유형별 처리 라우팅", "Classification_and_Routing", tpl118),
 ]
 
 
