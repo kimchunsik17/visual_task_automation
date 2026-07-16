@@ -105,7 +105,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None) -> str:
     lines.append("import os")
     lines.append("has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))")
     lines.append("if has_langfuse:")
-    lines.append("    from langfuse.callback import CallbackHandler")
+    lines.append("    from langfuse.langchain import CallbackHandler")
     if project_id:
         lines.append(f"    langfuse_handler = CallbackHandler(session_id='project-{project_id}', tags=['workflow_execution'])")
     else:

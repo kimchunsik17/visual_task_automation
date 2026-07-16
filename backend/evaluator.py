@@ -13,7 +13,7 @@ load_dotenv()
 import os
 has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))
 if has_langfuse:
-    from langfuse.callback import CallbackHandler
+    from langfuse.langchain import CallbackHandler
     
 # --- Pydantic Models for Structured Output ---
 
