@@ -272,6 +272,7 @@ def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=
     Compiles the graph into Python code and dynamically executes it using exec().
     Returns a tuple (result_text, token_usage_dict, execution_logs).
     """
+    import models
     if db and project_id:
         project = db.query(models.Project).filter(models.Project.id == project_id).first()
         if project and project.user_id:

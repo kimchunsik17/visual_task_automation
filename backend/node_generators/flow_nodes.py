@@ -25,28 +25,45 @@ def generate_schedule_node(node_id, node, indent, active_llm_id, prev_res_var, v
 
 @node_registry.register('conditionNode')
 def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
-    condition = node.get('data', {}).get('condition', 'Contains')
-    val = node.get('data', {}).get('value', '')
-    
+    rules = node.get('data', {}).get('rules', [])
+    var = prev_res_var if prev_res_var else 'last_result'
+
     lines.append(f"{indent}# --- Condition Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    if condition == 'Contains':
-        lines.append(f"{indent}if \"{val}\" in str({prev_res_var if prev_res_var else 'last_result'}):")
-    else:
-        lines.append(f"{indent}if str({prev_res_var if prev_res_var else 'last_result'}) == \"{val}\":")
-        
-    true_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'true']
-    if true_edges:
-        generate_block_fn(true_edges[0], indent + "    ", active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
-    else:
+
+    edge_by_handle = {handle: target for target, handle in forward_edges.get(node_id, [])}
+
+    def _emit_branch(handle, branch_indent):
+        target_id = edge_by_handle.get(handle)
+        if target_id is None:
+            lines.append(f"{branch_indent}pass")
+        else:
+            generate_block_fn(target_id, branch_indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+
+    def _cond_expr(operator, value):
+        value_escaped = str(value).replace('"', '\\"')
+        if operator == "==":
+            return f'str({var}) == "{value_escaped}"'
+        if operator == "Contains":
+            return f'"{value_escaped}" in str({var})'
+        if operator in (">", "<", ">=", "<="):
+            return f'is_numeric({var}) and is_numeric("{value_escaped}") and float({var}) {operator} float("{value_escaped}")'
+        return f'"{value_escaped}" in str({var})'  # 알 수 없는 operator는 Contains로 취급(방어적 기본값)
+
+    if not rules:
+        lines.append(f"{indent}if False:")
         lines.append(f"{indent}    pass")
-        
+        lines.append(f"{indent}else:")
+        _emit_branch("else", indent + "    ")
+        return
+
+    for i, rule in enumerate(rules):
+        keyword = "if" if i == 0 else "elif"
+        lines.append(f"{indent}{keyword} {_cond_expr(rule.get('operator', 'Contains'), rule.get('value', ''))}:")
+        _emit_branch(rule.get("id"), indent + "    ")
+
     lines.append(f"{indent}else:")
-    false_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'false']
-    if false_edges:
-        generate_block_fn(false_edges[0], indent + "    ", active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
-    else:
-        lines.append(f"{indent}    pass")
+    _emit_branch("else", indent + "    ")
 
 @node_registry.register('loopNode')
 def generate_loop_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
@@ -135,12 +152,25 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
     lines.append(f"{indent}dist_list_{node_id} = {prev_res_var if prev_res_var else 'last_result'}")
     lines.append(f"{indent}if not isinstance(dist_list_{node_id}, list):")
     lines.append(f"{indent}    dist_list_{node_id} = [dist_list_{node_id}]")
+
+    # loopNode와 동일하게 누적 변수를 둔다 — 이게 없으면 done 엣지가 반복 시작 전의
+    # prev_res_var(원본 입력, 예: 파싱 전 raw JSON)를 그대로 넘겨버려서 outputNode가
+    # 루프 안에서 실제로 처리된 최신 결과(last_result) 대신 엉뚱한 옛날 값을 반환한다.
+    acc_var = f"dist_acc_{node_id}"
+    lines.append(f"{indent}{acc_var} = dist_list_{node_id}")
     lines.append(f"{indent}for dist_item_{node_id} in dist_list_{node_id}:")
     lines.append(f"{indent}    last_result = dist_item_{node_id}")
-    
-    next_edges = forward_edges.get(node_id, [])
-    if not next_edges:
+
+    # 'done' 핸들 엣지는 반복 밖(전 항목 처리 후 딱 한 번)에서 이어간다 — loopNode의 done과 동일한 패턴.
+    # 이게 없으면 반복 안에서 outputNode에 닿는 순간 return이 실행돼 첫 항목만 처리하고 끝나버린다.
+    body_edges = [(t, h) for t, h in forward_edges.get(node_id, []) if h != 'done']
+    if not body_edges:
         lines.append(f"{indent}    pass")
     else:
-        for target_id, handle in next_edges:
+        for target_id, handle in body_edges:
             generate_block_fn(target_id, indent + "    ", active_llm_id=active_llm_id, prev_res_var=f"dist_item_{node_id}", visited=visited)
+    lines.append(f"{indent}    {acc_var} = last_result")
+
+    done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
+    if done_edges:
+        generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)

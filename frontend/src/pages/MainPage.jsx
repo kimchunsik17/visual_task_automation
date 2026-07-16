@@ -223,7 +223,7 @@ function MainPage() {
                       onChange={() => setComplexityLevel(level)} 
                       style={{ display: 'none' }} 
                     />
-                    {level === 'low' ? '빠름' : level === 'medium' ? '일반' : '정밀'}
+                    {level === 'low' ? '빠름' : level === 'medium' ? '확장' : '정밀'}
                   </label>
                 ))}
               </div>
