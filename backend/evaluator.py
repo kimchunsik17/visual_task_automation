@@ -10,7 +10,11 @@ import models
 from graph import run_workflow
 
 load_dotenv()
-
+import os
+has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))
+if has_langfuse:
+    from langfuse.callback import CallbackHandler
+    
 # --- Pydantic Models for Structured Output ---
 
 class TestCase(BaseModel):
@@ -44,13 +48,21 @@ class EvaluationReport(BaseModel):
 
 # --- Evaluator Agents ---
 
-def get_eval_llm():
+def get_eval_llm(project_id=None):
     # Use gpt-4o-mini for cost-efficiency but decent logic
-    return ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    if has_langfuse:
+        tags = ["evaluation"]
+        if project_id:
+            handler = CallbackHandler(session_id=f"project-{project_id}", tags=tags)
+        else:
+            handler = CallbackHandler(tags=tags)
+        llm = llm.with_config(callbacks=[handler])
+    return llm
 
-def generate_golden_dataset(title: str, description: str, nodes: list, edges: list) -> List[TestCase]:
+def generate_golden_dataset(title: str, description: str, nodes: list, edges: list, project_id=None) -> List[TestCase]:
     """Generates test cases based on the workflow's structure and description."""
-    llm = get_eval_llm().with_structured_output(DatasetGenerationResult)
+    llm = get_eval_llm(project_id).with_structured_output(DatasetGenerationResult)
     
     # Analyze if there's a dynamic input node to know what to provide
     input_labels = []
@@ -84,9 +96,9 @@ def generate_golden_dataset(title: str, description: str, nodes: list, edges: li
     })
     return res.test_cases
 
-def evaluate_single_case(test_case: TestCase, actual_output: str, error: Optional[str]) -> JudgeScore:
-    """Scores a single execution result against the expected behavior."""
-    llm = get_eval_llm().with_structured_output(JudgeScore)
+def evaluate_test_case(test_case: TestCase, actual_output: str, error: str, project_id=None) -> JudgeScore:
+    """Evaluates a single test case result and returns a score breakdown."""
+    llm = get_eval_llm(project_id).with_structured_output(JudgeScore)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are an AI Judge evaluating a workflow's execution output. Score it across 5 criteria (1-10 each) and provide feedback. The feedback MUST be written in Korean."),
@@ -102,9 +114,9 @@ def evaluate_single_case(test_case: TestCase, actual_output: str, error: Optiona
     })
     return res
 
-def summarize_evaluation(test_results: List[TestCaseResult]) -> dict:
+def summarize_evaluation(test_results: List[TestCaseResult], project_id=None) -> dict:
     """Creates a final summary and score from all test case results."""
-    llm = get_eval_llm().with_structured_output(EvaluationReport)
+    llm = get_eval_llm(project_id).with_structured_output(EvaluationReport)
     
     total_score = sum(r.total_score for r in test_results)
     max_possible = len(test_results) * 50
@@ -141,16 +153,23 @@ def summarize_evaluation(test_results: List[TestCaseResult]) -> dict:
     ]
     return report_dict
 
-async def evaluate_workflow(graph_data: dict, title: str, description: str, db=None) -> dict:
-    """Main Orchestrator for the Evaluation Pipeline."""
-    nodes = graph_data.get('nodes', [])
-    edges = graph_data.get('edges', [])
-    
-    # 1. Generate Dataset
-    test_cases = generate_golden_dataset(title, description, nodes, edges)
-    
+async def run_evaluation_pipeline(project_id: int, title: str, description: str, nodes: list, edges: list, db, yield_status=None):
+    """
+    Runs the entire evaluation pipeline:
+    1. Generate 3 golden test cases
+    2. Run the actual workflow with the test case inputs
+    3. Evaluate each output using the Judge LLM
+    """
+    if yield_status: yield_status("생성 중...")
+    try:
+        test_cases = generate_golden_dataset(title, description, nodes, edges, project_id)
+    except Exception as e:
+        print(f"Failed to generate dataset: {e}")
+        return {"error": "Failed to generate dataset"}
+
     results = []
-    for tc in test_cases:
+    for i, tc in enumerate(test_cases):
+        if yield_status: yield_status(f"실행 중... ({i+1}/3)")
         # 2. Execute Workflow
         inputs = {"default_input": tc.input}
         try:
@@ -163,16 +182,20 @@ async def evaluate_workflow(graph_data: dict, title: str, description: str, db=N
             result_text = ""
             error_msg = str(e)
             
-        # 3. Judge the execution
-        score_res = evaluate_single_case(tc, result_text, error_msg)
-        
-        total = score_res.correctness + score_res.completeness + score_res.consistency + score_res.error_handling + score_res.usefulness
-        
+        if yield_status: yield_status(f"평가 중... ({i+1}/3)")
+        try:
+            score = evaluate_test_case(tc, result_text, error_msg, project_id)
+            total = sum([score.correctness, score.completeness, score.consistency, score.error_handling, score.usefulness])
+        except Exception as e:
+            print(f"Evaluation failed: {e}")
+            score = None
+            total = 0
+
         tcr = TestCaseResult(
             test_case=tc,
             actual_output=result_text,
             error=error_msg,
-            scores=score_res,
+            scores=score,
             total_score=total
         )
         results.append(tcr)

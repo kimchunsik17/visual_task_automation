@@ -170,17 +170,30 @@ class FlowEdge(BaseModel):
 
 
 class FlowGraph(BaseModel):
-    title: str = Field(description="워크플로우의 짧고 명확한 제목 (예: '새 뉴스레터 자동 발송')")
-    description: str = Field(description="워크플로우가 수행하는 작업에 대한 상세 설명 (예: '매일 아침 뉴스를 요약해 이메일로 전송합니다.')")
+    title: str = Field(default="", description="워크플로우의 짧고 명확한 제목 (예: '새 뉴스레터 자동 발송')")
+    description: str = Field(default="", description="워크플로우가 수행하는 작업에 대한 상세 설명 (예: '매일 아침 뉴스를 요약해 이메일로 전송합니다.')")
     nodes: List[FlowNode]
     edges: List[FlowEdge]
 
 
+import os
+has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))
+if has_langfuse:
+    from langfuse.callback import CallbackHandler
+
 # ── LLM 준비 (제공자 교체 지점) ──────────────────────────────────────────
-def get_llm():
+def get_llm(session_id=None):
     """메타 agent가 쓸 LLM. 현재 OpenAI. 제공자 교체는 여기만 바꾸면 된다."""
     from langchain_openai import ChatOpenAI
-    return ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    if has_langfuse:
+        tags = ["agent_generation"]
+        if session_id:
+            handler = CallbackHandler(session_id=f"generation-{session_id}", tags=tags)
+        else:
+            handler = CallbackHandler(tags=tags)
+        llm = llm.with_config(callbacks=[handler])
+    return llm
     # Gemini로 되돌리려면 위 두 줄 대신:
     # from langchain_google_genai import ChatGoogleGenerativeAI
     # return ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0)
@@ -462,14 +475,22 @@ def generate_flow(user_request: str) -> FlowGraph:
     return _strip_positions(llm.invoke(messages))
 
 
-def generate_flow_from_template(user_request: str, template: FlowGraph) -> FlowGraph:
+def generate_flow_from_template(user_request: str, template: FlowGraph, session_id=None) -> FlowGraph:
     """Medium 모드 전용: Pre-translated DB에서 가져온 템플릿의 구조를 골격으로 유지하면서
     파라미터만 사용자 요청에 맞게 수정한다.
 
     템플릿이 비선형(분기/병합/반복)이면 결과도 자연스럽게 비선형 구조를 유지한다.
     사용자가 짧게 말해도 프로덕트급 워크플로우가 나오는 핵심 메커니즘."""
     from langchain_openai import ChatOpenAI
-    llm = ChatOpenAI(model="gpt-4o", temperature=0).with_structured_output(FlowGraph, method="function_calling")
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    if has_langfuse:
+        tags = ["template_application"]
+        if session_id:
+            handler = CallbackHandler(session_id=f"generation-{session_id}", tags=tags)
+        else:
+            handler = CallbackHandler(tags=tags)
+        llm = llm.with_config(callbacks=[handler])
+    llm = llm.with_structured_output(FlowGraph, method="function_calling")
     messages = [
         ("system", MEDIUM_SYSTEM),
         ("user",

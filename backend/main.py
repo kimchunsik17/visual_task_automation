@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Depends, File, UploadFile, HTTPException, status, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -704,6 +704,39 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
 
     # 3. Return response to frontend
     return {"status": "success", "result": result_text, "token_usage": tokens, "logs": logs}
+
+class EvaluatePayload(BaseModel):
+    project_id: int
+    title: str = ""
+    description: str = ""
+    graph_data: Dict[str, Any]
+
+@app.post("/api/evaluate")
+async def evaluate_project(payload: EvaluatePayload, db: Session = Depends(get_db)):
+    import evaluator
+    try:
+        report = await evaluator.run_evaluation_pipeline(
+            project_id=payload.project_id,
+            title=payload.title,
+            description=payload.description,
+            nodes=payload.graph_data.get('nodes', []),
+            edges=payload.graph_data.get('edges', []),
+            db=db
+        )
+        return {"status": "success", "report": report}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/evaluate/cases")
+def get_eval_cases():
+    import evaluation
+    return evaluation.get_test_cases()
+
+@app.get("/api/evaluate/run")
+def run_eval(ids: str = None):
+    import evaluation
+    selected = ids.split(",") if ids else None
+    return StreamingResponse(evaluation.run_evaluation_suite(selected), media_type="text/event-stream")
 
 @app.get("/api/projects/{project_id}/runs")
 def get_project_runs(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):

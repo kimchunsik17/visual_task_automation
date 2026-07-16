@@ -30,7 +30,7 @@ def add_tracking(res_var, track_id, indent_str):
 {indent_str}    __token_usage__['total_output'] += o_tok
 {indent_str}    __token_usage__['total_tokens'] += t_tok"""
 
-def compile_workflow(nodes: list, edges: list) -> str:
+def compile_workflow(nodes: list, edges: list, project_id=None) -> str:
     """
     Parses the graph data (순방향 탐색) and generates imperative Python LangChain code.
     """
@@ -103,6 +103,15 @@ def compile_workflow(nodes: list, edges: list) -> str:
 
     lines = []
     lines.append("import os")
+    lines.append("has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))")
+    lines.append("if has_langfuse:")
+    lines.append("    from langfuse.callback import CallbackHandler")
+    if project_id:
+        lines.append(f"    langfuse_handler = CallbackHandler(session_id='project-{project_id}', tags=['workflow_execution'])")
+    else:
+        lines.append("    langfuse_handler = CallbackHandler(tags=['workflow_execution'])")
+    lines.append("else:")
+    lines.append("    langfuse_handler = None")
     lines.append("from langchain_google_genai import ChatGoogleGenerativeAI")
     if needs_openai:
         lines.append("from langchain_openai import ChatOpenAI")
@@ -173,6 +182,8 @@ def compile_workflow(nodes: list, edges: list) -> str:
                 api_key_arg = f', google_api_key="{api_key}"' if api_key else ''
                 lines.append(f"    llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\", max_retries=0{api_key_arg})")
                 
+            lines.append(f"    if langfuse_handler:")
+            lines.append(f"        llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler])")
             lines.append(f"    sys_prompt_{node_id} = \"{sys_prompt}\"")
     
     def generate_block(node_id, indent, active_llm_id=None, prev_res_var=None, visited=None):
@@ -256,13 +267,12 @@ def compile_workflow(nodes: list, edges: list) -> str:
     return "\n".join(lines)
 
 
-def run_workflow(nodes: list, edges: list, db=None, project_id=None, **kwargs):
+def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=None, **kwargs):
     """
     Compiles the graph into Python code and dynamically executes it using exec().
-    Returns a tuple (result_text, token_usage_dict).
+    Returns a tuple (result_text, token_usage_dict, execution_logs).
     """
     if db and project_id:
-        import models
         project = db.query(models.Project).filter(models.Project.id == project_id).first()
         if project and project.user_id:
             api_keys = db.query(models.UserApiKey).filter(models.UserApiKey.user_id == project.user_id).all()
@@ -283,7 +293,7 @@ def run_workflow(nodes: list, edges: list, db=None, project_id=None, **kwargs):
                             replace_api_keys(obj[i])
             replace_api_keys(nodes)
 
-    python_code = compile_workflow(nodes, edges)
+    python_code = compile_workflow(nodes, edges, project_id=project_id)
     
     if python_code.startswith("Error"):
         return python_code, {}, []

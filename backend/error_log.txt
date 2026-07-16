@@ -175,3 +175,5 @@ Traceback (most recent call last):
     loop = events.get_running_loop()
            ^^^^^^^^^^^^^^^^^^^^^^^^^
 RuntimeError: no running event loop
+2026-07-16 16:13:05.689761 - http://127.0.0.1:8000/api/chat - Validation Error: [{'type': 'string_type', 'loc': ('body', 'project_id'), 'msg': 'Input should be a valid string', 'input': 1}]
+Body: {'message': 'hello', 'project_id': 1, 'complexity_level': 'low', 'graph_data': {}}
