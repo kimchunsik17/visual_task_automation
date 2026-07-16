@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import axios from 'axios';
-import { Plus, LayoutGrid, Sparkles, Wand2, ArrowRight, Zap, Bot, LibraryBig } from 'lucide-react';
+import { Plus, LayoutGrid, Sparkles, Wand2, ArrowRight, Zap, Bot, LibraryBig, Key, BarChart } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
 import './MainPage.css';
 
@@ -103,6 +103,20 @@ function MainPage() {
       desc: '디스코드·카카오 등에 연결된 봇을 관리합니다.',
       action: () => navigate('/bots'),
       color: '#f472b6',
+    },
+    {
+      icon: <Key size={28} color="#f59e0b" />,
+      title: 'API 센터',
+      desc: '각종 외부 서비스의 API 키를 통합 관리합니다.',
+      action: () => navigate('/apicenter'),
+      color: '#f59e0b',
+    },
+    {
+      icon: <BarChart size={28} color="#10b981" />,
+      title: '통계',
+      desc: '토큰 사용량 및 앱 실행 통계를 확인합니다.',
+      action: () => navigate('/statistics'),
+      color: '#10b981',
     },
   ];
 
