@@ -87,7 +87,8 @@ NODE_CATALOG = """\
                    연결될 서브 에이전트(llmNode)는 엣지의 targetHandle을 "tools"로 설정하여 들어와야 한다.
 - pythonNode     : 파이썬 코드를 실행한다. data.code(문자열, 파이썬 코드). 직전 노드의 출력이 'input_data' 변수에 담기며, 처리 결과를 'output_data' 변수에 할당해야 한다.
 - discordNode    : 디스코드 메시지 발송. data.botToken(문자열), data.channelId(문자열, 선택). 직전 노드의 출력을 본문으로 발송한다.
-- kakaoNode      : 카카오톡 알림톡 발송. data.receiver(문자열, 선택 — 수신자 정보). 직전 노드의 출력을 내용으로 발송한다.
+- kakaoNode      : 카카오톡 알림톡/메시지 발송. data.accessToken(문자열, 사용자 제공), data.receiver(문자열, 선택 — 수신자 정보, 비우면 나에게 보내기). 직전 노드의 출력을 내용으로 발송한다.
+- tossNode       : 토스페이먼츠 API 연동. data.secretKey(문자열), data.searchType(문자열, 'paymentKey' 또는 'orderId'), data.searchValue(문자열). 직전 노드의 결과를 검색 값으로 쓰거나 입력받아 결제 정보를 조회한다.
 - slackNode      : 슬랙 메시지 발송. data.channel(문자열, 예: "#general"), data.message(문자열, 선택 — 직전 노드 출력과 함께 전송할 추가 메시지).
 - humanApprovalNode : 사람의 승인 대기. data.message(문자열, 승인 요청 메시지). 워크플로우 진행을 일시 정지하고 사용자 승인을 기다린다.
 - mergeNode      : 여러 흐름의 결과를 하나로 병합한다. data.mergeStrategy("join_newline" | "join_comma" | "array"). 여러 갈래의 엣지가 이 노드로 모일 수 있다.
@@ -148,7 +149,7 @@ NodeType = Literal[
     "webCrawlerNode", "outputNode", "valueNode", "distributorNode", "breakNode",
     "templateAnalyzerNode", "fileModifierNode", "emailNode", "databaseNode",
     "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
-    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode"
+    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode"
 ]
 
 

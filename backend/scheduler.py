@@ -85,7 +85,7 @@ def sync_project_schedule(project_id: int, project: models.Project):
     nodes = project.graph_data.get('nodes', [])
     schedule_node = next((n for n in nodes if n.get('type') == 'scheduleNode'), None)
     
-    if schedule_node:
+    if schedule_node and project.graph_data.get("is_live", False):
         cron_expr = schedule_node.get('data', {}).get('cronExpression', '0 7 * * *')
         try:
             trigger = CronTrigger.from_crontab(cron_expr)
@@ -102,13 +102,13 @@ def sync_project_schedule(project_id: int, project: models.Project):
                     id=job_id,
                     replace_existing=True
                 )
-                print(f"[Scheduler] Added schedule for project {project_id} with '{cron_expr}'")
+                print(f"[Scheduler] Added new schedule for project {project_id} with '{cron_expr}'")
         except ValueError as e:
-            print(f"[Scheduler] Invalid cron expression '{cron_expr}' for project {project_id}: {e}")
+            print(f"[Scheduler] Invalid cron expression for project {project_id}: {cron_expr}")
             if scheduler.get_job(job_id):
                 scheduler.remove_job(job_id)
     else:
-        # No schedule node, remove job if exists
+        # No scheduleNode or is_live == False, remove job if exists
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
             print(f"[Scheduler] Removed schedule for project {project_id}")

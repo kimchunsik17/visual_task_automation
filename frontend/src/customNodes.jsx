@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer, useStore } from '@xyflow/react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, CreditCard } from 'lucide-react';
 import axios from 'axios';
 
 const calculateNodeCost = (tokens, model, currency) => {
@@ -387,7 +387,7 @@ export const ValueNode = ({ id, data }) => {
                 onChange={handleFileUpload}
                 disabled={isUploading}
               />
-              <label htmlFor={`file-upload-${id}`} style={{ display: 'block', textAlign: 'center', padding: '4px 8px', backgroundColor: '#be185d', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              <label htmlFor={`file-upload-${id}`} className="nodrag" style={{ display: 'block', textAlign: 'center', padding: '4px 8px', backgroundColor: '#be185d', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
                 {isUploading ? 'Uploading...' : 'Upload File (PDF, Excel, PPT, HWP)'}
               </label>
             </div>
@@ -841,7 +841,7 @@ export const FileModifierNode = ({ id, data }) => {
                 onChange={handleFileUpload}
                 disabled={isUploading}
               />
-              <label htmlFor={`file-upload-template-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#ea580c', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              <label htmlFor={`file-upload-template-${id}`} className="nodrag" style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#ea580c', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
                 {isUploading ? 'Uploading...' : 'Upload Template File'}
               </label>
             </div>
@@ -930,7 +930,7 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
                 onChange={handleFileUpload}
                 disabled={isUploading}
               />
-              <label htmlFor={`file-upload-analyzer-${id}`} style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#0d9488', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              <label htmlFor={`file-upload-analyzer-${id}`} className="nodrag" style={{ display: 'block', textAlign: 'center', padding: '6px', backgroundColor: '#0d9488', color: 'var(--text-color)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
                 {isUploading ? 'Uploading...' : 'Upload Blank Template'}
               </label>
             </div>
@@ -1152,13 +1152,22 @@ export const KakaoNode = ({ id, data }) => {
       {isExpanded && (
         <div className="node-body">
           <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>* 이전 노드의 결과값이 카카오톡 메시지로 전송됩니다.</p>
-          <label style={{ marginTop: '0.5rem' }}>수신자 (옵션)</label>
+          <label style={{ marginTop: '0.5rem' }}>Access Token (필수)</label>
+          <input
+            type="password"
+            className="nodrag"
+            defaultValue={data.accessToken || ''}
+            onChange={(e) => data.onChange(id, 'accessToken', e.target.value)}
+            placeholder="Kakao REST API Access Token"
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
+          />
+          <label>수신자 (옵션)</label>
           <input
             type="text"
             className="nodrag"
             defaultValue={data.receiver || ''}
             onChange={(e) => data.onChange(id, 'receiver', e.target.value)}
-            placeholder="전화번호 또는 ID"
+            placeholder="나에게 보내기(비워둠) 또는 수신자 uuid"
             style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
           />
         </div>

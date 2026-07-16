@@ -497,7 +497,7 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
-        <button className="btn-icon" onClick={onClose} style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 10 }}><X size={20} /></button>
+
 
         <div className="modal-header" style={{ paddingBottom: '0', display: 'block' }}>
           <div className="template-tabs" style={{ marginTop: '0.5rem' }}>

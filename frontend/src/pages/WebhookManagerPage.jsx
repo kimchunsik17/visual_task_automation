@@ -35,13 +35,28 @@ export default function WebhookManagerPage() {
     setActiveDropdown(activeDropdown === id ? null : id);
   };
 
-  const handleAction = (id, action) => {
-    setWebhooks(webhooks.map(wh => {
-      if (wh.id === id) {
-        return { ...wh, status: action === 'resume' ? 'Active' : 'Stopped' };
+  const handleAction = async (id, projectId, action) => {
+    try {
+      const isLive = action === 'resume';
+      const response = await fetch(`http://localhost:8000/api/projects/${projectId}/live`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ is_live: isLive })
+      });
+      if (response.ok) {
+        setWebhooks(webhooks.map(wh => {
+          if (wh.id === id) {
+            return { ...wh, status: isLive ? 'Active' : 'Stopped' };
+          }
+          return wh;
+        }));
       }
-      return wh;
-    }));
+    } catch(err) {
+      console.error(err);
+    }
   };
 
   const handleDelete = (id) => {
@@ -152,11 +167,11 @@ export default function WebhookManagerPage() {
 
                   <div className="scheduler-card-actions">
                     {wh.status === 'Active' ? (
-                      <button className="btn-primary-action stop" onClick={() => handleAction(wh.id, 'pause')}>
+                      <button className="btn-primary-action stop" onClick={() => handleAction(wh.id, wh.projectId, 'pause')}>
                         <Square size={16} /> 수신 중지
                       </button>
                     ) : (
-                      <button className="btn-primary-action start" onClick={() => handleAction(wh.id, 'resume')}>
+                      <button className="btn-primary-action start" onClick={() => handleAction(wh.id, wh.projectId, 'resume')}>
                         <Play size={16} /> 수신 재개
                       </button>
                     )}

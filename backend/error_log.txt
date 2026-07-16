@@ -1,0 +1,177 @@
+2026-07-16 08:58:43.351664 - http://localhost:8000/api/projects/22 - no running event loop
+Traceback (most recent call last):
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\cors.py", line 96, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\cors.py", line 154, in simple_response
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 2683, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 1266, in handle
+    await super().handle(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 150, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 136, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 690, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 346, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2596, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\main.py", line 319, in delete_project
+    discord_bot.stop_discord_bot(project_id)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\discord_bot.py", line 158, in stop_discord_bot
+    asyncio.create_task(_disconnect())
+  File "C:\Users\kimchunsik\AppData\Local\Programs\Python\Python312\Lib\asyncio\tasks.py", line 417, in create_task
+    loop = events.get_running_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: no running event loop
+2026-07-16 09:07:22.955439 - http://localhost:8000/api/projects/22 - no running event loop
+Traceback (most recent call last):
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\cors.py", line 96, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\cors.py", line 154, in simple_response
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 2683, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 1266, in handle
+    await super().handle(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 150, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 136, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 690, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 346, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2596, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\main.py", line 319, in delete_project
+    discord_bot.stop_discord_bot(project_id)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\discord_bot.py", line 158, in stop_discord_bot
+    asyncio.create_task(_disconnect())
+  File "C:\Users\kimchunsik\AppData\Local\Programs\Python\Python312\Lib\asyncio\tasks.py", line 417, in create_task
+    loop = events.get_running_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: no running event loop
+2026-07-16 09:12:23.503942 - http://localhost:8000/api/projects/22 - no running event loop
+Traceback (most recent call last):
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\cors.py", line 96, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\cors.py", line 154, in simple_response
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 2683, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 1266, in handle
+    await super().handle(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 150, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 136, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 690, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\fastapi\routing.py", line 346, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\starlette\concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2596, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\main.py", line 319, in delete_project
+    discord_bot.stop_discord_bot(project_id)
+  File "C:\Users\kimchunsik\Desktop\업무자동화 비주얼화\backend\discord_bot.py", line 158, in stop_discord_bot
+    asyncio.create_task(_disconnect())
+  File "C:\Users\kimchunsik\AppData\Local\Programs\Python\Python312\Lib\asyncio\tasks.py", line 417, in create_task
+    loop = events.get_running_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: no running event loop

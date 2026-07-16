@@ -373,6 +373,8 @@ button, input, textarea {
 .custom-node.start { border-left: 4px solid #10b981; }
 .custom-node.schedule { border-left: 4px solid #8b5cf6; }
 .custom-node.discord { border-left: 4px solid #5865F2; }
+.custom-node.kakao { border-left: 4px solid #facc15; }
+.custom-node.toss { border-left: 4px solid #3b82f6; }
 
 .node-body {
   padding: 1.25rem;

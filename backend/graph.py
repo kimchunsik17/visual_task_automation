@@ -71,7 +71,7 @@ def compile_workflow(nodes: list, edges: list) -> str:
     has_incoming = set(e['target'] for e in control_flow_edges)
     
     # 1. Prioritize explicit Start Nodes
-    roots = [n for n in nodes if n['type'] in ('startNode', 'scheduleNode') and n['id'] not in tool_node_ids]
+    roots = [n for n in nodes if n['type'] in ('startNode', 'scheduleNode', 'webhookNode') and n['id'] not in tool_node_ids]
     
     # 2. Fallback to old heuristic if no start nodes are found
     if not roots:

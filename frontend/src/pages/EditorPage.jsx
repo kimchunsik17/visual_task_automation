@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
@@ -86,6 +86,7 @@ function FlowContent() {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [tokenUsage, setTokenUsage] = useState(null);
   const [executionLogs, setExecutionLogs] = useState([]);
+  const [isLive, setIsLive] = useState(false);
 
   const [isTokenTrackingMode, setIsTokenTrackingMode] = useState(false);
   const [estimatedTokens, setEstimatedTokens] = useState(null);
@@ -169,6 +170,7 @@ function FlowContent() {
           data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
         })));
         setEdges(data.graph_data.edges || []);
+        setIsLive(data.graph_data.is_live || false);
       }
 
       // 챗봇 대화 기록 불러오기
@@ -227,6 +229,23 @@ function FlowContent() {
     const saved = await handleSave();
     if (saved) {
       setIsDeployModalOpen(true);
+    }
+  };
+
+  const handleToggleLive = async () => {
+    if (!currentId) {
+      alert("프로젝트를 먼저 저장해 주세요.");
+      return;
+    }
+    try {
+      const res = await axios.post(`/api/projects/${currentId}/live`, { is_live: !isLive }, getAuthHeaders());
+      if (res.data.status === 'success') {
+        setIsLive(res.data.is_live);
+        alert(res.data.is_live ? "라이브 모드가 시작되었습니다! (웹훅/스케줄/봇 대기중)" : "라이브 모드가 중지되었습니다.");
+      }
+    } catch (e) {
+      console.error("Live toggle failed", e);
+      alert("라이브 상태 변경에 실패했습니다.");
     }
   };
 
@@ -816,6 +835,23 @@ function FlowContent() {
 
           {/* Tools Group */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {nodes.some(n => ['webhookNode', 'scheduleNode', 'discordNode'].includes(n.type)) && (
+              <button 
+                className={`btn-primary ${isLive ? 'active-live' : ''}`} 
+                onClick={handleToggleLive} 
+                style={{ 
+                  background: isLive ? '#ef4444' : '#10b981', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px',
+                  boxShadow: isLive ? '0 0 10px rgba(239, 68, 68, 0.4)' : 'none'
+                }} 
+                title="라이브 시작/중지"
+              >
+                {isLive ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+                {isLive ? "라이브 중지" : "라이브 시작"}
+              </button>
+            )}
             <button className="btn-secondary" onClick={() => setIsTemplateModalOpen(true)} title="템플릿 불러오기">
               <Folder size={16} />
             </button>
@@ -927,7 +963,7 @@ function FlowContent() {
                 }
               }}
             />
-            <Background variant="dots" gap={12} size={1} color="#334155" />
+            <Background variant="dots" gap={24} size={2} color={appTheme === 'dark' ? '#64748b' : '#94a3b8'} />
           </ReactFlow>
         </div>
 

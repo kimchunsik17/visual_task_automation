@@ -190,7 +190,7 @@ def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid Google token: {str(e)}")
 
 @app.delete("/api/users/me")
-def delete_user_account(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+async def delete_user_account(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     # 1. Anonymize execution logs
     db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.user_id == user.id).update({models.FlowExecutionLog.user_id: None})
     
@@ -287,13 +287,21 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
                         last_triggered = f"{diff.seconds // 60}분 전"
                     else:
                         last_triggered = "방금 전"
-                        
+                node_url = n.get('data', {}).get('webhookUrl', '').strip()
+                if not node_url:
+                    node_url = f"/webhook/{p.id}"
+                elif not node_url.startswith('/webhook/'):
+                    if node_url.startswith('/'):
+                        node_url = f"/webhook{node_url}"
+                    else:
+                        node_url = f"/webhook/{node_url}"
+                    
                 webhooks.append({
                     "id": f"wh-{p.id}-{n.get('id')}",
                     "projectId": p.id,
                     "title": p.title,
-                    "url": f"http://localhost:8000/webhook/{p.id}",
-                    "status": "Active",
+                    "url": f"http://localhost:8000{node_url}",
+                    "status": "Active" if p.graph_data.get("is_live", False) else "Stopped",
                     "lastTriggered": last_triggered
                 })
                 break
@@ -301,7 +309,7 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
     return webhooks
 
 @app.delete("/api/projects/{project_id}")
-def delete_project(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+async def delete_project(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -349,11 +357,44 @@ def update_project(project_id: int, payload: ProjectCreate, user: models.User = 
     db.commit()
     
     try:
-        scheduler.sync_project_schedule(project_id, project)
+        if isinstance(new_graph_data, dict) and new_graph_data.get("is_live") is True:
+            scheduler.sync_project_schedule(project_id, project)
+        else:
+            scheduler.sync_project_schedule(project_id, project) # sync_project_schedule will remove if not live
     except Exception as e:
         print(f"Failed to sync schedule: {e}")
         
     return {"status": "success"}
+
+@app.post("/api/projects/{project_id}/live")
+def toggle_project_live(project_id: int, payload: dict, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    is_live = payload.get("is_live", False)
+    graph_data = dict(project.graph_data) if isinstance(project.graph_data, dict) else {}
+    graph_data["is_live"] = is_live
+    project.graph_data = graph_data
+    flag_modified(project, "graph_data")
+    db.commit()
+    
+    # Sync triggers based on the new state
+    try:
+        scheduler.sync_project_schedule(project_id, project)
+    except Exception as e:
+        print(f"Failed to sync schedule on live toggle: {e}")
+        
+    # If discord node is present, we might want to start/stop the bot
+    has_discord = any(n.get('type') == 'discordNode' for n in graph_data.get('nodes', []))
+    if has_discord:
+        token = graph_data.get("discord_bot_token")
+        if is_live and token:
+            discord_bot.start_discord_bot(project_id, token)
+        else:
+            discord_bot.stop_discord_bot(project_id)
+            
+    return {"status": "success", "is_live": is_live}
 
 @app.post("/api/projects/{project_id}/deploy")
 def deploy_project(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -868,22 +909,48 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
 
 @app.api_route("/webhook/{endpoint_id}", methods=["GET", "POST"])
 async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depends(get_db)):
-    # For hackathon MVP, map endpoint_id to a project, or find the first one with a webhook node
-    try:
-        project_id = int(endpoint_id)
-        project = db.query(models.Project).filter(models.Project.id == project_id).first()
-    except ValueError:
-        project = None
-        projects = db.query(models.Project).all()
-        for p in projects:
-            graph_data = p.graph_data or {}
-            nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
-            if any(n.get('type') == 'webhookNode' for n in nodes):
-                project = p
-                break
-                
+    projects = db.query(models.Project).all()
+    project = None
+    webhook_node_id = None
+    
+    # 1. Search by custom webhook URL defined in the node
+    for p in projects:
+        graph_data = p.graph_data or {}
+        # Skip inactive projects
+        if not (isinstance(graph_data, dict) and graph_data.get('is_live', False)):
+            continue
+            
+        nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
+        for n in nodes:
+            if isinstance(n, dict) and n.get('type') == 'webhookNode':
+                node_url = n.get('data', {}).get('webhookUrl', '').strip()
+                node_endpoint = node_url.rstrip('/').split('/')[-1] if node_url else ''
+                print(f"Checking project {p.id}: node_url='{node_url}', node_endpoint='{node_endpoint}' against '{endpoint_id}'")
+                if node_endpoint == endpoint_id:
+                    project = p
+                    webhook_node_id = n.get('id')
+                    print(f"Matched project {p.id}!")
+                    break
+        if project:
+            break
+            
+    # 2. Fallback to Project ID (backward compatibility)
     if not project:
-        return JSONResponse(status_code=404, content={"status": "error", "detail": "Webhook endpoint not found"})
+        try:
+            project_id = int(endpoint_id)
+            project = db.query(models.Project).filter(models.Project.id == project_id).first()
+            if project:
+                graph_data = project.graph_data or {}
+                nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
+                for n in nodes:
+                    if isinstance(n, dict) and n.get('type') == 'webhookNode':
+                        webhook_node_id = n.get('id')
+                        break
+        except ValueError:
+            pass
+            
+    if not project or not webhook_node_id:
+        return JSONResponse(status_code=404, content={"status": "error", "detail": "Webhook endpoint not found, or project is not active (Live Mode is OFF)"})
         
     # Get payload
     try:
@@ -894,27 +961,33 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
     except Exception:
         payload = {}
         
-    # Find the webhookNode ID in the graph
     graph_data = project.graph_data or {}
     nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
     edges = graph_data.get('edges', []) if isinstance(graph_data, dict) else []
-    webhook_node_id = None
-    for n in nodes:
-        if isinstance(n, dict) and n.get('type') == 'webhookNode':
-            webhook_node_id = n.get('id')
-            break
-            
-    if not webhook_node_id:
-        return JSONResponse(status_code=400, content={"status": "error", "detail": "Project does not contain a webhook node"})
-        
+    
     # Run the workflow
     import json
     inputs = {webhook_node_id: json.dumps(payload, ensure_ascii=False)}
     
     try:
         result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='webhook_' + str(project.id), project_id=project.id, **inputs)
+        flow_status = "error" if "❌" in result_text or "Error" in result_text else "success"
+        
+        db_log = models.FlowExecutionLog(
+            user_id=project.user_id,
+            project_id=project.id,
+            payload=json.dumps(payload, ensure_ascii=False),
+            result="Success (Webhook)" if flow_status == "success" else result_text,
+            total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
+            token_usage_details=tokens if isinstance(tokens, dict) else None,
+            status=flow_status,
+            error_message=result_text if flow_status == "error" else None
+        )
+        db.add(db_log)
+        db.commit()
         return {"status": "success", "result": result_text}
     except Exception as e:
+        db.rollback()
         return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
 
 
@@ -946,15 +1019,22 @@ async def stop_bot_endpoint(project_id: int, user: models.User = Depends(get_cur
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    discord_bot.stop_discord_bot(project_id)
-    
-    # Save stopped state
+    # Toggle live state
     graph_data = dict(project.graph_data) if project.graph_data else {}
-    graph_data["discord_bot_stopped"] = True
+    graph_data["is_live"] = False
     project.graph_data = graph_data
+    flag_modified(project, "graph_data")
     db.commit()
     
-    return {"status": "success", "message": "Bot stopped"}
+    discord_bot.stop_discord_bot(project_id)
+    
+    from scheduler import sync_project_schedule
+    try:
+        sync_project_schedule(project_id, project)
+    except Exception:
+        pass
+    
+    return {"status": "success", "message": "Bot stopped and project live status disabled"}
 
 @app.post("/api/bots/{project_id}/start")
 async def start_bot_endpoint(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -970,14 +1050,22 @@ async def start_bot_endpoint(project_id: int, user: models.User = Depends(get_cu
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 봇을 시작할 수 없습니다.")
         
-    # Save active state
+    # Toggle live state
     graph_data = dict(project.graph_data) if project.graph_data else {}
-    graph_data["discord_bot_stopped"] = False
+    graph_data["is_live"] = True
     project.graph_data = graph_data
+    flag_modified(project, "graph_data")
     db.commit()
 
     discord_bot.start_discord_bot(project_id, token)
-    return {"status": "success", "message": "Bot started"}
+    
+    from scheduler import sync_project_schedule
+    try:
+        sync_project_schedule(project_id, project)
+    except Exception:
+        pass
+        
+    return {"status": "success", "message": "Bot started and project live status enabled"}
 
 @app.delete("/api/bots/{project_id}")
 async def delete_bot_endpoint(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -1092,9 +1180,18 @@ def get_schedules(user: models.User = Depends(get_current_user_required), db: Se
                 
                 status = "Stopped"
                 next_run = None
-                if job:
+                
+                # Use is_live to determine status if job is missing
+                is_live = p.graph_data.get("is_live", False)
+                if is_live and job:
                     status = "Active" if job.next_run_time else "Paused"
                     if job.next_run_time:
+                        next_run = job.next_run_time.isoformat()
+                elif is_live and not job:
+                    status = "Stopped" # Error state technically
+                else:
+                    status = "Stopped"
+                    if job and job.next_run_time:
                         next_run = job.next_run_time.isoformat()
                         
                 schedules.append({
@@ -1112,12 +1209,24 @@ def pause_schedule(project_id: int, user: models.User = Depends(get_current_user
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    from scheduler import scheduler
-    job_id = f"project_{project_id}"
-    if scheduler.get_job(job_id):
-        scheduler.pause_job(job_id)
-        return {"status": "success", "message": "Schedule paused"}
-    raise HTTPException(status_code=404, detail="Schedule job not found")
+    graph_data = dict(project.graph_data) if project.graph_data else {}
+    graph_data["is_live"] = False
+    project.graph_data = graph_data
+    flag_modified(project, "graph_data")
+    db.commit()
+    
+    from scheduler import sync_project_schedule
+    try:
+        sync_project_schedule(project_id, project)
+    except Exception:
+        pass
+        
+    # Also stop discord bot if exists
+    has_discord = any(n.get('type') == 'discordNode' for n in graph_data.get('nodes', []))
+    if has_discord:
+        discord_bot.stop_discord_bot(project_id)
+        
+    return {"status": "success", "message": "Schedule paused and project live status disabled"}
 
 @app.post("/api/schedules/{project_id}/resume")
 def resume_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -1125,12 +1234,26 @@ def resume_schedule(project_id: int, user: models.User = Depends(get_current_use
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    from scheduler import scheduler
-    job_id = f"project_{project_id}"
-    if scheduler.get_job(job_id):
-        scheduler.resume_job(job_id)
-        return {"status": "success", "message": "Schedule resumed"}
-    raise HTTPException(status_code=404, detail="Schedule job not found")
+    graph_data = dict(project.graph_data) if project.graph_data else {}
+    graph_data["is_live"] = True
+    project.graph_data = graph_data
+    flag_modified(project, "graph_data")
+    db.commit()
+    
+    from scheduler import sync_project_schedule
+    try:
+        sync_project_schedule(project_id, project)
+    except Exception as e:
+        print(f"Schedule sync failed: {e}")
+        
+    # Also start discord bot if exists
+    has_discord = any(n.get('type') == 'discordNode' for n in graph_data.get('nodes', []))
+    if has_discord:
+        token = graph_data.get("discord_bot_token")
+        if token:
+            discord_bot.start_discord_bot(project_id, token)
+            
+    return {"status": "success", "message": "Schedule resumed and project live status enabled"}
 
 @app.delete("/api/schedules/{project_id}")
 def delete_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):

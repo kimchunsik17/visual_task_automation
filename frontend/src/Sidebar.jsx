@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, Puzzle } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, Puzzle, CreditCard } from 'lucide-react';
 import { NodeRegistry } from './nodeRegistry';
 
 const Sidebar = () => {
@@ -49,6 +49,7 @@ const Sidebar = () => {
     { type: 'emailNode', label: '이메일 전송', icon: <Mail size={16} />, color: '#f43f5e', category: 'integration' },
     { type: 'kakaoNode', label: '카카오 알림톡', icon: <MessageCircle size={16} />, color: '#facc15', category: 'integration' },
     { type: 'discordNode', label: '디스코드 발송', icon: <MessageCircle size={16} />, color: '#5865F2', category: 'integration' },
+    { type: 'tossNode', label: '토스페이먼츠', icon: <CreditCard size={16} />, color: '#3b82f6', category: 'integration' },
     { type: 'httpRequestNode', label: 'HTTP Request', icon: <ArrowRightLeft size={16} />, color: '#0ea5e9', category: 'integration' },
     
     { type: 'fileModifierNode', label: '자동 완성', icon: <FileCode size={16} />, color: '#f43f5e', category: 'advanced' },
