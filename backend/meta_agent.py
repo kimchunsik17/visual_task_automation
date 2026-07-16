@@ -1400,6 +1400,7 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_le
         nodes=graph_data.get("nodes", []),
         edges=graph_data.get("edges", [])
     )
+    initial_dump = g.model_dump()
     agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer)
 
     # Medium, High 모드 모두 내부 도구(_generate_flow_tool)에서 RAG 및 검색을 처리하므로
@@ -1415,7 +1416,7 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_le
     final_graph = get_current_graph()
 
     # If the AI did not modify the graph in this turn, just return as is without warnings.
-    if g.nodes == final_graph.nodes and g.edges == final_graph.edges and g.title == final_graph.title and g.description == final_graph.description:
+    if initial_dump == final_graph.model_dump():
         return reply, graph_data
 
     ok, errs = validate_flow(final_graph)  # require_complete=True(기본값) — 최종 완결성 게이트
