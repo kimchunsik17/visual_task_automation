@@ -18,7 +18,7 @@ meta_agent.py — "말로 만드는 Agent 빌더"의 메타 agent (MVP 골격)
 ■ 실행:  python meta_agent.py        (아래 __main__의 데모가 돈다)
 ■ 설치:  backend/requirements.txt에 필요한 패키지 이미 포함(langgraph·langchain-openai 등).
          create_agent를 쓰려면 core langchain 패키지도 필요 — 없으면 `pip install langchain>=0.3`.
-■ 키:    OPENAI_API_KEY 환경변수(backend/.env) — get_llm()이 gpt-5.4-mini 기본 사용.
+■ 키:    OPENAI_API_KEY 환경변수(backend/.env) — get_llm()이 gpt-4o-mini 기본 사용.
 """
 
 from __future__ import annotations
@@ -216,7 +216,7 @@ def get_llm(session_id=None, tags=None):
     """메타 agent가 쓸 LLM. 현재 OpenAI. 제공자 교체는 여기만 바꾸면 된다.
     gpt-5 계열 reasoning 모델은 temperature 파라미터를 거부/무시하므로 넘기지 않는다."""
     from langchain_openai import ChatOpenAI
-    llm = ChatOpenAI(model="gpt-5.4-mini")
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     if has_langfuse:
         if tags is None:
             tags = ["agent_generation"]
