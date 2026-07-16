@@ -259,6 +259,8 @@ def compile_workflow(nodes: list, edges: list, project_id=None) -> str:
         lines.append(f"    except Exception as e:")
         lines.append(f"        __global_results.append(f'► Flow {idx + 1} Error: {{str(e)}}')")
 
+    lines.append("    if langfuse_handler and hasattr(langfuse_handler, '_langfuse_client'):")
+    lines.append("        langfuse_handler._langfuse_client.flush()")
     if len(roots) > 1:
         lines.append("    return '\\n\\n' + ('='*40) + '\\n\\n'.join(__global_results)")
     else:
