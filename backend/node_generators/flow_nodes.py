@@ -152,6 +152,12 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
     lines.append(f"{indent}dist_list_{node_id} = {prev_res_var if prev_res_var else 'last_result'}")
     lines.append(f"{indent}if not isinstance(dist_list_{node_id}, list):")
     lines.append(f"{indent}    dist_list_{node_id} = [dist_list_{node_id}]")
+
+    # loopNode와 동일하게 누적 변수를 둔다 — 이게 없으면 done 엣지가 반복 시작 전의
+    # prev_res_var(원본 입력, 예: 파싱 전 raw JSON)를 그대로 넘겨버려서 outputNode가
+    # 루프 안에서 실제로 처리된 최신 결과(last_result) 대신 엉뚱한 옛날 값을 반환한다.
+    acc_var = f"dist_acc_{node_id}"
+    lines.append(f"{indent}{acc_var} = dist_list_{node_id}")
     lines.append(f"{indent}for dist_item_{node_id} in dist_list_{node_id}:")
     lines.append(f"{indent}    last_result = dist_item_{node_id}")
 
@@ -163,7 +169,8 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
     else:
         for target_id, handle in body_edges:
             generate_block_fn(target_id, indent + "    ", active_llm_id=active_llm_id, prev_res_var=f"dist_item_{node_id}", visited=visited)
+    lines.append(f"{indent}    {acc_var} = last_result")
 
     done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
     if done_edges:
-        generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var if prev_res_var else 'last_result', visited=visited)
+        generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)
