@@ -97,32 +97,43 @@ def generate_kakao_node(node_id, node, indent, active_llm_id, prev_res_var, visi
 
 @node_registry.register('discordNode')
 def generate_discord_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
+    # 이전엔 data.webhookUrl/data.message를 읽었는데, NODE_CATALOG/validate_flow/프론트는
+    # 전부 data.botToken(+data.channelId)를 쓴다 — 실제로는 항상 빈 webhookUrl이라
+    # 무슨 값을 넣어도 조용히 "Discord Webhook Skipped"만 되던 버그. botToken/channelId로 통일하고,
+    # botToken이 http로 시작하면 Webhook URL로, 아니면 실제 봇 토큰(Bot API)으로 취급한다
+    # (_summarize_node_data가 이미 이 두 모드를 그렇게 구분해서 표시하고 있었다).
     lines.append(f"{indent}# --- Discord Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    webhook_url = node.get('data', {}).get('webhookUrl', '').replace('"', '\\"')
-    message = node.get('data', {}).get('message', '').replace('"', '\\"').replace('\n', '\\n')
-    
+    bot_token = node.get('data', {}).get('botToken', '').replace('"', '\\"')
+    channel_id = node.get('data', {}).get('channelId', '').replace('"', '\\"')
+
     lines.append(f"{indent}import requests")
-    lines.append(f"{indent}import json")
-    lines.append(f"{indent}discord_webhook_{node_id} = \"{webhook_url}\"")
-    lines.append(f"{indent}discord_msg_{node_id} = \"{message}\" if \"{message}\" else str({prev_res_var if prev_res_var else 'last_result'})")
-    lines.append(f"{indent}if discord_webhook_{node_id}:")
+    lines.append(f"{indent}discord_token_{node_id} = \"{bot_token}\"")
+    lines.append(f"{indent}discord_channel_{node_id} = \"{channel_id}\"")
+    lines.append(f"{indent}discord_msg_{node_id} = str({prev_res_var if prev_res_var else 'last_result'})")
+    lines.append(f"{indent}if discord_token_{node_id}:")
     lines.append(f"{indent}    try:")
-    lines.append(f"{indent}        payload_{node_id} = {{'content': discord_msg_{node_id}}}")
-    lines.append(f"{indent}        resp_{node_id} = requests.post(discord_webhook_{node_id}, json=payload_{node_id}, timeout=10)")
+    lines.append(f"{indent}        if discord_token_{node_id}.startswith('http'):")
+    lines.append(f"{indent}            resp_{node_id} = requests.post(discord_token_{node_id}, json={{'content': discord_msg_{node_id}}}, timeout=10)")
+    lines.append(f"{indent}        else:")
+    lines.append(f"{indent}            resp_{node_id} = requests.post(")
+    lines.append(f"{indent}                f'https://discord.com/api/v10/channels/{{discord_channel_{node_id}}}/messages',")
+    lines.append(f"{indent}                headers={{'Authorization': f'Bot {{discord_token_{node_id}}}', 'Content-Type': 'application/json'}},")
+    lines.append(f"{indent}                json={{'content': discord_msg_{node_id}}}, timeout=10,")
+    lines.append(f"{indent}            )")
     lines.append(f"{indent}        if resp_{node_id}.status_code in [200, 204]:")
-    lines.append(f"{indent}            print(f'\\n[Discord Webhook Success]\\n')")
+    lines.append(f"{indent}            print(f'\\n[Discord Send Success]\\n')")
     lines.append(f"{indent}            res_text_{node_id} = 'Discord Send Success'")
     lines.append(f"{indent}        else:")
-    lines.append(f"{indent}            print(f'\\n[Discord Webhook Failed: {{resp_{node_id}.status_code}}]\\n')")
+    lines.append(f"{indent}            print(f'\\n[Discord Send Failed: {{resp_{node_id}.status_code}} {{resp_{node_id}.text}}]\\n')")
     lines.append(f"{indent}            res_text_{node_id} = f'Discord Send Failed: {{resp_{node_id}.status_code}}'")
     lines.append(f"{indent}    except Exception as e:")
-    lines.append(f"{indent}        print(f'\\n[Discord Webhook Error: {{str(e)}}]\\n')")
+    lines.append(f"{indent}        print(f'\\n[Discord Error: {{str(e)}}]\\n')")
     lines.append(f"{indent}        res_text_{node_id} = f'Discord Send Error: {{str(e)}}'")
     lines.append(f"{indent}else:")
-    lines.append(f"{indent}    print(f'\\n[Discord Webhook Skipped: No URL provided]\\n')")
-    lines.append(f"{indent}    res_text_{node_id} = 'Discord Webhook Skipped'")
-    
+    lines.append(f"{indent}    print(f'\\n[Discord Skipped: No Bot Token/Webhook provided]\\n')")
+    lines.append(f"{indent}    res_text_{node_id} = 'Discord Skipped: No Bot Token/Webhook'")
+
     lines.append(f"{indent}last_result = res_text_{node_id}")
     lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
     next_edges = forward_edges.get(node_id, [])
@@ -134,32 +145,29 @@ def generate_discord_node(node_id, node, indent, active_llm_id, prev_res_var, vi
 def generate_slack_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     channel = node.get('data', {}).get('channel', '#general')
     message = node.get('data', {}).get('message', 'Hello from Visual Task Automation!')
-    
-    # Use repr to safely escape newlines and quotes in the generated python code
-    safe_channel = repr(channel)
-    safe_message_base = repr(message)
-    
+
+    # repr()로 안전하게 이스케이프했었으나, repr()이 항상 큰따옴표 문자열을 만든다고
+    # 가정한 문자열 자르기+이어붙이기가 있어서(작은따옴표로 나오는 흔한 경우 SyntaxError로 깨짐),
+    # 다른 노드들과 같은 방식(직접 이스케이프 후 f-string에 삽입)으로 통일한다.
+    safe_channel = channel.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    safe_message = message.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+
     lines.append(f"{indent}# --- Slack Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    lines.append(f"{indent}slack_channel_{node_id} = {safe_channel}")
-    
+    lines.append(f"{indent}slack_channel_{node_id} = \"{safe_channel}\"")
+
     if prev_res_var:
-        # Strip the trailing quote, append newlines, then close the quote + append variable
-        safe_message = safe_message_base[:-1] + "\\n\\n\" + str(" + prev_res_var + ")"
-        lines.append(f"{indent}slack_msg_{node_id} = {safe_message}")
+        lines.append(f"{indent}slack_msg_{node_id} = f\"{safe_message}\\n\\n\" + str({prev_res_var})")
     else:
-        lines.append(f"{indent}slack_msg_{node_id} = {safe_message_base}")
-        
+        lines.append(f"{indent}slack_msg_{node_id} = \"{safe_message}\"")
+
     lines.append(f"{indent}print(f'Mocking Slack send to {{slack_channel_{node_id}}}: {{slack_msg_{node_id}}}')")
     lines.append(f"{indent}last_result = f'Sent message to Slack channel {{slack_channel_{node_id}}}'")
-    
+
     lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
     next_edges = forward_edges.get(node_id, [])
-    if not next_edges:
-        lines.append(f"{indent}return last_result")
-    else:
-        for target_id, handle in next_edges:
-            generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"last_result", visited=visited)
+    for target_id, handle in next_edges:
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"last_result", visited=visited)
 
 @node_registry.register('tossNode')
 def generate_toss_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):

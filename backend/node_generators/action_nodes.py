@@ -125,11 +125,8 @@ def generate_python_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     
     lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
     next_edges = forward_edges.get(node_id, [])
-    if not next_edges:
-        lines.append(f"{indent}return last_result")
-    else:
-        for target_id, handle in next_edges:
-            generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)
+    for target_id, handle in next_edges:
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)
 
 
 @node_registry.register('delayNode')

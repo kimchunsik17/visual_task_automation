@@ -58,7 +58,12 @@ NODE_CATALOG = """\
                    분기 엣지는 sourceHandle에 해당 rule의 id(조건 통과) 또는 "else"(다 안 맞을 때)를 넣는다.
 - distributorNode: 직전 노드의 출력을 리스트로 보고 하나씩 꺼내 뒤에 연결된 노드들을 항목 개수만큼
                    반복 실행시킨다(리스트가 아니면 1개짜리로 취급). data 없음. "각각에 대해",
-                   "하나씩" 같은 요청에 쓴다.
+                   "하나씩" 같은 요청에 쓴다. sourceHandle이 없는(기본) 엣지는 반복 "안"에서
+                   항목마다 실행된다 — 이 경로는 절대 outputNode로 이어지면 안 된다(반복 중
+                   outputNode에 닿으면 그 즉시 return돼서 첫 항목만 처리하고 전체 워크플로우가
+                   끝나버린다). 반복이 다 끝난 뒤 딱 한 번 실행할 것(최종 요약·종료 등)은
+                   sourceHandle을 "done"으로 지정해 연결한다(loopNode의 done과 동일한 개념) —
+                   outputNode로 끝내려면 반드시 이 done 경로를 거쳐야 한다.
 - breakNode      : 반복을 즉시 멈춘다. data 없음. 반드시 distributorNode 하류(반복 구조 안)에서만
                    쓴다 — 반복 구조 밖에 두면 실행 자체가 SyntaxError로 깨진다. 보통 conditionNode와
                    짝을 이뤄 "특정 조건을 만나면 반복을 멈춘다"는 용도로 쓴다.
@@ -69,7 +74,10 @@ NODE_CATALOG = """\
                    parse=문자열→JSON, stringify=JSON→문자열, extract=특정 키 값 꺼내기.
 - databaseNode   : SQL 데이터베이스 조회/실행. data.connectionString(문자열, DB 접속정보 — 사용자가
                    실제로 준 값만 쓰고 없으면 지어내지 말고 물어본다), data.query(문자열, 실행할 SQL).
-                   connectionString이나 query가 없으면 실행 시 에러가 난다.
+                   connectionString이나 query가 없으면 실행 시 에러가 난다. 가드레일: DROP/TRUNCATE/
+                   ALTER/GRANT/REVOKE 같은 구조 파괴·권한 변경 쿼리는 절대 생성하지 마라(검증기가
+                   막는다). DELETE/UPDATE는 반드시 WHERE로 대상을 좁혀라 — WHERE 없이 테이블
+                   전체를 지우거나 바꾸는 쿼리도 검증기가 막는다.
 - delayNode      : 지정한 시간만큼 대기 후 다음 노드로 진행. data.seconds(숫자).
 - dynamicInputNode: 실행할 때마다 외부(호출자·디스코드 봇 메시지 등)에서 값을 받는 자리.
                    data.inputLabel(문자열, 이 입력이 뭔지 설명 — 요청 맥락에서 유추해 채운다),
@@ -97,7 +105,13 @@ NODE_CATALOG = """\
 - kakaoNode      : 카카오톡 알림톡/메시지 발송. data.accessToken(문자열, 사용자 제공), data.receiver(문자열, 선택 — 수신자 정보, 비우면 나에게 보내기). 직전 노드의 출력을 내용으로 발송한다.
 - tossNode       : 토스페이먼츠 API 연동. data.secretKey(문자열), data.searchType(문자열, 'paymentKey' 또는 'orderId'), data.searchValue(문자열). 직전 노드의 결과를 검색 값으로 쓰거나 입력받아 결제 정보를 조회한다.
 - slackNode      : 슬랙 메시지 발송. data.channel(문자열, 예: "#general"), data.message(문자열, 선택 — 직전 노드 출력과 함께 전송할 추가 메시지).
-- humanApprovalNode : 사람의 승인 대기. data.message(문자열, 승인 요청 메시지). 워크플로우 진행을 일시 정지하고 사용자 승인을 기다린다.
+- humanApprovalNode : 사람의 승인 대기. data.message(문자열, 승인 요청 메시지). 승인/거절에 따라 다르게
+                   처리하고 싶으면 conditionNode를 뒤에 붙이지 말고(값이 "승인" 같은 리터럴 문자열이
+                   되지 않아서 항상 틀리게 분기한다) 이 노드 자체의 sourceHandle을 "approved"(승인 시)
+                   / "rejected" 또는 "else"(거절 시)로 나눠서 연결한다(conditionNode와 동일한 방식).
+                   sourceHandle 없이 하나만 연결하면(기존 단순 방식) 승인 시에만 진행하고 거절되면
+                   워크플로우가 즉시 중단된다(예외 발생). 어느 방식이든 승인/거절과 무관하게 직전
+                   노드의 출력(예: LLM이 만든 답변 초안)이 그대로 다음 노드로 전달된다.
 - mergeNode      : 여러 흐름의 결과를 하나로 병합한다. data.mergeStrategy("join_newline" | "join_comma" | "array"). 여러 갈래의 엣지가 이 노드로 모일 수 있다.
 - outputNode     : 결과 출력(종료). data 없음. 모든 플로우는 이 노드에서 끝난다.
 
@@ -125,13 +139,15 @@ NODE_CATALOG = """\
 - 사용자가 원하는 바를 충족하되, 불필요한 중복 노드를 만들지 않는다 — 필요한 만큼만 최소로 구성한다.
   단, "최소"를 이유로 요청에 필요한 단계(예: PDF 입력이면 tokenizerNode)를 빠뜨리면 안 된다.
 - tokenizerNode는 직전 노드의 출력이 파일 경로일 때만 사용한다.
-- distributorNode 뒤에 연결된 노드들은 리스트 항목 개수만큼 반복 실행된다는 걸 감안해서 구성한다.
+- distributorNode 뒤에 연결된 노드들(sourceHandle 없는 기본 엣지)은 리스트 항목 개수만큼 반복
+  실행된다는 걸 감안해서 구성한다. **outputNode는 절대 이 반복 경로 안에 두지 마라** — 첫 항목만
+  처리하고 즉시 끝나버린다. 반복이 다 끝난 뒤 종료하려면 반드시 distributorNode에서 sourceHandle을
+  "done"으로 지정한 별도 엣지로 outputNode(또는 그 앞 단계)를 연결한다.
 - breakNode는 반드시 distributorNode 하류에서만 쓴다 — 반복 구조 밖에서 쓰면 실행이 깨진다.
 - fileModifierNode는 반드시 JSON을 만들어주는 노드(templateAnalyzerNode → llmNode/promptNode 조합이
   일반적) 뒤에 연결한다 — 그렇지 않으면 빈칸이 하나도 안 채워진 채로 조용히 저장된다.
 - promptNode는 항상 인접한 llmNode와 짝으로 사용한다.
 - llmNode의 model은 사용자가 특정 모델을 요청하지 않는 한 기본값 gpt-4o-mini를 쓴다.
-- 사용자의 요청이 짧거나 모호하더라도 가급적 되묻지 말고, 실무에서 흔히 쓰이는 자동화 패턴(예: 실패 시 알림, 조건에 따른 분기, 중요 작업 전 승인 등)을 유추하여 알아서 똑똑하게 비선형(분기, 반복, 병합 등) 워크플로우 초안을 구성한다. 사용자는 생성된 초안을 보고 나중에 수정하면 되므로, 챗봇이 주도적으로 풍부한 형태의 초안을 제시해야 한다.
 - (미세수정 시) 기존 노드로 이미 처리 가능하면 새 노드를 추가하지 말고 update_node로 기존 노드를 고친다.
 - **불필요한 중복 엣지(Edge) 연결 금지.** 목적지가 같은데 불필요하게 직행 경로와 우회 경로를 동시에 만들지 않는다(예: llm→output과 llm→delay→output을 동시에 연결하지 마라 — delay를 거치는 하나만 남긴다).
 - **적극적인 비선형 구조 활용.** 조건 분기(conditionNode), 병렬 처리(하나의 노드에서 여러 노드로 동시에 분기), 반복 분배(distributorNode, loopNode) 등을 적극 활용하여 프로덕트급 파이프라인을 구축한다. 
@@ -203,7 +219,15 @@ def get_llm():
 
 SYSTEM = (
     "너는 노코드 agent 빌더의 설계 도우미다. 사용자의 요청을 읽고, "
-    "아래 노드만으로 실행 가능한 워크플로우(graph_data)를 만든다.\n\n" + NODE_CATALOG
+    "아래 노드만으로 실행 가능한 워크플로우(graph_data)를 만든다.\n\n"
+    "**반드시 지켜야 할 원칙:**\n"
+    "1. 사용자가 명시적으로 말한 내용만 정확히 구현하라. 요청에 없는 보조 노드(실패 알림, "
+    "승인 절차, 재시도 로직 등)를 임의로 추가하지 마라 — 이런 건 사용자가 결과를 보고 "
+    "에디터에서 직접 add_node/connect_nodes로 붙이는 몫이다.\n"
+    "2. 요청이 짧거나 모호해도 되묻지 말고 가장 직접적이고 단순한 해석으로 채우되, "
+    "과도하게 확장하거나 풍부하게 만들려고 하지 마라. 최소한의 노드로 요청을 그대로 구현하는 "
+    "것이 목표다.\n\n"
+    + NODE_CATALOG
 )
 
 # Medium 모드 전용 시스템 프롬프트 — 템플릿 구조를 유지하면서 파라미터만 수정
@@ -226,7 +250,12 @@ MEDIUM_SYSTEM = (
 )
 
 # few-shot 예시 — 생성 품질을 좌우하는 핵심. 실패 사례를 여기에 계속 보강한다(팀원 C).
-FEWSHOT = """\
+# 빠름/정밀이 서로 다른 예시 세트를 쓴다(2026-07-16) — 두 티어의 "생성 철학"이 정반대라서
+# (빠름=요청한 것만 리터럴 구현, 정밀=요청에 없어도 필요해 보이면 보조 노드를 알아서 추가) 같은
+# 예시를 공유하면 한쪽 원칙과 충돌한다. 실제로 구 FEWSHOT의 예시12(해커뉴스→카톡)가 요청에
+# 없는 humanApprovalNode(승인 절차)를 추가하는 정밀 스타일 예시였는데, 이게 빠름에도 공유되면서
+# 빠름의 원칙 1번("요청에 없는 승인 절차 등을 임의로 추가하지 마라")과 정면으로 충돌하고 있었다.
+FEWSHOT_FAST = """\
 [예시1] 요청: "PDF 요약봇 만들어줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
@@ -307,9 +336,271 @@ FEWSHOT = """\
   {"id":"e3","source":"n3","target":"n4"},
   {"id":"e4","source":"n4","target":"n5"},
   {"id":"e5","source":"n5","target":"n6"},
+  {"id":"e6","source":"n4","target":"n7","sourceHandle":"done"}
+]}
+# ↑ distributorNode(n4)의 기본 엣지(n4→n5→n6)는 글 목록 개수만큼 반복 실행되고,
+# sourceHandle="done" 엣지(n4→n7)는 반복이 다 끝난 뒤 딱 한 번만 실행된다. outputNode(n7)를
+# 반복 안에 두면(예: n6→n7로 직접 연결) 첫 번째 글만 처리하고 그 즉시 끝나버리므로 반드시
+# done 경로로 연결해야 한다.
+
+[예시6] 요청: "계약서_템플릿.hwp 파일의 빈칸을 채워서 완성해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.hwp"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"위 JSON의 각 키에 대해 문맥에 맞는 값을 채워서 같은 형식의 JSON으로만 답해"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다"}},
+  {"id":"n5","type":"fileModifierNode","data":{"template_path":"계약서_템플릿.hwp"}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+# ↑ fileModifierNode(n5)가 채울 값은 자기 data가 아니라 직전 노드(n4, llmNode가 만든 JSON)에서 온다.
+# templateAnalyzerNode(n2) 없이 fileModifierNode를 바로 쓰면 채울 JSON이 없어 원본이 그대로 저장된다.
+
+[예시7] 요청: "https://example.com/news 내용을 요약해서 team@company.com으로 메일 보내줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"webCrawlerNode","data":{"url":"https://example.com/news"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 뉴스를 한국어로 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n5","type":"emailNode","data":{"toEmail":"team@company.com","subject":"뉴스 요약"}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+
+[예시8] 요청: "customers 테이블에서 이메일만 뽑아서 보여줘 (DB 접속정보: postgresql://user:pass@localhost:5432/shop)"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"databaseNode","data":{"connectionString":"postgresql://user:pass@localhost:5432/shop","query":"SELECT email FROM customers"}},
+  {"id":"n3","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"}
+]}
+# ↑ connectionString은 요청에 실제로 준 값을 그대로 쓴다 — 안 주면 지어내지 말고 물어본다.
+
+[예시9] 요청: "사용자 요청을 번역, 요약, 감성 분석 에이전트에게 보내서 알아서 처리하게 해주는 매니저 봇을 만들어줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"promptNode","data":{"userPrompt":"사용자의 요청을 처리할 에이전트를 선택해"}},
+  {"id":"n3","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"번역을 담당합니다."}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"요약을 담당합니다."}},
+  {"id":"n5","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"감성 분석을 담당합니다."}},
+  {"id":"n6","type":"multiAgentNode","data":{"mode":"supervisor"}},
+  {"id":"n7","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n6"},
+  {"id":"e3","source":"n3","target":"n6","targetHandle":"tools"},
+  {"id":"e4","source":"n4","target":"n6","targetHandle":"tools"},
+  {"id":"e5","source":"n5","target":"n6","targetHandle":"tools"},
   {"id":"e6","source":"n6","target":"n7"}
 ]}
-# ↑ distributorNode(n4) 뒤에 연결된 n5~n7은 글 목록 개수만큼 반복 실행된다.
+# ↑ multiAgentNode(n6)로 들어오는 llmNode 서브 에이전트들(n3,n4,n5)의 엣지에는 반드시 targetHandle:"tools"를 지정해야 한다.
+
+[예시10] 요청: "다음 문장을 3번 반복해서 요약해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"loopNode","data":{"maxIterations":3}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 문장을 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"요약 전문가"}},
+  {"id":"n5","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3","sourceHandle":"loop_start"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n2"},
+  {"id":"e5","source":"n2","target":"n5","sourceHandle":"done"}
+]}
+# ↑ loopNode에서 반복할 흐름의 시작은 sourceHandle:"loop_start", 반복 종료 후 나가는 흐름은 sourceHandle:"done"을 쓴다.
+
+[예시11] 요청: "매일 아침 9시에 날씨를 요약해서 이메일로 보내줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"scheduleNode","data":{"cronExpression":"0 9 * * *"}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 날씨 정보를 한국어로 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"날씨 전문가"}},
+  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"오늘의 날씨"}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+# ↑ 정기적으로 실행해야 하므로 startNode 대신 scheduleNode(cronExpression 포함)로 시작한다.
+
+[예시12] 요청: "매일 아침에 해커뉴스 크롤링해서 좋은 글 있으면 요약해서 카카오톡으로 보내줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"scheduleNode","data":{"cronExpression":"0 9 * * *"}},
+  {"id":"n2","type":"webCrawlerNode","data":{"url":"https://news.ycombinator.com"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 뉴스들 중에서 IT 업계 트렌드에 맞는 '좋은 글'이 있는지 판별하고 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"뉴스 큐레이터"}},
+  {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"r1","operator":"Contains","value":"좋은 글 있음"}]}},
+  {"id":"n6","type":"kakaoNode","data":{"receiver":""}},
+  {"id":"n7","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6","sourceHandle":"r1"},
+  {"id":"e6","source":"n6","target":"n7"},
+  {"id":"e7","source":"n5","target":"n7","sourceHandle":"else"}
+]}
+# ↑ 요청에 승인 절차를 언급하지 않았으므로 humanApprovalNode를 임의로 넣지 않는다(원칙 1).
+# conditionNode의 두 분기(r1, else)가 다른 노드를 거치지 않고 각각 outputNode로 바로 이어져도
+# 된다 — conditionNode에서 갈라진 경로는 런타임에 하나만 타므로 mergeNode 없이 합쳐도 안전하다.
+
+[예시13] 요청: "메일 들어오면 감성 분석해서 악플이면 슬랙으로 알림 보내고, 아니면 디스코드로 보내줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"수신된 이메일 내용","testValue":"이 서비스 정말 최악이네요. 환불해주세요."}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 내용이 악플(부정적)인지 판단해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"감성 분석가"}},
+  {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"r1","operator":"Contains","value":"부정적"}]}},
+  {"id":"n6","type":"slackNode","data":{"channel":"#alerts","message":"악플이 접수되었습니다!"}},
+  {"id":"n7","type":"discordNode","data":{"botToken":"","channelId":""}},
+  {"id":"n8","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n9","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6","sourceHandle":"r1"},
+  {"id":"e6","source":"n5","target":"n7","sourceHandle":"else"},
+  {"id":"e7","source":"n6","target":"n8"},
+  {"id":"e8","source":"n7","target":"n8"},
+  {"id":"e9","source":"n8","target":"n9"}
+]}
+# ↑ 갈라졌던 엣지들(n6->n8, n7->n8)이 mergeNode로 정상적으로 합류했다.
+
+[예시14] 요청: "결제 요청 내용을 보여주고 제가 직접 승인하면 결제 진행 메일 보내고, 제가 거절하면 거절 메일 보내줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"결제 요청 내용","testValue":"10만원 결제 요청"}},
+  {"id":"n3","type":"humanApprovalNode","data":{"message":"이 결제 요청을 승인하시겠습니까?"}},
+  {"id":"n4","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제가 진행되었습니다"}},
+  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제 요청이 거절되었습니다"}},
+  {"id":"n6","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n7","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4","sourceHandle":"approved"},
+  {"id":"e4","source":"n3","target":"n5","sourceHandle":"rejected"},
+  {"id":"e5","source":"n4","target":"n6"},
+  {"id":"e6","source":"n5","target":"n6"},
+  {"id":"e7","source":"n6","target":"n7"}
+]}
+# ↑ 승인/거절에 따라 다르게 처리해야 하면, humanApprovalNode 뒤에 conditionNode를 붙여서
+# "승인" 같은 문자열을 체크하려고 하지 마라(그 값은 절대 나오지 않아서 항상 틀리게 분기한다).
+# conditionNode처럼 humanApprovalNode 스스로의 sourceHandle을 "approved"/"rejected"로 나눠
+# 바로 연결한다. 승인 시에만 진행하고 거절되면 그냥 워크플로우를 멈추면 되는 단순한 경우는
+# sourceHandle 없이 하나만 연결해도 된다. 단, 요청에 승인 절차 자체가 없으면 이 노드를
+# 아예 쓰지 마라(원칙 1) — 예시12처럼 조건 분기만으로 충분한 경우가 훨씬 많다.
+"""
+
+# 정밀 모드용 — 빠름과 달리 "요청에 없어도 필요해 보이면 보조 노드를 알아서 추가"하는 게
+# 원칙이므로, 예시12는 사람 승인 절차를 (요청에 없어도) 스스로 판단해서 추가한 버전을 그대로 쓴다.
+FEWSHOT_PRECISE = """\
+[예시1] 요청: "PDF 요약봇 만들어줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"tokenizerNode","data":{"method":"extract_text"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 문서를 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n5","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"}
+]}
+
+[예시2] 요청: "날씨 API 호출해서 결과를 한국어로 요약해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
+  {"id":"n3","type":"jsonParserNode","data":{"mode":"extract","extractKey":"summary"}},
+  {"id":"n4","type":"promptNode","data":{"userPrompt":"다음 날씨 정보를 한국어로 요약해줘"}},
+  {"id":"n5","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 날씨 캐스터다"}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+
+[예시3] 요청: "매번 다른 문장을 입력받아 한국어로 번역하고, 3초 후에 결과를 보여주는 봇 만들어줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"번역할 문장","testValue":"Hello, how are you?"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 문장을 한국어로 번역해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 번역 전문가다"}},
+  {"id":"n5","type":"delayNode","data":{"seconds":3}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+# ↑ n4에서 n6(output)으로 가는 직행 엣지를 따로 만들지 않는다 — delayNode를 거치는 경로 하나만 남긴다
+# (기본은 단일 경로 원칙). testValue는 사용자가 안 준 예시이므로 답변에서 그 사실을 알려준다.
+
+[예시4] 요청: "https://example.com/news 내용 요약해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"webCrawlerNode","data":{"url":"https://example.com/news"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 웹페이지 내용을 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n5","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"}
+]}
+# ↑ url이 요청에 고정으로 나와 있으므로 data.url을 채운다. 만약 URL이 이전 단계 결과물(예:
+# httpRequestNode의 응답에서 뽑아낸 링크)이라면 url은 비우고, 그 노드를 webCrawlerNode 바로
+# 앞에 연결한다(비우면서 앞에 아무 노드도 없거나 startNode뿐이면 Validator가 막는다).
+
+[예시5] 요청: "https://api.example.com/articles 에서 글 목록을 받아와서 각각 한국어로 요약해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/articles"}},
+  {"id":"n3","type":"jsonParserNode","data":{"mode":"parse"}},
+  {"id":"n4","type":"distributorNode","data":{}},
+  {"id":"n5","type":"promptNode","data":{"userPrompt":"다음 글을 한국어로 요약해줘"}},
+  {"id":"n6","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n7","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"},
+  {"id":"e6","source":"n4","target":"n7","sourceHandle":"done"}
+]}
+# ↑ distributorNode(n4)의 기본 엣지(n4→n5→n6)는 글 목록 개수만큼 반복 실행되고,
+# sourceHandle="done" 엣지(n4→n7)는 반복이 다 끝난 뒤 딱 한 번만 실행된다. outputNode(n7)를
+# 반복 안에 두면(예: n6→n7로 직접 연결) 첫 번째 글만 처리하고 그 즉시 끝나버리므로 반드시
+# done 경로로 연결해야 한다.
 
 [예시6] 요청: "계약서_템플릿.hwp 파일의 빈칸을 채워서 완성해줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -430,7 +721,8 @@ FEWSHOT = """\
   {"id":"e8","source":"n5","target":"n8","sourceHandle":"else"},
   {"id":"e9","source":"n8","target":"n9"}
 ]}
-# ↑ 짧은 요청이지만 조건 분기(conditionNode), 사람 승인(humanApprovalNode), 카카오톡 발송(kakaoNode), 병합(mergeNode)을 알아서 적절히 구성했다.
+# ↑ 짧은 요청이지만 조건 분기(conditionNode), 사람 승인(humanApprovalNode), 카카오톡 발송(kakaoNode), 병합(mergeNode)을
+# 요청에 명시되지 않았어도 실제 서비스 수준에 맞게 스스로 판단해서 추가했다 — 이게 정밀 모드의 핵심이다.
 
 [예시13] 요청: "메일 들어오면 감성 분석해서 악플이면 슬랙으로 알림 보내고, 아니면 디스코드로 보내줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -455,6 +747,59 @@ FEWSHOT = """\
   {"id":"e9","source":"n8","target":"n9"}
 ]}
 # ↑ 갈라졌던 엣지들(n6->n8, n7->n8)이 mergeNode로 정상적으로 합류했다.
+
+[예시14] 요청: "결제 요청 내용을 보여주고 제가 직접 승인하면 결제 진행 메일 보내고, 제가 거절하면 거절 메일 보내줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"결제 요청 내용","testValue":"10만원 결제 요청"}},
+  {"id":"n3","type":"humanApprovalNode","data":{"message":"이 결제 요청을 승인하시겠습니까?"}},
+  {"id":"n4","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제가 진행되었습니다"}},
+  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제 요청이 거절되었습니다"}},
+  {"id":"n6","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n7","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4","sourceHandle":"approved"},
+  {"id":"e4","source":"n3","target":"n5","sourceHandle":"rejected"},
+  {"id":"e5","source":"n4","target":"n6"},
+  {"id":"e6","source":"n5","target":"n6"},
+  {"id":"e7","source":"n6","target":"n7"}
+]}
+# ↑ 승인/거절에 따라 다르게 처리해야 하면, humanApprovalNode 뒤에 conditionNode를 붙여서
+# "승인" 같은 문자열을 체크하려고 하지 마라(그 값은 절대 나오지 않아서 항상 틀리게 분기한다).
+# conditionNode처럼 humanApprovalNode 스스로의 sourceHandle을 "approved"/"rejected"로 나눠
+# 바로 연결한다. 승인 시에만 진행하고 거절되면 그냥 워크플로우를 멈추면 되는 단순한 경우는
+# sourceHandle 없이 하나만 연결해도 된다(예시12처럼).
+
+[예시15] 요청: "보안 알림 들어오면 심각도 확인해서, 심각하면 승인받고 차단하고 아니면 그냥 기록만 해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"webhookNode","data":{"method":"POST","path":"/siem-alert"}},
+  {"id":"n2","type":"promptNode","data":{"userPrompt":"이 보안 알림의 심각도를 판별해줘. 심각하면 정확히 'CRITICAL', 아니면 정확히 'NORMAL'이라고만 답해"}},
+  {"id":"n3","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 보안 알림의 심각도를 판별하는 SOC 분석가다"}},
+  {"id":"n4","type":"conditionNode","data":{"rules":[{"id":"critical","operator":"Contains","value":"CRITICAL"}]}},
+  {"id":"n5","type":"humanApprovalNode","data":{"message":"심각한 보안 알림입니다. 자동 차단 조치를 진행할까요?"}},
+  {"id":"n6","type":"httpRequestNode","data":{"method":"POST","url":"https://api.example.com/block"}},
+  {"id":"n7","type":"valueNode","data":{"value":"차단은 보류되고 모니터링만 계속됩니다"}},
+  {"id":"n8","type":"valueNode","data":{"value":"정상 알림으로 기록되었습니다"}},
+  {"id":"n9","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n10","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5","sourceHandle":"critical"},
+  {"id":"e5","source":"n5","target":"n6","sourceHandle":"approved"},
+  {"id":"e6","source":"n6","target":"n9"},
+  {"id":"e7","source":"n5","target":"n7","sourceHandle":"rejected"},
+  {"id":"e8","source":"n7","target":"n9"},
+  {"id":"e9","source":"n4","target":"n8","sourceHandle":"else"},
+  {"id":"e10","source":"n8","target":"n9"},
+  {"id":"e11","source":"n9","target":"n10"}
+]}
+# ↑ conditionNode로 먼저 분류하고, 그 중 한 분기에서만(심각한 경우만) humanApprovalNode를
+# 거치도록 중첩할 수 있다 — 조건 분기와 사람 승인은 서로 독립적인 노드라 이렇게 조합 가능하다.
+# 심각하지 않은 else 분기는 승인 없이 바로 기록으로 끝난다.
 """
 
 
@@ -471,7 +816,7 @@ def _strip_positions(g: FlowGraph) -> FlowGraph:
 def generate_flow(user_request: str) -> FlowGraph:
     llm = get_llm().with_structured_output(FlowGraph, method="function_calling")   # 출력을 FlowGraph 형식으로 강제
     messages = [
-        ("system", SYSTEM + "\n\n" + FEWSHOT),
+        ("system", SYSTEM + "\n\n" + FEWSHOT_FAST),
         ("user", f'요청: "{user_request}"\n위 규칙에 맞는 graph_data를 만들어줘.'),
     ]
     return _strip_positions(llm.invoke(messages))
@@ -483,8 +828,7 @@ def generate_flow_from_template(user_request: str, template: FlowGraph) -> FlowG
 
     템플릿이 비선형(분기/병합/반복)이면 결과도 자연스럽게 비선형 구조를 유지한다.
     사용자가 짧게 말해도 프로덕트급 워크플로우가 나오는 핵심 메커니즘."""
-    from langchain_openai import ChatOpenAI
-    llm = ChatOpenAI(model="gpt-4o", temperature=0).with_structured_output(FlowGraph, method="function_calling")
+    llm = get_llm().with_structured_output(FlowGraph, method="function_calling")
     messages = [
         ("system", MEDIUM_SYSTEM),
         ("user",
@@ -515,7 +859,7 @@ def generate_flow_precise(user_request: str) -> FlowGraph:
     프로덕트급 수준으로 살을 붙여 생성한다."""
     llm = get_llm().with_structured_output(FlowGraph, method="function_calling")
     messages = [
-        ("system", PRECISE_SYSTEM + "\n\n" + FEWSHOT),
+        ("system", PRECISE_SYSTEM + "\n\n" + FEWSHOT_PRECISE),
         ("user", f'요청: "{user_request}"\n위 규칙에 맞는, 실제 서비스 수준으로 구체화된 graph_data를 만들어줘.'),
     ]
     return _strip_positions(llm.invoke(messages))
@@ -798,6 +1142,40 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
                     "고아 노드라 절대 실행되지 않는다. 앞 노드에 연결하거나 필요 없으면 삭제하라"
                 )
 
+    # 15) distributorNode의 반복 "안"(done이 아닌 기본 경로)에서 outputNode에 닿으면 안 됨
+    # (실행 엔진 확인 결과: 반복 중 outputNode에 닿으면 그 즉시 return돼서 첫 항목만 처리하고
+    # 전체 워크플로우가 끝나버린다 — 조용한 버그. 반복이 다 끝난 뒤 종료하려면 done 핸들을 거쳐야 한다)
+    all_forward: Dict[str, List[str]] = defaultdict(list)
+    for e in g.edges:
+        all_forward[e.source].append(e.target)
+
+    def _reaches_output(start: str) -> bool:
+        seen: set = set()
+        stack = [start]
+        while stack:
+            u = stack.pop()
+            if u in seen:
+                continue
+            seen.add(u)
+            u_node = nodes_by_id.get(u)
+            if u_node and u_node.type == "outputNode":
+                return True
+            stack.extend(all_forward.get(u, []))
+        return False
+
+    for n in g.nodes:
+        if n.type != "distributorNode":
+            continue
+        body_targets = [e.target for e in g.edges if e.source == n.id and e.sourceHandle != "done"]
+        for t in body_targets:
+            if _reaches_output(t):
+                errors.append(
+                    f"{n.id}(distributorNode)의 반복 안(기본 경로)이 outputNode까지 이어진다 — "
+                    "반복 중 outputNode에 닿으면 첫 항목만 처리하고 즉시 종료된다. 반복이 끝난 뒤 "
+                    "종료하려면 sourceHandle을 'done'으로 지정한 엣지를 통해 outputNode로 이어라"
+                )
+                break
+
     return (len(errors) == 0, errors)
 
 
@@ -927,8 +1305,30 @@ def _validate_node_data(n: FlowNode) -> List[str]:
     elif n.type == "databaseNode":
         if not d.get("connectionString"):
             errors.append(f"{n.id}(databaseNode)에 connectionString이 없다")
-        if not d.get("query"):
+        query = d.get("query", "")
+        if not query:
             errors.append(f"{n.id}(databaseNode)에 query가 없다")
+        else:
+            # 가드레일: 구조/권한을 파괴하는 쿼리는 무조건 막고, WHERE 없는 DELETE/UPDATE(테이블
+            # 전체 대상)도 막는다. 세미콜론으로 여러 문장이 이어질 수 있어 문장 단위로 검사한다.
+            blocked = {"DROP", "TRUNCATE", "ALTER", "GRANT", "REVOKE"}
+            for stmt in query.split(";"):
+                stmt = stmt.strip()
+                if not stmt:
+                    continue
+                stmt_upper = stmt.upper()
+                m = re.match(r"^(\w+)", stmt_upper)
+                first_word = m.group(1) if m else ""
+                if first_word in blocked:
+                    errors.append(
+                        f"{n.id}(databaseNode)의 query에 '{first_word}' 같은 구조 파괴/권한 변경 쿼리는 허용되지 않는다 — "
+                        "테이블/스키마를 통째로 지우거나 권한을 바꾸는 작업은 이 노드로 실행할 수 없다"
+                    )
+                elif first_word in ("DELETE", "UPDATE") and not re.search(r"\bWHERE\b", stmt_upper):
+                    errors.append(
+                        f"{n.id}(databaseNode)의 {first_word} 쿼리에 WHERE 조건이 없다 — "
+                        "조건 없이 실행하면 테이블의 모든 행이 삭제/변경된다. 대상을 좁히는 WHERE 절을 추가하라"
+                    )
 
     # startNode·outputNode·valueNode·distributorNode·breakNode는 data가 없어도(또는 비어있어도)
     # 실행이 깨지지 않으므로 필수 필드 에러로 보진 않는다.
@@ -1229,7 +1629,8 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
         fileModifierNode→template_path(문자열)+output_path(문자열, 선택) — 반드시 JSON을 만들어주는
         노드(templateAnalyzerNode→llmNode 조합 등) 바로 뒤에 연결해야 한다(직전 노드 의존).
         emailNode→toEmail(문자열)+subject(문자열, 선택), databaseNode→connectionString(문자열,
-        사용자가 준 값만 사용)+query(문자열, SQL — 아직 SELECT 강제 등 가드레일 없음, 주의해서 사용).
+        사용자가 준 값만 사용)+query(문자열, SQL — DROP/TRUNCATE/ALTER 등은 검증기가 막고,
+        DELETE/UPDATE는 WHERE 없이 쓰면 막힌다. 그 안에서만 자유롭게 사용).
         startNode·outputNode는 data가 필요 없다.
         실패하면 사유가 반환되니 data를 고쳐서 이 도구를 다시 호출한다."""
         before = _snapshot()
@@ -1305,6 +1706,8 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
                 template_data = search_and_parse_template(request)
                 if template_data:
                     template = FlowGraph(
+                        title=template_data.get("title") or "참고 템플릿",
+                        description=template_data.get("description") or "",
                         nodes=template_data.get("nodes", []),
                         edges=template_data.get("edges", []),
                     )
@@ -1319,9 +1722,13 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
             else:
                 g = generate_flow(request)  # low 모드 또는 fallback
 
-        # ── Validation + 재시도 ──
+        # ── Validation + 재시도 (최대 5회 시도 — LLM이 검증 에러 메시지를 보고도 매번
+        # 고치는 건 아니라서, 1회만으로는 실패율이 꽤 있었다) ──
+        MAX_ATTEMPTS = 5
         ok, errs = validate_flow(g)
-        if not ok:
+        attempt = 1
+        while not ok and attempt < MAX_ATTEMPTS:
+            attempt += 1
             retry = f'{request}\n\n(직전 생성이 아래 이유로 잘못됐다. 고쳐서 다시: {"; ".join(errs)})'
             if mode_label == "정밀 생성":
                 g = generate_flow_precise(retry)
@@ -1330,9 +1737,9 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
             else:
                 g = generate_flow(retry)
             ok, errs = validate_flow(g)
-            
+
         if not ok:
-            return _fail(f"생성 실패(기존 flow 유지): {errs}")
+            return _fail(f"생성 실패(기존 flow 유지, {attempt}회 시도): {errs}")
         state["graph"] = g
         msg = f"새 플로우 생성됨 ({mode_label}): 노드 {len(g.nodes)}개, 엣지 {len(g.edges)}개"
         notes = [n for n in (_dynamic_input_note(node) for node in g.nodes) if n]

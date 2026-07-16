@@ -154,10 +154,16 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
     lines.append(f"{indent}    dist_list_{node_id} = [dist_list_{node_id}]")
     lines.append(f"{indent}for dist_item_{node_id} in dist_list_{node_id}:")
     lines.append(f"{indent}    last_result = dist_item_{node_id}")
-    
-    next_edges = forward_edges.get(node_id, [])
-    if not next_edges:
+
+    # 'done' 핸들 엣지는 반복 밖(전 항목 처리 후 딱 한 번)에서 이어간다 — loopNode의 done과 동일한 패턴.
+    # 이게 없으면 반복 안에서 outputNode에 닿는 순간 return이 실행돼 첫 항목만 처리하고 끝나버린다.
+    body_edges = [(t, h) for t, h in forward_edges.get(node_id, []) if h != 'done']
+    if not body_edges:
         lines.append(f"{indent}    pass")
     else:
-        for target_id, handle in next_edges:
+        for target_id, handle in body_edges:
             generate_block_fn(target_id, indent + "    ", active_llm_id=active_llm_id, prev_res_var=f"dist_item_{node_id}", visited=visited)
+
+    done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
+    if done_edges:
+        generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var if prev_res_var else 'last_result', visited=visited)

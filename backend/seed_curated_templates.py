@@ -22,6 +22,17 @@ FlowGraph 스키마로 재구성한 것이다. LLM 번역이 아니므로 카탈
   11. _archive_n8n_translation_pipeline/scraped_templates/Google_Drive_and_Google_Sheets/Automatic Background Removal for Images in Google Drive.json
   12. _archive_n8n_translation_pipeline/scraped_templates/Instagram_Twitter_Social_Media/Reddit AI digest.json
   13. _archive_n8n_translation_pipeline/scraped_templates/Discord/Discord AI-powered bot.json
+  14. _archive_n8n_translation_pipeline/scraped_templates/AI_Research_RAG_and_Data_Analysis/Build a Tax Code Assistant with Qdrant, Mistral.ai and OpenAI.json
+  15. _archive_n8n_translation_pipeline/scraped_templates/WhatsApp/Building Your First WhatsApp Chatbot.json
+  16. _archive_n8n_translation_pipeline/scraped_templates/WordPress/Auto-Tag Blog Posts in WordPress with AI.json
+  17. _archive_n8n_translation_pipeline/scraped_templates/devops/docker-compose-controller.json
+  18. _archive_n8n_translation_pipeline/scraped_templates/AI_Research_RAG_and_Data_Analysis/Survey Insights with Qdrant, Python and Information Extractor.json
+
+19~38: 같은 원칙으로 n8n-node ↔ 28종 카탈로그 매핑 표를 기준 삼아 나머지 미사용 소스 카테고리
+(OpenAI_and_LLMs, Other_Integrations_and_Use_Cases, AI_Research_RAG_and_Data_Analysis,
+Gmail_and_Email_Automation, Telegram, PDF_and_Document_Processing, Google_Drive_and_Google_Sheets,
+Instagram_Twitter_Social_Media, Notion, Slack, WordPress, Database_and_Storage, Airtable,
+WhatsApp, HR_and_Recruitment)에서 골라 추가한 20개. 원본 파일명은 각 템플릿 위 주석 참고.
 """
 import os
 from dotenv import load_dotenv
@@ -44,6 +55,8 @@ def edge(id_, source, target, sourceHandle=None):
 
 # ── 1. Airtable 레코드/필드 변경 시 AI로 빈 필드 자동 채움 ──────────────────
 tpl1 = FlowGraph(
+    title="Airtable 레코드 변경 시 AI 필드 자동 채움",
+    description="Airtable 레코드/필드가 변경되면 첨부파일을 분석해 빈 필드를 AI로 자동 채운다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "dynamicInputNode", {"inputLabel": "Airtable 웹훅 이벤트 페이로드(row_changed 또는 field_changed)", "testValue": '{"event_type":"row_changed"}'}),
@@ -74,14 +87,16 @@ tpl1 = FlowGraph(
         edge("e10", "n10", "n11"),
         edge("e11", "n11", "n12"),
         edge("e12", "n12", "n13"),
-        edge("e13", "n9", "n14"),
-        edge("e14", "n13", "n14"),
+        edge("e13", "n4", "n14", "done"),
+        edge("e14", "n10", "n14", "done"),
         edge("e15", "n14", "n15"),
     ],
 )
 
 # ── 2. 받은 이메일 AI 분류 후 폴더 자동 이동 + 긴급 메일 슬랙 알림 ──────────
 tpl2 = FlowGraph(
+    title="Outlook 메일 AI 분류 및 폴더 자동 이동",
+    description="수신 메일을 AI가 긴급/스팸/일반으로 분류해 해당 폴더로 이동하고 긴급 메일은 슬랙으로 알린다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "distributorNode"),
@@ -110,12 +125,14 @@ tpl2 = FlowGraph(
         edge("e9", "n7", "n10"),
         edge("e10", "n8", "n10"),
         edge("e11", "n9", "n10"),
-        edge("e12", "n10", "n11"),
+        edge("e12", "n2", "n11", "done"),
     ],
 )
 
 # ── 3. 이력서 PDF 파싱(병렬 정리) → HTML 변환 → PDF 재생성 → 텔레그램 발송 ──
 tpl3 = FlowGraph(
+    title="이력서 PDF 파싱 후 정리된 이력서 PDF 재생성",
+    description="이력서 PDF에서 정보를 병렬로 추출/정리한 뒤 깔끔한 HTML/PDF로 재생성해 전송한다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "tokenizerNode", {"method": "extract_text"}),
@@ -148,6 +165,8 @@ tpl3 = FlowGraph(
 
 # ── 4. Airtable 데이터 비서 챗봇(검색/스키마 조회 분기 + 병합 응답) ─────────
 tpl4 = FlowGraph(
+    title="Airtable 데이터 비서 챗봇",
+    description="질문 의도(레코드 검색/스키마 조회)를 분류해 Airtable 데이터를 조회하고 답변한다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "promptNode", {"userPrompt": "사용자 질문을 보고 필요한 작업이 '레코드 검색'인지 '스키마 조회'인지 그 단어로만 답해"}),
@@ -180,6 +199,8 @@ tpl4 = FlowGraph(
 
 # ── 5. 인증서 발급 요청: VirusTotal 평판 조회 → 자동발급 / 사람 승인 분기 ──
 tpl5 = FlowGraph(
+    title="인증서 발급 요청 자동/수동 승인 봇",
+    description="도메인 평판을 조회해 안전하면 자동 발급, 위험하면 사람 승인을 거쳐 인증서를 발급한다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "dynamicInputNode", {"inputLabel": "인증서 발급 요청 페이로드(도메인 포함)", "testValue": '{"domain":"example.com"}'}),
@@ -189,7 +210,6 @@ tpl5 = FlowGraph(
         node("n6", "httpRequestNode", {"method": "POST", "url": "https://api.venafi.cloud/v1/certificaterequests"}),
         node("n7", "slackNode", {"channel": "#cert-bot", "message": "악성 리포트 0건 확인, 인증서가 자동으로 발급되었습니다"}),
         node("n8", "humanApprovalNode", {"message": "악성 리포트가 발견되어 수동 승인이 필요합니다. 인증서를 발급할까요?"}),
-        node("n9", "conditionNode", {"rules": [{"id": "approved", "operator": "==", "value": "승인"}]}),
         node("n10", "httpRequestNode", {"method": "POST", "url": "https://api.venafi.cloud/v1/certificaterequests"}),
         node("n11", "slackNode", {"channel": "#cert-bot", "message": "수동 승인 후 인증서가 발급되었습니다"}),
         node("n12", "slackNode", {"channel": "#cert-bot", "message": "인증서 발급 요청이 거절되었습니다"}),
@@ -204,10 +224,9 @@ tpl5 = FlowGraph(
         edge("e5", "n5", "n6", "clean"),
         edge("e6", "n6", "n7"),
         edge("e7", "n5", "n8", "else"),
-        edge("e8", "n8", "n9"),
-        edge("e9", "n9", "n10", "approved"),
+        edge("e9", "n8", "n10", "approved"),
         edge("e10", "n10", "n11"),
-        edge("e11", "n9", "n12", "else"),
+        edge("e11", "n8", "n12", "rejected"),
         edge("e12", "n7", "n13"),
         edge("e13", "n11", "n13"),
         edge("e14", "n12", "n13"),
@@ -217,6 +236,8 @@ tpl5 = FlowGraph(
 
 # ── 6. 채용/공고 링크 모니터링 → AI 유효성 판별 → 카카오톡 알림 ─────────────
 tpl6 = FlowGraph(
+    title="채용/공고 링크 모니터링 → AI 유효성 판별 → 카카오톡 알림",
+    description="여러 공고 페이지를 모니터링해 유효한 채용 공고만 카카오톡으로 알린다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "dynamicInputNode", {"inputLabel": "모니터링할 공고 페이지 링크 목록(JSON 배열 문자열)", "testValue": '["https://example.com/notice/1","https://example.com/notice/2"]'}),
@@ -241,12 +262,14 @@ tpl6 = FlowGraph(
         edge("e8", "n8", "n9", "else"),
         edge("e9", "n9", "n10"),
         edge("e10", "n8", "n10", "skip"),
-        edge("e11", "n10", "n11"),
+        edge("e11", "n4", "n11", "done"),
     ],
 )
 
 # ── 7. 사내 정책 헬프데스크 챗봇(카카오톡 답변, 발송 전 사람 승인) ──────────
 tpl7 = FlowGraph(
+    title="사내 정책 헬프데스크 챗봇(카카오톡 답변, 발송 전 사람 승인)",
+    description="사내 정책 문의에 AI가 답변 초안을 작성하고, 사람 승인 후 카카오톡으로 발송한다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "valueNode", {"file_path": ""}),
@@ -255,7 +278,6 @@ tpl7 = FlowGraph(
         node("n5", "promptNode", {"userPrompt": "위 사내 정책 문서 내용을 참고하여 직원의 질문에 대한 답변을 작성해줘. 정책에 명시되지 않은 내용이면 '정책 문서에서 확인할 수 없습니다. 인사팀에 문의해주세요'라고 답해."}),
         node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 회사 인사/IT 정책에 정통한 사내 헬프데스크 상담원이다"}),
         node("n7", "humanApprovalNode", {"message": "아래 답변을 직원에게 카카오톡으로 발송할까요?"}),
-        node("n8", "conditionNode", {"rules": [{"id": "approved", "operator": "==", "value": "승인"}]}),
         node("n9", "kakaoNode", {"accessToken": "", "receiver": ""}),
         node("n10", "pythonNode", {"code": "output_data = '답변 발송이 취소되었습니다.'"}),
         node("n11", "mergeNode", {"mergeStrategy": "join_newline"}),
@@ -268,10 +290,9 @@ tpl7 = FlowGraph(
         edge("e4", "n4", "n5"),
         edge("e5", "n5", "n6"),
         edge("e6", "n6", "n7"),
-        edge("e7", "n7", "n8"),
-        edge("e8", "n8", "n9", "approved"),
+        edge("e8", "n7", "n9", "approved"),
         edge("e9", "n9", "n11"),
-        edge("e10", "n8", "n10", "else"),
+        edge("e10", "n7", "n10", "rejected"),
         edge("e11", "n10", "n11"),
         edge("e12", "n11", "n12"),
     ],
@@ -279,6 +300,8 @@ tpl7 = FlowGraph(
 
 # ── 8. DB 데이터 비서 챗봇(자연어 질의 → 카카오톡 답변) ──────────────────
 tpl8 = FlowGraph(
+    title="DB 데이터 비서 챗봇(자연어 질의 → 카카오톡 답변)",
+    description="DB에서 최근 데이터를 조회해두고, 자연어 질문에 그 데이터를 근거로 답변해 카카오톡으로 보낸다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "databaseNode", {"connectionString": PLACEHOLDER_URL, "query": "SELECT id, name, email, created_at FROM users ORDER BY created_at DESC LIMIT 200"}),
@@ -307,6 +330,8 @@ tpl8 = FlowGraph(
 
 # ── 9. 논문 모니터링 → AI 요약 → Notion 저장 ────────────────────────────
 tpl9 = FlowGraph(
+    title="논문 모니터링 → AI 요약 → Notion 저장",
+    description="매일 새 논문을 모니터링해 AI로 요약하고 Notion에 저장한다.",
     nodes=[
         node("n1", "scheduleNode", {"cronExpression": "0 9 * * *"}),
         node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
@@ -326,12 +351,14 @@ tpl9 = FlowGraph(
         edge("e5", "n5", "n6"),
         edge("e6", "n6", "n7"),
         edge("e7", "n7", "n8"),
-        edge("e8", "n8", "n9"),
+        edge("e8", "n4", "n9", "done"),
     ],
 )
 
 # ── 10. 예약 신청 접수 → AI 자격 검토 → 사람 승인 → 확정/반려 안내 ─────────
 tpl10 = FlowGraph(
+    title="예약 신청 접수 → AI 자격 검토 → 사람 승인 → 확정/반려 안내",
+    description="예약 신청의 적합성을 AI가 1차 검토하고, 사람이 최종 승인하면 확정/반려 메일을 보낸다.",
     nodes=[
         node("n1", "startNode"),
         node("n2", "dynamicInputNode", {"inputLabel": "예약 신청 내용(이름/목적/희망일시)", "testValue": "홍길동 / 상담 문의 / 2026-08-01 14:00"}),
@@ -339,7 +366,6 @@ tpl10 = FlowGraph(
         node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 예약 신청의 적합성을 판별하는 어시스턴트다"}),
         node("n5", "conditionNode", {"rules": [{"id": "qualified", "operator": "Contains", "value": "QUALIFIED"}]}),
         node("n6", "humanApprovalNode", {"message": "AI가 적합 판정한 예약 신청입니다. 최종 승인하시겠습니까?"}),
-        node("n7", "conditionNode", {"rules": [{"id": "approved", "operator": "==", "value": "승인"}]}),
         node("n8", "emailNode", {"toEmail": "user@example.com", "subject": "예약이 확정되었습니다"}),
         node("n9", "emailNode", {"toEmail": "user@example.com", "subject": "예약 요청이 반려되었습니다"}),
         node("n10", "emailNode", {"toEmail": "user@example.com", "subject": "예약 신청이 반려되었습니다"}),
@@ -353,10 +379,9 @@ tpl10 = FlowGraph(
         edge("e3", "n3", "n4"),
         edge("e4", "n4", "n5"),
         edge("e5", "n5", "n6", "qualified"),
-        edge("e6", "n6", "n7"),
-        edge("e7", "n7", "n8", "approved"),
+        edge("e7", "n6", "n8", "approved"),
         edge("e8", "n8", "n11"),
-        edge("e9", "n7", "n9", "else"),
+        edge("e9", "n6", "n9", "rejected"),
         edge("e10", "n9", "n11"),
         edge("e11", "n11", "n12"),
         edge("e12", "n5", "n10", "else"),
@@ -367,6 +392,8 @@ tpl10 = FlowGraph(
 
 # ── 11. 구글 드라이브 새 이미지 → 배경 제거 API → 결과 업로드 알림 ─────────
 tpl11 = FlowGraph(
+    title="이미지 배경 제거 자동화(구글 드라이브 → API → 알림)",
+    description="새 이미지가 업로드되면 배경 제거 API를 호출하고 결과를 업로드한 뒤 알린다.",
     nodes=[
         node("n1", "webhookNode", {"method": "POST", "path": "/drive-image-uploaded"}),
         node("n2", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
@@ -391,6 +418,8 @@ tpl11 = FlowGraph(
 
 # ── 12. 레딧 인기글 수집 → AI 관련성 판별/요약 → 카카오톡 다이제스트 ───────
 tpl12 = FlowGraph(
+    title="레딧 인기글 수집 → AI 관련성 판별/요약 → 카카오톡 다이제스트",
+    description="정기적으로 레딧 인기글을 수집해 관련성 있는 글만 요약해 카카오톡으로 보낸다.",
     nodes=[
         node("n1", "scheduleNode", {"cronExpression": "0 8 * * *"}),
         node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
@@ -413,12 +442,14 @@ tpl12 = FlowGraph(
         edge("e7", "n7", "n8", "else"),
         edge("e8", "n8", "n9"),
         edge("e9", "n7", "n9", "skip"),
-        edge("e10", "n9", "n10"),
+        edge("e10", "n4", "n10", "done"),
     ],
 )
 
 # ── 13. 디스코드 문의 자동 분류 → 담당 부서 채널로 라우팅 ──────────────────
 tpl13 = FlowGraph(
+    title="디스코드 문의 자동 분류 → 담당 부서 채널 라우팅",
+    description="디스코드로 들어온 문의를 AI가 부서별로 분류해 해당 채널로 라우팅한다.",
     nodes=[
         node("n1", "webhookNode", {"method": "POST", "path": "/discord-message"}),
         node("n2", "promptNode", {"userPrompt": "이 문의가 '기술지원', '결제문의', '일반문의' 중 어디에 해당하는지 그 단어로만 답해"}),
@@ -444,26 +475,1215 @@ tpl13 = FlowGraph(
     ],
 )
 
+# ── 14. 세금/정책 문서 Q&A 어시스턴트 ─────────────────────────────────────
+tpl14 = FlowGraph(
+    title="세금/정책 문서 Q&A 어시스턴트",
+    description="세금/정책 문서를 참고해서 질문에 정확하게 답변하는 어시스턴트.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "dynamicInputNode", {"inputLabel": "세금 관련 질문", "testValue": "1인 사업자 부가세 신고 기한이 언제야?"}),
+        node("n5", "promptNode", {"userPrompt": "위 문서 내용을 참고해서 질문에 정확하게 답변해줘. 문서에 없는 내용이면 추측하지 말고 '문서에서 확인할 수 없습니다'라고 답해."}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 세무/법률 문서를 바탕으로 정확하게 답변하는 어시스턴트다"}),
+        node("n7", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 15. 제품 카탈로그 문의 챗봇(카카오톡 답변) ─────────────────────────────
+tpl15 = FlowGraph(
+    title="제품 카탈로그 문의 챗봇(카카오톡 답변)",
+    description="제품 카탈로그 문서를 참고해서 고객 문의에 답변하고 카카오톡으로 발송한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "dynamicInputNode", {"inputLabel": "고객 문의 내용", "testValue": "이 제품 가격이 얼마인가요?"}),
+        node("n5", "promptNode", {"userPrompt": "위 제품 카탈로그를 참고해서 고객 문의에 친절하게 답변해줘. 카탈로그에 없는 내용이면 '자세한 내용은 상담원에게 문의해주세요'라고 답해."}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 친절한 판매 상담원이다"}),
+        node("n7", "kakaoNode", {"accessToken": "", "receiver": ""}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n7", "n8"),
+    ],
+)
+
+# ── 16. 블로그 포스트 자동 태깅 ───────────────────────────────────────────
+tpl16 = FlowGraph(
+    title="블로그 포스트 자동 태깅",
+    description="새 블로그 글을 주기적으로 확인해서 AI가 태그를 생성하고 자동으로 등록한다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 */6 * * *"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode", {}),
+        node("n5", "promptNode", {"userPrompt": "이 블로그 글 내용을 보고 어울리는 태그를 3~5개 쉼표로 구분해서 만들어줘"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 블로그 글에 어울리는 태그를 만드는 편집자다"}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n4", "n8", "done"),
+    ],
+)
+
+# ── 17. 웹훅으로 서버(도커) 시작/중지 제어 ─────────────────────────────────
+tpl17 = FlowGraph(
+    title="웹훅으로 서버(도커) 시작/중지 제어",
+    description="웹훅으로 시작/중지 명령을 받아 서버 제어 API를 호출한다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/docker-control"}),
+        node("n2", "conditionNode", {"rules": [{"id": "start", "operator": "Contains", "value": "start"}, {"id": "stop", "operator": "Contains", "value": "stop"}]}),
+        node("n3", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n4", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n5", "valueNode", {"value": "알 수 없는 명령입니다"}),
+        node("n6", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n7", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3", "start"),
+        edge("e3", "n2", "n4", "stop"),
+        edge("e4", "n2", "n5", "else"),
+        edge("e5", "n3", "n6"),
+        edge("e6", "n4", "n6"),
+        edge("e7", "n5", "n6"),
+        edge("e8", "n6", "n7"),
+    ],
+)
+
+# ── 18. 설문 응답 인사이트 분석 → 카카오톡 알림 ───────────────────────────
+tpl18 = FlowGraph(
+    title="설문 응답 인사이트 분석 → 카카오톡 알림",
+    description="정기적으로 설문 응답 데이터를 분석해 핵심 인사이트를 뽑아 카카오톡으로 알린다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 9 * * 1"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode", {}),
+        node("n5", "promptNode", {"userPrompt": "이 설문 응답 데이터에서 핵심 인사이트와 패턴을 3가지 뽑아줘"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 설문 데이터를 분석해서 인사이트를 도출하는 리서처다"}),
+        node("n7", "kakaoNode", {"accessToken": "", "receiver": ""}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n4", "n8", "done"),
+    ],
+)
+
+# ── 19. 이력서 분석 및 후보자 평가 ─────────────────────────────────────────
+tpl19 = FlowGraph(
+    title="이력서 분석 및 후보자 평가",
+    description="이력서 내용을 AI가 분석해 자격 요건 충족 여부를 평가하고 결과를 이메일로 안내한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 이력서가 채용 공고의 자격 요건(경력 3년 이상, 관련 기술 스택)을 충족하는지 평가해줘. 충족하면 정확히 'PASS', 아니면 'FAIL: 사유'라고 답해."}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 이력서를 평가하는 채용 담당자다"}),
+        node("n6", "conditionNode", {"rules": [{"id": "pass", "operator": "Contains", "value": "PASS"}]}),
+        node("n7", "emailNode", {"toEmail": "candidate@example.com", "subject": "서류 합격 안내"}),
+        node("n8", "emailNode", {"toEmail": "candidate@example.com", "subject": "서류 결과 안내"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7", "pass"),
+        edge("e7", "n6", "n8", "else"),
+        edge("e8", "n7", "n9"),
+        edge("e9", "n8", "n9"),
+        edge("e10", "n9", "n10"),
+    ],
+)
+
+# ── 20. 고객 피드백 감성 분석 → 담당자 알림/로그 분기 ───────────────────────
+tpl20 = FlowGraph(
+    title="고객 피드백 감성 분석 및 라우팅",
+    description="고객 피드백의 감성을 분류해 부정적이면 담당자에게 슬랙으로 알리고, 그 외에는 로그만 남긴다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "고객 피드백 내용", "testValue": "배송이 너무 늦어서 화가 납니다"}),
+        node("n3", "promptNode", {"userPrompt": "이 피드백의 감성을 판별해줘. 반드시 '긍정', '부정', '중립' 중 하나로만 답해"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 고객 피드백 감성 분석 전문가다"}),
+        node("n5", "conditionNode", {"rules": [
+            {"id": "negative", "operator": "Contains", "value": "부정"},
+            {"id": "positive", "operator": "Contains", "value": "긍정"},
+        ]}),
+        node("n6", "slackNode", {"channel": "#customer-feedback", "message": "부정적인 고객 피드백이 접수되었습니다. 확인이 필요합니다"}),
+        node("n7", "valueNode", {"value": "긍정 피드백으로 기록되었습니다"}),
+        node("n8", "valueNode", {"value": "중립 피드백으로 기록되었습니다"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "negative"),
+        edge("e6", "n6", "n9"),
+        edge("e7", "n5", "n7", "positive"),
+        edge("e8", "n7", "n9"),
+        edge("e9", "n5", "n8", "else"),
+        edge("e10", "n8", "n9"),
+        edge("e11", "n9", "n10"),
+    ],
+)
+
+# ── 21. GitLab MR AI 코드 리뷰 자동 코멘트 ─────────────────────────────────
+tpl21 = FlowGraph(
+    title="GitLab MR AI 코드 리뷰 자동 코멘트",
+    description="새 MR이 열리면 diff를 AI가 리뷰해 그 결과를 MR에 코멘트로 남긴다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/gitlab-mr-opened"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n3", "promptNode", {"userPrompt": "이 코드 변경사항(diff)을 리뷰해줘. 잠재적 버그, 보안 이슈, 개선 제안을 항목별로 정리해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 꼼꼼한 시니어 개발자로서 코드 리뷰를 하는 전문가다"}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n6", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+    ],
+)
+
+# ── 22. Linear 버그 분류 후 담당 팀으로 라우팅 ─────────────────────────────
+tpl22 = FlowGraph(
+    title="Linear 버그 분류 후 담당 팀 라우팅",
+    description="새로 등록된 버그를 AI가 분류해 프론트엔드/백엔드/인프라 담당 팀으로 이슈를 옮긴다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/linear-new-bug"}),
+        node("n2", "promptNode", {"userPrompt": "이 버그 리포트가 '프론트엔드', '백엔드', '인프라' 중 어디에 해당하는지 그 단어로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 버그 리포트를 담당 팀별로 분류하는 어시스턴트다"}),
+        node("n4", "conditionNode", {"rules": [
+            {"id": "frontend", "operator": "Contains", "value": "프론트엔드"},
+            {"id": "backend", "operator": "Contains", "value": "백엔드"},
+        ]}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "frontend"),
+        edge("e5", "n5", "n8"),
+        edge("e6", "n4", "n6", "backend"),
+        edge("e7", "n6", "n8"),
+        edge("e8", "n4", "n7", "else"),
+        edge("e9", "n7", "n8"),
+        edge("e10", "n8", "n9"),
+    ],
+)
+
+# ── 23. 매일 신규 논문 목록 수집 → AI 요약/카테고리 분류 → 저장 ────────────
+tpl23 = FlowGraph(
+    title="신규 논문 자동 요약 및 카테고리 분류",
+    description="매일 새로 올라온 논문 목록을 가져와 각각 AI로 요약하고 카테고리를 분류해 저장한다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 10 * * *"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode", {}),
+        node("n5", "promptNode", {"userPrompt": "이 논문 초록을 2문장으로 요약하고, 'AI', '데이터', '시스템' 중 가장 잘 맞는 카테고리 하나를 붙여서 'OOO요약 (카테고리: OOO)' 형식으로 답해"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 논문을 요약하고 분류하는 리서치 어시스턴트다"}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n4", "n8", "done"),
+    ],
+)
+
+# ── 24. SEO 시드 키워드 생성기 ─────────────────────────────────────────────
+tpl24 = FlowGraph(
+    title="SEO 시드 키워드 생성기",
+    description="주제나 타겟 키워드를 입력하면 AI가 SEO에 활용할 시드 키워드 목록을 생성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "주제 또는 타겟 키워드", "testValue": "온라인 요가 강의"}),
+        node("n3", "promptNode", {"userPrompt": "이 주제와 관련된 SEO 시드 키워드를 검색량이 있을 법한 순서로 20개 뽑아줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 SEO 키워드 리서치 전문가다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 25. Gmail 수신 메일 AI 자동 라벨링 ─────────────────────────────────────
+tpl25 = FlowGraph(
+    title="Gmail 수신 메일 AI 자동 라벨링",
+    description="수신 메일을 AI가 중요/뉴스레터/영업/기타로 분류해 해당 라벨을 붙인다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/gmail-new-message"}),
+        node("n2", "promptNode", {"userPrompt": "이 메일이 '중요', '뉴스레터', '영업' 중 어디에 해당하는지 그 단어로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 이메일을 분류하는 어시스턴트다"}),
+        node("n4", "conditionNode", {"rules": [
+            {"id": "important", "operator": "Contains", "value": "중요"},
+            {"id": "newsletter", "operator": "Contains", "value": "뉴스레터"},
+            {"id": "sales", "operator": "Contains", "value": "영업"},
+        ]}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n8", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "important"),
+        edge("e5", "n5", "n9"),
+        edge("e6", "n4", "n6", "newsletter"),
+        edge("e7", "n6", "n9"),
+        edge("e8", "n4", "n7", "sales"),
+        edge("e9", "n7", "n9"),
+        edge("e10", "n4", "n8", "else"),
+        edge("e11", "n8", "n9"),
+        edge("e12", "n9", "n10"),
+    ],
+)
+
+# ── 26. Gmail 답장 초안 작성 → 사람 승인 후 발송 ───────────────────────────
+tpl26 = FlowGraph(
+    title="Gmail 답장 초안 작성 및 승인 발송",
+    description="받은 메일에 대한 답장 초안을 AI가 작성하고, 사람이 승인하면 그대로 발송한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "받은 메일 내용", "testValue": "환불 절차가 어떻게 되나요?"}),
+        node("n3", "promptNode", {"userPrompt": "위 메일에 대한 정중하고 명확한 답장 초안을 작성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 고객 응대 이메일을 작성하는 담당자다"}),
+        node("n5", "humanApprovalNode", {"message": "아래 답장 초안을 이대로 발송할까요?"}),
+        node("n6", "emailNode", {"toEmail": "customer@example.com", "subject": "문의 답변 드립니다"}),
+        node("n7", "pythonNode", {"code": "output_data = '답장 발송이 취소되었습니다.'"}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "approved"),
+        edge("e6", "n6", "n8"),
+        edge("e7", "n5", "n7", "rejected"),
+        edge("e8", "n7", "n8"),
+        edge("e9", "n8", "n9"),
+    ],
+)
+
+# ── 27. 텔레그램 메시지 유해언어 감지 ──────────────────────────────────────
+tpl27 = FlowGraph(
+    title="텔레그램 메시지 유해언어 감지",
+    description="텔레그램 메시지를 AI가 검사해 유해언어가 감지되면 메시지를 삭제 처리한다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/telegram-new-message"}),
+        node("n2", "promptNode", {"userPrompt": "이 메시지에 욕설이나 유해 표현이 있는지 판별해줘. 있으면 정확히 'TOXIC', 없으면 정확히 'OK'라고만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 채팅 메시지의 유해성을 판별하는 모더레이터다"}),
+        node("n4", "conditionNode", {"rules": [{"id": "toxic", "operator": "Contains", "value": "TOXIC"}]}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n6", "valueNode", {"value": "정상 메시지로 확인되었습니다"}),
+        node("n7", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "toxic"),
+        edge("e5", "n5", "n7"),
+        edge("e6", "n4", "n6", "else"),
+        edge("e7", "n6", "n7"),
+        edge("e8", "n7", "n8"),
+    ],
+)
+
+# ── 28. 매일 랜덤 레시피 텔레그램 발송 ─────────────────────────────────────
+tpl28 = FlowGraph(
+    title="매일 랜덤 레시피 텔레그램 발송",
+    description="매일 정해진 시간에 AI가 새로운 레시피를 하나 생성해 텔레그램으로 보낸다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 8 * * *"}),
+        node("n2", "promptNode", {"userPrompt": "오늘 시도해볼 만한 간단한 요리 레시피를 하나 골라서 재료와 조리 순서를 정리해줘"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 매일 새로운 레시피를 추천하는 요리 어시스턴트다"}),
+        node("n4", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n5", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 29. 인보이스 데이터 추출 → 사람 검증 → 저장/반려 ───────────────────────
+tpl29 = FlowGraph(
+    title="인보이스 데이터 추출 및 사람 검증",
+    description="인보이스 PDF에서 AI가 핵심 항목을 추출하고, 사람이 검증한 뒤에만 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 인보이스에서 업체명, 총액, 발행일을 JSON 형식으로 추출해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 인보이스에서 데이터를 정확히 추출하는 전문가다"}),
+        node("n6", "humanApprovalNode", {"message": "아래 추출된 인보이스 데이터가 정확한지 확인 후 저장할까요?"}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n8", "pythonNode", {"code": "output_data = '검증 실패로 인보이스 저장이 반려되었습니다.'"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7", "approved"),
+        edge("e7", "n7", "n9"),
+        edge("e8", "n6", "n8", "rejected"),
+        edge("e9", "n8", "n9"),
+        edge("e10", "n9", "n10"),
+    ],
+)
+
+# ── 30. 구글시트 신규 리드 AI 자격 평가 ────────────────────────────────────
+tpl30 = FlowGraph(
+    title="구글시트 신규 리드 자격 평가",
+    description="정기적으로 시트의 신규 리드를 가져와 AI로 Hot/Warm/Cold 등급을 매기고 상태를 업데이트한다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 9 * * *"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode", {}),
+        node("n5", "promptNode", {"userPrompt": "이 리드 정보를 보고 'Hot', 'Warm', 'Cold' 중 하나로 등급을 매겨줘. 등급만 답해"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 영업 리드의 구매 가능성을 평가하는 전문가다"}),
+        node("n7", "httpRequestNode", {"method": "PUT", "url": PLACEHOLDER_URL}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n4", "n8", "done"),
+    ],
+)
+
+# ── 31. AI 트윗 생성 및 게시 ────────────────────────────────────────────────
+tpl31 = FlowGraph(
+    title="AI 트윗 생성 및 게시",
+    description="주제를 입력하면 AI가 트윗 초안을 작성해 바로 게시한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "트윗 주제", "testValue": "신제품 출시 소식"}),
+        node("n3", "promptNode", {"userPrompt": "이 주제로 280자 이내의 임팩트 있는 트윗 문구를 작성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 소셜 미디어 카피라이터다"}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n6", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+    ],
+)
+
+# ── 32. 긍정 피드백만 골라 Notion에 저장 ────────────────────────────────────
+tpl32 = FlowGraph(
+    title="긍정 피드백 Notion 저장",
+    description="들어온 피드백 중 긍정적인 것만 걸러서 Notion 테이블에 저장한다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/feedback-received"}),
+        node("n2", "promptNode", {"userPrompt": "이 피드백이 긍정적인지 판별해줘. 긍정적이면 정확히 'POSITIVE', 아니면 정확히 'OTHER'라고만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 피드백의 긍정 여부를 판별하는 어시스턴트다"}),
+        node("n4", "conditionNode", {"rules": [{"id": "positive", "operator": "Contains", "value": "POSITIVE"}]}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n6", "valueNode", {"value": "긍정 피드백이 아니라 저장하지 않았습니다"}),
+        node("n7", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "positive"),
+        edge("e5", "n5", "n7"),
+        edge("e6", "n4", "n6", "else"),
+        edge("e7", "n6", "n7"),
+        edge("e8", "n7", "n8"),
+    ],
+)
+
+# ── 33. Slack 고객 문의 감성 추적 및 긴급 알림 ─────────────────────────────
+tpl33 = FlowGraph(
+    title="Slack 고객 문의 감성 추적",
+    description="고객 문의의 감성을 분석해 부정적인 문의는 슬랙으로 긴급 알린다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/support-ticket-new"}),
+        node("n2", "promptNode", {"userPrompt": "이 고객 문의의 감성을 판별해줘. 반드시 '부정', '중립', '긍정' 중 하나로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 고객 문의의 감성을 분석하는 어시스턴트다"}),
+        node("n4", "conditionNode", {"rules": [{"id": "negative", "operator": "Contains", "value": "부정"}]}),
+        node("n5", "slackNode", {"channel": "#support-urgent", "message": "부정적인 고객 문의가 접수되었습니다. 우선 대응이 필요합니다"}),
+        node("n6", "valueNode", {"value": "일반 문의로 정상 처리되었습니다"}),
+        node("n7", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "negative"),
+        edge("e5", "n5", "n7"),
+        edge("e6", "n4", "n6", "else"),
+        edge("e7", "n6", "n7"),
+        edge("e8", "n7", "n8"),
+    ],
+)
+
+# ── 34. 브랜드 톤앤매너 블로그 포스트 자동 생성 ────────────────────────────
+tpl34 = FlowGraph(
+    title="브랜드 톤앤매너 블로그 포스트 생성",
+    description="키워드를 입력하면 AI가 브랜드 톤앤매너에 맞는 블로그 글을 작성해 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "블로그 주제 키워드", "testValue": "친환경 생활 습관"}),
+        node("n3", "promptNode", {"userPrompt": "이 키워드로 친근하고 신뢰감 있는 브랜드 톤으로 블로그 포스트를 작성해줘. 제목과 본문을 포함해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 브랜드의 톤앤매너를 지키는 콘텐츠 작가다"}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n6", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+    ],
+)
+
+# ── 35. 스키마 설명만으로 SQL 쿼리 생성 ────────────────────────────────────
+tpl35 = FlowGraph(
+    title="스키마 기반 SQL 쿼리 생성 어시스턴트",
+    description="테이블 스키마 설명과 자연어 질문을 주면 AI가 SQL 쿼리를 생성해준다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "테이블 스키마와 원하는 조회 내용", "testValue": "users(id, name, email, created_at) / 최근 7일간 신규 가입한 사용자 수를 알고 싶어"}),
+        node("n3", "promptNode", {"userPrompt": "위 스키마를 참고해서 요청 내용에 맞는 SQL 쿼리를 작성해줘. 쿼리와 짧은 설명만 답해"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 스키마만 보고 정확한 SQL 쿼리를 작성하는 데이터 엔지니어다"}),
+        node("n5", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# ── 36. Airtable 지원서 자동 심사 ──────────────────────────────────────────
+tpl36 = FlowGraph(
+    title="Airtable 지원서 자동 심사",
+    description="접수된 지원서를 AI가 자격 요건에 따라 심사해 Airtable의 합격/불합격 상태를 갱신한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "지원서 내용", "testValue": "이름: 홍길동 / 경력: 2년 / 보유기술: Python, SQL"}),
+        node("n3", "promptNode", {"userPrompt": "이 지원서가 자격 요건(경력 1년 이상, Python 가능)을 충족하는지 판단해줘. 충족하면 정확히 'QUALIFIED', 아니면 정확히 'REJECTED'라고만 답해"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 지원서를 심사하는 채용 담당자다"}),
+        node("n5", "conditionNode", {"rules": [{"id": "qualified", "operator": "Contains", "value": "QUALIFIED"}]}),
+        node("n6", "httpRequestNode", {"method": "PUT", "url": PLACEHOLDER_URL}),
+        node("n7", "httpRequestNode", {"method": "PUT", "url": PLACEHOLDER_URL}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "qualified"),
+        edge("e6", "n6", "n8"),
+        edge("e7", "n5", "n7", "else"),
+        edge("e8", "n7", "n8"),
+        edge("e9", "n8", "n9"),
+    ],
+)
+
+# ── 37. 영업 미팅 준비 브리핑 → 카카오톡 발송 ──────────────────────────────
+tpl37 = FlowGraph(
+    title="영업 미팅 준비 브리핑 카카오톡 발송",
+    description="미팅 상대 정보를 조회해 AI가 미팅 준비 브리핑을 작성하고 카카오톡으로 보낸다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "미팅 상대 회사명 또는 정보 URL", "testValue": "example-company.com"}),
+        node("n3", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n4", "promptNode", {"userPrompt": "위 회사 정보를 참고해서 영업 미팅 전 확인하면 좋을 핵심 브리핑을 작성해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 영업 담당자를 위한 미팅 준비를 돕는 어시스턴트다"}),
+        node("n6", "kakaoNode", {"accessToken": "", "receiver": ""}),
+        node("n7", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 38. 채용 공고 작성 및 사람 승인 후 게시 ────────────────────────────────
+tpl38 = FlowGraph(
+    title="채용 공고 작성 및 승인 게시",
+    description="직무 요건을 주면 AI가 채용 공고 초안을 작성하고, 사람이 승인하면 게시한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "직무 및 요건", "testValue": "백엔드 개발자, Python/FastAPI 경험 2년 이상"}),
+        node("n3", "promptNode", {"userPrompt": "이 직무 요건으로 매력적인 채용 공고 초안을 작성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 채용 공고를 작성하는 HR 담당자다"}),
+        node("n5", "humanApprovalNode", {"message": "아래 채용 공고 초안을 이대로 게시할까요?"}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "pythonNode", {"code": "output_data = '채용 공고 게시가 취소되었습니다.'"}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "approved"),
+        edge("e6", "n6", "n8"),
+        edge("e7", "n5", "n7", "rejected"),
+        edge("e8", "n7", "n8"),
+        edge("e9", "n8", "n9"),
+    ],
+)
+
+# ── 39. 문서 템플릿 자동 채움(빈 필드 분석 → AI가 값 생성 → 파일에 채워넣기) ─
+tpl39 = FlowGraph(
+    title="계약서 템플릿 자동 채움",
+    description="템플릿 파일의 빈 필드를 분석하고, 사용자가 준 정보를 바탕으로 AI가 값을 채워 문서를 완성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "templateAnalyzerNode", {"template_path": "uploads/contract_template.hwp"}),
+        node("n3", "dynamicInputNode", {"inputLabel": "계약 정보(상대방명/금액/계약일 등)", "testValue": "상대방: 주식회사 예시 / 금액: 5,000,000원 / 계약일: 2026-08-01"}),
+        node("n4", "promptNode", {"userPrompt": "위 템플릿의 빈 필드 목록과 사용자가 준 정보를 참고해서, 각 필드에 맞는 값을 JSON으로 채워줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 문서 템플릿의 빈 필드를 정확히 채우는 전문가다"}),
+        node("n6", "fileModifierNode", {"template_path": "uploads/contract_template.hwp"}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 40. 이력서 이미지/PDF에서 구조화 데이터 추출 후 저장 ────────────────────
+tpl40 = FlowGraph(
+    title="이력서 구조화 데이터 추출 및 저장",
+    description="이력서 파일에서 인적사항/경력/기술스택을 AI가 구조화된 JSON으로 추출해 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 이력서에서 이름, 연락처, 경력, 기술 스택을 JSON 형식으로 추출해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 이력서에서 데이터를 정확히 추출하는 전문가다"}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 41. 표 형태 문서를 CSV로 변환 ───────────────────────────────────────────
+tpl41 = FlowGraph(
+    title="문서 내 표 데이터 CSV 변환",
+    description="문서 안의 표 형태 데이터를 AI가 CSV 텍스트로 변환하고, 빈 줄을 정리해 반환한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 문서 안의 표 형태 데이터를 헤더를 포함한 CSV 형식 텍스트로 변환해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 문서의 표 데이터를 CSV로 변환하는 전문가다"}),
+        node("n6", "pythonNode", {"code": "lines = [l for l in str(input_data).split(chr(10)) if l.strip()]\noutput_data = chr(10).join(lines)"}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 42. 인보이스 데이터 추출(승인 없이 바로 저장) ──────────────────────────
+tpl42 = FlowGraph(
+    title="인보이스 자동 추출 및 저장",
+    description="인보이스에서 업체명/총액/발행일/품목을 AI가 추출해 파싱한 뒤 바로 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 인보이스에서 업체명, 총액, 발행일, 품목 리스트를 JSON으로 추출해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 인보이스에서 데이터를 정확히 추출하는 전문가다"}),
+        node("n6", "jsonParserNode", {"mode": "parse"}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n8", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n7", "n8"),
+    ],
+)
+
+# ── 43. URL 콘텐츠를 마크다운으로 변환하고 링크 목록 추출 ──────────────────
+tpl43 = FlowGraph(
+    title="웹페이지 마크다운 변환 및 링크 추출",
+    description="URL을 주면 페이지를 크롤링해 마크다운으로 정리하고 주요 링크 목록도 함께 뽑는다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "변환할 웹페이지 URL", "testValue": "https://example.com/article"}),
+        node("n3", "webCrawlerNode", {"url": ""}),
+        node("n4", "promptNode", {"userPrompt": "위 크롤링한 페이지 내용을 마크다운 형식으로 정리하고, 포함된 주요 링크 목록도 별도로 뽑아줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 웹페이지를 깔끔한 마크다운으로 정리하는 전문가다"}),
+        node("n6", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+    ],
+)
+
+# ── 44. CSV 개인정보(PII) 자동 마스킹 ───────────────────────────────────────
+tpl44 = FlowGraph(
+    title="CSV 개인정보 자동 마스킹",
+    description="CSV 데이터에서 이름/이메일/전화번호 등 개인정보를 AI가 찾아 마스킹한 뒤 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 CSV 데이터에서 이름, 이메일, 전화번호 등 개인정보를 찾아 ***로 마스킹한 CSV를 다시 출력해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 개인정보를 정확히 식별해 마스킹하는 전문가다"}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 45. 은행 거래내역서 이미지 → 마크다운 표 변환 ──────────────────────────
+tpl45 = FlowGraph(
+    title="은행 거래내역서 마크다운 변환",
+    description="은행 거래내역서 파일 내용을 AI가 날짜/적요/금액 컬럼의 마크다운 표로 변환한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 은행 거래내역서 내용을 날짜/적요/금액 컬럼이 있는 마크다운 표로 변환해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 거래내역서를 정확한 표로 정리하는 전문가다"}),
+        node("n6", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+    ],
+)
+
+# ── 46. 회의 녹취 파일 → 요약 및 액션 아이템 정리 → 저장 ──────────────────
+tpl46 = FlowGraph(
+    title="회의 녹취 요약 및 액션 아이템 저장",
+    description="회의 녹취/기록 파일을 AI가 핵심 요약과 액션 아이템으로 정리해 저장한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "promptNode", {"userPrompt": "이 회의록 내용을 핵심 요약과 액션 아이템(담당자/기한 포함) 목록으로 정리해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 회의록을 요약하고 액션 아이템을 정리하는 비서다"}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 47. GitHub API 문서 기반 Q&A 챗봇 ──────────────────────────────────────
+tpl47 = FlowGraph(
+    title="API 문서 기반 Q&A 챗봇",
+    description="API 문서 내용을 참고해서 개발자의 질문에 답변하는 챗봇.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "dynamicInputNode", {"inputLabel": "API 관련 질문", "testValue": "인증은 어떤 방식으로 하나요?"}),
+        node("n5", "promptNode", {"userPrompt": "위 API 문서 내용을 참고해서 질문에 정확하게 답변해줘. 문서에 없으면 '문서에서 확인할 수 없습니다'라고 답해."}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 API 문서를 바탕으로 답변하는 개발자 지원 어시스턴트다"}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 48. 영화 추천 데이터 비서 챗봇 ──────────────────────────────────────────
+tpl48 = FlowGraph(
+    title="영화 추천 데이터 비서 챗봇",
+    description="DB에서 평점 높은 영화 목록을 조회해두고, 사용자 취향에 맞는 영화를 추천한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "databaseNode", {"connectionString": PLACEHOLDER_URL, "query": "SELECT title, genre, rating FROM movies ORDER BY rating DESC LIMIT 200"}),
+        node("n3", "dynamicInputNode", {"inputLabel": "원하는 영화 취향이나 질문", "testValue": "잔잔한 힐링 영화 추천해줘"}),
+        node("n4", "promptNode", {"userPrompt": "위 영화 목록을 참고해서 사용자 취향에 맞는 영화를 2~3개 추천하고 이유를 설명해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 영화 취향에 맞게 추천해주는 큐레이터다"}),
+        node("n6", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+    ],
+)
+
+# ── 49. 사내 복리후생 안내 챗봇 ─────────────────────────────────────────────
+tpl49 = FlowGraph(
+    title="사내 복리후생 안내 챗봇",
+    description="사내 복리후생 문서를 참고해서 직원의 질문에 답변하는 챗봇.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "valueNode", {"file_path": ""}),
+        node("n3", "tokenizerNode", {"method": "extract_text"}),
+        node("n4", "dynamicInputNode", {"inputLabel": "복리후생 관련 질문", "testValue": "경조사 휴가는 며칠인가요?"}),
+        node("n5", "promptNode", {"userPrompt": "위 복리후생 문서 내용을 참고해서 질문에 답변해줘. 문서에 없으면 '인사팀에 문의해주세요'라고 답해."}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 사내 복리후생에 정통한 HR 상담원이다"}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 50. 보안 알림 심각도 판별 → 심각하면 사람 승인 후 차단 조치 ────────────
+tpl50 = FlowGraph(
+    title="보안 알림 심각도 판별 및 승인 기반 차단",
+    description="보안 알림의 심각도를 AI가 판별해, 심각한 경우에만 사람 승인을 거쳐 차단 조치를 실행한다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/siem-alert"}),
+        node("n2", "promptNode", {"userPrompt": "이 보안 알림의 심각도를 판별해줘. 심각하면 정확히 'CRITICAL', 아니면 정확히 'NORMAL'이라고만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 보안 알림의 심각도를 판별하는 SOC 분석가다"}),
+        node("n4", "conditionNode", {"rules": [{"id": "critical", "operator": "Contains", "value": "CRITICAL"}]}),
+        node("n5", "humanApprovalNode", {"message": "심각한 보안 알림입니다. 자동 차단 조치를 진행할까요?"}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "valueNode", {"value": "차단은 보류되고 모니터링만 계속됩니다"}),
+        node("n8", "valueNode", {"value": "정상 알림으로 기록되었습니다"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "critical"),
+        edge("e5", "n5", "n6", "approved"),
+        edge("e6", "n6", "n9"),
+        edge("e7", "n5", "n7", "rejected"),
+        edge("e8", "n7", "n9"),
+        edge("e9", "n4", "n8", "else"),
+        edge("e10", "n8", "n9"),
+        edge("e11", "n9", "n10"),
+    ],
+)
+
+# ── 51. 신규 고객 온보딩 안내 작성 및 승인 발송 ────────────────────────────
+tpl51 = FlowGraph(
+    title="신규 고객 온보딩 안내 승인 발송",
+    description="신규 고객 정보를 바탕으로 온보딩 안내 초안을 작성하고, 승인 후 이메일로 보낸다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "신규 고객 정보", "testValue": "회사명: 예시주식회사 / 담당자: 홍길동 / 이메일: hong@example.com"}),
+        node("n3", "promptNode", {"userPrompt": "이 신규 고객을 위한 온보딩 환영 메시지와 필요 서류 안내 초안을 작성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 고객 온보딩을 담당하는 어시스턴트다"}),
+        node("n5", "humanApprovalNode", {"message": "아래 온보딩 안내를 이대로 승인 후 발송할까요?"}),
+        node("n6", "emailNode", {"toEmail": "customer@example.com", "subject": "온보딩 안내"}),
+        node("n7", "pythonNode", {"code": "output_data = '온보딩 안내 발송이 취소되었습니다.'"}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "approved"),
+        edge("e6", "n6", "n8"),
+        edge("e7", "n5", "n7", "rejected"),
+        edge("e8", "n7", "n8"),
+        edge("e9", "n8", "n9"),
+    ],
+)
+
+# ── 52. 리드 문의 긴급도 분류 후 대응 경로 라우팅 ──────────────────────────
+tpl52 = FlowGraph(
+    title="리드 문의 긴급도 분류 및 라우팅",
+    description="신규 리드 문의의 긴급도를 AI가 분류해 즉시 응대 또는 일반 후속 경로로 나눈다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/lead-new"}),
+        node("n2", "promptNode", {"userPrompt": "이 리드 문의가 '즉시 응대 필요'한지 '일반 문의'인지 그 단어로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 영업 리드의 긴급도를 판별하는 어시스턴트다"}),
+        node("n4", "conditionNode", {"rules": [{"id": "urgent", "operator": "Contains", "value": "즉시 응대 필요"}]}),
+        node("n5", "slackNode", {"channel": "#sales-urgent", "message": "즉시 응대가 필요한 리드 문의가 접수되었습니다"}),
+        node("n6", "emailNode", {"toEmail": "sales@example.com", "subject": "신규 리드 후속 안내"}),
+        node("n7", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n8", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "urgent"),
+        edge("e5", "n5", "n7"),
+        edge("e6", "n4", "n6", "else"),
+        edge("e7", "n6", "n7"),
+        edge("e8", "n7", "n8"),
+    ],
+)
+
+# ── 53. 이커머스 문의 메일 유형 분류 후 담당 팀 라우팅 ─────────────────────
+tpl53 = FlowGraph(
+    title="이커머스 문의 메일 유형 분류 라우팅",
+    description="이커머스 고객 문의 메일을 주문/배송/환불 문의로 분류해 담당 팀으로 라우팅한다.",
+    nodes=[
+        node("n1", "webhookNode", {"method": "POST", "path": "/ecommerce-email"}),
+        node("n2", "promptNode", {"userPrompt": "이 문의가 '주문문의', '배송문의', '환불문의' 중 어디에 해당하는지 그 단어로만 답해"}),
+        node("n3", "llmNode", {"model": MODEL, "systemPrompt": "너는 이커머스 고객 문의를 유형별로 분류하는 어시스턴트다"}),
+        node("n4", "conditionNode", {"rules": [
+            {"id": "order", "operator": "Contains", "value": "주문문의"},
+            {"id": "shipping", "operator": "Contains", "value": "배송문의"},
+        ]}),
+        node("n5", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5", "order"),
+        edge("e5", "n5", "n8"),
+        edge("e6", "n4", "n6", "shipping"),
+        edge("e7", "n6", "n8"),
+        edge("e8", "n4", "n7", "else"),
+        edge("e9", "n7", "n8"),
+        edge("e10", "n8", "n9"),
+    ],
+)
+
+# ── 54. 구독 신청 스팸 여부 판별 후 등록/거부 ──────────────────────────────
+tpl54 = FlowGraph(
+    title="이메일 구독 신청 스팸 판별 및 등록",
+    description="구독 신청자 정보의 스팸 여부를 AI가 판별해 정상일 때만 구독자 명단에 추가한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "구독 신청자 정보", "testValue": "이름: 홍길동 / 이메일: hong@example.com"}),
+        node("n3", "promptNode", {"userPrompt": "이 신청 정보가 스팸/봇으로 의심되는지 판별해줘. 정상이면 정확히 'VALID', 스팸이면 정확히 'SPAM'이라고만 답해"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 구독 신청의 스팸 여부를 판별하는 어시스턴트다"}),
+        node("n5", "conditionNode", {"rules": [{"id": "valid", "operator": "Contains", "value": "VALID"}]}),
+        node("n6", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n7", "valueNode", {"value": "스팸으로 판단되어 등록하지 않았습니다"}),
+        node("n8", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n9", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6", "valid"),
+        edge("e6", "n6", "n8"),
+        edge("e7", "n5", "n7", "else"),
+        edge("e8", "n7", "n8"),
+        edge("e9", "n8", "n9"),
+    ],
+)
+
+# ── 55. 해커뉴스 채용 공고 수집 및 정리 ────────────────────────────────────
+tpl55 = FlowGraph(
+    title="해커뉴스 채용 공고 자동 수집 및 정리",
+    description="정기적으로 채용 공고 목록을 가져와 각각 AI로 요약하고 기술 스택을 뽑아 저장한다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 9 * * *"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode", {}),
+        node("n5", "promptNode", {"userPrompt": "이 채용 공고를 2문장으로 요약하고, 요구되는 기술 스택을 쉼표로 구분해서 뽑아줘"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 채용 공고를 요약하고 정리하는 어시스턴트다"}),
+        node("n7", "httpRequestNode", {"method": "POST", "url": PLACEHOLDER_URL}),
+        node("n8", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n4", "n8", "done"),
+    ],
+)
+
+# ── 56. 경쟁사 모니터링 결과 요약 후 슬랙 전달 ─────────────────────────────
+tpl56 = FlowGraph(
+    title="경쟁사 언급 모니터링 및 슬랙 다이제스트",
+    description="정기적으로 경쟁사 관련 게시물을 가져와 AI로 요약해 슬랙으로 전달한다.",
+    nodes=[
+        node("n1", "scheduleNode", {"cronExpression": "0 8 * * *"}),
+        node("n2", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n3", "jsonParserNode", {"mode": "parse"}),
+        node("n4", "distributorNode", {}),
+        node("n5", "promptNode", {"userPrompt": "이 게시물이 우리 경쟁사와 관련 있는지 판단하고, 관련 있으면 핵심 내용을 한 줄로 요약해줘. 관련 없으면 정확히 'SKIP'이라고만 답해"}),
+        node("n6", "llmNode", {"model": MODEL, "systemPrompt": "너는 경쟁사 언급을 모니터링하고 요약하는 애널리스트다"}),
+        node("n7", "conditionNode", {"rules": [{"id": "skip", "operator": "Contains", "value": "SKIP"}]}),
+        node("n8", "slackNode", {"channel": "#competitor-watch", "message": "경쟁사 관련 새 게시물이 감지되었습니다"}),
+        node("n9", "mergeNode", {"mergeStrategy": "join_newline"}),
+        node("n10", "outputNode", {}),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+        edge("e7", "n7", "n8", "else"),
+        edge("e8", "n8", "n9"),
+        edge("e9", "n7", "n9", "skip"),
+        edge("e10", "n4", "n10", "done"),
+    ],
+)
+
+# ── 57. 유튜브 영상 AI 요약 후 디스코드 게시 ───────────────────────────────
+tpl57 = FlowGraph(
+    title="유튜브 영상 AI 요약 디스코드 게시",
+    description="유튜브 영상 URL을 주면 내용을 AI로 요약해 디스코드 채널에 게시한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "유튜브 영상 URL", "testValue": "https://www.youtube.com/watch?v=example"}),
+        node("n3", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
+        node("n4", "promptNode", {"userPrompt": "이 영상 내용을 핵심 3줄로 요약해줘"}),
+        node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 영상 내용을 간결하게 요약하는 어시스턴트다"}),
+        node("n6", "discordNode", {"botToken": "", "channelId": ""}),
+        node("n7", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+        edge("e5", "n5", "n6"),
+        edge("e6", "n6", "n7"),
+    ],
+)
+
+# ── 58. 채용 포지션 기반 인터뷰 질문지 자동 생성 ───────────────────────────
+tpl58 = FlowGraph(
+    title="인터뷰 질문지 자동 생성",
+    description="채용 포지션 정보를 주면 AI가 그에 맞는 인터뷰 질문 목록을 생성한다.",
+    nodes=[
+        node("n1", "startNode"),
+        node("n2", "dynamicInputNode", {"inputLabel": "채용 포지션 및 요건", "testValue": "프론트엔드 개발자, React 경험 2년 이상"}),
+        node("n3", "promptNode", {"userPrompt": "이 포지션에 맞는 기술/인성 인터뷰 질문을 5개 생성해줘"}),
+        node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 채용 인터뷰 질문지를 작성하는 HR 담당자다"}),
+        node("n5", "outputNode"),
+    ],
+    edges=[
+        edge("e1", "n1", "n2"),
+        edge("e2", "n2", "n3"),
+        edge("e3", "n3", "n4"),
+        edge("e4", "n4", "n5"),
+    ],
+)
+
+# 카테고리는 원본 n8n 소스 폴더명(서비스 브랜드 기준)이 아니라, 우리 엔진이 실제로 다르게
+# 만드는 축인 "워크플로우 구조 패턴" 기준으로 재편했다(2026-07-16). 예: WhatsApp/Telegram/Discord는
+# 우리 엔진에선 다 kakaoNode/discordNode 같은 범용 메시지 노드로 흡수되기 때문에 서비스명으로
+# 나누는 게 검색에 도움이 안 됨 — 대신 승인분기/분류라우팅/반복처리/문서파싱/QA챗봇/단발생성
+# 6가지로 나눠서 확장 모드 RAG 검색이 "구조가 비슷한" 템플릿을 찾도록 한다.
 TEMPLATES = [
-    ("Airtable 레코드 변경 시 AI 필드 자동 채움", "OpenAI_and_LLMs", tpl1),
-    ("Outlook 메일 AI 분류 및 폴더 자동 이동", "Gmail_and_Email_Automation", tpl2),
-    ("이력서 PDF 파싱 후 정리된 이력서 PDF 재생성", "PDF_and_Document_Processing", tpl3),
-    ("Airtable 데이터 비서 챗봇", "Airtable", tpl4),
-    ("인증서 발급 요청 자동/수동 승인 봇", "Slack", tpl5),
-    ("채용/공고 링크 모니터링 → AI 유효성 판별 → 카카오톡 알림", "Telegram", tpl6),
-    ("사내 정책 헬프데스크 챗봇(카카오톡 답변, 발송 전 사람 승인)", "HR_and_Recruitment", tpl7),
-    ("DB 데이터 비서 챗봇(자연어 질의 → 카카오톡 답변)", "Database_and_Storage", tpl8),
-    ("논문 모니터링 → AI 요약 → Notion 저장", "Notion", tpl9),
-    ("예약 신청 접수 → AI 자격 검토 → 사람 승인 → 확정/반려 안내", "Forms_and_Surveys", tpl10),
-    ("이미지 배경 제거 자동화(구글 드라이브 → API → 알림)", "Google_Drive_and_Google_Sheets", tpl11),
-    ("레딧 인기글 수집 → AI 관련성 판별/요약 → 카카오톡 다이제스트", "Instagram_Twitter_Social_Media", tpl12),
-    ("디스코드 문의 자동 분류 → 담당 부서 채널 라우팅", "Discord", tpl13),
+    ("Airtable 레코드 변경 시 AI 필드 자동 채움", "Batch_List_Processing_and_Digests", tpl1),
+    ("Outlook 메일 AI 분류 및 폴더 자동 이동", "Classification_and_Routing", tpl2),
+    ("이력서 PDF 파싱 후 정리된 이력서 PDF 재생성", "Document_Processing", tpl3),
+    ("Airtable 데이터 비서 챗봇", "QA_Chatbots_and_Assistants", tpl4),
+    ("인증서 발급 요청 자동/수동 승인 봇", "Approval_Workflows", tpl5),
+    ("채용/공고 링크 모니터링 → AI 유효성 판별 → 카카오톡 알림", "Batch_List_Processing_and_Digests", tpl6),
+    ("사내 정책 헬프데스크 챗봇(카카오톡 답변, 발송 전 사람 승인)", "Approval_Workflows", tpl7),
+    ("DB 데이터 비서 챗봇(자연어 질의 → 카카오톡 답변)", "QA_Chatbots_and_Assistants", tpl8),
+    ("논문 모니터링 → AI 요약 → Notion 저장", "Batch_List_Processing_and_Digests", tpl9),
+    ("예약 신청 접수 → AI 자격 검토 → 사람 승인 → 확정/반려 안내", "Approval_Workflows", tpl10),
+    ("이미지 배경 제거 자동화(구글 드라이브 → API → 알림)", "Classification_and_Routing", tpl11),
+    ("레딧 인기글 수집 → AI 관련성 판별/요약 → 카카오톡 다이제스트", "Batch_List_Processing_and_Digests", tpl12),
+    ("디스코드 문의 자동 분류 → 담당 부서 채널 라우팅", "Classification_and_Routing", tpl13),
+    ("세금/정책 문서 Q&A 어시스턴트", "QA_Chatbots_and_Assistants", tpl14),
+    ("제품 카탈로그 문의 챗봇(카카오톡 답변)", "QA_Chatbots_and_Assistants", tpl15),
+    ("블로그 포스트 자동 태깅", "Batch_List_Processing_and_Digests", tpl16),
+    ("웹훅으로 서버(도커) 시작/중지 제어", "Classification_and_Routing", tpl17),
+    ("설문 응답 인사이트 분석 → 카카오톡 알림", "Batch_List_Processing_and_Digests", tpl18),
+    ("이력서 분석 및 후보자 평가", "Classification_and_Routing", tpl19),
+    ("고객 피드백 감성 분석 및 라우팅", "Classification_and_Routing", tpl20),
+    ("GitLab MR AI 코드 리뷰 자동 코멘트", "Content_Generation", tpl21),
+    ("Linear 버그 분류 후 담당 팀 라우팅", "Classification_and_Routing", tpl22),
+    ("신규 논문 자동 요약 및 카테고리 분류", "Batch_List_Processing_and_Digests", tpl23),
+    ("SEO 시드 키워드 생성기", "Content_Generation", tpl24),
+    ("Gmail 수신 메일 AI 자동 라벨링", "Classification_and_Routing", tpl25),
+    ("Gmail 답장 초안 작성 및 승인 발송", "Approval_Workflows", tpl26),
+    ("텔레그램 메시지 유해언어 감지", "Classification_and_Routing", tpl27),
+    ("매일 랜덤 레시피 텔레그램 발송", "Batch_List_Processing_and_Digests", tpl28),
+    ("인보이스 데이터 추출 및 사람 검증", "Approval_Workflows", tpl29),
+    ("구글시트 신규 리드 자격 평가", "Batch_List_Processing_and_Digests", tpl30),
+    ("AI 트윗 생성 및 게시", "Content_Generation", tpl31),
+    ("긍정 피드백 Notion 저장", "Classification_and_Routing", tpl32),
+    ("Slack 고객 문의 감성 추적", "Classification_and_Routing", tpl33),
+    ("브랜드 톤앤매너 블로그 포스트 생성", "Content_Generation", tpl34),
+    ("스키마 기반 SQL 쿼리 생성 어시스턴트", "QA_Chatbots_and_Assistants", tpl35),
+    ("Airtable 지원서 자동 심사", "Classification_and_Routing", tpl36),
+    ("영업 미팅 준비 브리핑 카카오톡 발송", "Content_Generation", tpl37),
+    ("채용 공고 작성 및 승인 게시", "Approval_Workflows", tpl38),
+    ("계약서 템플릿 자동 채움", "Document_Processing", tpl39),
+    ("이력서 구조화 데이터 추출 및 저장", "Document_Processing", tpl40),
+    ("문서 내 표 데이터 CSV 변환", "Document_Processing", tpl41),
+    ("인보이스 자동 추출 및 저장", "Document_Processing", tpl42),
+    ("웹페이지 마크다운 변환 및 링크 추출", "Document_Processing", tpl43),
+    ("CSV 개인정보 자동 마스킹", "Document_Processing", tpl44),
+    ("은행 거래내역서 마크다운 변환", "Document_Processing", tpl45),
+    ("회의 녹취 요약 및 액션 아이템 저장", "Document_Processing", tpl46),
+    ("API 문서 기반 Q&A 챗봇", "QA_Chatbots_and_Assistants", tpl47),
+    ("영화 추천 데이터 비서 챗봇", "QA_Chatbots_and_Assistants", tpl48),
+    ("사내 복리후생 안내 챗봇", "QA_Chatbots_and_Assistants", tpl49),
+    ("보안 알림 심각도 판별 및 승인 기반 차단", "Approval_Workflows", tpl50),
+    ("신규 고객 온보딩 안내 승인 발송", "Approval_Workflows", tpl51),
+    ("리드 문의 긴급도 분류 및 라우팅", "Classification_and_Routing", tpl52),
+    ("이커머스 문의 메일 유형 분류 라우팅", "Classification_and_Routing", tpl53),
+    ("이메일 구독 신청 스팸 판별 및 등록", "Classification_and_Routing", tpl54),
+    ("해커뉴스 채용 공고 자동 수집 및 정리", "Batch_List_Processing_and_Digests", tpl55),
+    ("경쟁사 언급 모니터링 및 슬랙 다이제스트", "Batch_List_Processing_and_Digests", tpl56),
+    ("유튜브 영상 AI 요약 디스코드 게시", "Content_Generation", tpl57),
+    ("인터뷰 질문지 자동 생성", "Content_Generation", tpl58),
 ]
 
 
 def main():
+    store = get_vector_store(TRANSLATED_COLLECTION)
+    # add_texts()는 그냥 append라 이 스크립트를 다시 돌리면 기존에 이미 들어간 이름도
+    # 중복으로 또 쌓인다(실제로 한 번 겪음) — 이미 있는 name은 건너뛴다.
+    existing_names = {m.get("name") for m in store.get().get("metadatas", [])}
+
     docs, metadatas = [], []
     for name, category, g in TEMPLATES:
+        if name in existing_names:
+            print(f"[SKIP] {name} (이미 DB에 있음)")
+            continue
         ok, errs = validate_flow(g)
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {name} (nodes={len(g.nodes)}, edges={len(g.edges)})")
@@ -474,9 +1694,8 @@ def main():
         docs.append(g.model_dump_json())
         metadatas.append({"name": name, "category": category, "source": "hand_curated"})
 
-    print(f"\n{len(docs)}/{len(TEMPLATES)} templates passed validation.")
+    print(f"\n{len(docs)}/{len(TEMPLATES)} templates passed validation and were new.")
     if docs:
-        store = get_vector_store(TRANSLATED_COLLECTION)
         store.add_texts(texts=docs, metadatas=metadatas)
         print(f"Ingested {len(docs)} hand-curated templates into '{TRANSLATED_COLLECTION}'.")
 
