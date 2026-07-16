@@ -176,6 +176,11 @@ function FlowContent() {
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [complexityLevel, setComplexityLevel] = useState('low');
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, isChatLoading]);
 
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
   const [projectDescription, setProjectDescription] = useState('');
@@ -1287,6 +1292,7 @@ function FlowContent() {
               </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Chat Input & Options */}

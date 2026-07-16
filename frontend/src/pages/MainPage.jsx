@@ -14,7 +14,12 @@ function MainPage() {
 
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [messages, setMessages] = useState([]);
+  const messagesEndRef = useRef(null);
   const draftIdRef = useRef(`draft-${Date.now()}`);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isAutoGenerating]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -187,6 +192,7 @@ function MainPage() {
                   </div>
                 </div>
               )}
+              <div ref={messagesEndRef} />
             </div>
           )}
 
