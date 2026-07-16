@@ -107,10 +107,15 @@ async def upload_file(file: UploadFile = File(...)):
     Receives a file from the frontend and saves it to the uploads/ directory.
     Returns the file path.
     """
-    file_path = os.path.join("uploads", file.filename)
+    # Prevent path traversal by extracting only the base filename
+    safe_filename = os.path.basename(file.filename)
+    if not safe_filename:
+        safe_filename = str(uuid.uuid4())
+        
+    file_path = os.path.join("uploads", safe_filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    return {"status": "success", "file_path": file_path, "filename": file.filename}
+    return {"status": "success", "file_path": file_path, "filename": safe_filename}
 
 security = HTTPBearer(auto_error=False)
 
@@ -189,6 +194,78 @@ def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid Google token: {str(e)}")
+
+
+class SudoAuthPayload(BaseModel):
+    token: str
+
+@app.post("/api/auth/sudo")
+def verify_sudo_token(payload: SudoAuthPayload, db: Session = Depends(get_db)):
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            payload.token, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID, 
+            clock_skew_in_seconds=600
+        )
+        google_id = idinfo['sub']
+        user = db.query(models.User).filter(models.User.google_id == google_id).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+            
+        sudo_token = jwt.encode(
+            {"user_id": user.id, "sudo": True, "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=15)},
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM
+        )
+        return {"sudo_token": sudo_token}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid Google token for sudo")
+
+def get_sudo_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    if not credentials:
+        raise HTTPException(status_code=401, detail="No sudo token")
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if not payload.get("sudo"):
+            raise HTTPException(status_code=403, detail="Not a sudo token")
+        user_id = payload.get("user_id")
+        return db.query(models.User).filter(models.User.id == user_id).first()
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid sudo token")
+
+class ApiKeyCreate(BaseModel):
+    provider: str
+    api_key: str
+
+@app.get("/api/user/apikeys")
+def get_api_keys(user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    keys = db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id).all()
+    def mask_key(k):
+        if not k: return ""
+        if len(k) > 12:
+            return k[:6] + "*" * (len(k) - 10) + k[-4:]
+        return "*" * len(k)
+        
+    return [{"provider": k.provider, "masked_key": mask_key(k.api_key)} for k in keys]
+
+@app.post("/api/user/apikeys")
+def save_api_key(payload: ApiKeyCreate, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    key = db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id, models.UserApiKey.provider == payload.provider).first()
+    if key:
+        key.api_key = payload.api_key
+    else:
+        key = models.UserApiKey(user_id=user.id, provider=payload.provider, api_key=payload.api_key)
+        db.add(key)
+    db.commit()
+    return {"status": "success"}
+
+@app.delete("/api/user/apikeys/{provider}")
+def delete_api_key(provider: str, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id, models.UserApiKey.provider == provider).delete()
+    db.commit()
+    return {"status": "success"}
 
 @app.delete("/api/users/me")
 async def delete_user_account(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -289,6 +366,10 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
                     else:
                         last_triggered = "방금 전"
                 node_url = n.get('data', {}).get('webhookUrl', '').strip()
+                if node_url.startswith('http://') or node_url.startswith('https://'):
+                    from urllib.parse import urlparse
+                    node_url = urlparse(node_url).path
+
                 if not node_url:
                     node_url = f"/webhook/{p.id}"
                 elif not node_url.startswith('/webhook/'):
@@ -548,19 +629,15 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다. 토큰을 충전해 주세요.")
 
-    import json
-    with open("payload_debug.json", "w", encoding="utf-8") as f:
-        json.dump(payload.dict(), f, ensure_ascii=False, indent=2)
-        
     # 1. Run LangGraph
     try:
         result_text, tokens, logs = run_workflow(payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id)
         
         # Check if run_workflow returned an error string
         if "► Flow 1 Error:" in result_text or "Error calling model" in result_text:
-            if "RESOURCE_EXHAUSTED" in result_text or "429" in result_text:
+            if "RESOURCE_EXHAUSTED" in result_text or "429" in result_text or "Quota exceeded" in result_text:
                 result_text = "❌ AI API 크레딧이 소진되었습니다. AI Studio 또는 OpenAI에서 크레딧을 충전해 주세요."
-            elif "AuthenticationError" in result_text or "401" in result_text:
+            elif "AuthenticationError" in result_text or "401" in result_text or "API_KEY_INVALID" in result_text:
                 result_text = "❌ AI API 키가 유효하지 않습니다. .env 파일의 API 키를 확인해 주세요."
             elif "Network" in result_text or "Connection" in result_text:
                 result_text = f"❌ 네트워크 오류가 발생했습니다."
@@ -573,9 +650,9 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
         tokens = {}
         logs = []
         # API 크레딧 소진 오류 안내
-        if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+        if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg or "Quota exceeded" in error_msg:
             result_text = "❌ AI API 크레딧이 소진되었습니다. AI Studio 또는 OpenAI에서 크레딧을 충전해 주세요."
-        elif "AuthenticationError" in error_msg or "401" in error_msg:
+        elif "AuthenticationError" in error_msg or "401" in error_msg or "API_KEY_INVALID" in error_msg:
             result_text = "❌ AI API 키가 유효하지 않습니다. .env 파일의 API 키를 확인해 주세요."
         elif "Network" in error_msg or "Connection" in error_msg:
             result_text = f"❌ 네트워크 오류가 발생했습니다: {error_msg}"
@@ -652,6 +729,32 @@ def get_project_runs(project_id: int, db: Session = Depends(get_db), user: model
             "total_tokens": run.total_tokens,
             "result_summary": run.result[:100] + "..." if run.result and len(run.result) > 100 else run.result
         } for run in runs
+    ]
+
+@app.get("/api/projects/{project_id}/evaluations")
+def get_project_evaluations(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
+    # Verify project access
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if project.visibility == 'private' and project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    elif project.visibility == 'friends':
+        if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
+            raise HTTPException(status_code=403, detail="Not authorized to view this project")
+        
+    evals = db.query(models.EvaluationLog).filter(models.EvaluationLog.project_id == project_id).order_by(models.EvaluationLog.created_at.desc()).limit(100).all()
+    
+    return [
+        {
+            "id": e.id,
+            "score": e.score,
+            "test_case_count": e.test_case_count,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+            "report": e.report
+        } for e in evals
     ]
 
 @app.get("/api/runs/{run_id}")
@@ -803,6 +906,24 @@ def get_chat_session(project_id: str, user: models.User = Depends(get_current_us
         }
     }
 
+@app.delete("/api/chat/session/{session_id}")
+def delete_chat_session(session_id: int, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    session = db.query(models.ChatSession).filter(
+        models.ChatSession.id == session_id,
+        models.ChatSession.user_id == user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+        
+    db.delete(session)
+    db.commit()
+    
+    return {"status": "success"}
+
 @app.post("/api/deploy/{project_id}")
 async def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
@@ -909,7 +1030,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
         
     return {"status": "success", "result": result_text, "token_usage": tokens}
 
-@app.api_route("/webhook/{endpoint_id}", methods=["GET", "POST"])
+@app.api_route("/webhook/{endpoint_id:path}", methods=["GET", "POST"])
 async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depends(get_db)):
     projects = db.query(models.Project).all()
     project = None
@@ -926,9 +1047,20 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
         for n in nodes:
             if isinstance(n, dict) and n.get('type') == 'webhookNode':
                 node_url = n.get('data', {}).get('webhookUrl', '').strip()
-                node_endpoint = node_url.rstrip('/').split('/')[-1] if node_url else ''
-                print(f"Checking project {p.id}: node_url='{node_url}', node_endpoint='{node_endpoint}' against '{endpoint_id}'")
-                if node_endpoint == endpoint_id:
+                if node_url.startswith('http://') or node_url.startswith('https://'):
+                    from urllib.parse import urlparse
+                    node_url = urlparse(node_url).path
+                
+                if not node_url:
+                    node_endpoint = str(p.id)
+                else:
+                    node_endpoint = node_url.replace('/webhook/', '', 1) if node_url.startswith('/webhook/') else node_url.strip('/')
+                
+                req_endpoint = endpoint_id.replace('http://localhost:8000/webhook/', '', 1) if endpoint_id.startswith('http://localhost:8000/webhook/') else endpoint_id
+                req_endpoint = req_endpoint.strip('/')
+                
+                print(f"Checking project {p.id}: node_endpoint='{node_endpoint}' against '{req_endpoint}'")
+                if node_endpoint == req_endpoint:
                     project = p
                     webhook_node_id = n.get('id')
                     print(f"Matched project {p.id}!")
@@ -1530,6 +1662,8 @@ def reject_friend_request(request_id: int, user: models.User = Depends(get_curre
     db.commit()
     return {"status": "success", "message": "친구 신청을 거절했습니다."}
 
+
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
@@ -1554,3 +1688,20 @@ if os.path.exists(FRONTEND_DIST):
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
+@app.delete("/api/chat/sessions/{session_id}")
+def delete_chat_session(session_id: int, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    session = db.query(models.ChatSession).filter(
+        models.ChatSession.id == session_id,
+        models.ChatSession.user_id == user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    db.delete(session)
+    db.commit()
+    return {"status": "success"}

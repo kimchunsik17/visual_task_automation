@@ -89,10 +89,10 @@ def generate_prompt_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     use_structured = llm_n.get('data', {}).get('useStructuredOutput', False) if llm_n else False
     json_schema_str = llm_n.get('data', {}).get('jsonSchema', '').replace('\n', '\\n').replace('"', '\\"') if llm_n else ""
     
+    lines.append(f"{indent}import json")
     lines.append(f"{indent}sys_msg_{node_id} = SystemMessage(content={sys_var})")
     
     if use_structured and json_schema_str:
-        lines.append(f"{indent}import json")
         lines.append(f"{indent}schema_dict_{node_id} = json.loads(\"{json_schema_str}\")")
         lines.append(f"{indent}structured_llm_{node_id} = llm_{current_llm}.with_structured_output(schema_dict_{node_id}, include_raw=True)")
         target_llm = f"structured_llm_{node_id}"
@@ -178,10 +178,10 @@ def generate_llm_node(node_id, node, indent, active_llm_id, prev_res_var, visite
         use_structured = node.get('data', {}).get('useStructuredOutput', False)
         json_schema_str = node.get('data', {}).get('jsonSchema', '').replace('\n', '\\n').replace('"', '\\"')
         
+        lines.append(f"{indent}import json")
         lines.append(f"{indent}sys_msg_sa_{node_id} = SystemMessage(content=sys_prompt_{node_id})")
         
         if use_structured and json_schema_str:
-            lines.append(f"{indent}import json")
             lines.append(f"{indent}schema_dict_{node_id} = json.loads(\"{json_schema_str}\")")
             lines.append(f"{indent}structured_llm_{node_id} = llm_{node_id}.with_structured_output(schema_dict_{node_id}, include_raw=True)")
             target_llm = f"structured_llm_{node_id}"

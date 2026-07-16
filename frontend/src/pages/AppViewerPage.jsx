@@ -68,7 +68,8 @@ const AppViewerPage = () => {
       return { result: res.data.result, tokens: res.data.token_usage || null };
     } catch (error) {
       console.error(error);
-      return '실행 중 오류가 발생했습니다.';
+      const errorMsg = error.response?.data?.detail || error.message || '실행 중 오류가 발생했습니다.';
+      return { result: `오류: ${errorMsg}` };
     } finally {
       setIsExecuting(false);
     }
@@ -130,7 +131,8 @@ const AppViewerPage = () => {
     e.preventDefault();
     setFormResult(''); // Clear previous
     const res = await executeFlow(formInputs);
-    setFormResult(res.result);
+    const resultText = typeof res?.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res?.result || '결과가 없습니다.');
+    setFormResult(resultText);
   };
 
   const handleChatSubmit = async (e) => {
@@ -156,12 +158,17 @@ const AppViewerPage = () => {
     
     setAttachedFile(null);
 
-    const res = await executeFlow({ [targetNodeId]: finalInput });
-    
-    // 객체(Object) 등 문자열이 아닌 결과값이 반환될 경우 렌더링 오류를 막기 위해 변환
-    const finalContent = typeof res.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res.result || '');
-    
-    setChatHistory(prev => [...prev, { role: 'bot', content: finalContent }]);
+    try {
+      const res = await executeFlow({ [targetNodeId]: finalInput });
+      
+      // 객체(Object) 등 문자열이 아닌 결과값이 반환될 경우 렌더링 오류를 막기 위해 변환
+      const finalContent = typeof res?.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res?.result || '응답이 없습니다.');
+      
+      setChatHistory(prev => [...prev, { role: 'bot', content: finalContent }]);
+    } catch (err) {
+      console.error('Chat execution error:', err);
+      setChatHistory(prev => [...prev, { role: 'bot', content: '⚠️ 워크플로우 실행 중 오류가 발생했습니다.' }]);
+    }
   };
 
   if (isLoading) return <div style={{ color: 'var(--text-color)', padding: '2rem' }}>로딩 중...</div>;

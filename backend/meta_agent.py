@@ -157,11 +157,10 @@ NODE_CATALOG = """\
 # LLM이 추측하면 안 되므로 항상 None으로 초기화하고, auto_layout에서 채운다.
 NodeType = Literal[
     "startNode", "promptNode", "llmNode", "tokenizerNode", "conditionNode",
-    "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode",
-    "webCrawlerNode", "outputNode", "valueNode", "distributorNode", "breakNode",
-    "templateAnalyzerNode", "fileModifierNode", "emailNode", "databaseNode",
-    "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
-    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode", "webhookNode"
+    "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode", "webCrawlerNode",
+    "outputNode", "valueNode", "distributorNode", "breakNode", "templateAnalyzerNode", "fileModifierNode",
+    "emailNode", "databaseNode", "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
+    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode", "webhookNode", "paymentLinkNode"
 ]
 
 
@@ -185,6 +184,8 @@ class FlowEdge(BaseModel):
 
 
 class FlowGraph(BaseModel):
+    title: str = Field(description="워크플로우의 짧고 명확한 제목 (예: '새 뉴스레터 자동 발송')")
+    description: str = Field(description="워크플로우가 수행하는 작업에 대한 상세 설명 (예: '매일 아침 뉴스를 요약해 이메일로 전송합니다.')")
     nodes: List[FlowNode]
     edges: List[FlowEdge]
 
@@ -227,7 +228,7 @@ MEDIUM_SYSTEM = (
 # few-shot 예시 — 생성 품질을 좌우하는 핵심. 실패 사례를 여기에 계속 보강한다(팀원 C).
 FEWSHOT = """\
 [예시1] 요청: "PDF 요약봇 만들어줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"tokenizerNode","data":{"method":"extract_text"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 문서를 요약해줘"}},
@@ -241,7 +242,7 @@ FEWSHOT = """\
 ]}
 
 [예시2] 요청: "날씨 API 호출해서 결과를 한국어로 요약해줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
   {"id":"n3","type":"jsonParserNode","data":{"mode":"extract","extractKey":"summary"}},
@@ -257,7 +258,7 @@ FEWSHOT = """\
 ]}
 
 [예시3] 요청: "매번 다른 문장을 입력받아 한국어로 번역하고, 3초 후에 결과를 보여주는 봇 만들어줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"번역할 문장","testValue":"Hello, how are you?"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 문장을 한국어로 번역해줘"}},
@@ -275,7 +276,7 @@ FEWSHOT = """\
 # (기본은 단일 경로 원칙). testValue는 사용자가 안 준 예시이므로 답변에서 그 사실을 알려준다.
 
 [예시4] 요청: "https://example.com/news 내용 요약해줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"webCrawlerNode","data":{"url":"https://example.com/news"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 웹페이지 내용을 요약해줘"}},
@@ -292,7 +293,7 @@ FEWSHOT = """\
 # 앞에 연결한다(비우면서 앞에 아무 노드도 없거나 startNode뿐이면 Validator가 막는다).
 
 [예시5] 요청: "https://api.example.com/articles 에서 글 목록을 받아와서 각각 한국어로 요약해줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/articles"}},
   {"id":"n3","type":"jsonParserNode","data":{"mode":"parse"}},
@@ -311,7 +312,7 @@ FEWSHOT = """\
 # ↑ distributorNode(n4) 뒤에 연결된 n5~n7은 글 목록 개수만큼 반복 실행된다.
 
 [예시6] 요청: "계약서_템플릿.hwp 파일의 빈칸을 채워서 완성해줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.hwp"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"위 JSON의 각 키에 대해 문맥에 맞는 값을 채워서 같은 형식의 JSON으로만 답해"}},
@@ -329,7 +330,7 @@ FEWSHOT = """\
 # templateAnalyzerNode(n2) 없이 fileModifierNode를 바로 쓰면 채울 JSON이 없어 원본이 그대로 저장된다.
 
 [예시7] 요청: "https://example.com/news 내용을 요약해서 team@company.com으로 메일 보내줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"webCrawlerNode","data":{"url":"https://example.com/news"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 뉴스를 한국어로 요약해줘"}},
@@ -345,7 +346,7 @@ FEWSHOT = """\
 ]}
 
 [예시8] 요청: "customers 테이블에서 이메일만 뽑아서 보여줘 (DB 접속정보: postgresql://user:pass@localhost:5432/shop)"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"databaseNode","data":{"connectionString":"postgresql://user:pass@localhost:5432/shop","query":"SELECT email FROM customers"}},
   {"id":"n3","type":"outputNode","data":{}}
@@ -356,7 +357,7 @@ FEWSHOT = """\
 # ↑ connectionString은 요청에 실제로 준 값을 그대로 쓴다 — 안 주면 지어내지 말고 물어본다.
 
 [예시9] 요청: "사용자 요청을 번역, 요약, 감성 분석 에이전트에게 보내서 알아서 처리하게 해주는 매니저 봇을 만들어줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"promptNode","data":{"userPrompt":"사용자의 요청을 처리할 에이전트를 선택해"}},
   {"id":"n3","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"번역을 담당합니다."}},
@@ -375,7 +376,7 @@ FEWSHOT = """\
 # ↑ multiAgentNode(n6)로 들어오는 llmNode 서브 에이전트들(n3,n4,n5)의 엣지에는 반드시 targetHandle:"tools"를 지정해야 한다.
 
 [예시10] 요청: "다음 문장을 3번 반복해서 요약해줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"loopNode","data":{"maxIterations":3}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"이 문장을 요약해줘"}},
@@ -391,7 +392,7 @@ FEWSHOT = """\
 # ↑ loopNode에서 반복할 흐름의 시작은 sourceHandle:"loop_start", 반복 종료 후 나가는 흐름은 sourceHandle:"done"을 쓴다.
 
 [예시11] 요청: "매일 아침 9시에 날씨를 요약해서 이메일로 보내줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"scheduleNode","data":{"cronExpression":"0 9 * * *"}},
   {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"이 날씨 정보를 한국어로 요약해줘"}},
@@ -408,7 +409,7 @@ FEWSHOT = """\
 # ↑ 정기적으로 실행해야 하므로 startNode 대신 scheduleNode(cronExpression 포함)로 시작한다.
 
 [예시12] 요청: "매일 아침에 해커뉴스 크롤링해서 좋은 글 있으면 요약해서 카카오톡으로 보내줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"scheduleNode","data":{"cronExpression":"0 9 * * *"}},
   {"id":"n2","type":"webCrawlerNode","data":{"url":"https://news.ycombinator.com"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"이 뉴스들 중에서 IT 업계 트렌드에 맞는 '좋은 글'이 있는지 판별하고 요약해줘"}},
@@ -432,7 +433,7 @@ FEWSHOT = """\
 # ↑ 짧은 요청이지만 조건 분기(conditionNode), 사람 승인(humanApprovalNode), 카카오톡 발송(kakaoNode), 병합(mergeNode)을 알아서 적절히 구성했다.
 
 [예시13] 요청: "메일 들어오면 감성 분석해서 악플이면 슬랙으로 알림 보내고, 아니면 디스코드로 보내줘"
-{"nodes":[
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"수신된 이메일 내용","testValue":"이 서비스 정말 최악이네요. 환불해주세요."}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"이 내용이 악플(부정적)인지 판단해줘"}},
@@ -1004,7 +1005,12 @@ def auto_layout(g: FlowGraph) -> dict:
         "data": n.data,
     } for n in g.nodes]
     edges = [e.model_dump() for e in g.edges]
-    return {"nodes": nodes, "edges": edges}
+    return {
+        "title": getattr(g, "title", ""),
+        "description": getattr(g, "description", ""),
+        "nodes": nodes,
+        "edges": edges
+    }
 
 
 def _topo_order(ids: List[str], edges: List[FlowEdge]) -> List[str]:
@@ -1422,7 +1428,13 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_le
 
     반환: (reply: str, graph_data: dict) — API 응답 {reply, graph_data}에 그대로 매핑된다.
     """
-    g = FlowGraph(nodes=graph_data.get("nodes", []), edges=graph_data.get("edges", []))
+    g = FlowGraph(
+        title=graph_data.get("title", ""),
+        description=graph_data.get("description", ""),
+        nodes=graph_data.get("nodes", []),
+        edges=graph_data.get("edges", [])
+    )
+    initial_dump = g.model_dump()
     agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer)
 
     # 확장, 정밀 모드 모두 내부 도구(_generate_flow_tool)에서 RAG/생성을 처리하므로
@@ -1438,7 +1450,7 @@ def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_le
     final_graph = get_current_graph()
 
     # If the AI did not modify the graph in this turn, just return as is without warnings.
-    if g.nodes == final_graph.nodes and g.edges == final_graph.edges:
+    if initial_dump == final_graph.model_dump():
         return reply, graph_data
 
     ok, errs = validate_flow(final_graph)  # require_complete=True(기본값) — 최종 완결성 게이트

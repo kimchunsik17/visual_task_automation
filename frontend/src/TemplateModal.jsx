@@ -438,8 +438,33 @@ const BUILT_IN_TEMPLATES = [
         { id: 'e_c-o2', source: 'node_cond', target: 'node_out2', sourceHandle: 'false', targetHandle: 'in' }
       ]
     }
+  },
+  {
+    id: 'builtin-14',
+    name: '💳 AI 챗봇 동적 결제 시스템',
+    description: '고객과 대화하며 상품을 추천하고, 구매가 확정되면 조건 분기를 통해 결제 링크를 생성합니다.',
+    data: {
+      nodes: [
+        { id: 'node_start', type: 'startNode', position: { x: 50, y: 250 }, data: { label: '시작' } },
+        { id: 'node_dyn', type: 'dynamicInputNode', position: { x: 250, y: 250 }, data: { label: '고객 채팅', inputLabel: '상품 추천을 받거나 결제 의사를 밝혀보세요.' } },
+        { id: 'node_llm_chat', type: 'llmNode', position: { x: 500, y: 250 }, data: { label: '챗봇 AI', model: 'gpt-4o-mini', useMemory: true, systemPrompt: '당신은 상점 직원입니다. 고객의 질문에 친절히 대답하세요. 만약 고객이 구매를 확정했다면, 반드시 답변 맨 앞에 "PAYMENT_READY" 라고 적고, 이어서 주문 내역을 JSON으로 적어주세요. (예: PAYMENT_READY {"items": [{"name":"상품", "qty":2, "price":10000}]}) 구매 확정이 아니라면 일반 대화만 하세요.' } },
+        { id: 'node_cond', type: 'conditionNode', position: { x: 800, y: 250 }, data: { label: '결제 확정 여부', condition: 'Contains', value: 'PAYMENT_READY' } },
+        { id: 'node_kakao_chat', type: 'kakaoNode', position: { x: 1150, y: 100 }, data: { label: '일반 답변 전송', receiver: '고객 연락처' } },
+        { id: 'node_llm_extract', type: 'llmNode', position: { x: 1150, y: 400 }, data: { label: '주문 JSON 추출', model: 'gpt-4o-mini', systemPrompt: '주어진 텍스트에서 JSON 부분만 추출해서 다른 말 없이 오직 JSON만 출력해.' } },
+        { id: 'node_pay', type: 'paymentLinkNode', position: { x: 1450, y: 400 }, data: { label: '결제 링크 생성', provider: 'toss', orderData: '{{last_result}}' } },
+        { id: 'node_kakao_pay', type: 'kakaoNode', position: { x: 1750, y: 400 }, data: { label: '영수증 전송', receiver: '고객 연락처' } }
+      ],
+      edges: [
+        { id: 'e_s-d', source: 'node_start', target: 'node_dyn', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_d-c', source: 'node_dyn', target: 'node_llm_chat', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_c-cond', source: 'node_llm_chat', target: 'node_cond', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_cond-f', source: 'node_cond', target: 'node_kakao_chat', sourceHandle: 'false', targetHandle: 'in' },
+        { id: 'e_cond-t', source: 'node_cond', target: 'node_llm_extract', sourceHandle: 'true', targetHandle: 'in' },
+        { id: 'e_ex-p', source: 'node_llm_extract', target: 'node_pay', sourceHandle: 'out', targetHandle: 'in' },
+        { id: 'e_p-kp', source: 'node_pay', target: 'node_kakao_pay', sourceHandle: 'out', targetHandle: 'in' }
+      ]
+    }
   }
-
 ];
 
 export default function TemplateModal({ isOpen, onClose, onSave, onLoad, currentFlowData }) {

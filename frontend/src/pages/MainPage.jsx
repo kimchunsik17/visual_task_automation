@@ -14,7 +14,12 @@ function MainPage() {
 
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [messages, setMessages] = useState([]);
+  const messagesEndRef = useRef(null);
   const draftIdRef = useRef(`draft-${Date.now()}`);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isAutoGenerating]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -41,11 +46,7 @@ function MainPage() {
       const { reply, graph_data } = res.data;
 
       if (reply) {
-        setMessages(prev => [...prev, { role: 'ai', content: reply }]);
-      }
-
-      if (graph_data?.nodes?.length > 0) {
-        navigate('/editor', { state: { initialGraph: graph_data, prompt: userMessage } });
+        setMessages(prev => [...prev, { role: 'ai', content: reply, graph_data, prompt: userMessage }]);
       }
     } catch (error) {
       console.error(error);
@@ -152,6 +153,30 @@ function MainPage() {
                   </div>
                   <div className="chat-bubble">
                     {msg.content}
+                    {msg.graph_data?.nodes?.length > 0 && (
+                      <div style={{ marginTop: '1rem' }}>
+                        <button 
+                          onClick={() => navigate('/editor', { state: { initialGraph: msg.graph_data, prompt: msg.prompt || '' } })}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.6rem 1.2rem',
+                            background: 'var(--primary-color)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '8px',
+                            fontSize: '0.9rem',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            boxShadow: '0 4px 12px rgba(99,102,241,0.3)',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          에디터로 이동하기 <ArrowRight size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -167,6 +192,7 @@ function MainPage() {
                   </div>
                 </div>
               )}
+              <div ref={messagesEndRef} />
             </div>
           )}
 
@@ -230,6 +256,8 @@ function MainPage() {
         {/* 우측 사이드바: 빠른 시작 */}
         <div style={{ 
           width: '280px', 
+          minWidth: '280px',
+          flexShrink: 0,
           borderLeft: '1px solid var(--border-color)', 
           padding: '1.5rem',
           display: 'flex',

@@ -203,3 +203,57 @@ def generate_toss_node(node_id, node, indent, active_llm_id, prev_res_var, visit
     next_edges = forward_edges.get(node_id, [])
     for target_id, handle in next_edges:
         generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)
+
+@node_registry.register('paymentLinkNode')
+def generate_payment_link_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
+    lines.append(f"{indent}# --- Payment Link Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    
+    provider = node.get('data', {}).get('provider', 'toss').replace('"', '\\"')
+    order_data = node.get('data', {}).get('orderData', '').strip()
+    
+    lines.append(f"{indent}import requests")
+    lines.append(f"{indent}import json")
+    
+    # Resolve dynamic input
+    lines.append(f"{indent}raw_val_{node_id} = {prev_res_var if prev_res_var else 'last_result'}")
+    if not order_data or order_data == '{{last_result}}' or ('{{' in order_data and '}}' in order_data):
+        lines.append(f"{indent}if isinstance(raw_val_{node_id}, (dict, list)):")
+        lines.append(f"{indent}    order_data_val_{node_id} = json.dumps(raw_val_{node_id}, ensure_ascii=False)")
+        lines.append(f"{indent}else:")
+        lines.append(f"{indent}    import re")
+        lines.append(f"{indent}    order_data_val_{node_id} = re.sub(r'^```(json)?|```$', '', str(raw_val_{node_id}).strip(), flags=re.MULTILINE).strip()")
+    else:
+        safe_order_data = repr(order_data)
+        lines.append(f"{indent}order_data_val_{node_id} = {safe_order_data}")
+
+    lines.append(f"{indent}payload_{node_id} = {{")
+    lines.append(f"{indent}    'provider': '{provider}',")
+    lines.append(f"{indent}    'orderData': order_data_val_{node_id}")
+    lines.append(f"{indent}}}")
+    
+    lines.append(f"{indent}try:")
+    lines.append(f"{indent}    resp_{node_id} = requests.post('http://localhost:3001/mock/payment/create-link', json=payload_{node_id}, timeout=10)")
+    lines.append(f"{indent}    if resp_{node_id}.status_code == 200:")
+    lines.append(f"{indent}        checkout_url_{node_id} = resp_{node_id}.json().get('checkoutUrl')")
+    lines.append(f"{indent}        try:")
+    lines.append(f"{indent}            order_dict = json.loads(order_data_val_{node_id})")
+    lines.append(f"{indent}            items_text = '\\n'.join([f\"- {{item.get('name', '상품')}} ({{item.get('qty', 1)}}개)\" for item in order_dict.get('items', [])])")
+    lines.append(f"{indent}            if not items_text: items_text = \"- 상품 정보 없음\"")
+    lines.append(f"{indent}            res_text_{node_id} = f\"✅ 주문이 확인되었습니다!\\n\\n[주문 내역]\\n{{items_text}}\\n\\n🔗 결제 링크:\\n{{checkout_url_{node_id}}}\"")
+    lines.append(f"{indent}        except:")
+    lines.append(f"{indent}            res_text_{node_id} = f\"✅ 주문이 확인되었습니다!\\n🔗 결제 링크:\\n{{checkout_url_{node_id}}}\"")
+    lines.append(f"{indent}        print(f'\\n[Payment Link Created: {{checkout_url_{node_id}}}]\\n')")
+    lines.append(f"{indent}    else:")
+    lines.append(f"{indent}        print(f'\\n[Payment Link Failed: {{resp_{node_id}.text}}]\\n')")
+    lines.append(f"{indent}        res_text_{node_id} = f'Payment Link Failed: {{resp_{node_id}.text}}'")
+    lines.append(f"{indent}except Exception as e:")
+    lines.append(f"{indent}    print(f'\\n[Payment Link Error: {{str(e)}}]\\n')")
+    lines.append(f"{indent}    res_text_{node_id} = f'Payment Link Error: {{str(e)}}'")
+    
+    lines.append(f"{indent}last_result = res_text_{node_id}")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+    
+    next_edges = forward_edges.get(node_id, [])
+    for target_id, handle in next_edges:
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)

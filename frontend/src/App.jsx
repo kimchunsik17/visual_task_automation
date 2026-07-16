@@ -13,6 +13,7 @@ import ProjectRunsPage from './pages/ProjectRunsPage';
 import SchedulerPage from './pages/SchedulerPage';
 import WebhookManagerPage from './pages/WebhookManagerPage';
 import AppViewerPage from './pages/AppViewerPage';
+import ApiCenterPage from './pages/ApiCenterPage';
 
 function App() {
   useEffect(() => {
@@ -40,6 +41,7 @@ function App() {
         <Route path="/project/:projectId/runs" element={<ProjectRunsPage />} />
         <Route path="/app/:shareToken" element={<AppRunnerPage />} />
         <Route path="/viewer/:projectId" element={<AppViewerPage />} />
+        <Route path="/apicenter" element={<ApiCenterPage />} />
         <Route path="/webhooks" element={<WebhookManagerPage />} />
         <Route path="/bots" element={<BotManagerPage />} />
         <Route path="/scheduler" element={<SchedulerPage />} />

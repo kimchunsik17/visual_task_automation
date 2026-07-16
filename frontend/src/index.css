@@ -352,14 +352,22 @@ button, input, textarea {
 }
 
 /* Edge Styles */
+.react-flow__edge-path {
+  stroke: #94a3b8 !important; /* Lighter color for better visibility in dark mode */
+  stroke-width: 2.5 !important; /* Thicker than default */
+  opacity: 0.8;
+}
+
 .react-flow__edge.selected .react-flow__edge-path {
   stroke: #f59e0b !important;
-  stroke-width: 3 !important;
+  stroke-width: 3.5 !important;
+  opacity: 1;
 }
 
 .react-flow__edge:hover .react-flow__edge-path {
-  stroke: #cbd5e1 !important;
-  stroke-width: 3 !important;
+  stroke: #e2e8f0 !important;
+  stroke-width: 3.5 !important;
+  opacity: 1;
 }
 
 .custom-node.prompt { border-left: 4px solid #3b82f6; }
@@ -568,15 +576,34 @@ button, input, textarea {
 
 
 /* Force Left/Right handles to align with the 140px square header vertically */
-.custom-node .react-flow__handle-left:not(.popout-handle),
-.custom-node .react-flow__handle-right:not(.popout-handle) {
+/* Excludes condition nodes which have multiple handles with custom positions */
+.custom-node:not(.condition) .react-flow__handle-left:not(.popout-handle),
+.custom-node:not(.condition) .react-flow__handle-right:not(.popout-handle) {
   top: 70px !important;
   transform: translateY(-50%) !important;
+  z-index: 20 !important;
+}
+
+/* For condition node, just ensure z-index is high */
+.custom-node.condition .react-flow__handle {
+  z-index: 20 !important;
 }
 
 /* Allow custom positioning for the popout specific handles if needed */
 .custom-node .react-flow__handle.popout-handle {
-  
+  transform: translateY(-50%) !important;
+  z-index: 20 !important;
+}
+
+/* Ensure handles are always visible above node content */
+.react-flow__handle {
+  z-index: 10;
+}
+
+/* Expanded nodes: handles should NOT be offset to collapsed center */
+.custom-node.expanded:not(.condition) .react-flow__handle-left:not(.popout-handle),
+.custom-node.expanded:not(.condition) .react-flow__handle-right:not(.popout-handle) {
+  top: 50% !important;
   transform: translateY(-50%) !important;
 }
 
@@ -610,3 +637,17 @@ button, input, textarea {
   0%, 80%, 100% { transform: scale(0); }
   40% { transform: scale(1); }
 }
+
+@keyframes pulse-glow {
+  0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(139, 92, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+}
+
+.chat-bubble-generating {
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+@keyframes blink { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+
+@keyframes blink { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }

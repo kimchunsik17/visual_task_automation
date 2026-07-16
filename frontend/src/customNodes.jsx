@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer, useStore } from '@xyflow/react';
 import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, CreditCard } from 'lucide-react';
 import axios from 'axios';
@@ -25,6 +25,48 @@ const calculateNodeCost = (tokens, model, currency) => {
     return `₩${Math.round(usdCost * krwRate).toLocaleString()}`;
   }
   return usdCost < 0.0001 ? `$${usdCost.toFixed(6)}` : `$${usdCost.toFixed(4)}`;
+};
+
+const ApiKeyInput = ({ id, data, provider, fieldKey = 'apiKey', placeholder = 'API Key' }) => {
+  const isApiCenter = data[`${fieldKey}_source`] === 'apicenter';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+      <label>{placeholder}</label>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <select 
+          className="nodrag"
+          value={data[`${fieldKey}_source`] || 'manual'}
+          onChange={(e) => {
+            data.onChange(id, `${fieldKey}_source`, e.target.value);
+            if (e.target.value === 'apicenter') {
+               data.onChange(id, fieldKey, `{{API_CENTER:${provider}}}`);
+            } else {
+               data.onChange(id, fieldKey, '');
+            }
+          }}
+          style={{ padding: '0.25rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', fontSize: '0.8rem', width: '100%' }}
+        >
+          <option value="manual">직접 입력 (또는 시스템 환경변수)</option>
+          <option value="apicenter">API 센터 연동</option>
+        </select>
+      </div>
+      {!isApiCenter && (
+        <input
+          type="password"
+          className="nodrag"
+          value={data[fieldKey] || ''}
+          onChange={(e) => data.onChange(id, fieldKey, e.target.value)}
+          placeholder="시스템에 저장된 기본 키를 쓰려면 비워두세요"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+        />
+      )}
+      {isApiCenter && (
+        <div style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid #10b981', fontSize: '0.8rem', textAlign: 'center' }}>
+          API 센터에서 안전하게 불러옵니다
+        </div>
+      )}
+    </div>
+  );
 };
 
 
@@ -83,6 +125,19 @@ export const NodeDetachedHandles = ({ id, data }) => {
       })}
     </>
   );
+};
+
+// ── Common hook: tracks expand state and notifies EditorPage via onExpandChange ──
+const useNodeExpand = (id, data) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const toggleExpand = useCallback(() => {
+    setIsExpanded(prev => {
+      const next = !prev;
+      if (data?.onExpandChange) data.onExpandChange(id, next);
+      return next;
+    });
+  }, [id, data]);
+  return { isExpanded, toggleExpand };
 };
 
 export const DraggableTextarea = ({ id, fieldKey, value, onChange, placeholder, isDetached }) => {
@@ -150,7 +205,7 @@ export const DraggableTextarea = ({ id, fieldKey, value, onChange, placeholder, 
 };
 
 export const StartNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -160,7 +215,7 @@ export const StartNode = ({ id, data }) => {
 
   return (
     <div className={`custom-node collapsed start ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick}>
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={16} color="#10b981" /> 시작</div>
@@ -179,7 +234,7 @@ export const StartNode = ({ id, data }) => {
 };
 
 export const PromptNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -190,7 +245,7 @@ export const PromptNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} prompt ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} color="#3b82f6" /> 프롬프트</div>
@@ -218,7 +273,7 @@ export const PromptNode = ({ id, data }) => {
 };
 
 export const LLMNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -229,7 +284,7 @@ export const LLMNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} llm ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><BrainCircuit size={16} color="#8b5cf6" /> LLM Node</div>
@@ -257,6 +312,14 @@ export const LLMNode = ({ id, data }) => {
               <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
             </optgroup>
           </select>
+          
+          <ApiKeyInput 
+            id={id} 
+            data={data} 
+            provider={(data.model || 'gemini').includes('gpt') ? 'openai' : (data.model || 'gemini').includes('claude') ? 'anthropic' : 'gemini'} 
+            fieldKey="apiKey" 
+            placeholder="AI API Key" 
+          />
 
           <label>System Prompt</label>
           <DraggableTextarea id={id} fieldKey="systemPrompt" value={data.systemPrompt} onChange={data.onChange} placeholder="System instructions..." isDetached={data.isDetached_systemPrompt} />
@@ -323,7 +386,7 @@ export const LLMNode = ({ id, data }) => {
 };
 
 export const ValueNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -359,7 +422,7 @@ export const ValueNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} value ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Variable size={16} color="#ec4899" /> 변수 (값)</div>
@@ -402,7 +465,7 @@ export const ValueNode = ({ id, data }) => {
 };
 
 export const OutputNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -413,7 +476,7 @@ export const OutputNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} output ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         Output
@@ -431,7 +494,7 @@ export const OutputNode = ({ id, data }) => {
 };
 
 export const ConditionNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -465,12 +528,15 @@ export const ConditionNode = ({ id, data }) => {
   };
 
   return (
-    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} condition ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ width: isExpanded ? '280px' : undefined }}>
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} condition ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ width: isExpanded ? '280px' : undefined, position: 'relative', overflow: 'visible' }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
-        Switch / Branch
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <SplitSquareHorizontal size={isExpanded ? 14 : 28} color="#0ea5e9" />
+          {isExpanded ? 'Switch / Branch' : 'Switch\nBranch'}
+        </div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       {isExpanded && (
@@ -486,10 +552,10 @@ export const ConditionNode = ({ id, data }) => {
               >
                 <option value="==">== (Equals)</option>
                 <option value="Contains">Contains</option>
-                <option value=">">&gt; (Greater)</option>
-                <option value="<">&lt; (Less)</option>
-                <option value=">=">&gt;=</option>
-                <option value="<=">&lt;=</option>
+                <option value=">">&#62; (Greater)</option>
+                <option value="<">&#60; (Less)</option>
+                <option value=">=">&#62;=</option>
+                <option value="<=">&#60;=</option>
               </select>
 
               <input
@@ -506,14 +572,6 @@ export const ConditionNode = ({ id, data }) => {
                 style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', marginLeft: '5px', padding: '0 5px' }}
                 title="Remove Rule"
               >✕</button>
-
-              {/* Handle positioned perfectly next to this row */}
-              <Handle
-                type="source"
-                position={Position.Right}
-                id={rule.id}
-                style={{ right: '-16px', background: '#0ea5e9' }}
-              />
             </div>
           ))}
 
@@ -527,18 +585,47 @@ export const ConditionNode = ({ id, data }) => {
             </button>
           </div>
 
-          <div style={{ position: 'relative', marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem' }}>
+          <div style={{ position: 'relative', marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Else (Fallback)</span>
-            <Handle
-              type="source"
-              position={Position.Right}
-              id="else"
-              style={{ right: '-16px', background: 'var(--text-muted)' }}
-            />
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '8px' }}>→</span>
           </div>
 
         </div>
       )}
+
+      {/* ── Handles always rendered outside isExpanded block ── */}
+      {rules.map((rule, index) => (
+        <Handle
+          key={rule.id}
+          type="source"
+          position={Position.Right}
+          id={rule.id}
+          style={isExpanded
+            ? { right: '-8px', top: `${48 + index * 38}px`, background: '#0ea5e9', zIndex: 20 }
+            : {
+                right: '-8px',
+                top: `${(100 / (rules.length + 2)) * (index + 1)}%`,
+                background: '#0ea5e9',
+                zIndex: 20
+              }
+          }
+        />
+      ))}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="else"
+        style={isExpanded
+          ? { right: '-8px', bottom: '16px', top: 'auto', background: '#94a3b8', zIndex: 20 }
+          : {
+              right: '-8px',
+              top: `${(100 / (rules.length + 2)) * (rules.length + 1)}%`,
+              background: '#94a3b8',
+              zIndex: 20
+            }
+        }
+      />
+
       <NodeDetachedHandles id={id} data={data} />
 
     </div>
@@ -546,7 +633,7 @@ export const ConditionNode = ({ id, data }) => {
 };
 
 export const LoopNode = ({ id, data, selected }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -570,7 +657,7 @@ export const LoopNode = ({ id, data, selected }) => {
         }}
       >
         <Handle type="target" position={Position.Left} id="in" />
-        <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ backgroundColor: '#ca8a04', borderRadius: '6px 6px 0 0', margin: '-2px -2px 0 -2px', cursor: 'pointer' }}>
+        <div className="node-header" onClick={toggleExpand} style={{ backgroundColor: '#ca8a04', borderRadius: '6px 6px 0 0', margin: '-2px -2px 0 -2px', cursor: 'pointer' }}>
           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
           Loop Node (CoT Window)
@@ -628,7 +715,7 @@ export const LoopNode = ({ id, data, selected }) => {
 };
 
 export const BreakNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -639,7 +726,7 @@ export const BreakNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} break ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ border: '1px solid #ef4444' }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ backgroundColor: '#dc2626', cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ backgroundColor: '#dc2626', cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         Break Node
@@ -657,7 +744,7 @@ export const BreakNode = ({ id, data }) => {
 };
 
 export const PythonNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -686,7 +773,7 @@ export const PythonNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} python ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ border: '1px solid #3b82f6', width: isExpanded ? '300px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ backgroundColor: '#2563eb', cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ backgroundColor: '#2563eb', cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         Python Node
@@ -706,7 +793,7 @@ export const PythonNode = ({ id, data }) => {
 };
 
 export const TokenizerNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -717,7 +804,7 @@ export const TokenizerNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} tokenizer ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ border: '1px solid #10b981', width: isExpanded ? '250px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ backgroundColor: '#059669', cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ backgroundColor: '#059669', cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         Tokenizer Node
@@ -748,7 +835,7 @@ export const TokenizerNode = ({ id, data }) => {
 };
 
 export const DistributorNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -759,7 +846,7 @@ export const DistributorNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} distributor ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ border: '1px solid #8b5cf6', width: isExpanded ? '220px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ backgroundColor: '#7c3aed', cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ backgroundColor: '#7c3aed', cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         Distributor (For-Each)
@@ -780,7 +867,7 @@ export const DistributorNode = ({ id, data }) => {
 };
 
 export const FileModifierNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -817,7 +904,7 @@ export const FileModifierNode = ({ id, data }) => {
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} file-modifier ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ border: '1px solid #f97316', width: isExpanded ? '260px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
 
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ backgroundColor: '#ea580c', cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ backgroundColor: '#ea580c', cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         Auto Fill
@@ -870,7 +957,7 @@ export const FileModifierNode = ({ id, data }) => {
 };
 
 export const TemplateAnalyzerNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -906,7 +993,7 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} template-analyzer ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ border: '1px solid #14b8a6', width: isExpanded ? '260px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ backgroundColor: '#0d9488', cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ backgroundColor: '#0d9488', cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         Template Analyzer
@@ -949,7 +1036,7 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
 };
 
 export const DynamicInputNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -981,7 +1068,7 @@ export const DynamicInputNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} dynamic-input ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '220px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Keyboard size={16} color="#d946ef" /> 동적 입력</div>
@@ -1048,7 +1135,7 @@ export const DynamicInputNode = ({ id, data }) => {
 };
 
 export const WebCrawlerNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1059,7 +1146,7 @@ export const WebCrawlerNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} crawler ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '250px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Globe size={16} color="#0ea5e9" /> 웹 크롤러</div>
@@ -1086,7 +1173,7 @@ export const WebCrawlerNode = ({ id, data }) => {
 };
 
 export const EmailNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1097,7 +1184,7 @@ export const EmailNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} email ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '250px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={16} color="#f43f5e" /> 이메일 전송</div>
@@ -1132,7 +1219,7 @@ export const EmailNode = ({ id, data }) => {
 };
 
 export const KakaoNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1143,7 +1230,7 @@ export const KakaoNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} kakao ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '220px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageCircle size={16} color="#facc15" /> 카카오 알림톡</div>
@@ -1152,15 +1239,8 @@ export const KakaoNode = ({ id, data }) => {
       {isExpanded && (
         <div className="node-body">
           <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>* 이전 노드의 결과값이 카카오톡 메시지로 전송됩니다.</p>
-          <label style={{ marginTop: '0.5rem' }}>Access Token (필수)</label>
-          <input
-            type="password"
-            className="nodrag"
-            defaultValue={data.accessToken || ''}
-            onChange={(e) => data.onChange(id, 'accessToken', e.target.value)}
-            placeholder="Kakao REST API Access Token"
-            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
-          />
+          <ApiKeyInput id={id} data={data} provider="kakao" fieldKey="accessToken" placeholder="Access Token" />
+
           <label>수신자 (옵션)</label>
           <input
             type="text"
@@ -1180,7 +1260,7 @@ export const KakaoNode = ({ id, data }) => {
 };
 
 export const DelayNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1191,7 +1271,7 @@ export const DelayNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} delay ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '180px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={16} color="#3b82f6" /> Delay (대기)</div>
@@ -1218,7 +1298,7 @@ export const DelayNode = ({ id, data }) => {
 };
 
 export const JsonParserNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1229,7 +1309,7 @@ export const JsonParserNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} json-parser ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '220px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Braces size={16} color="#eab308" /> JSON Parser</div>
@@ -1268,7 +1348,7 @@ export const JsonParserNode = ({ id, data }) => {
 };
 
 export const MergeNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1279,7 +1359,7 @@ export const MergeNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} merge ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '200px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" style={{ height: '30px', width: isExpanded ? '8px' : undefined, borderRadius: '4px', background: '#ec4899' }} />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Merge size={16} color="#ec4899" /> Merge (데이터 병합)</div>
@@ -1309,7 +1389,7 @@ export const MergeNode = ({ id, data }) => {
 };
 
 export const HttpRequestNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1320,7 +1400,7 @@ export const HttpRequestNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} http-request ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '250px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ArrowRightLeft size={16} color="#0ea5e9" /> HTTP Request</div>
@@ -1349,15 +1429,7 @@ export const HttpRequestNode = ({ id, data }) => {
             onChange={(e) => data.onChange(id, 'url', e.target.value)}
             style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
           />
-          <label>Headers (JSON)</label>
-          <input
-            type="text"
-            className="nodrag"
-            placeholder='{"Authorization": "Bearer token"}'
-            defaultValue={data.headers || ''}
-            onChange={(e) => data.onChange(id, 'headers', e.target.value)}
-            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}
-          />
+          <ApiKeyInput id={id} data={data} provider="openai" fieldKey="headers" placeholder="Headers (JSON)" />
           <label>Body (JSON)</label>
           <DraggableTextarea id={id} fieldKey="body" value={data.body} onChange={data.onChange} placeholder="{" isDetached={data.isDetached_body} />
         </div>
@@ -1370,7 +1442,7 @@ export const HttpRequestNode = ({ id, data }) => {
 };
 
 export const DatabaseNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1381,7 +1453,7 @@ export const DatabaseNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} database ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '250px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Database size={16} color="#059669" /> 데이터베이스</div>
@@ -1410,7 +1482,7 @@ export const DatabaseNode = ({ id, data }) => {
 };
 
 export const HumanApprovalNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1421,7 +1493,7 @@ export const HumanApprovalNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} human-approval ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '220px' : undefined }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><UserCheck size={16} color="#f43f5e" /> 사용자 승인</div>
@@ -1444,7 +1516,7 @@ import { NodeRegistry } from './nodeRegistry';
 import { Settings } from 'lucide-react';
 
 export const DynamicNode = ({ id, data, type }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1454,12 +1526,11 @@ export const DynamicNode = ({ id, data, type }) => {
 
   const meta = NodeRegistry[type] || {};
   return (
-    <div className="custom-node" style={{ borderTop: `3px solid ${meta.color || '#3b82f6'}` }}>
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ borderTop: `3px solid ${meta.color || '#3b82f6'}` }}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ background: meta.headerColor || 'var(--btn-active-bg)', cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ background: meta.headerColor || 'var(--btn-active-bg)', cursor: 'pointer', color: 'white' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={16} color={meta.color} /> {meta.label || 'Task'}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={16} color="white" /> {meta.label || 'Task'}</div>
         <button className="btn-delete" onClick={() => data.onDelete && data.onDelete(id)}>✕</button>
       </div>
       {isExpanded && (
@@ -1496,7 +1567,7 @@ export const DynamicNode = ({ id, data, type }) => {
 };
 
 export const MultiAgentNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1508,7 +1579,7 @@ export const MultiAgentNode = ({ id, data }) => {
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} multi-agent-node ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick}>
       <Handle type="target" position={Position.Top} id="tools" style={{ background: '#3b82f6', width: isExpanded ? '12px' : undefined, height: '12px', borderRadius: '4px' }} />
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Users size={16} color="#6366f1" /> Multi-Agent</div>
@@ -1562,7 +1633,7 @@ export const MultiAgentNode = ({ id, data }) => {
 };
 
 export const ScheduleNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1572,7 +1643,7 @@ export const ScheduleNode = ({ id, data }) => {
 
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} schedule ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '200px' : undefined }}>
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={16} color="#8b5cf6" /> 스케줄 (시작)</div>
@@ -1601,7 +1672,7 @@ export const ScheduleNode = ({ id, data }) => {
 };
 
 export const DiscordNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1612,7 +1683,7 @@ export const DiscordNode = ({ id, data }) => {
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} discord ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick}>
       <Handle type="target" position={Position.Left} id="in" />
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageCircle size={16} color="#5865F2" /> 디스코드 발송</div>
@@ -1620,16 +1691,7 @@ export const DiscordNode = ({ id, data }) => {
       </div>
       {isExpanded && (
         <div className="node-body">
-          <div className="input-group">
-            <label>Bot Token 또는 Webhook URL</label>
-            <input
-              type="password"
-              className="nodrag"
-              value={data.botToken || ''}
-              onChange={(e) => data.onChange(id, 'botToken', e.target.value)}
-              placeholder="Bot token / Webhook"
-            />
-          </div>
+          <ApiKeyInput id={id} data={data} provider="discord" fieldKey="botToken" placeholder="Bot Token 또는 Webhook URL" />
           <div className="input-group">
             <label>채널 ID (Webhook시 생략)</label>
             <input
@@ -1714,7 +1776,7 @@ export const DetachedTextNode = ({ id, data }) => {
 };
 
 export const WebhookNode = ({ id, data }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
@@ -1724,7 +1786,7 @@ export const WebhookNode = ({ id, data }) => {
 
   return (
     <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} webhook-node ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '220px' : undefined }}>
-      <div className="node-header" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #0ea5e9, #0284c7)' }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #0ea5e9, #0284c7)' }}>
         {isExpanded ? <ChevronDown size={14} color="white"/> : <ChevronRight size={14} color="white"/>}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white' }}><Globe size={16} /> {data.label || '웹훅 수신'}</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>

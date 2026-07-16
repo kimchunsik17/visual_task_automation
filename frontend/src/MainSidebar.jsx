@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
-import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock, Globe } from 'lucide-react';
+import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock, Globe, Key } from 'lucide-react';
 import ChatSidebar from './ChatSidebar';
 import './MainSidebar.css';
 
@@ -72,6 +72,9 @@ const MainSidebar = ({ onSelectSession }) => {
           </button>
           <button className={`nav-item ${location.pathname === '/scheduler' ? 'active' : ''}`} onClick={() => navigate('/scheduler')}>
             <Clock size={18} /> <span>스케줄 관리</span>
+          </button>
+          <button className={`nav-item ${location.pathname === '/apicenter' ? 'active' : ''}`} onClick={() => navigate('/apicenter')}>
+            <Key size={18} /> <span>API 센터</span>
           </button>
           <button className={`nav-item ${location.pathname === '/statistics' ? 'active' : ''}`} onClick={() => navigate('/statistics')}>
             <BarChart size={18} /> <span>통계</span>

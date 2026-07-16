@@ -14,7 +14,20 @@ class User(Base):
     token_balance = Column(Integer, default=50000)
 
     projects = relationship("Project", back_populates="owner")
+    api_keys = relationship("UserApiKey", back_populates="user", cascade="all, delete-orphan")
 
+
+class UserApiKey(Base):
+    __tablename__ = "user_api_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    provider = Column(String, index=True) # e.g. openai, gemini, kakao, discord, slack
+    api_key = Column(String) # Encrypted or raw for MVP
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    user = relationship("User", back_populates="api_keys")
 
 class Project(Base):
     __tablename__ = "projects"
@@ -121,4 +134,17 @@ class ChatSession(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
     user = relationship("User", backref="chat_sessions")
+
+class EvaluationLog(Base):
+    __tablename__ = "evaluation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    project_id = Column(Integer, nullable=True, index=True)
+    score = Column(Integer, default=0)
+    report = Column(JSON, default=dict)
+    test_case_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id], backref="evaluation_logs")
 

@@ -13,14 +13,67 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square, Network, TestTube } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
 import { useAuth } from '../AuthContext';
 import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DetachedTextNode, WebhookNode } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
+import dagre from 'dagre';
 
+const getLayoutedElements = (nodes, edges, direction = 'LR') => {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+  // Average estimated node dimensions
+  const fallbackWidth = 320;
+  const fallbackHeight = 200;
+
+  // ranksep: horizontal distance between layers (LR)
+  // nodesep: vertical distance between nodes in the same layer
+  dagreGraph.setGraph({ 
+    rankdir: direction, 
+    ranksep: 250, 
+    nodesep: 150,
+    edgesep: 100
+  });
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { 
+      width: node.measured?.width || fallbackWidth, 
+      height: node.measured?.height || fallbackHeight 
+    });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  // Force all edges to bezier curves to prevent straight line overlaps
+  const layoutedEdges = edges.map(edge => ({
+    ...edge,
+    type: 'bezier'
+  }));
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    const width = node.measured?.width || fallbackWidth;
+    const height = node.measured?.height || fallbackHeight;
+    // Shift dagre node position (anchor=center) to top-left
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - width / 2,
+        y: nodeWithPosition.y - height / 2,
+      },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges: layoutedEdges };
+};
 const nodeTypes = {
   webhookNode: WebhookNode,
   detachedText: DetachedTextNode,
@@ -93,7 +146,13 @@ function FlowContent() {
   const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
   const [systemLogs, setSystemLogs] = useState([]);
   const [isExecutionPanelOpen, setIsExecutionPanelOpen] = useState(false);
-  const [executionPanelTab, setExecutionPanelTab] = useState('result'); // 'result' or 'logs'
+  const [executionPanelTab, setExecutionPanelTab] = useState('result'); // 'result' or 'logs' or 'evaluation'
+  const [executionPanelHeight, setExecutionPanelHeight] = useState(300); // initial height in px
+
+  // Evaluation States
+  const [isEvaluating, setIsEvaluating] = useState(false);
+  const [evalStep, setEvalStep] = useState(0);
+  const [evaluationReport, setEvaluationReport] = useState(null);
 
   const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
   const costCurrency = localStorage.getItem('costCurrency') || 'USD';
@@ -123,6 +182,11 @@ function FlowContent() {
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [complexityLevel, setComplexityLevel] = useState('low');
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, isChatLoading]);
 
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
   const [projectDescription, setProjectDescription] = useState('');
@@ -141,12 +205,18 @@ function FlowContent() {
       const graph = location.state.initialGraph;
       setNodes(graph.nodes.map(n => ({
         ...n,
-        data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
+        data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange }
       })));
       setEdges(graph.edges || []);
 
-      if (location.state?.prompt) {
+      if (graph.title) {
+        setProjectTitle(graph.title);
+      } else if (location.state?.prompt) {
         setProjectTitle("AI 생성 워크플로우");
+      }
+      
+      if (graph.description) {
+        setProjectDescription(graph.description);
       }
     }
 
@@ -168,7 +238,7 @@ function FlowContent() {
       if (data.graph_data) {
         setNodes(data.graph_data.nodes.map(n => ({
           ...n,
-          data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
+          data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange }
         })));
         setEdges(data.graph_data.edges || []);
         setIsLive(data.graph_data.is_live || false);
@@ -322,6 +392,78 @@ function FlowContent() {
     setEdges((eds) => eds.filter((edge) => edge.source !== idToDelete && edge.target !== idToDelete));
   }, [setNodes, setEdges]);
 
+  // ── Node expand/collapse push logic ──
+  // Tracks which nodes are currently expanded
+  const expandedNodesRef = useRef(new Set());
+  // Tracks the push deltas applied to other nodes when a node was expanded
+  // Format: { [expandedNodeId]: { [pushedNodeId]: { dx, dy } } }
+  const pushDeltasRef = useRef({});
+
+  const COLLAPSED_W = 140;   // px in flow coordinates
+  const COLLAPSED_H = 140;
+  const EXPANDED_W  = 320;   // approximate expanded width
+  const EXPANDED_H  = 260;   // approximate expanded height
+  const PUSH_MARGIN = 40;    // extra breathing room
+
+  const onExpandChange = useCallback((expandedId, isExpanded) => {
+    setNodes((nds) => {
+      const expandedNode = nds.find(n => n.id === expandedId);
+      if (!expandedNode) return nds;
+
+      if (isExpanded) {
+        expandedNodesRef.current.add(expandedId);
+        
+        const ex = expandedNode.position.x;
+        const ey = expandedNode.position.y;
+        const dw = EXPANDED_W - COLLAPSED_W;
+        const dh = EXPANDED_H - COLLAPSED_H;
+        
+        const currentPushes = {};
+
+        const newNds = nds.map(n => {
+          if (n.id === expandedId) return n;
+          const nx = n.position.x;
+          const ny = n.position.y;
+
+          let dx = 0;
+          let dy = 0;
+
+          // Push right: node is to the right of the expanding node
+          if (nx > ex + COLLAPSED_W - 10) {
+            dx = dw + PUSH_MARGIN;
+          }
+          // Push down: node is below the expanding node (and horizontally overlapping)
+          if (ny > ey + COLLAPSED_H - 10 && nx < ex + EXPANDED_W + PUSH_MARGIN && nx + COLLAPSED_W > ex - PUSH_MARGIN) {
+            dy = dh + PUSH_MARGIN;
+          }
+
+          if (dx === 0 && dy === 0) return n;
+          
+          currentPushes[n.id] = { dx, dy };
+          return { ...n, position: { x: nx + dx, y: ny + dy } };
+        });
+        
+        pushDeltasRef.current[expandedId] = currentPushes;
+        return newNds;
+        
+      } else {
+        expandedNodesRef.current.delete(expandedId);
+        
+        const appliedPushes = pushDeltasRef.current[expandedId];
+        if (!appliedPushes) return nds;
+        delete pushDeltasRef.current[expandedId];
+
+        return nds.map(n => {
+          if (n.id === expandedId) return n;
+          const push = appliedPushes[n.id];
+          if (!push) return n;
+          
+          return { ...n, position: { x: n.position.x - push.dx, y: n.position.y - push.dy } };
+        });
+      }
+    });
+  }, [setNodes]);
+
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
@@ -397,7 +539,7 @@ function FlowContent() {
         id: getId(),
         type,
         position,
-        data: { label: `${type} node`, onChange: onNodeDataChange, onDelete: deleteNode },
+        data: { label: `${type} node`, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange },
         zIndex: type === 'loopNode' ? -1 : 1,
       };
 
@@ -490,6 +632,58 @@ function FlowContent() {
     });
   }, [getIntersectingNodes, setNodes]);
 
+  const evaluateFlow = async () => {
+    const savedId = await handleSave();
+    if (!savedId) {
+      alert("프로젝트 저장에 실패하여 평가를 취소합니다.");
+      return;
+    }
+
+    // Warn about cost if necessary, or just run
+    const confirmed = window.confirm("워크플로우 평가는 다중 LLM 에이전트(Dataset 생성, 실행, 평가, 종합)를 활용하므로 다수의 API 호출이 발생합니다. (테스트 케이스 3개, 외부 API 노드가 있다면 그대로 1회 실행됩니다.)\\n\\n계속하시겠습니까?");
+    if (!confirmed) return;
+
+    setIsEvaluating(true);
+    setEvalStep(0);
+    setEvaluationReport(null);
+    setIsExecutionPanelOpen(true);
+    setExecutionPanelTab('evaluation');
+
+    // Simulate progress steps
+    const stepInterval = setInterval(() => {
+      setEvalStep(prev => (prev < 3 ? prev + 1 : prev));
+    }, 5000);
+
+    try {
+      const currentNodes = getNodes();
+      const currentEdges = getEdges();
+
+      const payload = {
+        project_id: savedId,
+        title: projectTitle,
+        description: projectDescription,
+        graph_data: {
+          nodes: currentNodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+          edges: currentEdges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
+        }
+      };
+
+      const res = await axios.post('/api/evaluate', payload, getAuthHeaders());
+      if (res.data.status === 'success') {
+        setEvaluationReport(res.data.report);
+      } else {
+        alert('평가 실패: ' + res.data.message);
+      }
+    } catch (error) {
+      console.error(error);
+      const detail = error.response?.data?.detail || error.message;
+      alert(`평가 중 오류가 발생했습니다: ${detail}`);
+    } finally {
+      clearInterval(stepInterval);
+      setIsEvaluating(false);
+    }
+  };
+
   const runFlow = async () => {
     // 자동 저장 (실행 전)
     const savedId = await handleSave();
@@ -555,7 +749,7 @@ function FlowContent() {
   const handleLoadTemplate = (templateData) => {
     const loadedNodes = templateData.nodes.map(n => ({
       ...n,
-      data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode }
+      data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange }
     }));
     setNodes(loadedNodes);
     setEdges(templateData.edges || []);
@@ -563,14 +757,27 @@ function FlowContent() {
 
   const getCurrentFlowData = () => {
     return {
+      title: projectTitle !== 'Untitled Project' ? projectTitle : '',
+      description: projectDescription,
       nodes: getNodes().map(n => {
         const nData = { ...n.data };
         delete nData.onChange;
         delete nData.onDelete;
+        delete nData.onExpandChange;
+        delete nData.onClearAIHighlight;
+        delete nData.isAIModified;
+        delete nData.aiChanges;
         return { id: n.id, type: n.type, position: n.position, data: nData };
       }),
       edges: getEdges()
     };
+  };
+
+  const handleClearAllHighlights = () => {
+    setNodes(nds => nds.map(nd => ({
+      ...nd,
+      data: { ...nd.data, isAIModified: false, aiChanges: null }
+    })));
   };
 
   const handleSendChat = async () => {
@@ -604,6 +811,12 @@ function FlowContent() {
       // 챗봇이 flow를 바꿨으면 캔버스에 반영 — 기존 노드에 필요한 콜백(onChange/onDelete)을
       // handleLoadTemplate과 동일하게 다시 주입해줘야 편집/삭제가 계속 동작한다.
       if (graph_data) {
+        if (graph_data.title && (!projectTitle || projectTitle === 'Untitled Project' || projectTitle === 'AI 생성 워크플로우')) {
+          setProjectTitle(graph_data.title);
+        }
+        if (graph_data.description && (!projectDescription || projectDescription === '')) {
+          setProjectDescription(graph_data.description);
+        }
         const currentNodes = getNodes();
         const newLogs = [`> AI 작업 시작: "${userMessage}"`];
 
@@ -611,19 +824,20 @@ function FlowContent() {
           const oldNode = currentNodes.find(on => String(on.id) === String(n.id));
           const isNew = !oldNode;
 
-          // data 중 onChange, onDelete 등을 제외하고 실제 내용만 비교
-          const cleanOldData = oldNode ? { ...oldNode.data } : {};
-          delete cleanOldData.onChange;
-          delete cleanOldData.onDelete;
-          delete cleanOldData.onClearAIHighlight;
-          delete cleanOldData.isAIModified;
+          const stripUIProps = (dataObj) => {
+            if (!dataObj) return {};
+            const clean = { ...dataObj };
+            delete clean.onChange;
+            delete clean.onDelete;
+            delete clean.onExpandChange;
+            delete clean.onClearAIHighlight;
+            delete clean.isAIModified;
+            delete clean.aiChanges;
+            return clean;
+          };
 
-          const cleanNewData = { ...n.data };
-          delete cleanNewData.onChange;
-          delete cleanNewData.onDelete;
-          delete cleanNewData.onClearAIHighlight;
-          delete cleanNewData.isAIModified;
-          delete cleanNewData.aiChanges;
+          const cleanOldData = stripUIProps(oldNode ? oldNode.data : null);
+          const cleanNewData = stripUIProps(n.data);
 
           let aiChanges = [];
           if (oldNode) {
@@ -650,6 +864,7 @@ function FlowContent() {
               aiChanges: (isNew || isModified) ? aiChanges : null,
               onChange: onNodeDataChange,
               onDelete: deleteNode,
+              onExpandChange,
               onClearAIHighlight: (nodeId) => {
                 setNodes(nds => nds.map(nd => String(nd.id) === String(nodeId) ? { ...nd, data: { ...nd.data, isAIModified: false } } : nd));
               }
@@ -661,7 +876,8 @@ function FlowContent() {
 
         if (newLogs.length > 1) {
           setSystemLogs(prev => [...prev, ...newLogs]);
-          setIsTerminalOpen(true);
+          setIsExecutionPanelOpen(true);
+          setExecutionPanelTab('logs');
         }
       }
     } catch (error) {
@@ -854,6 +1070,13 @@ function FlowContent() {
                 {isLive ? "라이브 중지" : "라이브 시작"}
               </button>
             )}
+            <button className="btn-secondary" onClick={() => {
+              const layouted = getLayoutedElements(getNodes(), getEdges(), 'LR');
+              setNodes([...layouted.nodes]);
+              setEdges([...layouted.edges]);
+            }} title="자동 정렬 (Beautify)" style={{ color: '#14b8a6', borderColor: '#14b8a6' }}>
+              <Network size={16} /> 정렬
+            </button>
             <button className="btn-secondary" onClick={() => setIsTemplateModalOpen(true)} title="템플릿 불러오기">
               <Folder size={16} />
             </button>
@@ -906,11 +1129,19 @@ function FlowContent() {
             </button>
           </div>
 
-          {/* Primary Action */}
-          <button className="btn-run" onClick={runFlow} disabled={isLoading} style={{ marginLeft: '0.5rem' }}>
-            <Play size={18} />
-            {isLoading ? '실행 중...' : '실행'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.5rem' }}>
+            {/* Evaluation Action */}
+            <button className="btn-secondary" onClick={evaluateFlow} disabled={isEvaluating || isLoading} style={{ color: '#10b981', borderColor: '#10b981' }}>
+              <TestTube size={18} />
+              {isEvaluating ? '평가 중...' : '평가'}
+            </button>
+            
+            {/* Primary Action */}
+            <button className="btn-run" onClick={runFlow} disabled={isLoading || isEvaluating}>
+              <Play size={18} />
+              {isLoading ? '실행 중...' : '실행'}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -932,14 +1163,20 @@ function FlowContent() {
             onDrop={onDrop}
             onDragOver={onDragOver}
             onNodeDragStop={onNodeDragStop}
+            onPaneClick={handleClearAllHighlights}
             nodeTypes={nodeTypes}
             defaultEdgeOptions={{
               style: { strokeWidth: 2, stroke: 'var(--text-muted)' },
-              type: 'smoothstep'
+              type: 'bezier'
             }}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
             colorMode={appTheme}
+            panOnDrag={[1, 2]}
+            selectionOnDrag={true}
+            selectionMode="partial"
+            panOnScroll={true}
+            onContextMenu={(e) => e.preventDefault()}
           >
             <Controls />
             <MiniMap
@@ -1087,9 +1324,22 @@ function FlowContent() {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'flex-start'
+              alignItems: 'flex-start',
+              gap: '8px'
             }}>
-              <div style={{
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '28px', height: '28px', borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #c084fc, #9333ea)',
+                  display: 'flex', justifyContent: 'center', alignItems: 'center',
+                  color: '#fff',
+                  boxShadow: '0 2px 4px rgba(147, 51, 234, 0.3)'
+                }}>
+                  <Bot size={16} />
+                </div>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>AI가 워크플로우를 그리고 있습니다...</span>
+              </div>
+              <div className="chat-bubble-generating" style={{
                 maxWidth: '85%',
                 padding: '0.75rem 1rem',
                 borderRadius: '12px',
@@ -1097,17 +1347,18 @@ function FlowContent() {
                 color: 'var(--text-color)',
                 fontSize: '0.9rem',
                 lineHeight: '1.4',
-                border: '1px solid var(--border-color)',
+                border: '1px solid #8b5cf6',
                 borderBottomLeftRadius: '4px'
               }}>
                 <div className="typing-indicator" style={{ border: 'none', background: 'transparent', padding: 0, boxShadow: 'none', marginTop: 0 }}>
-                  <div className="typing-dot"></div>
-                  <div className="typing-dot"></div>
-                  <div className="typing-dot"></div>
+                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
+                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
+                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
                 </div>
               </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Chat Input & Options */}
@@ -1192,17 +1443,53 @@ function FlowContent() {
           bottom: 0,
           left: 0,
           right: 0,
-          height: '35vh',
+          height: `${executionPanelHeight}px`,
           minHeight: '250px',
+          maxHeight: '90vh',
           background: 'var(--card-bg)',
           borderTop: '1px solid var(--border-color)',
           zIndex: 900,
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 -10px 30px rgba(0,0,0,0.5)',
-          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
           transform: 'translateY(0)'
         }}>
+          {/* Resize Handle */}
+          <div 
+            style={{
+              height: '8px',
+              width: '100%',
+              background: 'transparent',
+              cursor: 'ns-resize',
+              position: 'absolute',
+              top: '-4px',
+              zIndex: 901,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const startY = e.clientY;
+              const startHeight = executionPanelHeight;
+              
+              const onMouseMove = (moveEvent) => {
+                const delta = startY - moveEvent.clientY;
+                setExecutionPanelHeight(Math.max(250, Math.min(window.innerHeight * 0.9, startHeight + delta)));
+              };
+              
+              const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+              };
+              
+              document.addEventListener('mousemove', onMouseMove);
+              document.addEventListener('mouseup', onMouseUp);
+            }}
+          >
+            <div style={{ width: '40px', height: '4px', background: 'var(--border-color)', borderRadius: '2px', opacity: 0.5 }}></div>
+          </div>
+
           {/* Header & Tabs */}
           <div style={{
             display: 'flex',
@@ -1244,18 +1531,46 @@ function FlowContent() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
-                  fontSize: '0.9rem'
+                  transition: 'all 0.2s'
                 }}
               >
-                <TerminalSquare size={16} /> 시스템 로그
+                <TerminalSquare size={16} /> 실행 로그 (Logs)
+              </button>
+              <button
+                onClick={() => setExecutionPanelTab('evaluation')}
+                style={{
+                  padding: '1rem 1.5rem',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: executionPanelTab === 'evaluation' ? '2px solid #10b981' : '2px solid transparent',
+                  color: executionPanelTab === 'evaluation' ? '#10b981' : 'var(--text-muted)',
+                  fontWeight: executionPanelTab === 'evaluation' ? 600 : 400,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <TestTube size={16} /> 평가 결과 (Eval)
               </button>
             </div>
-            <button
-              onClick={() => setIsExecutionPanelOpen(false)}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.5rem' }}
-            >
-              <X size={20} />
-            </button>
+
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                onClick={() => setIsExecutionPanelOpen(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '0.5rem',
+                  borderRadius: '4px',
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Content Area */}
@@ -1311,6 +1626,118 @@ function FlowContent() {
                 )}
                 <div ref={el => el?.scrollIntoView()} />
               </div>
+            )}
+            
+            {executionPanelTab === 'evaluation' && (
+                <div style={{ padding: '1.5rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto' }}>
+                  {isEvaluating ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '2rem' }}>
+                      <div className="spinner" style={{ width: '50px', height: '50px', border: '4px solid rgba(16, 185, 129, 0.2)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '300px' }}>
+                        {[
+                          "워크플로우 분석 및 Dataset 생성",
+                          "테스트 케이스 시뮬레이션 실행",
+                          "AI 심사위원의 결과 상세 채점",
+                          "최종 리포트 종합 및 제안 도출"
+                        ].map((stepText, idx) => {
+                          const isActive = evalStep === idx;
+                          const isDone = evalStep > idx;
+                          return (
+                            <div key={idx} style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '1rem',
+                              opacity: isDone ? 0.6 : isActive ? 1 : 0.3,
+                              transition: 'opacity 0.3s'
+                            }}>
+                              <div style={{ 
+                                width: '24px', height: '24px', 
+                                borderRadius: '50%', 
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                background: isDone ? '#10b981' : isActive ? 'transparent' : 'rgba(255,255,255,0.1)',
+                                border: isActive ? '2px solid #10b981' : 'none',
+                                color: isDone ? '#fff' : isActive ? '#10b981' : '#888',
+                                fontSize: '0.8rem',
+                                fontWeight: 'bold'
+                              }}>
+                                {isDone ? '✓' : (idx + 1)}
+                              </div>
+                              <span style={{ 
+                                color: isActive ? '#10b981' : 'var(--text-color)', 
+                                fontWeight: isActive ? 600 : 400 
+                              }}>
+                                {stepText}
+                                {isActive && <span style={{ animation: 'blink 1.5s infinite' }}>...</span>}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : evaluationReport ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', background: 'var(--card-bg)', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100px', height: '100px', borderRadius: '50%', border: `8px solid ${evaluationReport.score >= 80 ? '#10b981' : evaluationReport.score >= 50 ? '#f59e0b' : '#ef4444'}` }}>
+                          <span style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-color)' }}>{evaluationReport.score}</span>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-color)' }}>종합 평가 리포트</h3>
+                          <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.5 }}>{evaluationReport.summary}</p>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <h4 style={{ margin: '0 0 1rem 0', color: 'var(--text-color)' }}>테스트 케이스 상세</h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          {evaluationReport.test_results?.map((tc, idx) => (
+                            <div key={idx} style={{ background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1.2rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text-color)' }}>Test Case {idx + 1}</span>
+                                <span style={{ fontWeight: 600, color: tc.score >= 40 ? '#10b981' : tc.score >= 25 ? '#f59e0b' : '#ef4444' }}>Score: {tc.score}/50</span>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                                <div>
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>입력 (Input)</div>
+                                  <div style={{ background: 'var(--card-bg)', padding: '0.8rem', borderRadius: '6px', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{tc.input}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>예상 동작 (Expected)</div>
+                                  <div style={{ background: 'var(--card-bg)', padding: '0.8rem', borderRadius: '6px', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{tc.expected}</div>
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>실제 결과 (Actual)</div>
+                                <div style={{ background: tc.error ? 'rgba(239, 68, 68, 0.1)' : 'var(--card-bg)', border: tc.error ? '1px solid rgba(239, 68, 68, 0.3)' : 'none', padding: '0.8rem', borderRadius: '6px', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>
+                                  {tc.error ? tc.error : tc.actual}
+                                </div>
+                              </div>
+                              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>AI 심사위원 피드백</div>
+                                <div style={{ color: 'var(--text-color)', fontSize: '0.9rem', lineHeight: 1.5 }}>{tc.feedback}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {evaluationReport.suggestions?.length > 0 && (
+                        <div>
+                          <h4 style={{ margin: '0 0 1rem 0', color: '#f59e0b' }}>💡 개선 제안</h4>
+                          <ul style={{ margin: 0, paddingLeft: '1.5rem', color: 'var(--text-color)', lineHeight: 1.6 }}>
+                            {evaluationReport.suggestions.map((sug, idx) => (
+                              <li key={idx} style={{ marginBottom: '0.5rem' }}>{sug}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>상단의 '평가' 버튼을 눌러 워크플로우를 채점해보세요.</span>
+                    </div>
+                  )}
+                </div>
             )}
           </div>
         </div>
