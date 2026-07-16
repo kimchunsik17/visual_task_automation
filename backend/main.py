@@ -99,6 +99,7 @@ class ChatPayload(BaseModel):
     project_id: str
     message: str
     graph_data: Dict[str, Any]
+    complexity_level: str = "low"
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -721,6 +722,7 @@ def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_curren
             payload.graph_data,
             payload.message,
             thread_id=f"project-{payload.project_id}",
+            complexity_level=payload.complexity_level,
         )
         
         # ChatSession 저장 로직
