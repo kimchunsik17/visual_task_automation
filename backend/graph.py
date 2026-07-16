@@ -107,9 +107,9 @@ def compile_workflow(nodes: list, edges: list, project_id=None) -> str:
     lines.append("if has_langfuse:")
     lines.append("    from langfuse.langchain import CallbackHandler")
     if project_id:
-        lines.append(f"    langfuse_handler = CallbackHandler(session_id='project-{project_id}', tags=['workflow_execution'])")
+        lines.append("    langfuse_handler = CallbackHandler()")
     else:
-        lines.append("    langfuse_handler = CallbackHandler(tags=['workflow_execution'])")
+        lines.append("    langfuse_handler = CallbackHandler()")
     lines.append("else:")
     lines.append("    langfuse_handler = None")
     lines.append("from langchain_google_genai import ChatGoogleGenerativeAI")
@@ -183,7 +183,10 @@ def compile_workflow(nodes: list, edges: list, project_id=None) -> str:
                 lines.append(f"    llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\", max_retries=0{api_key_arg})")
                 
             lines.append(f"    if langfuse_handler:")
-            lines.append(f"        llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler])")
+            if project_id:
+                lines.append(f"        llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler], metadata={{'langfuse_session_id': 'project-{project_id}'}}, tags=['workflow_execution'])")
+            else:
+                lines.append(f"        llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler], tags=['workflow_execution'])")
             lines.append(f"    sys_prompt_{node_id} = \"{sys_prompt}\"")
     
     def generate_block(node_id, indent, active_llm_id=None, prev_res_var=None, visited=None):

@@ -53,11 +53,11 @@ def get_eval_llm(project_id=None):
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
     if has_langfuse:
         tags = ["evaluation"]
+        handler = CallbackHandler()
+        metadata = {}
         if project_id:
-            handler = CallbackHandler(session_id=f"project-{project_id}", tags=tags)
-        else:
-            handler = CallbackHandler(tags=tags)
-        llm = llm.with_config(callbacks=[handler])
+            metadata["langfuse_session_id"] = f"project-{project_id}"
+        llm = llm.with_config(callbacks=[handler], metadata=metadata, tags=tags)
     return llm
 
 def generate_golden_dataset(title: str, description: str, nodes: list, edges: list, project_id=None) -> List[TestCase]:
