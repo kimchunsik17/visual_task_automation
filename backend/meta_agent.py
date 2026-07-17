@@ -213,7 +213,7 @@ if has_langfuse:
     from langfuse.langchain import CallbackHandler
 
 # ── LLM 준비 (제공자 교체 지점) ──────────────────────────────────────────
-def get_llm(session_id=None, tags=None, complexity_level="low"):
+def get_llm(session_id=None, tags=None, complexity_level="low", langfuse_handler=None):
     """메타 agent가 쓸 LLM. 현재 OpenAI. 제공자 교체는 여기만 바꾸면 된다.
     gpt-5 계열 reasoning 모델은 temperature 파라미터를 거부/무시하므로 넘기지 않는다."""
     from langchain_openai import ChatOpenAI
@@ -226,14 +226,13 @@ def get_llm(session_id=None, tags=None, complexity_level="low"):
         model_name = "gpt-4o-mini"
         
     llm = ChatOpenAI(model=model_name, temperature=0)
-    if has_langfuse:
+    if has_langfuse and langfuse_handler:
         if tags is None:
             tags = ["agent_generation"]
-        handler = CallbackHandler()
         metadata = {}
         if session_id:
             metadata["langfuse_session_id"] = f"generation-{session_id}"
-        llm = llm.with_config(callbacks=[handler], metadata=metadata, tags=tags)
+        llm = llm.with_config(callbacks=[langfuse_handler], metadata=metadata, tags=tags)
     return llm
     # Gemini로 되돌리려면 위 두 줄 대신:
     # from langchain_google_genai import ChatGoogleGenerativeAI
@@ -1831,7 +1830,7 @@ def _get_default_checkpointer():
     return _default_checkpointer
 
 
-def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None, thread_id: str = ""):
+def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None, thread_id: str = "", langfuse_handler=None):
     """이번 요청 전용 에이전트 + get_current_graph 접근자를 만든다. (tools, agent 둘 다 요청마다 새로 만듦.)"""
     from langchain.agents import create_agent
 
@@ -1854,7 +1853,7 @@ def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpoint
         )
 
     agent = create_agent(
-        get_llm(session_id=thread_id, complexity_level=complexity_level),
+        get_llm(session_id=thread_id, complexity_level=complexity_level, langfuse_handler=langfuse_handler),
         tools=tools,
         system_prompt=prompt,
         checkpointer=checkpointer or _get_default_checkpointer(),
@@ -1878,7 +1877,12 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
         edges=graph_data.get("edges", [])
     )
     initial_dump = g.model_dump()
-    agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id)
+    
+    handler = None
+    if has_langfuse:
+        handler = CallbackHandler()
+        
+    agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id, langfuse_handler=handler)
 
     # 사용자 문서 기반 RAG 컨텍스트 주입
     project_id = thread_id.replace("project-", "") if thread_id.startswith("project-") else ""
@@ -1908,6 +1912,8 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
 
     # If the AI did not modify the graph in this turn, just return as is without warnings.
     if initial_dump == final_graph.model_dump():
+        if handler and hasattr(handler, 'flush'):
+            handler.flush()
         return reply, graph_data, token_usage
 
     ok, errs = validate_flow(final_graph, require_complete=False)  # 에디터 편집 중일 수 있으므로 완결성 검증은 완화
@@ -1917,6 +1923,9 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     
     if not ok:
         reply += f"\n\n(⚠️ 일부 구조적 문제가 있어 확인이 필요합니다: {'; '.join(errs)})"
+
+    if handler and hasattr(handler, 'flush'):
+        handler.flush()
 
     return reply, response_graph_data, token_usage
 

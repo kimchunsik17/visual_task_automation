@@ -48,21 +48,20 @@ class EvaluationReport(BaseModel):
 
 # --- Evaluator Agents ---
 
-def get_eval_llm(project_id=None):
+def get_eval_llm(project_id=None, langfuse_handler=None):
     # Use gpt-4o-mini for cost-efficiency but decent logic
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
-    if has_langfuse:
+    if has_langfuse and langfuse_handler:
         tags = ["evaluation"]
-        handler = CallbackHandler()
         metadata = {}
         if project_id:
             metadata["langfuse_session_id"] = f"project-{project_id}"
-        llm = llm.with_config(callbacks=[handler], metadata=metadata, tags=tags)
+        llm = llm.with_config(callbacks=[langfuse_handler], metadata=metadata, tags=tags)
     return llm
 
-def generate_golden_dataset(title: str, description: str, nodes: list, edges: list, project_id=None) -> List[TestCase]:
+def generate_golden_dataset(title: str, description: str, nodes: list, edges: list, project_id=None, langfuse_handler=None) -> List[TestCase]:
     """Generates test cases based on the workflow's structure and description."""
-    llm = get_eval_llm(project_id).with_structured_output(DatasetGenerationResult)
+    llm = get_eval_llm(project_id, langfuse_handler).with_structured_output(DatasetGenerationResult)
     
     # Analyze if there's a dynamic input node to know what to provide
     input_labels = []
@@ -96,9 +95,9 @@ def generate_golden_dataset(title: str, description: str, nodes: list, edges: li
     })
     return res.test_cases
 
-def evaluate_test_case(test_case: TestCase, actual_output: str, error: str, project_id=None) -> JudgeScore:
+def evaluate_test_case(test_case: TestCase, actual_output: str, error: str, project_id=None, langfuse_handler=None) -> JudgeScore:
     """Evaluates a single test case result and returns a score breakdown."""
-    llm = get_eval_llm(project_id).with_structured_output(JudgeScore)
+    llm = get_eval_llm(project_id, langfuse_handler).with_structured_output(JudgeScore)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are an AI Judge evaluating a workflow's execution output. Score it across 5 criteria (1-10 each) and provide feedback. The feedback MUST be written in Korean."),
@@ -114,9 +113,9 @@ def evaluate_test_case(test_case: TestCase, actual_output: str, error: str, proj
     })
     return res
 
-def summarize_evaluation(test_results: List[TestCaseResult], project_id=None) -> dict:
+def summarize_evaluation(test_results: List[TestCaseResult], project_id=None, langfuse_handler=None) -> dict:
     """Creates a final summary and score from all test case results."""
-    llm = get_eval_llm(project_id).with_structured_output(EvaluationReport)
+    llm = get_eval_llm(project_id, langfuse_handler).with_structured_output(EvaluationReport)
     
     total_score = sum(r.total_score for r in test_results)
     max_possible = len(test_results) * 50
@@ -153,7 +152,7 @@ def summarize_evaluation(test_results: List[TestCaseResult], project_id=None) ->
     ]
     return report_dict
 
-async def run_evaluation_pipeline(project_id: int, title: str, description: str, nodes: list, edges: list, db, yield_status=None):
+async def run_evaluation_pipeline(project_id: int, title: str, description: str, nodes: list, edges: list, db, yield_status=None, user_id: int = None):
     """
     Runs the entire evaluation pipeline:
     1. Generate 3 golden test cases
@@ -172,16 +171,21 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
 
     eval_token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
+    handler = None
+    if has_langfuse:
+        handler = CallbackHandler()
+
     async def _run_pipeline():
         try:
-            test_cases = generate_golden_dataset(title, description, nodes, edges, project_id)
+            if yield_status:
+                yield_status("테스트 케이스 생성 중...")
+            test_cases = generate_golden_dataset(title, description, nodes, edges, project_id, handler)
         except Exception as e:
             print(f"Failed to generate dataset: {e}")
             return {"error": "Failed to generate dataset"}
 
         results = []
         for i, tc in enumerate(test_cases):
-            if yield_status: yield_status(f"실행 중... ({i+1}/3)")
             inputs = {"default_input": tc.input}
             try:
                 result_text, tokens, logs = run_workflow(nodes, edges, db=db, **inputs)
@@ -192,9 +196,10 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
                 result_text = ""
                 error_msg = str(e)
 
-            if yield_status: yield_status(f"평가 중... ({i+1}/3)")
+            if yield_status:
+                yield_status(f"테스트 {i+1} 결과 평가 중...")
             try:
-                score = evaluate_test_case(tc, result_text, error_msg, project_id)
+                score = evaluate_test_case(tc, result_text, error_msg, project_id, handler)
                 total = sum([score.correctness, score.completeness, score.consistency, score.error_handling, score.usefulness])
             except Exception as e:
                 print(f"Evaluation failed: {e}")
@@ -210,7 +215,9 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
             )
             results.append(tcr)
 
-        return summarize_evaluation(results)
+        if yield_status:
+            yield_status("최종 리포트 생성 중...")
+        return summarize_evaluation(results, project_id, handler)
 
     # 토큰 추적 래퍼
     if use_cb:
@@ -231,6 +238,7 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
         try:
             import json as _json
             db_log = models.FlowExecutionLog(
+                user_id=user_id,
                 project_id=project_id,
                 payload="Evaluation Pipeline",
                 result=f"Score: {report.get('score', 0)}/100",
@@ -246,5 +254,8 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
 
         # token_usage를 report에 포함
         report["token_usage"] = eval_token_usage
+
+    if handler and hasattr(handler, 'flush'):
+        handler.flush()
 
     return report
