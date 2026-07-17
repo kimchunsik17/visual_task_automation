@@ -21,6 +21,7 @@ import { useAuth } from '../AuthContext';
 import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DetachedTextNode, WebhookNode } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 import dagre from 'dagre';
+import ReactMarkdown from 'react-markdown';
 
 const getLayoutedElements = (nodes, edges, direction = 'LR') => {
   const dagreGraph = new dagre.graphlib.Graph();
@@ -1333,9 +1334,17 @@ function FlowContent() {
                 lineHeight: '1.4',
                 border: msg.role === 'user' ? 'none' : '1px solid var(--border-color)',
                 borderBottomRightRadius: msg.role === 'user' ? '4px' : '12px',
-                borderBottomLeftRadius: msg.role === 'assistant' ? '4px' : '12px'
+                borderBottomLeftRadius: msg.role === 'assistant' ? '4px' : '12px',
+                wordBreak: 'break-word'
               }}>
-                {msg.content}
+                <ReactMarkdown components={{
+                  p: ({node, ...props}) => <p style={{ margin: 0, paddingBottom: '0.5rem' }} {...props} />,
+                  ul: ({node, ...props}) => <ul style={{ marginTop: '0.5rem', marginBottom: 0, paddingLeft: '1.5rem' }} {...props} />,
+                  ol: ({node, ...props}) => <ol style={{ marginTop: '0.5rem', marginBottom: 0, paddingLeft: '1.5rem' }} {...props} />,
+                  li: ({node, ...props}) => <li style={{ marginBottom: '0.25rem' }} {...props} />
+                }}>
+                  {msg.content}
+                </ReactMarkdown>
               </div>
             </div>
           ))}

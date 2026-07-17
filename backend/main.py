@@ -27,6 +27,7 @@ from graph import compile_workflow, run_workflow
 from meta_agent import run_agent_turn
 import discord_bot
 import scheduler
+from rag_utils import process_and_store_chat_context
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key")
 JWT_ALGORITHM = "HS256"
@@ -116,6 +117,38 @@ async def upload_file(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     return {"status": "success", "file_path": file_path, "filename": safe_filename}
+
+from fastapi import Form
+
+@app.post("/api/chat/upload_context")
+async def upload_chat_context(project_id: str = Form(...), files: List[UploadFile] = File(...)):
+    """
+    Receives multiple files, extracts text, and stores chunks in the ChromaDB collection
+    for the specific project_id to be used in RAG.
+    """
+    processed_files = []
+    total_chunks = 0
+    
+    for file in files:
+        safe_filename = os.path.basename(file.filename)
+        if not safe_filename:
+            continue
+            
+        file_path = os.path.join("uploads", f"{uuid.uuid4()}_{safe_filename}")
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        chunks_added = process_and_store_chat_context(project_id, file_path, safe_filename)
+        total_chunks += chunks_added
+        processed_files.append(safe_filename)
+        
+        # Cleanup file after processing
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+            
+    return {"status": "success", "processed_files": processed_files, "total_chunks": total_chunks}
 
 security = HTTPBearer(auto_error=False)
 

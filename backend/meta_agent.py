@@ -26,6 +26,7 @@ import re
 from typing import Literal, List, Dict, Any, Optional, Tuple, Callable
 from collections import defaultdict, deque
 from pydantic import BaseModel, Field
+from rag_utils import retrieve_chat_context
 
 
 # httpRequestNode/webCrawlerNode의 url을 실제로 모를 때 쓰는 채움 표시자. validate_flow는
@@ -212,11 +213,19 @@ if has_langfuse:
     from langfuse.langchain import CallbackHandler
 
 # ── LLM 준비 (제공자 교체 지점) ──────────────────────────────────────────
-def get_llm(session_id=None, tags=None):
+def get_llm(session_id=None, tags=None, complexity_level="low"):
     """메타 agent가 쓸 LLM. 현재 OpenAI. 제공자 교체는 여기만 바꾸면 된다.
     gpt-5 계열 reasoning 모델은 temperature 파라미터를 거부/무시하므로 넘기지 않는다."""
     from langchain_openai import ChatOpenAI
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    
+    if complexity_level == "high":
+        model_name = "gpt-5.4"
+    elif complexity_level == "medium":
+        model_name = "gpt-5.4-mini"
+    else:
+        model_name = "gpt-4o-mini"
+        
+    llm = ChatOpenAI(model=model_name, temperature=0)
     if has_langfuse:
         if tags is None:
             tags = ["agent_generation"]
@@ -827,8 +836,8 @@ def _strip_positions(g: FlowGraph) -> FlowGraph:
     return g
 
 
-def generate_flow(user_request: str) -> FlowGraph:
-    llm = get_llm().with_structured_output(FlowGraph, method="function_calling")   # 출력을 FlowGraph 형식으로 강제
+def generate_flow(user_request: str, complexity_level: str = "low") -> FlowGraph:
+    llm = get_llm(complexity_level=complexity_level).with_structured_output(FlowGraph, method="function_calling")   # 출력을 FlowGraph 형식으로 강제
     messages = [
         ("system", SYSTEM + "\n\n" + FEWSHOT_FAST),
         ("user", f'요청: "{user_request}"\n위 규칙에 맞는 graph_data를 만들어줘.'),
@@ -836,13 +845,13 @@ def generate_flow(user_request: str) -> FlowGraph:
     return _strip_positions(llm.invoke(messages))
 
 
-def generate_flow_from_template(user_request: str, template: FlowGraph, session_id=None) -> FlowGraph:
+def generate_flow_from_template(user_request: str, template: FlowGraph, session_id=None, complexity_level: str = "low") -> FlowGraph:
     """Medium 모드 전용: Pre-translated DB에서 가져온 템플릿의 구조를 골격으로 유지하면서
     파라미터만 사용자 요청에 맞게 수정한다.
 
     템플릿이 비선형(분기/병합/반복)이면 결과도 자연스럽게 비선형 구조를 유지한다.
     사용자가 짧게 말해도 프로덕트급 워크플로우가 나오는 핵심 메커니즘."""
-    llm = get_llm(session_id=session_id, tags=["template_application"]).with_structured_output(FlowGraph, method="function_calling")
+    llm = get_llm(session_id=session_id, tags=["template_application"], complexity_level=complexity_level).with_structured_output(FlowGraph, method="function_calling")
     messages = [
         ("system", MEDIUM_SYSTEM),
         ("user",
@@ -868,10 +877,10 @@ PRECISE_SYSTEM = (
 )
 
 
-def generate_flow_precise(user_request: str) -> FlowGraph:
+def generate_flow_precise(user_request: str, complexity_level: str = "high") -> FlowGraph:
     """정밀 모드 전용: 템플릿 검색 없이, 사용자 요청을 더 꼼꼼히 해석해서
     프로덕트급 수준으로 살을 붙여 생성한다."""
-    llm = get_llm().with_structured_output(FlowGraph, method="function_calling")
+    llm = get_llm(complexity_level=complexity_level).with_structured_output(FlowGraph, method="function_calling")
     messages = [
         ("system", PRECISE_SYSTEM + "\n\n" + FEWSHOT_PRECISE),
         ("user", f'요청: "{user_request}"\n위 규칙에 맞는, 실제 서비스 수준으로 구체화된 graph_data를 만들어줘.'),
@@ -1439,13 +1448,13 @@ def _topo_order(ids: List[str], edges: List[FlowEdge]) -> List[str]:
 
 
 # ── ⑦ 생성 + 검증 + 재시도 ───────────────────────────────────────────────
-def generate_safely(user_request: str) -> dict:
+def generate_safely(user_request: str, complexity_level: str = "low") -> dict:
     """생성 → Validator 통과분만 반환. 실패하면 사유를 붙여 1회 재시도."""
-    g = generate_flow(user_request)
+    g = generate_flow(user_request, complexity_level=complexity_level)
     ok, errs = validate_flow(g)
     if not ok:
         retry = f'{user_request}\n\n(직전 생성이 아래 이유로 잘못됐다. 고쳐서 다시: {"; ".join(errs)})'
-        g = generate_flow(retry)
+        g = generate_flow(retry, complexity_level=complexity_level)
         ok, errs = validate_flow(g)
     if not ok:
         raise ValueError(f"유효한 플로우 생성 실패: {errs}")
@@ -1702,7 +1711,7 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
         
         if complexity_level == "high":
             # ── 정밀 모드: 템플릿 검색 없이, 요청을 더 꼼꼼히 해석해서 살을 붙여 생성 ──
-            g = generate_flow_precise(request)
+            g = generate_flow_precise(request, complexity_level=complexity_level)
             mode_label = "정밀 생성"
 
         elif complexity_level == "medium":
@@ -1724,9 +1733,9 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
         # 확장 모드에서 템플릿을 못 찾았을 때
         if not g:
             if template:
-                g = generate_flow_from_template(request, template)
+                g = generate_flow_from_template(request, template, complexity_level=complexity_level)
             else:
-                g = generate_flow(request)  # low 모드 또는 fallback
+                g = generate_flow(request, complexity_level=complexity_level)  # low 모드 또는 fallback
 
         # ── Validation + 재시도 (최대 5회 시도 — LLM이 검증 에러 메시지를 보고도 매번
         # 고치는 건 아니라서, 1회만으로는 실패율이 꽤 있었다) ──
@@ -1839,7 +1848,7 @@ def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpoint
         )
 
     agent = create_agent(
-        get_llm(),
+        get_llm(complexity_level=complexity_level),
         tools=tools,
         system_prompt=prompt,
         checkpointer=checkpointer or _get_default_checkpointer(),
@@ -1865,9 +1874,13 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     initial_dump = g.model_dump()
     agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer)
 
-    # 확장, 정밀 모드 모두 내부 도구(_generate_flow_tool)에서 RAG/생성을 처리하므로
-    # 추가적인 프롬프트 조작(rag_context 첨부)은 하지 않습니다.
+    # 사용자 문서 기반 RAG 컨텍스트 주입
+    project_id = thread_id.replace("project-", "") if thread_id.startswith("project-") else ""
+    context = retrieve_chat_context(project_id, message) if project_id else ""
+    
     final_message = message
+    if context:
+        final_message = f"{message}\n\n{context}"
 
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": final_message}]},
@@ -1881,12 +1894,13 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     if initial_dump == final_graph.model_dump():
         return reply, graph_data
 
-    ok, errs = validate_flow(final_graph)  # require_complete=True(기본값) — 최종 완결성 게이트
-    if ok:
-        response_graph_data = auto_layout(final_graph)
-    else:
-        response_graph_data = graph_data  # 미완성이면 캔버스에 반영하지 않고 원본 그대로 유지
-        reply += f"\n\n(⚠️ 아직 실행 가능한 상태가 아니라 캔버스에는 반영하지 않았습니다: {'; '.join(errs)})"
+    ok, errs = validate_flow(final_graph, require_complete=False)  # 에디터 편집 중일 수 있으므로 완결성 검증은 완화
+    
+    # 캔버스에는 항상 반영 (에러가 있어도 사용자가 눈으로 보고 수정할 수 있도록)
+    response_graph_data = auto_layout(final_graph)
+    
+    if not ok:
+        reply += f"\n\n(⚠️ 일부 구조적 문제가 있어 확인이 필요합니다: {'; '.join(errs)})"
 
     return reply, response_graph_data
 

@@ -24,16 +24,56 @@
   border-bottom: 1px solid var(--border-color);
   white-space: nowrap;
   overflow: hidden;
+  transition: padding 0.3s;
+}
+
+.main-sidebar.collapsed .main-sidebar-header {
+  padding: 1.5rem 0;
+  justify-content: center;
+  gap: 0;
+}
+
+.brand-logo {
+  width: 45px;
+  height: 45px;
+  object-fit: contain;
+  transition: width 0.3s, height 0.3s;
+  flex-shrink: 0;
+}
+
+.main-sidebar.collapsed .brand-logo {
+  width: 36px;
+  height: 36px;
 }
 
 .brand-name {
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: var(--text-color);
+  font-size: 1.4rem;
+  font-weight: 800;
   letter-spacing: -0.5px;
   transition: opacity 0.2s, width 0.2s;
   opacity: 1;
 }
+
+/* 로고 전체 컨테이너 및 기본 글씨 설정 */
+.logo-container {
+  font-family: 'Poppins', 'Helvetica Neue', sans-serif;
+  /* 깔끔한 산세리프 폰트 권장 */
+  font-size: 1.5rem;
+  /* 원본 2.5rem은 너무 클 수 있어 살짝 조절, 필요시 2.5rem 사용 */
+  font-weight: 700;
+  color: #ffffff;
+  /* 글씨 기본 색상 (흰색) */
+  /* background-color: #1e2632; 로고 배경색 (헤더 배경과 어울리도록 주석처리 또는 유지) */
+  display: flex;
+  align-items: center;
+}
+
+/* WorkFlow: 깔끔하게 유지 */
+.text-workflow {
+  color: #ffffff;
+}
+
+
 
 .main-sidebar.collapsed .brand-name,
 .main-sidebar.collapsed .nav-item span,
@@ -172,3 +212,16 @@
   margin: 0;
 }
 
+.login-collapsed-icon {
+  display: none;
+}
+
+.main-sidebar.collapsed .login-container {
+  display: none;
+}
+
+.main-sidebar.collapsed .login-collapsed-icon {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}

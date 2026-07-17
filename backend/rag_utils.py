@@ -6,6 +6,10 @@ from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 import json
+import fitz  # PyMuPDF
+import docx
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 load_dotenv()
 
@@ -44,6 +48,59 @@ def search_templates(query: str, complexity_level: str, k: int = 2) -> List[Dict
     except Exception as e:
         print(f"Error searching ChromaDB: {e}")
         return []
+
+def process_and_store_chat_context(project_id: str, file_path: str, filename: str) -> int:
+    """Extracts text from a file, chunks it, and stores it in the project's RAG context collection."""
+    text = ""
+    ext = file_path.lower().split(".")[-1]
+    
+    try:
+        if ext == "pdf":
+            doc = fitz.open(file_path)
+            for page in doc:
+                text += page.get_text() + "\n"
+        elif ext in ["doc", "docx"]:
+            doc = docx.Document(file_path)
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+        else:
+            # Try plain text
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+    except Exception as e:
+        print(f"Error extracting text from {filename}: {e}")
+        return 0
+
+    if not text.strip():
+        return 0
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    docs = splitter.create_documents([text], metadatas=[{"source": filename}])
+    
+    store = get_vector_store(f"chat_context_{project_id}")
+    store.add_documents(docs)
+    return len(docs)
+
+def retrieve_chat_context(project_id: str, query: str, k: int = 4) -> str:
+    """Retrieves relevant document chunks for the given project's context collection."""
+    store = get_vector_store(f"chat_context_{project_id}")
+    try:
+        # Avoid error if collection is empty
+        if store._collection.count() == 0:
+            return ""
+        
+        results = store.similarity_search(query, k=k)
+        if not results:
+            return ""
+            
+        context_str = "--- 문서 자료 ---\n"
+        for doc in results:
+            source = doc.metadata.get("source", "Unknown")
+            context_str += f"[{source}]:\n{doc.page_content}\n\n"
+        return context_str.strip()
+    except Exception as e:
+        print(f"Error retrieving context for project {project_id}: {e}")
+        return ""
 
 
 class _CategoryPick(BaseModel):

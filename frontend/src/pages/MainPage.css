@@ -40,26 +40,31 @@
 
 .chat-message {
   display: flex;
-  gap: 1.5rem;
+  gap: 1.25rem;
   align-items: flex-start;
   width: 100%;
-  max-width: 100%;
   animation: fadeIn 0.3s ease-out;
 }
 
 .chat-message.user {
-  align-self: flex-start;
-  flex-direction: row;
+  align-self: flex-end;
+  flex-direction: row-reverse;
+  max-width: 85%;
+}
+
+.chat-message.user .chat-avatar {
+  display: none;
 }
 
 .chat-message.ai {
   align-self: flex-start;
+  max-width: 90%;
 }
 
 .chat-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -67,17 +72,15 @@
 }
 
 .ai-avatar {
-  background: linear-gradient(135deg, #c084fc, #9333ea);
-  color: var(--text-color);
+  background: transparent;
+  color: #f59e0b;
+  /* Sparkle color to match Claude's star/icon */
 }
 
 .chat-bubble {
-  padding: 0.2rem 0 0 0;
-  font-size: 1.15rem;
-  line-height: 1.7;
+  font-size: 1.05rem;
+  line-height: 1.6;
   color: var(--text-color);
-  background: transparent !important;
-  border: none !important;
   width: 100%;
   word-break: break-word;
 }
@@ -91,7 +94,8 @@
   margin-bottom: 0;
 }
 
-.chat-bubble ul, .chat-bubble ol {
+.chat-bubble ul,
+.chat-bubble ol {
   margin-top: 0.5rem;
   margin-bottom: 0.75rem;
   padding-left: 1.5rem;
@@ -103,7 +107,7 @@
 
 .chat-bubble strong {
   font-weight: 700;
-  color: #a78bfa; /* Highlighted strong text */
+  color: #e2e8f0;
 }
 
 .chat-bubble a {
@@ -118,11 +122,16 @@
 }
 
 .chat-message.user .chat-bubble {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.08) !important;
+  padding: 0.75rem 1.25rem;
+  border-radius: 18px;
+  display: inline-block;
+  width: auto;
 }
 
 .chat-message.ai .chat-bubble {
-  background: transparent;
+  background: transparent !important;
+  padding: 0.1rem 0;
 }
 
 .chat-input-wrapper {
@@ -133,8 +142,15 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .chat-hero-header h2 {
@@ -227,8 +243,8 @@
   font-size: 0.85rem;
   color: var(--text-muted);
   background: transparent;
-  border: 1px solid var(--border-color);
-  padding: 0.5rem 1rem;
+  border: 3px solid var(--border-color);
+  padding: 0.3rem 0.5rem;
   border-radius: 100px;
   cursor: pointer;
   transition: all 0.2s;
@@ -238,25 +254,6 @@
   background: var(--card-bg);
   color: var(--text-color);
   border-color: var(--text-color);
-}
-
-.quick-action-card-minimal {
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-align: left;
-}
-
-.quick-action-card-minimal:hover {
-  background: var(--card-bg);
-  border-color: var(--text-color);
-  transform: translateY(-2px);
 }
 
 .qa-icon-minimal {
@@ -372,4 +369,3 @@
   flex: 1;
   justify-content: center;
 }
-

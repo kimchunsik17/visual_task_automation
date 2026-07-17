@@ -3,8 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
-import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock, Globe, Key } from 'lucide-react';
+import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock, Globe, Key, User } from 'lucide-react';
 import ChatSidebar from './ChatSidebar';
+import logoImg from './logo.png';
 import './MainSidebar.css';
 
 const MainSidebar = ({ onSelectSession }) => {
@@ -20,7 +21,7 @@ const MainSidebar = ({ onSelectSession }) => {
       try {
         const res = await axios.get('/api/friends/pending-count', { headers: { Authorization: `Bearer ${token}` } });
         setPendingCount(res.data.count);
-      } catch (e) {/* silent */}
+      } catch (e) {/* silent */ }
     };
     fetchCount();
     const interval = setInterval(fetchCount, 5000);
@@ -41,8 +42,8 @@ const MainSidebar = ({ onSelectSession }) => {
 
   return (
     <>
-      <aside 
-        className={`main-sidebar ${activeSidebar === 'chat' ? 'collapsed' : ''}`} 
+      <aside
+        className={`main-sidebar ${activeSidebar === 'chat' ? 'collapsed' : ''}`}
         onClick={(e) => {
           if (activeSidebar === 'chat') {
             setActiveSidebar('main');
@@ -50,8 +51,11 @@ const MainSidebar = ({ onSelectSession }) => {
         }}
       >
         <div className="main-sidebar-header">
-          <Wand2 size={24} color="#60a5fa" />
-          <span className="brand-name">Auto Flow</span>
+          <img src={logoImg} alt="Auto Flow Logo" className="brand-logo" />
+          <span className="brand-name logo-container">
+            <span className="text-workflow">WorkFlow</span>
+            <span className="text-ai">&nbsp;Ai</span>
+          </span>
         </div>
 
         <nav className="main-nav">
@@ -116,23 +120,28 @@ const MainSidebar = ({ onSelectSession }) => {
               <button onClick={logout} className="btn-logout">로그아웃</button>
             </div>
           ) : (
-            <div className="login-container">
-              <p className="login-hint">로그인하여 워크플로우를 저장하세요</p>
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={() => {
-                  console.log('Login Failed');
-                }}
-              />
-            </div>
+            <>
+              <div className="login-container">
+                <p className="login-hint">로그인하여 워크플로우를 저장하세요</p>
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => {
+                    console.log('Login Failed');
+                  }}
+                />
+              </div>
+              <div className="login-collapsed-icon">
+                <User size={24} color="var(--text-muted)" />
+              </div>
+            </>
           )}
         </div>
       </aside>
-      <ChatSidebar 
-        isOpen={activeSidebar === 'chat'} 
+      <ChatSidebar
+        isOpen={activeSidebar === 'chat'}
         onExpand={() => setActiveSidebar('chat')}
         onClose={() => setActiveSidebar('main')}
-        onSelectSession={onSelectSession} 
+        onSelectSession={onSelectSession}
       />
     </>
   );
