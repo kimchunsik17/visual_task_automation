@@ -893,14 +893,25 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
             complexity_level=payload.complexity_level,
         )
         
-        # 에이전트 토큰 차감
+        # 에이전트 토큰 차감 + DB 기록
         total_tokens = token_usage.get("total_tokens", 0)
         if user and total_tokens > 0:
             user.token_balance -= total_tokens
             try:
+                db_log = models.FlowExecutionLog(
+                    user_id=user.id,
+                    project_id=int(payload.project_id) if str(payload.project_id).isdigit() else None,
+                    payload=f"Agent Chat: {payload.message[:200]}",
+                    result=reply[:500] if reply else "",
+                    total_tokens=total_tokens,
+                    token_usage_details=token_usage,
+                    status="agent",
+                )
+                db.add(db_log)
                 db.commit()
-            except Exception:
+            except Exception as e:
                 db.rollback()
+                print(f"Failed to save agent token log: {e}")
         
         # ChatSession 저장 로직
         if user:
@@ -1546,13 +1557,20 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         usage = {}
         for i in range(24):
             t = start_time + datetime.timedelta(hours=i)
-            usage[t.strftime("%Y-%m-%d %H:00")] = 0
+            usage[t.strftime("%Y-%m-%d %H:00")] = {"execution": 0, "agent": 0, "evaluation": 0}
         for log in recent_logs:
             if log.execution_time:
                 t_str = log.execution_time.strftime("%Y-%m-%d %H:00")
                 if t_str in usage:
-                    usage[t_str] += log.total_tokens
-        chart_data = [{"date": k[-5:], "tokens": v, "fullDate": k} for k, v in sorted(usage.items())]
+                    slot = usage[t_str]
+                    tok = log.total_tokens or 0
+                    if log.status == "agent":
+                        slot["agent"] += tok
+                    elif log.status == "evaluation":
+                        slot["evaluation"] += tok
+                    else:
+                        slot["execution"] += tok
+        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), "execution": v["execution"], "agent": v["agent"], "evaluation": v["evaluation"], "fullDate": k} for k, v in sorted(usage.items())]
 
     elif time_range == "monthly":
         start_time = now - datetime.timedelta(days=29)
@@ -1564,21 +1582,27 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         usage = {}
         for i in range(30):
             d = (start_time + datetime.timedelta(days=i)).date().isoformat()
-            usage[d] = 0
+            usage[d] = {"execution": 0, "agent": 0, "evaluation": 0}
         for log in recent_logs:
             if log.execution_time:
                 d_str = log.execution_time.date().isoformat()
                 if d_str in usage:
-                    usage[d_str] += log.total_tokens
-        chart_data = [{"date": k[-5:], "tokens": v, "fullDate": k} for k, v in sorted(usage.items())]
+                    slot = usage[d_str]
+                    tok = log.total_tokens or 0
+                    if log.status == "agent":
+                        slot["agent"] += tok
+                    elif log.status == "evaluation":
+                        slot["evaluation"] += tok
+                    else:
+                        slot["execution"] += tok
+        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), "execution": v["execution"], "agent": v["agent"], "evaluation": v["evaluation"], "fullDate": k} for k, v in sorted(usage.items())]
 
     elif time_range == "yearly":
         usage = {}
         m = now.month
         y = now.year
         for i in range(12):
-            usage[f"{y}-{m:02d}"] = 0
-            
+            usage[f"{y}-{m:02d}"] = {"execution": 0, "agent": 0, "evaluation": 0}
             m -= 1
             if m == 0:
                 m = 12
@@ -1593,8 +1617,15 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
             if log.execution_time:
                 m_str = log.execution_time.strftime("%Y-%m")
                 if m_str in usage:
-                    usage[m_str] += log.total_tokens
-        chart_data = [{"date": k, "tokens": v, "fullDate": k} for k, v in sorted(usage.items())]
+                    slot = usage[m_str]
+                    tok = log.total_tokens or 0
+                    if log.status == "agent":
+                        slot["agent"] += tok
+                    elif log.status == "evaluation":
+                        slot["evaluation"] += tok
+                    else:
+                        slot["execution"] += tok
+        chart_data = [{"date": k, "tokens": sum(v.values()), "execution": v["execution"], "agent": v["agent"], "evaluation": v["evaluation"], "fullDate": k} for k, v in sorted(usage.items())]
 
     else: # weekly
         start_time = now - datetime.timedelta(days=6)
@@ -1606,13 +1637,32 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         usage = {}
         for i in range(7):
             d = (start_time + datetime.timedelta(days=i)).date().isoformat()
-            usage[d] = 0
+            usage[d] = {"execution": 0, "agent": 0, "evaluation": 0}
         for log in recent_logs:
             if log.execution_time:
                 d_str = log.execution_time.date().isoformat()
                 if d_str in usage:
-                    usage[d_str] += log.total_tokens
-        chart_data = [{"date": k[-5:], "tokens": v, "fullDate": k} for k, v in sorted(usage.items())]
+                    slot = usage[d_str]
+                    tok = log.total_tokens or 0
+                    if log.status == "agent":
+                        slot["agent"] += tok
+                    elif log.status == "evaluation":
+                        slot["evaluation"] += tok
+                    else:
+                        slot["execution"] += tok
+        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), "execution": v["execution"], "agent": v["agent"], "evaluation": v["evaluation"], "fullDate": k} for k, v in sorted(usage.items())]
+
+    # 용도별 누적 사용량
+    all_logs = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.user_id == user.id).all()
+    usage_by_type = {"execution": 0, "agent": 0, "evaluation": 0}
+    for log in all_logs:
+        tok = log.total_tokens or 0
+        if log.status == "agent":
+            usage_by_type["agent"] += tok
+        elif log.status == "evaluation":
+            usage_by_type["evaluation"] += tok
+        else:
+            usage_by_type["execution"] += tok
 
     # Project usage
     project_usage_rows = db.query(
@@ -1638,7 +1688,8 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
     
     none_usage = db.query(func.sum(models.FlowExecutionLog.total_tokens)).filter(
         models.FlowExecutionLog.user_id == user.id,
-        models.FlowExecutionLog.project_id.is_(None)
+        models.FlowExecutionLog.project_id.is_(None),
+        models.FlowExecutionLog.status.notin_(["agent", "evaluation"])
     ).scalar()
     
     if none_usage:
@@ -1651,8 +1702,10 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         "remaining": remaining,
         "total_allocated": total_allocated,
         "chart_data": chart_data,
-        "project_usage": project_usage
+        "project_usage": project_usage,
+        "usage_by_type": usage_by_type,
     }
+
 
 class FriendAddPayload(BaseModel):
     email: str
