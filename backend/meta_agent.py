@@ -219,13 +219,16 @@ def get_llm(session_id=None, tags=None, complexity_level="low", langfuse_handler
     from langchain_openai import ChatOpenAI
     
     if complexity_level == "high":
-        model_name = "gpt-4o"
+        model_name = "gpt-5.4"
     elif complexity_level == "medium":
-        model_name = "gpt-4o-mini"
+        model_name = "gpt-5.4-mini"
     else:
         model_name = "gpt-4o-mini"
         
-    llm = ChatOpenAI(model=model_name, temperature=0)
+    if "gpt-5" in model_name:
+        llm = ChatOpenAI(model=model_name)
+    else:
+        llm = ChatOpenAI(model=model_name, temperature=0)
     if has_langfuse and langfuse_handler:
         if tags is None:
             tags = ["agent_generation"]
