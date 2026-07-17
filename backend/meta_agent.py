@@ -219,9 +219,9 @@ def get_llm(session_id=None, tags=None, complexity_level="low", langfuse_handler
     from langchain_openai import ChatOpenAI
     
     if complexity_level == "high":
-        model_name = "gpt-5.4"
+        model_name = "gpt-4o"
     elif complexity_level == "medium":
-        model_name = "gpt-5.4-mini"
+        model_name = "gpt-4o-mini"
     else:
         model_name = "gpt-4o-mini"
         
