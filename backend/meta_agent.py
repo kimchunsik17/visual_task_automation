@@ -1599,11 +1599,17 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
     def _commit_or_rollback(before: FlowGraph, success_msg: str) -> str:
         # require_complete=False: 도구 하나 단위로는 startNode/outputNode가 아직 없어도 정상
         # (짓는 중이니까). 그 완결성 확인은 generate_flow나 Phase 4 최종 응답 때만 한다.
-        ok, errs = validate_flow(state["graph"], require_complete=False)
-        if not ok:
+        _, before_errs = validate_flow(before, require_complete=False)
+        _, errs = validate_flow(state["graph"], require_complete=False)
+        
+        # 편집 중인 그래프는 이미 유효하지 않은 상태일 수 있으므로(필수 값 누락 등)
+        # 이전 상태에 없던 '새로 추가된 에러'만 롤백의 기준으로 삼는다.
+        new_errs = [e for e in errs if e not in before_errs]
+        
+        if new_errs:
             state["graph"] = before  # 자동 롤백
-            state["last_errors"] = errs
-            return _fail(f"실패(변경 취소됨): {'; '.join(errs)}")
+            state["last_errors"] = new_errs
+            return _fail(f"실패(변경 취소됨 - 새 오류 발생): {'; '.join(new_errs)}")
         return _succeed(success_msg)
 
     def _render_flow() -> str:
