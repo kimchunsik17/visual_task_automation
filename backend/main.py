@@ -886,12 +886,21 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
 
     try:
-        reply, graph_data = await run_agent_turn(
+        reply, graph_data, token_usage = await run_agent_turn(
             payload.graph_data,
             payload.message,
             thread_id=f"project-{payload.project_id}",
             complexity_level=payload.complexity_level,
         )
+        
+        # 에이전트 토큰 차감
+        total_tokens = token_usage.get("total_tokens", 0)
+        if user and total_tokens > 0:
+            user.token_balance -= total_tokens
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
         
         # ChatSession 저장 로직
         if user:
@@ -932,7 +941,7 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
                 
             await run_in_threadpool(save_session)
 
-        return {"status": "success", "reply": reply, "graph_data": graph_data}
+        return {"status": "success", "reply": reply, "graph_data": graph_data, "token_usage": token_usage}
     except asyncio.CancelledError:
         print(f"Chat generation cancelled by client for project {payload.project_id}")
         return {"status": "cancelled", "message": "Client disconnected or cancelled"}

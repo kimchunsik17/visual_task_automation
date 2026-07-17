@@ -1831,7 +1831,7 @@ def _get_default_checkpointer():
     return _default_checkpointer
 
 
-def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None):
+def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None, thread_id: str = ""):
     """이번 요청 전용 에이전트 + get_current_graph 접근자를 만든다. (tools, agent 둘 다 요청마다 새로 만듦.)"""
     from langchain.agents import create_agent
 
@@ -1854,7 +1854,7 @@ def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpoint
         )
 
     agent = create_agent(
-        get_llm(complexity_level=complexity_level),
+        get_llm(session_id=thread_id, complexity_level=complexity_level),
         tools=tools,
         system_prompt=prompt,
         checkpointer=checkpointer or _get_default_checkpointer(),
@@ -1878,7 +1878,7 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
         edges=graph_data.get("edges", [])
     )
     initial_dump = g.model_dump()
-    agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer)
+    agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id)
 
     # 사용자 문서 기반 RAG 컨텍스트 주입
     project_id = thread_id.replace("project-", "") if thread_id.startswith("project-") else ""
@@ -1894,11 +1894,21 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     )
     reply = result["messages"][-1].content
 
+    # LangChain AIMessage 응답에서 토큰 사용량 추출
+    token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    for msg in reversed(result["messages"]):
+        usage = getattr(msg, "usage_metadata", None)
+        if usage:
+            token_usage["input_tokens"] += usage.get("input_tokens", 0)
+            token_usage["output_tokens"] += usage.get("output_tokens", 0)
+            token_usage["total_tokens"] += usage.get("total_tokens", 0)
+            break  # 마지막 AI 메시지 한 번만 집계
+
     final_graph = get_current_graph()
 
     # If the AI did not modify the graph in this turn, just return as is without warnings.
     if initial_dump == final_graph.model_dump():
-        return reply, graph_data
+        return reply, graph_data, token_usage
 
     ok, errs = validate_flow(final_graph, require_complete=False)  # 에디터 편집 중일 수 있으므로 완결성 검증은 완화
     
@@ -1908,7 +1918,7 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     if not ok:
         reply += f"\n\n(⚠️ 일부 구조적 문제가 있어 확인이 필요합니다: {'; '.join(errs)})"
 
-    return reply, response_graph_data
+    return reply, response_graph_data, token_usage
 
 
 # ── 데모 ─────────────────────────────────────────────────────────────────

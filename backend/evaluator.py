@@ -159,47 +159,92 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
     1. Generate 3 golden test cases
     2. Run the actual workflow with the test case inputs
     3. Evaluate each output using the Judge LLM
+    4. Track token usage and save to DB
     """
-    if yield_status: yield_status("생성 중...")
+    # OpenAI 토큰 추적을 위한 컨텍스트 매니저 사용
     try:
-        test_cases = generate_golden_dataset(title, description, nodes, edges, project_id)
-    except Exception as e:
-        print(f"Failed to generate dataset: {e}")
-        return {"error": "Failed to generate dataset"}
+        from langchain_community.callbacks import get_openai_callback
+        use_cb = True
+    except ImportError:
+        use_cb = False
 
-    results = []
-    for i, tc in enumerate(test_cases):
-        if yield_status: yield_status(f"실행 중... ({i+1}/3)")
-        # 2. Execute Workflow
-        inputs = {"default_input": tc.input}
-        try:
-            # We must pass the dynamic input to run_workflow
-            result_text, tokens, logs = run_workflow(nodes, edges, db=db, **inputs)
-            error_msg = None
-            if "► Flow 1 Error:" in result_text or "Dynamic Execution Error:" in result_text or "Execution failed:" in result_text:
-                error_msg = result_text
-        except Exception as e:
-            result_text = ""
-            error_msg = str(e)
-            
-        if yield_status: yield_status(f"평가 중... ({i+1}/3)")
-        try:
-            score = evaluate_test_case(tc, result_text, error_msg, project_id)
-            total = sum([score.correctness, score.completeness, score.consistency, score.error_handling, score.usefulness])
-        except Exception as e:
-            print(f"Evaluation failed: {e}")
-            score = None
-            total = 0
+    if yield_status: yield_status("생성 중...")
 
-        tcr = TestCaseResult(
-            test_case=tc,
-            actual_output=result_text,
-            error=error_msg,
-            scores=score,
-            total_score=total
-        )
-        results.append(tcr)
-        
-    # 4. Summarize
-    report = summarize_evaluation(results)
+    eval_token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+    async def _run_pipeline():
+        try:
+            test_cases = generate_golden_dataset(title, description, nodes, edges, project_id)
+        except Exception as e:
+            print(f"Failed to generate dataset: {e}")
+            return {"error": "Failed to generate dataset"}
+
+        results = []
+        for i, tc in enumerate(test_cases):
+            if yield_status: yield_status(f"실행 중... ({i+1}/3)")
+            inputs = {"default_input": tc.input}
+            try:
+                result_text, tokens, logs = run_workflow(nodes, edges, db=db, **inputs)
+                error_msg = None
+                if "► Flow 1 Error:" in result_text or "Dynamic Execution Error:" in result_text or "Execution failed:" in result_text:
+                    error_msg = result_text
+            except Exception as e:
+                result_text = ""
+                error_msg = str(e)
+
+            if yield_status: yield_status(f"평가 중... ({i+1}/3)")
+            try:
+                score = evaluate_test_case(tc, result_text, error_msg, project_id)
+                total = sum([score.correctness, score.completeness, score.consistency, score.error_handling, score.usefulness])
+            except Exception as e:
+                print(f"Evaluation failed: {e}")
+                score = None
+                total = 0
+
+            tcr = TestCaseResult(
+                test_case=tc,
+                actual_output=result_text,
+                error=error_msg,
+                scores=score,
+                total_score=total
+            )
+            results.append(tcr)
+
+        return summarize_evaluation(results)
+
+    # 토큰 추적 래퍼
+    if use_cb:
+        import asyncio
+        from langchain_community.callbacks import get_openai_callback
+        with get_openai_callback() as cb:
+            report = await _run_pipeline()
+        eval_token_usage = {
+            "input_tokens": cb.prompt_tokens,
+            "output_tokens": cb.completion_tokens,
+            "total_tokens": cb.total_tokens,
+        }
+    else:
+        report = await _run_pipeline()
+
+    if isinstance(report, dict) and "error" not in report:
+        # 평가 토큰을 FlowExecutionLog에 저장
+        try:
+            import json as _json
+            db_log = models.FlowExecutionLog(
+                project_id=project_id,
+                payload="Evaluation Pipeline",
+                result=f"Score: {report.get('score', 0)}/100",
+                total_tokens=eval_token_usage["total_tokens"],
+                token_usage_details=eval_token_usage,
+                status="evaluation",
+            )
+            db.add(db_log)
+            db.commit()
+        except Exception as e:
+            print(f"Failed to save evaluation token log: {e}")
+            db.rollback()
+
+        # token_usage를 report에 포함
+        report["token_usage"] = eval_token_usage
+
     return report
