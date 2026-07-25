@@ -12,7 +12,7 @@ meta_agent.py — "말로 만드는 Agent 빌더"의 메타 agent (MVP 골격)
   ⑤ validate_flow   : 시작/종료·순환(DAG)·연결 검증 (Validator = 품질 게이트)
   ⑥ auto_layout     : LLM이 모르는 노드 좌표(x,y)를 자동 배치 → 실제 React Flow 형식으로 변환
   ⑦ generate_safely : 생성 → 검증 실패 시 사유를 붙여 1회 재시도
-  ⑧ make_tools      : (Phase 2) 요청별 그릇 + 도구 6종(show/add/connect/update/delete/generate)
+  ⑧ make_tools      : (Phase 2) 요청별 그릇 + 도구 7종(show/add/connect/update/delete/generate/web_search)
   ⑨ run_agent_turn  : (Phase 3) create_agent 조립 + 한 턴 실행 + 최종 완결성 게이트
 
 ■ 실행:  python meta_agent.py        (아래 __main__의 데모가 돈다)
@@ -22,6 +22,8 @@ meta_agent.py — "말로 만드는 Agent 빌더"의 메타 agent (MVP 골격)
 """
 
 from __future__ import annotations
+import asyncio
+import json
 import re
 from typing import Literal, List, Dict, Any, Optional, Tuple, Callable
 from collections import defaultdict, deque
@@ -38,25 +40,122 @@ PLACEHOLDER_URL = "REPLACE_WITH_ACTUAL_URL"
 # ── ① 노드 카탈로그 (핵심 11종) ────────────────────────────────────────────
 # 여기에 노드를 한 줄씩 추가하면 챗봇이 다룰 수 있는 노드가 늘어난다(P2 확장).
 NODE_CATALOG = """\
-[사용 가능한 노드 — 이 28종만 사용한다]
+[사용 가능한 노드 — 이 32종만 사용한다]
 - startNode      : 플로우 시작점. data 없음. 모든 플로우는 이 노드에서 시작한다.
 - scheduleNode   : 주기적으로 자동 실행되는 플로우의 시작점. data.cronExpression(문자열, 예: "0 7 * * *"). startNode 대신 사용한다.
 - promptNode     : 사용자 프롬프트. data.userPrompt(문자열).
 - llmNode        : LLM 호출. data.model(gemini-3.5-flash | gpt-4o-mini | claude-3-5-sonnet-20240620),
                    data.systemPrompt(문자열). 사용자가 모델을 특정하지 않으면 gpt-4o-mini를 기본값으로 쓴다.
+                   data.useStructuredOutput(불리언, 선택)+data.jsonSchema(문자열, 선택) — 이 노드의
+                   출력이 반드시 유효한 JSON이어야 하는 경우(예: jsonParserNode/fileModifierNode로
+                   이어지거나, conditionNode가 특정 키 값을 검사하는 경우) systemPrompt에 "JSON으로만
+                   답해"라고 글로만 지시하지 말고, useStructuredOutput을 true로 하고 jsonSchema에
+                   기대하는 출력 구조를 표준 JSON Schema 문자열로 채워라 — 모델이 그 스키마를 반드시
+                   따르도록 강제되므로 프롬프트 지시만 쓸 때보다 훨씬 안정적이다(파싱 실패 방지).
+                   ⚠️ jsonSchema는 반드시 최상위에 "title" 키를 포함해야 한다(예: "title":"Result") —
+                   OpenAI 구조적 출력이 이 스키마를 함수로 등록할 때 title을 함수 이름으로 쓰기 때문에,
+                   title이 없으면 "Unsupported function" 오류로 실행이 즉시 실패한다.
+                   ⚠️ OpenAI 구조적 출력은 "properties"에 미리 나열되지 않은 키는 절대 만들어내지
+                   못한다 — "additionalProperties"만 열어두고 "properties"를 비워두면(필드를 미리 모를
+                   때 쓰고 싶은 유혹이 있지만) 모델이 빈 객체만 반환한다. 그래서 fileModifierNode 앞에서
+                   templateAnalyzerNode가 찾아낸 빈칸처럼 필드 이름이 실행 전엔 알 수 없고 개수도
+                   가변적인 경우에는 이 노드에 useStructuredOutput을 쓰지 말고, systemPrompt에 "반드시
+                   유효한 JSON 객체 하나만 답하고 다른 텍스트는 절대 넣지 마라"라고 명확히 글로 지시해서
+                   일반 프롬프트 방식으로 JSON을 받아라.
 - tokenizerNode  : 업로드 문서(PDF/PPTX/Excel/HWP)에서 텍스트 추출. data.method(extract_text | chunk_pages).
                    '문서/PDF/회의록 기반' 작업이면 llmNode 앞에 둔다. 직전 노드의 출력이 파일 경로여야 한다.
-- templateAnalyzerNode: 서식 파일(.hwp/.hwpx/.xlsx/.pptx/텍스트) 안의 빈칸을 스캔해서 채워야 할 항목을
-                   JSON으로 뽑아낸다(값은 안 채움, 빈칸 목록만). data.template_path(문자열, 파일 경로).
-                   "{{이름}}" 같은 표시나 HWP 양식 필드를 자동으로 찾는다.
+- templateAnalyzerNode: 서식 파일(.docx/.xlsx/.pptx/.hwpx/텍스트) 안의 빈칸을 스캔해서 채워야 할 항목을
+                   뽑아낸다(값은 안 채움, 빈칸 목록만). 출력은 "[채워야 할 빈칸 목록]: {...}"과
+                   "[사용 가능한 실제 데이터]: ..."(직전 노드가 갖고 있던 원본 데이터, 예: 사용자의
+                   자기소개 원문을 분석해 만든 이름/경력/지원동기 JSON)를 함께 담은 텍스트다 — 순수
+                   JSON이 아니므로 이 노드 바로 뒤에 jsonParserNode를 연결하지 마라. 대신 promptNode로
+                   "위 빈칸 목록과 실제 데이터를 참고해서 빈칸을 채운 JSON을 만들어줘" 식으로 안내한
+                   뒤 llmNode(useStructuredOutput 없이, 반드시 JSON만 답하라고 프롬프트로 지시)로
+                   이어서 fileModifierNode에 넘긴다. data.template_path(문자열, 파일 경로 —
+                   사용자가 실제로 업로드하지 않았어도 "계약서_템플릿.docx"처럼 그럴싸한 이름을 그냥
+                   지어내도 된다. 그 경로에 실제 파일이 없으면, 파일명으로 문서 종류를 추측해 생성형
+                   LLM이 알맞은 빈칸 필드 이름들을 스스로 만들고 그 자리에 진짜 .hwpx/.docx 파일을
+                   즉석에서 생성해 넣는다 — 사용자가 파일을 미리 준비/업로드할 필요가 없다).
+                   "{{이름}}" 같은 표시를 자동으로 찾는다. ⚠️ 구버전 .hwp(바이너리)는 지원하지 않는다
+                   (서버가 리눅스라 한글과컴퓨터 프로그램을 원격 조종하는 COM 방식을 못 쓴다) — 사용자가
+                   .hwp 서식을 요청하면 .hwpx(한글 최신 버전으로 저장 시 선택 가능)나 .docx로 변환해서
+                   올려달라고 안내하고, 이 노드는 만들지 마라. .hwpx는 정상 지원한다(자동 생성 포함).
 - fileModifierNode: templateAnalyzerNode가 찾아낸 빈칸을 실제 값으로 채워서 파일을 완성한다.
-                   data.template_path(문자열, 원본 서식 파일 경로 — templateAnalyzerNode와 동일),
-                   data.output_path(문자열, 선택 — 비우면 자동 생성). 채울 값은 자기 data가 아니라
-                   직전 노드의 출력(JSON)에서 가져오므로, 반드시 그 JSON을 만들어주는 노드
-                   (templateAnalyzerNode → llmNode/promptNode 조합이 일반적) 바로 뒤에 연결해야 한다 —
-                   그렇지 않으면 에러 없이 빈칸이 하나도 안 채워진 원본이 그대로 저장된다.
+                   ⚠️ 이 노드도 구버전 .hwp는 지원하지 않는다(위와 동일한 이유). .hwpx/.docx는 템플릿이
+                   없어도 자동 생성되므로(위 templateAnalyzerNode와 동일한 원리 — 여기서는 실제 채울
+                   값의 키 이름을 그대로 써서 만들기 때문에 LLM 호출도 필요 없다) 항상 안전하게 쓸 수
+                   있다. data.template_path(문자열, 원본 서식 파일 경로 — templateAnalyzerNode와 동일),
+                   data.output_path(문자열, 선택 — 비우면 template_path의 이름을 따서 자동으로 지어지므로
+                   비워도 되지만, 문서 내용상 더 적합한 이름을 알고 있으면(예: "김민준_자기소개서.hwpx")
+                   직접 채워도 좋다). ⚠️ data.output_path를 ".pdf"로
+                   끝나게 설정하면 template_path는 아예 무시하고 채울 값(JSON)을 곧바로 새 PDF 문서로
+                   렌더링한다 — "PDF로 출력해줘/PDF로 만들어줘" 같은 요청엔 별도 서식 파일 없이 이
+                   방식을 쓴다. 채울 값은 자기 data가 아니라 직전 노드의 출력(JSON)에서 가져오므로,
+                   반드시 그 JSON을 만들어주는 노드(templateAnalyzerNode → llmNode/promptNode 조합이
+                   일반적) 바로 뒤에 연결해야 한다 — 그렇지 않으면 에러 없이 빈칸이 하나도 안 채워진
+                   원본이 그대로 저장된다.
+- posterGeneratorNode: 포스터/전단지/카드뉴스처럼 자유로운 디자인의 이미지나 PDF를 만든다. 반드시
+                   직전 노드가 완성된 HTML+CSS 코드(문자열) 하나를 통째로 만들어서 넘겨줘야 한다 —
+                   이 노드 자신은 디자인을 하지 않고 받은 HTML을 그대로 그려서 저장만 한다. 그래서
+                   앞에 promptNode → llmNode를 연결하고, llmNode의 systemPrompt를 아래 지침을 그대로
+                   반영해서 작성해야 한다 — 지침이 헐거우면 모델이 흰 배경에 검은 텍스트만 나열하는
+                   "밋밋한" 결과를 낼 때가 많으므로, 구체적인 디자인 지시를 빠짐없이 넣는 게 중요하다:
+                   "너는 전문 그래픽 디자이너다. 완성된 HTML 문서 하나만 답하라(설명 텍스트나
+                   코드펜스 없이, <html>로 시작해서 </html>로 끝나야 한다). <style> 태그 안에 모든
+                   CSS를 인라인으로 작성한다. 절대 단순한 흰 배경에 텍스트만 나열하지 마라 — 반드시
+                   다음을 모두 포함해라: (1) 배경 — 선명한 그라데이션(예: #6a11cb→#2575fc 보라-파랑,
+                   #f857a6→#ff5858 핑크-빨강, #11998e→#38ef7d 청록-라임, #ee0979→#ff6a00 마젠타-주황처럼
+                   채도 높은 두 색 조합) 또는 선명한 색상 블록/도형(예: 반투명 원, 대각선 밴드)으로 화면을
+                   채운다. 흰색이나 #f5f5f5 같은 흰색에 가까운 옅은 파스텔만으로는 채우지 마라(사실상 흰
+                   화면처럼 보인다) — 반드시 눈에 띄게 채도 있는 색을 쓴다. ⚠️ 이
+                   배경은 반드시 포스터 전체(900x1200 등 지정된 크기)를 덮는 가장 바깥 컨테이너 자체에
+                   직접 입혀야 한다 — 그 안에 같은 크기의 불투명한 흰색/단색 카드를 겹쳐서 배경을
+                   가리는 실수를 절대 하지 마라(실제로 이렇게 만들어서 포스터가 사실상 흰 화면으로
+                   보이는 문제가 있었다). 카드형 레이아웃을 쓰고 싶다면 카드를 캔버스보다 작게 만들어
+                   바깥 배경이 테두리에 드러나 보이게 하거나, 카드 자체를 반투명(rgba)이나 그 배경과
+                   어울리는 색으로 칠해라. (2) 타이포그래피 위계 — 제목은 크고 굵게(48~72px,
+                   font-weight:800 이상), 부제는 중간 크기(20~28px)로 톤을 낮추고, 본문/세부 정보는
+                   16~20px로 읽기 쉽게. (3) 시각적 강조 요소 최소 1개 — 둥근 배지/필(pill) 라벨, 구분선,
+                   아이콘이나 이모지, 그림자(box-shadow)나 테두리 중 하나 이상. (4) 여백 — 안쪽에 넉넉한
+                   padding(40px 이상)을 둬서 답답해 보이지 않게 한다. (5) 색 대비 — 배경이 어두우면 흰
+                   계열 글자, 밝으면 어두운 계열 글자로 가독성을 확실히 확보한다. (6) 세로 배치 — 내용을
+                   위쪽에만 몰아넣고 캔버스 아래 절반을 텅 비워두지 마라. 가장 바깥 컨테이너에
+                   display:flex; flex-direction:column; justify-content:space-between(또는
+                   space-evenly/center)을 써서 제목·본문·하단 정보(연락처, 로고, 마무리 문구 등)가
+                   세로 전체에 고르게 분산되게 하고, 내용이 적으면 장식 요소(큰 도형, 아이콘, 여백
+                   블록)를 추가해서라도 캔버스를 채워라. 외부 이미지 URL이나
+                   웹폰트 링크는 절대 쓰지 마라(네트워크 접근이 없어 깨진다) — 시스템 기본 폰트만
+                   사용한다."
+                   data.outputFormat("png"|"pdf", 기본 png), data.width/data.height(정수, 픽셀,
+                   기본 900x1200 — llmNode 프롬프트에도 이 크기를 알려줘서 HTML의 실제 크기와
+                   맞추게 하는 게 좋다), data.output_path(문자열, 선택 — 비우면 자동 생성).
+                   ⚠️ templateAnalyzerNode/fileModifierNode를 이 체인에 끼워넣지 마라 — 그 둘은
+                   .docx/.hwpx처럼 "빈칸이 있는 서식 파일"을 스캔해서 채우는 노드지, 이미 완성된
+                   HTML 문서를 다루는 게 아니다(실제로 존재하지도 않는 "포스터_HTML_템플릿.html"
+                   같은 파일을 스캔하려다 매번 실패해서 그때까지 쌓인 실제 입력 내용이 전부 사라지고
+                   완전히 딴 내용의 포스터가 나온 적이 있다). 포스터/전단지 체인은 promptNode →
+                   llmNode(HTML 생성) → posterGeneratorNode처럼 단순하게 유지하고, 내용을 다듬고
+                   싶으면 그 사이에 promptNode → llmNode를 몇 번 더 이어서 "위 HTML을 검토하고 수정한
+                   최종 HTML만 답해라"는 식으로 반복하면 된다(항상 HTML을 HTML로 주고받게 하라).
 - conditionNode  : 조건 분기. data.rules=[{"id":"r1", "operator":"=="|"Contains"|">"|"<"|">="|"<=", "value":"문자열"}].
                    분기 엣지는 sourceHandle에 해당 rule의 id(조건 통과) 또는 "else"(다 안 맞을 때)를 넣는다.
+                   ⚠️ 비교 대상은 직전 노드가 내놓은 텍스트/값 "전체"다 — JSON을 파싱해서 특정 키만 꺼내
+                   비교해주지 않는다. 그래서 llmNode(useStructuredOutput)가 {"isValid": false, ...} 같은
+                   여러 필드를 가진 JSON을 반환하고, 그중 isValid 하나만 "true"/"false"와 비교하고 싶다면
+                   llmNode → conditionNode를 바로 연결하면 안 된다(전체 JSON 문자열이 "true"/"false"와
+                   같을 리 없어 모든 rule이 항상 실패하고 else 엣지도 없으면 조용히 아무 일도 안 일어난 채
+                   흐름이 끊긴다). 반드시 그 사이에 pythonNode를 끼워서 JSON을 파싱한 뒤 검사하려는
+                   키 값을 뽑아내되, ⚠️ 분기 뒤(valid/invalid 양쪽 경로) 노드들이 원본 JSON의 다른
+                   필드(예: 사용자 이름, 자기소개 내용 등 실제 데이터)를 여전히 써야 한다면 output_data를
+                   "true"/"false" 같은 값으로만 덮어써서 원본을 통째로 버리면 안 된다 — 그 뒤에 오는
+                   모든 노드가 원본 데이터에 접근할 방법을 영영 잃는다(실제로 자기소개서 프로젝트에서,
+                   분기 이후의 템플릿 채우기 단계가 사용자가 입력한 실제 이름/경력 대신 아무 근거 없이
+                   지어낸 값을 채우는 문제로 나타났다). 이 경우 output_data는 "PYFLAG_VALID:true\\n" +
+                   input_data 처럼 판별 결과를 맨 앞에 마커로 붙이고 원본 JSON은 그대로 뒤에 이어붙여서
+                   보존하고, conditionNode의 operator는 "=="가 아니라 "Contains"로 "PYFLAG_VALID:true"
+                   / "PYFLAG_VALID:false" 문자열을 검사하게 하라(원본 JSON의 공백/줄바꿈 형식에 좌우되지
+                   않고, 뒤에 오는 노드들도 여전히 원본 데이터를 볼 수 있다). 원본 데이터가 분기 뒤에서
+                   전혀 필요 없는 단순한 경우에만 output_data를 "true"/"false" 하나로 단순화해도 된다.
 - distributorNode: 직전 노드의 출력을 리스트로 보고 하나씩 꺼내 뒤에 연결된 노드들을 항목 개수만큼
                    반복 실행시킨다(리스트가 아니면 1개짜리로 취급). data 없음. "각각에 대해",
                    "하나씩" 같은 요청에 쓴다. sourceHandle이 없는(기본) 엣지는 반복 "안"에서
@@ -69,16 +168,80 @@ NODE_CATALOG = """\
                    쓴다 — 반복 구조 밖에 두면 실행 자체가 SyntaxError로 깨진다. 보통 conditionNode와
                    짝을 이뤄 "특정 조건을 만나면 반복을 멈춘다"는 용도로 쓴다.
 - webhookNode    : 외부 시스템의 Webhook 요청을 수신하는 진입점. data.method(GET|POST|PUT|DELETE 등), data.path(문자열, 엔드포인트 경로). startNode 대신 진입점으로 사용할 수 있다.
+- discordTriggerNode: 디스코드에서 봇에게 DM을 보내거나 멘션하면 그 메시지로 워크플로우가 시작된다.
+                   startNode 대신 진입점으로 쓴다("디스코드로 대화하는 봇 만들어줘" 같은 요청에 적합
+                   — 배포 절차 없이 이 노드 하나로 끝난다). data.botToken(문자열) — 사용자가 토큰을
+                   프롬프트에서 직접 주지 않았다면 절대 지어내지 말고 빈 문자열로 두거나
+                   "{{API_CENTER:discord}}"로 채워라(사용자가 API 센터에 등록해뒀다면 자동으로
+                   연결된다). 캔버스에 저장하고 "라이브 시작"을 켜면(에디터 상단 토글) 그 순간부터
+                   실제 디스코드 봇이 메시지를 기다린다 — 별도의 "배포" 절차가 필요 없다. 메시지를
+                   보낸 사람에게 다시 답장을 보내고 싶으면 흐름 끝에 outputNode만 두면 되고(봇이
+                   자동으로 그 결과를 답장으로 보낸다), discordNode(발송)를 굳이 또 연결할 필요는
+                   없다 — discordNode는 "다른" 채널/사람에게 별도로 보내고 싶을 때만 추가로 쓴다.
+- telegramTriggerNode: 텔레그램에서 봇에게 메시지를 보내면 그 메시지로 워크플로우가 시작된다.
+                   discordTriggerNode와 완전히 같은 방식(진입점, "라이브 시작"으로 켜짐, 흐름 끝은
+                   outputNode 하나면 충분하고 봇이 자동으로 답장한다)이고, "텔레그램으로 대화하는
+                   봇 만들어줘" 같은 요청에 쓴다. data.botToken(문자열) — 사용자가 토큰을 직접
+                   주지 않았다면 지어내지 말고 빈 문자열로 두거나 "{{API_CENTER:telegram}}"으로
+                   채워라. 텔레그램 봇 토큰은 @BotFather에서 한 번 발급받으면 만료되지 않는다(카카오
+                   access_token과 달리 자동 갱신이 필요 없다).
+- telegramNode   : 텔레그램 메시지 발송. data.botToken(문자열, telegramTriggerNode와 동일한 값 —
+                   "{{API_CENTER:telegram}}"), data.chatId(문자열, 받을 사람/채널의 chat_id — 사용자가
+                   실제 값을 안 줬으면 지어내지 말고 빈 문자열로 둔다. 숫자(음수 가능, 그룹/채널은
+                   보통 음수) 또는 "@channel_username" 형식만 유효하다). 직전 노드의 출력을 그대로
+                   발송한다. telegramTriggerNode로 시작한 흐름에서 받은 사람에게 그대로 답장하는
+                   용도라면 이 노드 없이 outputNode로 끝내면 된다(discordNode와 동일한 이유) —
+                   "다른" 특정 채팅방에 보내고 싶을 때만 추가로 쓴다.
 - httpRequestNode: 외부 API 호출. data.method(GET|POST|PUT|DELETE), data.url(문자열),
                    data.headers(JSON 문자열, 생략 가능), data.body(JSON 문자열, 생략 가능).
 - jsonParserNode : JSON 파싱/변환. data.mode(parse|stringify|extract). extract일 때만 data.extractKey(문자열) 필요.
                    parse=문자열→JSON, stringify=JSON→문자열, extract=특정 키 값 꺼내기.
-- databaseNode   : SQL 데이터베이스 조회/실행. data.connectionString(문자열, DB 접속정보 — 사용자가
-                   실제로 준 값만 쓰고 없으면 지어내지 말고 물어본다), data.query(문자열, 실행할 SQL).
-                   connectionString이나 query가 없으면 실행 시 에러가 난다. 가드레일: DROP/TRUNCATE/
-                   ALTER/GRANT/REVOKE 같은 구조 파괴·권한 변경 쿼리는 절대 생성하지 마라(검증기가
-                   막는다). DELETE/UPDATE는 반드시 WHERE로 대상을 좁혀라 — WHERE 없이 테이블
-                   전체를 지우거나 바꾸는 쿼리도 검증기가 막는다.
+- databaseNode   : SQL 데이터베이스 **조회 전용**(실행/변경 아님). data.connectionString(문자열, DB
+                   접속정보 — 사용자가 실제로 준 값만 쓰고 없으면 지어내지 말고 빈 문자열로 둔다),
+                   data.query(문자열, 반드시 SELECT 또는 WITH로 시작해야 한다). ⚠️ INSERT/UPDATE/
+                   DELETE/DROP/TRUNCATE/ALTER/GRANT/REVOKE 등 SELECT·WITH가 아닌 쿼리는 전부
+                   검증기가 막는다(WHERE로 좁혀도 허용되지 않는다) — 데이터를 저장/변경해야 하는
+                   요청이면 databaseNode를 쓰지 말고, 그 사실을 답변에서 사용자에게 안내하라.
+                   connectionString이 비어있으면 실행 시 에러 대신 "값을 채워달라"는 안내로
+                   자동 대체된다(query는 여전히 있어야 한다).
+- googleSheetsNode: 구글 시트 읽기/쓰기. databaseNode처럼 별도 접속 정보가 필요 없다 — 서버가
+                   서비스 계정으로 접근하므로, 사용자는 그 시트를 서비스 계정과 "공유"만 해두면
+                   된다(이 노드의 data에 인증 정보를 채울 필요 없음). data.mode("read"|"append"|"write",
+                   기본 read — read는 조회, append는 맨 끝에 한 행 추가, write는 지정한 범위를
+                   덮어쓴다), data.spreadsheetId(문자열, 시트 URL의 .../d/⟨이 부분⟩/edit에 있는 ID —
+                   사용자가 실제로 URL이나 ID를 안 줬으면 지어내지 말고 빈 문자열로 둔다),
+                   data.range(문자열, 예: "Sheet1" 또는 "Sheet1!A1:D10" — 비우면 첫 번째 시트 전체를
+                   대상으로 한다), data.values(문자열, 선택 — append/write일 때 기록할 값을 JSON
+                   배열로 직접 써도 되고, 비워두면 직전 노드의 출력(JSON)을 그대로 값으로 쓴다.
+                   read일 때는 안 쓴다). read의 출력은 행(list of list) JSON 문자열이므로, 그 내용을
+                   활용하려면 뒤에 llmNode/jsonParserNode를 연결해라.
+- googleCalendarNode: 구글 캘린더 일정 등록/조회. googleSheetsNode와 동일한 서비스 계정을 쓰므로
+                   별도 인증 정보가 필요 없다(사용자가 캘린더를 서비스 계정과 공유해두면 됨).
+                   data.mode("create"|"list", 기본 create — create는 일정 등록, list는 다가오는
+                   일정 조회), data.calendarId(문자열, 캘린더 설정의 "캘린더 ID" — 보통 본인 gmail
+                   주소이거나 ...@group.calendar.google.com 형식. 사용자가 실제로 안 줬으면 지어내지
+                   말고 빈 문자열로 둔다), data.eventData(문자열, 선택 — create일 때 등록할 일정을
+                   JSON으로 직접 써도 되고(예: {"summary":"팀 회의","start":"2026-08-01T10:00:00+09:00",
+                   "end":"2026-08-01T11:00:00+09:00","description":"...","location":"..."}), 비워두면
+                   직전 노드의 출력(JSON)을 그대로 쓴다. start/end는 타임존 포함 ISO 8601 문자열이어야
+                   한다), data.timeMin/data.timeMax(문자열, 선택 — list일 때 조회 범위, ISO 8601.
+                   비우면 timeMin은 지금부터), data.maxResults(숫자, 선택 — list일 때 최대 개수,
+                   기본 10). list의 출력은 일정 목록(JSON 배열) 문자열이므로 활용하려면 뒤에
+                   llmNode/jsonParserNode를 연결해라.
+- notionNode     : Notion 페이지 생성/데이터베이스 조회. data.token(문자열) — 사용자가 토큰을
+                   직접 주지 않았다면 지어내지 말고 빈 문자열로 두거나 "{{API_CENTER:notion}}"으로
+                   채워라(사용자가 API 센터에 Notion Integration Token을 등록해뒀다면 자동으로
+                   연결된다 — discordNode/kakaoNode와 동일한 방식). data.mode("create"|"query", 기본
+                   create — create는 데이터베이스에 새 페이지(행) 추가, query는 데이터베이스의
+                   페이지들을 조회), data.databaseId(문자열, Notion 데이터베이스 URL에 있는 ID —
+                   사용자가 실제로 안 줬으면 지어내지 말고 빈 문자열로 둔다), data.properties(문자열,
+                   선택 — create일 때 채울 속성을 Notion 속성 형식의 JSON으로 직접 써도 되고(예:
+                   {"이름":{"title":[{"text":{"content":"..."}}]}, "완료":{"checkbox":true}}), 비워두면
+                   직전 노드의 출력(JSON, 이미 Notion 속성 형식이어야 함)을 그대로 쓴다. ⚠️ Notion은
+                   속성 타입마다 JSON 형식이 다르다(title/rich_text/number/select/checkbox/date 등) —
+                   정확한 속성 이름과 타입을 모르면 llmNode에 "다음 Notion 속성 형식에 맞는 JSON을
+                   만들어라: {실제 속성 스키마}"처럼 구체적으로 지시해야 한다). query의 출력은 페이지
+                   목록(JSON 배열) 문자열이므로 활용하려면 뒤에 llmNode/jsonParserNode를 연결해라.
 - delayNode      : 지정한 시간만큼 대기 후 다음 노드로 진행. data.seconds(숫자).
 - dynamicInputNode: 실행할 때마다 외부(호출자·디스코드 봇 메시지 등)에서 값을 받는 자리.
                    data.inputLabel(문자열, 이 입력이 뭔지 설명 — 요청 맥락에서 유추해 채운다),
@@ -102,9 +265,22 @@ NODE_CATALOG = """\
 - multiAgentNode : 여러 에이전트를 조율한다. data.mode("supervisor" | "group_chat"). 
                    연결될 서브 에이전트(llmNode)는 엣지의 targetHandle을 "tools"로 설정하여 들어와야 한다.
 - pythonNode     : 파이썬 코드를 실행한다. data.code(문자열, 파이썬 코드). 직전 노드의 출력이 'input_data' 변수에 담기며, 처리 결과를 'output_data' 변수에 할당해야 한다.
-- discordNode    : 디스코드 메시지 발송. data.botToken(문자열), data.channelId(문자열, 선택). 직전 노드의 출력을 본문으로 발송한다.
-- kakaoNode      : 카카오톡 알림톡/메시지 발송. data.accessToken(문자열, 사용자 제공), data.receiver(문자열, 선택 — 수신자 정보, 비우면 나에게 보내기). 직전 노드의 출력을 내용으로 발송한다.
+- discordNode    : 디스코드 메시지 발송. data.botToken(문자열), data.channelId(문자열, 선택). 직전 노드의
+                   출력을 본문으로 발송한다. ⚠️ 직전 노드의 출력이 "uploads/파일명" 형태의 생성 파일
+                   경로(posterGeneratorNode/fileModifierNode의 결과 등)면, 그 텍스트를 그대로 보내지
+                   않고 자동으로 실제 파일을 첨부해서 보낸다 — 별도 설정 없이 그냥 그 노드 뒤에
+                   discordNode를 연결하기만 하면 된다("포스터 만들어서 디스코드로 보내줘" 같은 요청에
+                   이 조합을 쓴다). discordTriggerNode로 시작하는 봇의 자동 답장도 동일하게 동작한다.
+- kakaoNode      : 카카오톡 메시지 발송. data.accessToken(문자열) — 사용자가 프롬프트에서 직접 토큰 값을
+                   알려주지 않는 한 항상 리터럴 문자열 "{{API_CENTER:kakao_token}}"으로 채운다(API 센터에
+                   등록해둔 카카오 access_token을 실행 시점에 자동으로 대입하며, 6시간마다 만료되어도
+                   refresh_token으로 자동 갱신되므로 사용자가 재입력할 필요가 없다). data.receiver(문자열,
+                   선택 — 수신자 정보, 비우면 나에게 보내기). 직전 노드의 출력을 내용으로 발송한다.
 - tossNode       : 토스페이먼츠 API 연동. data.secretKey(문자열), data.searchType(문자열, 'paymentKey' 또는 'orderId'), data.searchValue(문자열). 직전 노드의 결과를 검색 값으로 쓰거나 입력받아 결제 정보를 조회한다.
+- paymentLinkNode: 주문 정보를 받아 결제 링크를 생성한다(결제 "조회"인 tossNode와 반대로 "생성"). data.provider(문자열,
+                   기본 'toss'), data.orderData(문자열, 선택 — 채울 주문 정보를 JSON 문자열로 직접
+                   써도 되고, 비워두면 직전 노드의 출력을 그대로 주문 데이터로 쓴다). "주문/결제 링크
+                   만들어줘" 같은 요청에 쓴다. 직전 노드의 출력을 그대로 쓸 거면 orderData는 비워둔다.
 - slackNode      : 슬랙 메시지 발송. data.channel(문자열, 예: "#general"), data.message(문자열, 선택 — 직전 노드 출력과 함께 전송할 추가 메시지).
 - humanApprovalNode : 사람의 승인 대기. data.message(문자열, 승인 요청 메시지). 승인/거절에 따라 다르게
                    처리하고 싶으면 conditionNode를 뒤에 붙이지 말고(값이 "승인" 같은 리터럴 문자열이
@@ -114,10 +290,30 @@ NODE_CATALOG = """\
                    워크플로우가 즉시 중단된다(예외 발생). 어느 방식이든 승인/거절과 무관하게 직전
                    노드의 출력(예: LLM이 만든 답변 초안)이 그대로 다음 노드로 전달된다.
 - mergeNode      : 여러 흐름의 결과를 하나로 병합한다. data.mergeStrategy("join_newline" | "join_comma" | "array"). 여러 갈래의 엣지가 이 노드로 모일 수 있다.
-- outputNode     : 결과 출력(종료). data 없음. 모든 플로우는 이 노드에서 끝난다.
+- outputNode     : 결과 출력(종료). data 없음. 흐름의 최종 결과를 사용자/호출자에게 텍스트로 돌려줘야
+  할 때 이 노드로 끝난다. 단, emailNode/discordNode/kakaoNode/slackNode처럼 그 자체로 외부에 결과를
+  발송/전달하는 노드로 흐름이 끝나는 경우(예: 디스코드로 메시지만 보내고 끝나는 봇)나, fileModifierNode/
+  posterGeneratorNode처럼 파일(서식 문서, 포스터 이미지/PDF)을 완성해서 저장하는 것 자체로 흐름이
+  끝나는 경우에는 그 노드가 이미 최종 결과 전달을 완료한 것이므로 outputNode를 추가로 붙이지 않는다.
+  (databaseNode는 SELECT 조회만 가능하므로 항상 조회 결과를 사용자에게 보여줘야 한다 — outputNode를
+  생략하지 않는다.) googleSheetsNode/googleCalendarNode/notionNode는 databaseNode와 달리 읽기와
+  쓰기를 모두 할 수 있는 노드다 — data.mode가 "append"/"write"(googleSheetsNode),
+  "create"(googleCalendarNode/notionNode)처럼 실제로 뭔가를 기록/생성하는 모드로 흐름이 끝나면
+  discordNode와 동일하게 outputNode 없이 끝나도 된다. 반대로 mode가 "read"/"list"/"query"(조회)면
+  databaseNode와 동일하게 반드시 outputNode로 결과를 보여줘야 한다.
 
 [생성 원칙]
 - discordNode를 생성할 때 사용자가 프롬프트에서 봇 토큰이나 Webhook URL을 명시적으로 알려주지 않았다면, 절대 임의의 가짜 값(예: "your-token", "1234")을 지어내서 채우지 말고 botToken과 channelId를 빈 문자열("")로 둔다. 그리고 반드시 답변에서 "디스코드 발송 노드를 구성했습니다. 실제 발송을 위해서는 화면에서 디스코드 노드를 클릭한 뒤, 본인의 봇 토큰(또는 웹훅 주소)을 직접 입력해 주세요."라고 친절하게 안내한다.
+- discordTriggerNode로 시작하는 "디스코드로 대화하는 챗봇" 흐름은 "outputNode(종료)가 없으면 안
+  된다"는 규칙을 만족시키려고 끝에 discordNode를 억지로 붙이면 절대 안 된다 — 사용자가 실제
+  channelId를 알려주지 않은 채로 discordNode를 끝에 붙이면 채울 값이 없어 앞선 규칙과 충돌하고,
+  그렇다고 channelId를 지어내면(실제로 이런 실수가 있었다 — 존재하지 않는 채널로 보내려다 실패)
+  발송이 조용히 실패한다. discordTriggerNode로 시작할 때는 그냥 outputNode로 끝내라(봇이 답장을
+  받은 채널/DM으로 자동으로 돌려보낸다 — discordTriggerNode 항목 설명 참고). discordNode는 사용자가
+  "다른 특정 채널"의 실제 channelId를 프롬프트에서 명시적으로 알려준 경우에만 추가로 쓴다.
+- telegramTriggerNode로 시작하는 흐름도 위 discordTriggerNode와 완전히 같은 이유로, 끝에 telegramNode를
+  억지로 붙이지 마라 — chatId를 모르면 채울 값이 없다. outputNode로 끝내면 봇이 받은 채팅방으로
+  자동으로 답장한다. telegramNode는 사용자가 "다른" 특정 채팅방의 실제 chatId를 알려준 경우에만 쓴다.
 - httpRequestNode/webCrawlerNode를 새로 만들거나 기존 템플릿을 참고할 때, 실제로 호출 가능한 URL을
   모른다면(사용자가 안 줬고, 참고한 템플릿에도 url이 정확히 "REPLACE_WITH_ACTUAL_URL"로 남아있다면)
   절대 그럴듯해 보이는 가짜 URL을 지어내지 말고 url을 정확히 "REPLACE_WITH_ACTUAL_URL" 문자열
@@ -135,18 +331,36 @@ NODE_CATALOG = """\
   그대로 쓰게 한다. 단, url을 비울 거면 반드시 URL을 실제로 만들어낼 노드를 바로 앞에 연결해야 한다 —
   url도 없고 직전 노드도 없거나 직전이 startNode뿐이면 실행 시 크롤링할 URL이 없어서 에러가 난다
   (Validator가 이 경우를 막는다).
-- 반드시 startNode 또는 scheduleNode 중 정확히 1개로 시작하고, outputNode로 끝난다.
+- 반드시 startNode, scheduleNode, webhookNode, discordTriggerNode, telegramTriggerNode 중 정확히 1개로
+  시작한다. "디스코드 봇/디스코드로 대화" 같은 요청이면 startNode 대신 discordTriggerNode로, "텔레그램
+  봇/텔레그램으로 대화" 같은 요청이면 telegramTriggerNode로 시작한다. 끝은 outputNode가 기본이지만,
+  emailNode/discordNode/telegramNode/kakaoNode/slackNode 같은 발송형 액션 노드나, 파일을 완성해서 저장하고
+  끝나는 fileModifierNode/posterGeneratorNode로 흐름이 끝나면 그걸로 충분하다(그 뒤에 굳이
+  outputNode를 덧붙이지 않는다).
+  단, databaseNode는 SELECT 조회만 가능해서 항상 결과를 보여줘야 하므로 예외에 포함하지 않는다 —
+  databaseNode로 끝나는 흐름에는 outputNode를 반드시 붙인다. googleSheetsNode/googleCalendarNode/
+  notionNode는 mode가 기록/생성(append, write, create)이면 위 예외에 포함되고, 조회(read, list,
+  query)면 databaseNode와 동일하게 outputNode를 반드시 붙인다.
 - 모든 노드는 start→output 경로 위에 있어야 한다. 어디에도 연결 안 된 고아 노드를 만들지 않는다.
 - 사용자가 원하는 바를 충족하되, 불필요한 중복 노드를 만들지 않는다 — 필요한 만큼만 최소로 구성한다.
   단, "최소"를 이유로 요청에 필요한 단계(예: PDF 입력이면 tokenizerNode)를 빠뜨리면 안 된다.
-- tokenizerNode는 직전 노드의 출력이 파일 경로일 때만 사용한다.
+- tokenizerNode는 직전 노드의 출력이 파일 경로일 때만 사용한다. startNode/scheduleNode 등 파일
+  경로를 만들어내지 않는 노드 바로 뒤에 tokenizerNode를 두면 실행할 때마다 실패한다 — 반드시
+  그 사이에 valueNode(data.file_path, 초기값은 빈 문자열 "")를 두고, 답변에서 "이 노드를 클릭해서
+  실제 파일을 업로드해야 한다"고 안내한다.
 - distributorNode 뒤에 연결된 노드들(sourceHandle 없는 기본 엣지)은 리스트 항목 개수만큼 반복
   실행된다는 걸 감안해서 구성한다. **outputNode는 절대 이 반복 경로 안에 두지 마라** — 첫 항목만
   처리하고 즉시 끝나버린다. 반복이 다 끝난 뒤 종료하려면 반드시 distributorNode에서 sourceHandle을
   "done"으로 지정한 별도 엣지로 outputNode(또는 그 앞 단계)를 연결한다.
 - breakNode는 반드시 distributorNode 하류에서만 쓴다 — 반복 구조 밖에서 쓰면 실행이 깨진다.
 - fileModifierNode는 반드시 JSON을 만들어주는 노드(templateAnalyzerNode → llmNode/promptNode 조합이
-  일반적) 뒤에 연결한다 — 그렇지 않으면 빈칸이 하나도 안 채워진 채로 조용히 저장된다.
+  일반적) 뒤에 연결한다 — 그렇지 않으면 빈칸이 하나도 안 채워진 채로 조용히 저장된다. 이때 그 llmNode는
+  systemPrompt로만 "JSON으로 답해"라고 지시하지 말고 useStructuredOutput+jsonSchema를 반드시 함께
+  설정해라 — 프롬프트 지시만으로는 모델이 가끔 JSON이 아닌 답을 내놓아 fileModifierNode가 조용히
+  실패할 수 있다.
+- llmNode의 출력을 jsonParserNode가 바로 이어받거나, conditionNode가 그 출력에서 특정 키/값을 검사하는
+  구조라면 마찬가지로 그 llmNode에 useStructuredOutput+jsonSchema를 설정해서 출력 형식을 구조적으로
+  보장해라.
 - promptNode는 항상 인접한 llmNode와 짝으로 사용한다.
 - llmNode의 model은 사용자가 특정 모델을 요청하지 않는 한 기본값 gpt-4o-mini를 쓴다.
 - (미세수정 시) 기존 노드로 이미 처리 가능하면 새 노드를 추가하지 말고 update_node로 기존 노드를 고친다.
@@ -169,6 +383,93 @@ NODE_CATALOG = """\
 """
 
 
+# ── ①-b 카탈로그 트리밍 (생성 품질 개선) ────────────────────────────────────
+# NODE_CATALOG는 32종 노드 설명을 전부 담아 항상 통째로 프롬프트에 들어갔다 — 요청과 무관한
+# 노드 설명이 대부분을 차지하면 정작 관련 있는 규칙에 대한 준수도가 흐려지는 경향이 있다(길고
+# 노이즈 섞인 지시일수록 개별 규칙 하나하나에 쏠리는 주의가 옅어짐). 그래서 요청과 관련 있을
+# 법한 노드 타입만 골라 카탈로그를 줄여서 넣는다. NODE_CATALOG 원문은 절대 손대지 않고(문구를
+# 다시 입력하면 오타/누락 위험이 있다) 거기서 노드별 항목을 그대로 잘라내는 방식이라, 항목
+# 하나를 고치면 트리밍된 버전에도 자동으로 반영된다.
+def _extract_section(catalog_text: str, header: str, next_header: Optional[str]) -> str:
+    start = catalog_text.index(header)
+    if next_header:
+        end = catalog_text.index(next_header, start)
+        return catalog_text[start:end]
+    return catalog_text[start:]
+
+
+def _parse_node_catalog_entries(catalog_text: str) -> Dict[str, str]:
+    """'[사용 가능한 노드...]' 섹션을 노드 타입별 텍스트 블록으로 쪼갠다. 각 항목은
+    '- nodeType : ...'로 시작해서 다음 '- nodeType :' 줄 전까지(줄바꿈된 설명 포함) 이어진다."""
+    section = _extract_section(catalog_text, "[사용 가능한 노드", "\n[생성 원칙]")
+    entries: Dict[str, str] = {}
+    current_type = None
+    current_lines: List[str] = []
+    for line in section.split("\n")[1:]:  # 첫 줄(헤더)은 건너뜀
+        m = re.match(r"^- (\w+)\s*:", line)
+        if m:
+            if current_type:
+                entries[current_type] = "\n".join(current_lines).rstrip("\n") + "\n"
+            current_type = m.group(1)
+            current_lines = [line]
+        elif current_type:
+            current_lines.append(line)
+    if current_type:
+        entries[current_type] = "\n".join(current_lines).rstrip("\n") + "\n"
+    return entries
+
+
+NODE_CATALOG_ENTRIES: Dict[str, str] = _parse_node_catalog_entries(NODE_CATALOG)
+NODE_CATALOG_PRINCIPLES = _extract_section(NODE_CATALOG, "[생성 원칙]", "[연결 규칙]")
+NODE_CATALOG_CONNECTION_RULES = _extract_section(NODE_CATALOG, "[연결 규칙]", None)
+
+# 노드가 뭐가 됐든 거의 모든 흐름에 등장하는 기본형이라 선별과 무관하게 항상 포함한다.
+_ALWAYS_INCLUDE_NODE_TYPES = ["startNode", "outputNode", "promptNode", "llmNode"]
+
+
+class NodeTypeSelection(BaseModel):
+    node_types: List[str] = Field(description="이 요청을 구현하는 워크플로우에 실제로 쓰일 가능성이 있는 노드 타입 이름들")
+
+
+def select_relevant_node_types(user_request: str, complexity_level: str = "low") -> List[str]:
+    """가벼운 1차 선별 — 실패하거나 결과가 부실하면 빈 리스트를 돌려주고, 호출부(build_trimmed_catalog)가
+    그걸 보고 전체 카탈로그로 안전하게 폴백한다(즉, 이 단계가 잘못돼도 트리밍 이전과 동일하게만
+    동작할 뿐 더 나빠지지는 않는다)."""
+    try:
+        llm = get_llm(complexity_level="low").with_structured_output(NodeTypeSelection, method="function_calling")
+        type_list = ", ".join(NODE_CATALOG_ENTRIES.keys())
+        messages = [
+            ("system",
+             "너는 노코드 워크플로우 빌더의 '노드 선별' 도우미다. 아래는 지원하는 전체 노드 타입 "
+             f"목록이다:\n{type_list}\n\n"
+             "사용자 요청을 구현하는 워크플로우를 만들 때 실제로 쓰일 가능성이 있는 노드 타입만 "
+             "골라라. 확실하지 않으면 너그럽게 포함해라 — 빠뜨리는 것보다 여분으로 포함하는 게 "
+             "훨씬 안전하다. startNode/outputNode/promptNode/llmNode는 이미 항상 따로 포함되니 "
+             "고르지 않아도 된다. 목록에 없는 이름은 절대 만들어내지 마라."),
+            ("user", f'요청: "{user_request}"'),
+        ]
+        result = llm.invoke(messages)
+        return [t for t in result.node_types if t in NODE_CATALOG_ENTRIES]
+    except Exception as e:
+        print(f"[select_relevant_node_types] 선별 실패, 전체 카탈로그로 폴백: {e}")
+        return []
+
+
+def build_trimmed_catalog(selected_types: Optional[List[str]]) -> str:
+    """selected_types가 비었거나 너무 적으면(선별이 사실상 실패했다고 판단) 원본 NODE_CATALOG를
+    그대로 돌려준다 — 트리밍이 실패해도 절대 원래보다 못한 결과를 내지 않는다."""
+    if not selected_types or len(set(selected_types) & set(NODE_CATALOG_ENTRIES)) < 3:
+        return NODE_CATALOG
+    want = set(selected_types) | set(_ALWAYS_INCLUDE_NODE_TYPES)
+    header = (
+        "[사용 가능한 노드 — 이번 요청과 관련 있을 법한 노드만 추려서 아래에 나열했다. "
+        "이 목록에 없는 노드 타입이 정말 필요하다고 판단되면 이름을 지어내지 말고, "
+        "목록에 있는 노드 조합으로 최대한 대체할 방법을 먼저 찾아라]\n"
+    )
+    body = "".join(NODE_CATALOG_ENTRIES[t] for t in NODE_CATALOG_ENTRIES if t in want)
+    return header + body + "\n" + NODE_CATALOG_PRINCIPLES + "\n" + NODE_CATALOG_CONNECTION_RULES
+
+
 # ── ② 출력 스키마 (형식 강제) ────────────────────────────────────────────
 # type을 Literal로 묶어 11종 밖의 노드를 아예 못 만들게 한다. position(x,y)은
 # LLM이 추측하면 안 되므로 항상 None으로 초기화하고, auto_layout에서 채운다.
@@ -177,7 +478,9 @@ NodeType = Literal[
     "httpRequestNode", "jsonParserNode", "delayNode", "dynamicInputNode", "webCrawlerNode",
     "outputNode", "valueNode", "distributorNode", "breakNode", "templateAnalyzerNode", "fileModifierNode",
     "emailNode", "databaseNode", "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
-    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode", "webhookNode", "paymentLinkNode"
+    "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode", "webhookNode", "paymentLinkNode",
+    "posterGeneratorNode", "discordTriggerNode", "telegramTriggerNode", "telegramNode", "googleSheetsNode",
+    "googleCalendarNode", "notionNode"
 ]
 
 
@@ -284,21 +587,26 @@ FEWSHOT_FAST = """\
 [예시1] 요청: "PDF 요약봇 만들어줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
-  {"id":"n2","type":"tokenizerNode","data":{"method":"extract_text"}},
-  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 문서를 요약해줘"}},
-  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
-  {"id":"n5","type":"outputNode","data":{}}
+  {"id":"n2","type":"valueNode","data":{"file_path":""}},
+  {"id":"n3","type":"tokenizerNode","data":{"method":"extract_text"}},
+  {"id":"n4","type":"promptNode","data":{"userPrompt":"다음 문서를 요약해줘"}},
+  {"id":"n5","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n6","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"},
   {"id":"e3","source":"n3","target":"n4"},
-  {"id":"e4","source":"n4","target":"n5"}
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
 ]}
+# ↑ tokenizerNode는 "직전 노드의 출력이 파일 경로"여야 동작한다. startNode 바로 뒤에 tokenizerNode를
+# 놓으면 파일을 받을 방법이 없어 매번 실패한다 — 반드시 valueNode(file_path, 초기값은 빈 문자열)를
+# 사이에 두고, 답변에서 "n2(valueNode)를 클릭해서 PDF/문서 파일을 업로드해야 실제로 동작한다"고 안내한다.
 
 [예시2] 요청: "날씨 API 호출해서 결과를 한국어로 요약해줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
-  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"REPLACE_WITH_ACTUAL_URL"}},
   {"id":"n3","type":"jsonParserNode","data":{"mode":"extract","extractKey":"summary"}},
   {"id":"n4","type":"promptNode","data":{"userPrompt":"다음 날씨 정보를 한국어로 요약해줘"}},
   {"id":"n5","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 날씨 캐스터다"}},
@@ -368,13 +676,13 @@ FEWSHOT_FAST = """\
 # 반복 안에 두면(예: n6→n7로 직접 연결) 첫 번째 글만 처리하고 그 즉시 끝나버리므로 반드시
 # done 경로로 연결해야 한다.
 
-[예시6] 요청: "계약서_템플릿.hwp 파일의 빈칸을 채워서 완성해줘"
+[예시6] 요청: "계약서_템플릿.docx 파일의 빈칸을 채워서 완성해줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
-  {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.hwp"}},
+  {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.docx"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"위 JSON의 각 키에 대해 문맥에 맞는 값을 채워서 같은 형식의 JSON으로만 답해"}},
-  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다"}},
-  {"id":"n5","type":"fileModifierNode","data":{"template_path":"계약서_템플릿.hwp"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다","useStructuredOutput":true,"jsonSchema":"{\"title\":\"FilledFields\",\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}}"}},
+  {"id":"n5","type":"fileModifierNode","data":{"template_path":"계약서_템플릿.docx"}},
   {"id":"n6","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
@@ -392,15 +700,15 @@ FEWSHOT_FAST = """\
   {"id":"n2","type":"webCrawlerNode","data":{"url":"https://example.com/news"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 뉴스를 한국어로 요약해줘"}},
   {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
-  {"id":"n5","type":"emailNode","data":{"toEmail":"team@company.com","subject":"뉴스 요약"}},
-  {"id":"n6","type":"outputNode","data":{}}
+  {"id":"n5","type":"emailNode","data":{"toEmail":"team@company.com","subject":"뉴스 요약"}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"},
   {"id":"e3","source":"n3","target":"n4"},
-  {"id":"e4","source":"n4","target":"n5"},
-  {"id":"e5","source":"n5","target":"n6"}
+  {"id":"e4","source":"n4","target":"n5"}
 ]}
+# ↑ emailNode로 메일을 보내는 게 이 요청의 최종 목적이라, 그 뒤에 outputNode를 더 붙이지 않는다
+# (emailNode 자체가 최종 결과 전달이다 — discordNode/kakaoNode/slackNode도 마찬가지).
 
 [예시8] 요청: "customers 테이블에서 이메일만 뽑아서 보여줘 (DB 접속정보: postgresql://user:pass@localhost:5432/shop)"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -451,19 +759,18 @@ FEWSHOT_FAST = """\
 [예시11] 요청: "매일 아침 9시에 날씨를 요약해서 이메일로 보내줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"scheduleNode","data":{"cronExpression":"0 9 * * *"}},
-  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"REPLACE_WITH_ACTUAL_URL"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"이 날씨 정보를 한국어로 요약해줘"}},
   {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"날씨 전문가"}},
-  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"오늘의 날씨"}},
-  {"id":"n6","type":"outputNode","data":{}}
+  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"오늘의 날씨"}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"},
   {"id":"e3","source":"n3","target":"n4"},
-  {"id":"e4","source":"n4","target":"n5"},
-  {"id":"e5","source":"n5","target":"n6"}
+  {"id":"e4","source":"n4","target":"n5"}
 ]}
 # ↑ 정기적으로 실행해야 하므로 startNode 대신 scheduleNode(cronExpression 포함)로 시작한다.
+# emailNode 발송으로 끝나므로 outputNode는 붙이지 않는다.
 
 [예시12] 요청: "매일 아침에 해커뉴스 크롤링해서 좋은 글 있으면 요약해서 카카오톡으로 보내줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -472,7 +779,7 @@ FEWSHOT_FAST = """\
   {"id":"n3","type":"promptNode","data":{"userPrompt":"이 뉴스들 중에서 IT 업계 트렌드에 맞는 '좋은 글'이 있는지 판별하고 요약해줘"}},
   {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"뉴스 큐레이터"}},
   {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"r1","operator":"Contains","value":"좋은 글 있음"}]}},
-  {"id":"n6","type":"kakaoNode","data":{"receiver":""}},
+  {"id":"n6","type":"kakaoNode","data":{"accessToken":"{{API_CENTER:kakao_token}}","receiver":""}},
   {"id":"n7","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
@@ -516,25 +823,70 @@ FEWSHOT_FAST = """\
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"결제 요청 내용","testValue":"10만원 결제 요청"}},
   {"id":"n3","type":"humanApprovalNode","data":{"message":"이 결제 요청을 승인하시겠습니까?"}},
-  {"id":"n4","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제가 진행되었습니다"}},
-  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제 요청이 거절되었습니다"}},
-  {"id":"n6","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
-  {"id":"n7","type":"outputNode","data":{}}
+  {"id":"n4","type":"httpRequestNode","data":{"method":"POST","url":"REPLACE_WITH_ACTUAL_URL"}},
+  {"id":"n5","type":"valueNode","data":{"value":"결제 요청이 승인되어 후속 처리가 완료되었습니다. 고객에게 처리 완료 메일을 보냅니다."}},
+  {"id":"n6","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제가 진행되었습니다"}},
+  {"id":"n7","type":"valueNode","data":{"value":"결제 요청이 거절되어 진행되지 않았습니다. 필요하면 거절 사유를 함께 안내합니다."}},
+  {"id":"n8","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제 요청이 거절되었습니다"}},
+  {"id":"n9","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n10","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"},
   {"id":"e3","source":"n3","target":"n4","sourceHandle":"approved"},
-  {"id":"e4","source":"n3","target":"n5","sourceHandle":"rejected"},
-  {"id":"e5","source":"n4","target":"n6"},
-  {"id":"e6","source":"n5","target":"n6"},
-  {"id":"e7","source":"n6","target":"n7"}
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"},
+  {"id":"e6","source":"n3","target":"n7","sourceHandle":"rejected"},
+  {"id":"e7","source":"n7","target":"n8"},
+  {"id":"e8","source":"n6","target":"n9"},
+  {"id":"e9","source":"n8","target":"n9"},
+  {"id":"e10","source":"n9","target":"n10"}
 ]}
-# ↑ 승인/거절에 따라 다르게 처리해야 하면, humanApprovalNode 뒤에 conditionNode를 붙여서
-# "승인" 같은 문자열을 체크하려고 하지 마라(그 값은 절대 나오지 않아서 항상 틀리게 분기한다).
-# conditionNode처럼 humanApprovalNode 스스로의 sourceHandle을 "approved"/"rejected"로 나눠
-# 바로 연결한다. 승인 시에만 진행하고 거절되면 그냥 워크플로우를 멈추면 되는 단순한 경우는
-# sourceHandle 없이 하나만 연결해도 된다. 단, 요청에 승인 절차 자체가 없으면 이 노드를
-# 아예 쓰지 마라(원칙 1) — 예시12처럼 조건 분기만으로 충분한 경우가 훨씬 많다.
+# ↑ 승인 분기에서는 실제 처리(httpRequestNode)를 먼저 수행하고, 그 결과를 그대로 고객에게 보내지 말고
+# valueNode 등으로 고객용 안내 문구를 만든 뒤 emailNode로 넘긴다. 거절 분기도 마찬가지로 고객용 문구를
+# 따로 만든 뒤 메일을 보내는 구조가 더 안정적이다.
+
+[예시15] 요청: "30분마다 외부 API 상태를 점검해서 장애면 슬랙으로 알려줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"scheduleNode","data":{"cronExpression":"*/30 * * * *"}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"REPLACE_WITH_ACTUAL_URL"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 응답을 보고 첫 줄은 정확히 'STATUS: DOWN' 또는 'STATUS: UP' 중 하나로, 둘째 줄은 점검 결과 요약 한 줄로만 답해"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 외부 API 상태를 판별하는 모니터링 담당자다. 출력 첫 줄은 반드시 STATUS: DOWN 또는 STATUS: UP 이어야 한다."}},
+  {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"down","operator":"Contains","value":"STATUS: DOWN"}]}},
+  {"id":"n6","type":"slackNode","data":{"channel":"#alerts","message":"외부 API 장애 감지"}},
+  {"id":"n7","type":"valueNode","data":{"value":"STATUS: UP\n정기 점검 결과 정상입니다."}},
+  {"id":"n8","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n9","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6","sourceHandle":"down"},
+  {"id":"e6","source":"n5","target":"n7","sourceHandle":"else"},
+  {"id":"e7","source":"n6","target":"n8"},
+  {"id":"e8","source":"n7","target":"n8"},
+  {"id":"e9","source":"n8","target":"n9"}
+]}
+# ↑ 모니터링 예시는 LLM 출력 형식을 먼저 표준화한 뒤(conditionNode가 읽기 쉬운 STATUS 라인),
+# 그 문자열을 기준으로 분기하는 편이 느슨한 자연어 판정보다 훨씬 안정적이다.
+
+[예시17] 요청: "동아리 여름 축제 홍보 포스터를 만들어서 PNG로 저장해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"포스터에 들어갈 행사 정보","testValue":"2026 여름 축제, 7월 25일 오후 6시, 대운동장, 밴드공연과 푸드트럭"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"위 행사 정보를 바탕으로 세로형 홍보 포스터를 디자인해줘. 크기는 900x1200 픽셀 기준이다."}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 전문 그래픽 디자이너다. 반드시 완성된 HTML 문서 하나만 답한다(설명 텍스트나 ```코드펜스 없이 <html>로 시작해서 </html>로 끝나야 한다). <style> 태그 안에 모든 CSS를 인라인으로 작성하고, body 바로 아래 900x1200px 크기의 컨테이너를 만든다. 절대 단순한 흰 배경에 텍스트만 나열하지 말고 반드시 다음을 모두 포함한다: (1) 선명한 그라데이션 배경(예: #6a11cb→#2575fc 보라-파랑, #f857a6→#ff5858 핑크-빨강, #11998e→#38ef7d 청록-라임, #ee0979→#ff6a00 마젠타-주황처럼 채도 높은 두 색 조합 중 내용에 어울리는 걸 고르거나 비슷한 톤으로 직접 만든다) 또는 선명한 색상 블록/도형으로 900x1200 전체를 채운다. 흰색이나 #f5f5f5, #fdfcf9처럼 흰색에 가까운 옅은 파스텔만으로는 배경을 채우지 마라(사실상 흰 화면처럼 보인다) — 반드시 눈에 띄게 채도 있는 색을 쓴다 — 이 배경은 가장 바깥 컨테이너 자체에 직접 입히고, 그 안에 같은 크기의 불투명한 흰색 카드를 겹쳐서 배경을 가리지 않는다(카드를 쓰려면 캔버스보다 작게 만들거나 반투명하게 한다). (2) 크고 굵은 제목(48~72px, font-weight:800 이상)과 톤을 낮춘 부제(20~28px)의 타이포그래피 위계, (3) 둥근 배지나 구분선, 아이콘/이모지, 그림자 중 최소 하나의 시각적 강조 요소, (4) 40px 이상의 넉넉한 안쪽 여백, (5) 배경과 대비되는 확실한 글자색, (6) 내용을 위쪽에만 몰아넣지 말고 가장 바깥 컨테이너에 display:flex; flex-direction:column; justify-content:space-between을 써서 제목·본문·하단 정보가 세로 전체에 고르게 분산되게 하고 캔버스 아래를 비워두지 않는다. 외부 이미지 URL이나 웹폰트 링크는 절대 쓰지 않는다(네트워크 접근이 없어 깨진다) — 시스템 기본 폰트만 사용한다."}},
+  {"id":"n5","type":"posterGeneratorNode","data":{"outputFormat":"png","width":900,"height":1200}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"}
+]}
+# ↑ posterGeneratorNode(n5)는 디자인을 스스로 하지 않는다 — 바로 앞 llmNode(n4)가 만든 HTML 문자열을
+# 그대로 받아 실제 Chromium으로 렌더링해서 저장할 뿐이다. 포스터 생성 자체로 흐름이 끝나는 저장형
+# 결과이므로 outputNode를 붙이지 않는다.
 """
 
 # 정밀 모드용 — 빠름과 달리 "요청에 없어도 필요해 보이면 보조 노드를 알아서 추가"하는 게
@@ -543,21 +895,26 @@ FEWSHOT_PRECISE = """\
 [예시1] 요청: "PDF 요약봇 만들어줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
-  {"id":"n2","type":"tokenizerNode","data":{"method":"extract_text"}},
-  {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 문서를 요약해줘"}},
-  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
-  {"id":"n5","type":"outputNode","data":{}}
+  {"id":"n2","type":"valueNode","data":{"file_path":""}},
+  {"id":"n3","type":"tokenizerNode","data":{"method":"extract_text"}},
+  {"id":"n4","type":"promptNode","data":{"userPrompt":"다음 문서를 요약해줘"}},
+  {"id":"n5","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n6","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"},
   {"id":"e3","source":"n3","target":"n4"},
-  {"id":"e4","source":"n4","target":"n5"}
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
 ]}
+# ↑ tokenizerNode는 "직전 노드의 출력이 파일 경로"여야 동작한다. startNode 바로 뒤에 tokenizerNode를
+# 놓으면 파일을 받을 방법이 없어 매번 실패한다 — 반드시 valueNode(file_path, 초기값은 빈 문자열)를
+# 사이에 두고, 답변에서 "n2(valueNode)를 클릭해서 PDF/문서 파일을 업로드해야 실제로 동작한다"고 안내한다.
 
 [예시2] 요청: "날씨 API 호출해서 결과를 한국어로 요약해줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
-  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"REPLACE_WITH_ACTUAL_URL"}},
   {"id":"n3","type":"jsonParserNode","data":{"mode":"extract","extractKey":"summary"}},
   {"id":"n4","type":"promptNode","data":{"userPrompt":"다음 날씨 정보를 한국어로 요약해줘"}},
   {"id":"n5","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 날씨 캐스터다"}},
@@ -627,13 +984,13 @@ FEWSHOT_PRECISE = """\
 # 반복 안에 두면(예: n6→n7로 직접 연결) 첫 번째 글만 처리하고 그 즉시 끝나버리므로 반드시
 # done 경로로 연결해야 한다.
 
-[예시6] 요청: "계약서_템플릿.hwp 파일의 빈칸을 채워서 완성해줘"
+[예시6] 요청: "계약서_템플릿.docx 파일의 빈칸을 채워서 완성해줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
-  {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.hwp"}},
+  {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.docx"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"위 JSON의 각 키에 대해 문맥에 맞는 값을 채워서 같은 형식의 JSON으로만 답해"}},
-  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다"}},
-  {"id":"n5","type":"fileModifierNode","data":{"template_path":"계약서_템플릿.hwp"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다","useStructuredOutput":true,"jsonSchema":"{\"title\":\"FilledFields\",\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}}"}},
+  {"id":"n5","type":"fileModifierNode","data":{"template_path":"계약서_템플릿.docx"}},
   {"id":"n6","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
@@ -651,15 +1008,15 @@ FEWSHOT_PRECISE = """\
   {"id":"n2","type":"webCrawlerNode","data":{"url":"https://example.com/news"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"다음 뉴스를 한국어로 요약해줘"}},
   {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
-  {"id":"n5","type":"emailNode","data":{"toEmail":"team@company.com","subject":"뉴스 요약"}},
-  {"id":"n6","type":"outputNode","data":{}}
+  {"id":"n5","type":"emailNode","data":{"toEmail":"team@company.com","subject":"뉴스 요약"}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"},
   {"id":"e3","source":"n3","target":"n4"},
-  {"id":"e4","source":"n4","target":"n5"},
-  {"id":"e5","source":"n5","target":"n6"}
+  {"id":"e4","source":"n4","target":"n5"}
 ]}
+# ↑ emailNode로 메일을 보내는 게 이 요청의 최종 목적이라, 그 뒤에 outputNode를 더 붙이지 않는다
+# (emailNode 자체가 최종 결과 전달이다 — discordNode/kakaoNode/slackNode도 마찬가지).
 
 [예시8] 요청: "customers 테이블에서 이메일만 뽑아서 보여줘 (DB 접속정보: postgresql://user:pass@localhost:5432/shop)"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -710,19 +1067,18 @@ FEWSHOT_PRECISE = """\
 [예시11] 요청: "매일 아침 9시에 날씨를 요약해서 이메일로 보내줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"scheduleNode","data":{"cronExpression":"0 9 * * *"}},
-  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"https://api.example.com/weather"}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"REPLACE_WITH_ACTUAL_URL"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"이 날씨 정보를 한국어로 요약해줘"}},
   {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"날씨 전문가"}},
-  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"오늘의 날씨"}},
-  {"id":"n6","type":"outputNode","data":{}}
+  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"오늘의 날씨"}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"},
   {"id":"e3","source":"n3","target":"n4"},
-  {"id":"e4","source":"n4","target":"n5"},
-  {"id":"e5","source":"n5","target":"n6"}
+  {"id":"e4","source":"n4","target":"n5"}
 ]}
 # ↑ 정기적으로 실행해야 하므로 startNode 대신 scheduleNode(cronExpression 포함)로 시작한다.
+# emailNode 발송으로 끝나므로 outputNode는 붙이지 않는다.
 
 [예시12] 요청: "매일 아침에 해커뉴스 크롤링해서 좋은 글 있으면 요약해서 카카오톡으로 보내줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -732,7 +1088,7 @@ FEWSHOT_PRECISE = """\
   {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"뉴스 큐레이터"}},
   {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"r1","operator":"Contains","value":"좋은 글 있음"}]}},
   {"id":"n6","type":"humanApprovalNode","data":{"message":"카카오톡으로 발송할까요?"}},
-  {"id":"n7","type":"kakaoNode","data":{"receiver":""}},
+  {"id":"n7","type":"kakaoNode","data":{"accessToken":"{{API_CENTER:kakao_token}}","receiver":""}},
   {"id":"n8","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
   {"id":"n9","type":"outputNode","data":{}}
 ],"edges":[
@@ -777,25 +1133,32 @@ FEWSHOT_PRECISE = """\
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"결제 요청 내용","testValue":"10만원 결제 요청"}},
-  {"id":"n3","type":"humanApprovalNode","data":{"message":"이 결제 요청을 승인하시겠습니까?"}},
-  {"id":"n4","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제가 진행되었습니다"}},
-  {"id":"n5","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제 요청이 거절되었습니다"}},
-  {"id":"n6","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
-  {"id":"n7","type":"outputNode","data":{}}
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 결제 요청을 검토할 사람이 빠르게 판단할 수 있도록 금액, 요청 사유, 위험 포인트를 짧게 요약해줘"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 결제 승인 요청을 검토하는 운영 담당자다. 승인 판단에 필요한 핵심 정보만 짧고 정확하게 요약한다."}},
+  {"id":"n5","type":"humanApprovalNode","data":{"message":"이 결제 요청을 승인하시겠습니까?"}},
+  {"id":"n6","type":"httpRequestNode","data":{"method":"POST","url":"REPLACE_WITH_ACTUAL_URL"}},
+  {"id":"n7","type":"valueNode","data":{"value":"결제 요청이 승인되어 후속 처리가 완료되었습니다. 고객에게 처리 완료 메일을 발송합니다."}},
+  {"id":"n8","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제가 진행되었습니다"}},
+  {"id":"n9","type":"valueNode","data":{"value":"결제 요청이 거절되어 진행되지 않았습니다. 필요하면 거절 사유를 고객 안내에 포함합니다."}},
+  {"id":"n10","type":"emailNode","data":{"toEmail":"me@example.com","subject":"결제 요청이 거절되었습니다"}},
+  {"id":"n11","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n12","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"},
-  {"id":"e3","source":"n3","target":"n4","sourceHandle":"approved"},
-  {"id":"e4","source":"n3","target":"n5","sourceHandle":"rejected"},
-  {"id":"e5","source":"n4","target":"n6"},
-  {"id":"e6","source":"n5","target":"n6"},
-  {"id":"e7","source":"n6","target":"n7"}
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6","sourceHandle":"approved"},
+  {"id":"e6","source":"n6","target":"n7"},
+  {"id":"e7","source":"n7","target":"n8"},
+  {"id":"e8","source":"n5","target":"n9","sourceHandle":"rejected"},
+  {"id":"e9","source":"n9","target":"n10"},
+  {"id":"e10","source":"n8","target":"n11"},
+  {"id":"e11","source":"n10","target":"n11"},
+  {"id":"e12","source":"n11","target":"n12"}
 ]}
-# ↑ 승인/거절에 따라 다르게 처리해야 하면, humanApprovalNode 뒤에 conditionNode를 붙여서
-# "승인" 같은 문자열을 체크하려고 하지 마라(그 값은 절대 나오지 않아서 항상 틀리게 분기한다).
-# conditionNode처럼 humanApprovalNode 스스로의 sourceHandle을 "approved"/"rejected"로 나눠
-# 바로 연결한다. 승인 시에만 진행하고 거절되면 그냥 워크플로우를 멈추면 되는 단순한 경우는
-# sourceHandle 없이 하나만 연결해도 된다(예시12처럼).
+# ↑ 정밀 모드에서는 승인 전에 사람이 읽기 좋은 요약(promptNode→llmNode)을 먼저 만들고,
+# 승인 뒤 실제 처리와 고객용 안내를 분리해 구성하는 식으로 살을 붙인다.
 
 [예시15] 요청: "보안 알림 들어오면 심각도 확인해서, 심각하면 승인받고 차단하고 아니면 그냥 기록만 해줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -804,7 +1167,7 @@ FEWSHOT_PRECISE = """\
   {"id":"n3","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 보안 알림의 심각도를 판별하는 SOC 분석가다"}},
   {"id":"n4","type":"conditionNode","data":{"rules":[{"id":"critical","operator":"Contains","value":"CRITICAL"}]}},
   {"id":"n5","type":"humanApprovalNode","data":{"message":"심각한 보안 알림입니다. 자동 차단 조치를 진행할까요?"}},
-  {"id":"n6","type":"httpRequestNode","data":{"method":"POST","url":"https://api.example.com/block"}},
+  {"id":"n6","type":"httpRequestNode","data":{"method":"POST","url":"REPLACE_WITH_ACTUAL_URL"}},
   {"id":"n7","type":"valueNode","data":{"value":"차단은 보류되고 모니터링만 계속됩니다"}},
   {"id":"n8","type":"valueNode","data":{"value":"정상 알림으로 기록되었습니다"}},
   {"id":"n9","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
@@ -825,6 +1188,48 @@ FEWSHOT_PRECISE = """\
 # ↑ conditionNode로 먼저 분류하고, 그 중 한 분기에서만(심각한 경우만) humanApprovalNode를
 # 거치도록 중첩할 수 있다 — 조건 분기와 사람 승인은 서로 독립적인 노드라 이렇게 조합 가능하다.
 # 심각하지 않은 else 분기는 승인 없이 바로 기록으로 끝난다.
+
+[예시16] 요청: "30분마다 외부 API 상태를 점검해서 장애면 슬랙으로 알리고, 정상이면 결과만 남겨줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"scheduleNode","data":{"cronExpression":"*/30 * * * *"}},
+  {"id":"n2","type":"httpRequestNode","data":{"method":"GET","url":"REPLACE_WITH_ACTUAL_URL"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"이 응답 또는 오류를 보고 첫 줄은 정확히 'STATUS: DOWN' 또는 'STATUS: UP' 중 하나로, 둘째 줄은 원인 추정 또는 정상 점검 요약 한 줄로만 답해"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 외부 API 상태를 모니터링하는 SRE다. 첫 줄은 반드시 STATUS: DOWN 또는 STATUS: UP 이어야 하고, 둘째 줄에는 점검 요약만 쓴다."}},
+  {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"down","operator":"Contains","value":"STATUS: DOWN"}]}},
+  {"id":"n6","type":"slackNode","data":{"channel":"#ops-alerts","message":"외부 API 장애가 감지되었습니다"}},
+  {"id":"n7","type":"valueNode","data":{"value":"STATUS: UP\n정기 점검 결과 정상입니다."}},
+  {"id":"n8","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
+  {"id":"n9","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6","sourceHandle":"down"},
+  {"id":"e6","source":"n5","target":"n7","sourceHandle":"else"},
+  {"id":"e7","source":"n6","target":"n8"},
+  {"id":"e8","source":"n7","target":"n8"},
+  {"id":"e9","source":"n8","target":"n9"}
+]}
+# ↑ 정밀 모드의 모니터링 예시는 LLM 출력 포맷을 강하게 고정해서 분기 정확도를 높이고,
+# 장애 알림과 정상 기록 경로를 명확히 나눈다.
+
+[예시17] 요청: "동아리 여름 축제 홍보 포스터를 만들어서 PNG로 저장해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"포스터에 들어갈 행사 정보","testValue":"2026 여름 축제, 7월 25일 오후 6시, 대운동장, 밴드공연과 푸드트럭"}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"위 행사 정보를 바탕으로 세로형 홍보 포스터를 디자인해줘. 크기는 900x1200 픽셀 기준이다."}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 전문 그래픽 디자이너다. 반드시 완성된 HTML 문서 하나만 답한다(설명 텍스트나 ```코드펜스 없이 <html>로 시작해서 </html>로 끝나야 한다). <style> 태그 안에 모든 CSS를 인라인으로 작성하고, body 바로 아래 900x1200px 크기의 컨테이너를 만든다. 절대 단순한 흰 배경에 텍스트만 나열하지 말고 반드시 다음을 모두 포함한다: (1) 선명한 그라데이션 배경(예: #6a11cb→#2575fc 보라-파랑, #f857a6→#ff5858 핑크-빨강, #11998e→#38ef7d 청록-라임, #ee0979→#ff6a00 마젠타-주황처럼 채도 높은 두 색 조합 중 내용에 어울리는 걸 고르거나 비슷한 톤으로 직접 만든다) 또는 선명한 색상 블록/도형으로 900x1200 전체를 채운다. 흰색이나 #f5f5f5, #fdfcf9처럼 흰색에 가까운 옅은 파스텔만으로는 배경을 채우지 마라(사실상 흰 화면처럼 보인다) — 반드시 눈에 띄게 채도 있는 색을 쓴다 — 이 배경은 가장 바깥 컨테이너 자체에 직접 입히고, 그 안에 같은 크기의 불투명한 흰색 카드를 겹쳐서 배경을 가리지 않는다(카드를 쓰려면 캔버스보다 작게 만들거나 반투명하게 한다). (2) 크고 굵은 제목(48~72px, font-weight:800 이상)과 톤을 낮춘 부제(20~28px)의 타이포그래피 위계, (3) 둥근 배지나 구분선, 아이콘/이모지, 그림자 중 최소 하나의 시각적 강조 요소, (4) 40px 이상의 넉넉한 안쪽 여백, (5) 배경과 대비되는 확실한 글자색, (6) 내용을 위쪽에만 몰아넣지 말고 가장 바깥 컨테이너에 display:flex; flex-direction:column; justify-content:space-between을 써서 제목·본문·하단 정보가 세로 전체에 고르게 분산되게 하고 캔버스 아래를 비워두지 않는다. 외부 이미지 URL이나 웹폰트 링크는 절대 쓰지 않는다(네트워크 접근이 없어 깨진다) — 시스템 기본 폰트만 사용한다."}},
+  {"id":"n5","type":"posterGeneratorNode","data":{"outputFormat":"png","width":900,"height":1200}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"}
+]}
+# ↑ posterGeneratorNode(n5)는 디자인을 스스로 하지 않는다 — 바로 앞 llmNode(n4)가 만든 HTML 문자열을
+# 그대로 받아 실제 Chromium으로 렌더링해서 저장할 뿐이다. 그래서 HTML을 실제로 "잘 만들게" 하는 책임은
+# n4의 systemPrompt에 있다. 포스터 생성 자체로 흐름이 끝나는 저장형 결과이므로 outputNode를 붙이지 않는다.
 """
 
 
@@ -840,8 +1245,13 @@ def _strip_positions(g: FlowGraph) -> FlowGraph:
 
 def generate_flow(user_request: str, complexity_level: str = "low") -> FlowGraph:
     llm = get_llm(complexity_level=complexity_level).with_structured_output(FlowGraph, method="function_calling")   # 출력을 FlowGraph 형식으로 강제
+    # 요청과 관련 있을 법한 노드만 추려서 카탈로그를 줄인다(선별 실패 시 build_trimmed_catalog가
+    # 알아서 전체 NODE_CATALOG로 폴백하므로 최악의 경우도 트리밍 이전과 동일하다).
+    selected_types = select_relevant_node_types(user_request, complexity_level=complexity_level)
+    trimmed_catalog = build_trimmed_catalog(selected_types)
+    system_prompt = SYSTEM.replace(NODE_CATALOG, trimmed_catalog, 1)
     messages = [
-        ("system", SYSTEM + "\n\n" + FEWSHOT_FAST),
+        ("system", system_prompt + "\n\n" + FEWSHOT_FAST),
         ("user", f'요청: "{user_request}"\n위 규칙에 맞는 graph_data를 만들어줘.'),
     ]
     return _strip_positions(llm.invoke(messages))
@@ -883,8 +1293,11 @@ def generate_flow_precise(user_request: str, complexity_level: str = "high") -> 
     """정밀 모드 전용: 템플릿 검색 없이, 사용자 요청을 더 꼼꼼히 해석해서
     프로덕트급 수준으로 살을 붙여 생성한다."""
     llm = get_llm(complexity_level=complexity_level).with_structured_output(FlowGraph, method="function_calling")
+    selected_types = select_relevant_node_types(user_request, complexity_level=complexity_level)
+    trimmed_catalog = build_trimmed_catalog(selected_types)
+    system_prompt = PRECISE_SYSTEM.replace(NODE_CATALOG, trimmed_catalog, 1)
     messages = [
-        ("system", PRECISE_SYSTEM + "\n\n" + FEWSHOT_PRECISE),
+        ("system", system_prompt + "\n\n" + FEWSHOT_PRECISE),
         ("user", f'요청: "{user_request}"\n위 규칙에 맞는, 실제 서비스 수준으로 구체화된 graph_data를 만들어줘.'),
     ]
     return _strip_positions(llm.invoke(messages))
@@ -913,6 +1326,24 @@ ALLOWED_METHODS = {"extract_text", "chunk_pages"}
 ALLOWED_HTTP_METHODS = {"GET", "POST", "PUT", "DELETE"}
 ALLOWED_JSON_PARSER_MODES = {"parse", "stringify", "extract"}
 LOOP_PRODUCING_NODE_TYPES = {"distributorNode"}  # breakNode가 유효하려면 상류에 이 중 하나가 있어야 한다(추후 loopNode 등 추가 시 여기에 더한다)
+# 그 자체로 외부에 결과를 발송/전달하거나 영구 반영(저장)하는 노드 — 이걸로 흐름이 끝나면
+# outputNode 없이도 완결로 인정한다. databaseNode는 검증기가 SELECT/WITH만 허용하고
+# INSERT/UPDATE/DELETE는 전부 차단하므로(_validate_node_data 참고) 항상 "조회" 결과가 나오고,
+# 그 결과는 반드시 사용자에게 보여줘야 하므로 여기 포함하지 않는다(포함하면 조회 결과가
+# outputNode 없이 조용히 버려지는 흐름을 허용하게 된다).
+TERMINAL_ACTION_NODE_TYPES = {"emailNode", "discordNode", "telegramNode", "kakaoNode", "slackNode", "fileModifierNode", "posterGeneratorNode"}
+# googleSheetsNode/googleCalendarNode/notionNode는 databaseNode와 달리 "쓰기"도 할 수 있는
+# 노드라, 위 TERMINAL_ACTION_NODE_TYPES처럼 타입만으로 무조건 통과시키면 read/list/query
+# 모드로 흐름이 끝날 때도 결과가 조용히 버려지는 걸 허용하게 된다(원래 outputNode를 강제한
+# 이유와 동일). 그렇다고 이 세 노드가 항상 outputNode를 요구하면, discordNode/kakaoNode와
+# 똑같이 "쓰기 자체가 최종 결과 전달"인 create/append/write 모드까지 불필요하게 막혀버린다
+# — 실제로 이 제약 때문에 사용자가 불편을 겪었다. 그래서 모드별로 판단한다: 이 모드일 때만
+# "그 자체로 끝나도 되는" 발송/저장형 액션으로 본다.
+MODE_AWARE_TERMINAL_NODE_TYPES = {
+    "googleSheetsNode": {"append", "write"},
+    "googleCalendarNode": {"create"},
+    "notionNode": {"create"},
+}
 
 
 def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, List[str]]:
@@ -920,7 +1351,9 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
 
     검사 항목(계약 §3 기준):
       1) startNode 정확히 1개로 시작        ← require_complete=True일 때만
-      2) outputNode로 종료(1개 이상)        ← require_complete=True일 때만
+      2) outputNode로 종료(1개 이상), 단 emailNode/discordNode/kakaoNode/slackNode 같은 발송형
+         액션 노드나 fileModifierNode 같은 저장형 액션 노드가 더 이상 나가는 엣지 없이 끝나면
+         outputNode 없이도 통과(그 자체가 최종 결과 전달/반영이므로) ← require_complete=True일 때만
       3) 순환 금지(DAG)
       4) 모든 엣지의 source·target가 실재 노드
       5) 노드 id 유일(엣지 id도 유일)
@@ -946,7 +1379,7 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
           노드라(generate_output_node 확인 결과) 그 뒤에 연결된 노드는 절대 실행되지 않는다(죽은 코드).
           템플릿 기반 생성 시 원본 템플릿의 무관한 잔여 노드가 지워지지 않고 outputNode 뒤에 그대로
           매달리는 사례가 실제로 발견됨 — 그래프 편집기에는 "연결"된 것처럼 보여서 눈치채기 어렵다.
-      14) 고아 노드 — 시작 노드(startNode/scheduleNode/webhookNode)가 아닌데 들어오는 엣지가 하나도
+      14) 고아 노드 — 시작 노드(startNode/scheduleNode/webhookNode/discordTriggerNode/telegramTriggerNode)가 아닌데 들어오는 엣지가 하나도
           없으면 영원히 실행될 방법이 없다. multiAgentNode/fileModifierNode에 targetHandle이
           'tools'/'template'인 엣지의 소스는 예외(그래프 컴파일러도 이 핸들은 제어 흐름이 아닌
           배선으로 취급해 별도로 다룬다).                    ← require_complete=True일 때만
@@ -964,11 +1397,32 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
 
     # 1~2) 시작/종료 — 완성본 검사일 때만
     if require_complete:
-        start_count = types.count("startNode") + types.count("scheduleNode") + types.count("webhookNode")
+        start_count = (types.count("startNode") + types.count("scheduleNode") + types.count("webhookNode")
+                       + types.count("discordTriggerNode") + types.count("telegramTriggerNode"))
         if start_count != 1:
-            errors.append(f"시작 노드(startNode, scheduleNode 또는 webhookNode)는 정확히 1개여야 한다 (현재 {start_count}개)")
-        if "outputNode" not in types:
-            errors.append("outputNode(종료)가 없다")
+            errors.append(f"시작 노드(startNode, scheduleNode, webhookNode, discordTriggerNode 또는 telegramTriggerNode)는 정확히 1개여야 한다 (현재 {start_count}개)")
+
+        has_output_node = "outputNode" in types
+        # tools/template 핸들은 실제 제어 흐름이 아니라 배선(서브에이전트/템플릿 연결)이므로 제외
+        sources_with_real_outgoing = {e.source for e in g.edges if e.targetHandle not in ("tools", "template")}
+
+        def _is_terminal_leaf(n) -> bool:
+            if n.id in sources_with_real_outgoing:
+                return False
+            if n.type in TERMINAL_ACTION_NODE_TYPES:
+                return True
+            allowed_modes = MODE_AWARE_TERMINAL_NODE_TYPES.get(n.type)
+            if allowed_modes is not None:
+                return (n.data or {}).get("mode") in allowed_modes
+            return False
+
+        ends_with_terminal_action = any(_is_terminal_leaf(n) for n in g.nodes)
+        if not has_output_node and not ends_with_terminal_action:
+            errors.append(
+                "outputNode(종료)가 없다 — 또는 emailNode/discordNode/kakaoNode/slackNode 같은 "
+                "발송형 액션 노드나 fileModifierNode 같은 저장형 액션 노드로 흐름이 끝나야 한다 "
+                "(googleSheetsNode/googleCalendarNode/notionNode는 mode가 create/append/write일 때만 해당)"
+            )
 
     # 5) 노드/엣지 id 유일성
     dup_node_ids = {i for i in ids if ids.count(i) > 1}
@@ -1137,6 +1591,24 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
                 "templateAnalyzerNode 등 JSON을 만들어주는 노드를 사이에 연결하라"
             )
 
+    # 13) posterGeneratorNode: fileModifierNode의 12)와 동일한 이유 — 렌더링할 HTML을 항상 직전
+    # 노드의 출력에서 가져오므로(자기 data엔 디자인 내용이 없다), llmNode 등 실제 HTML을 만들어주는
+    # 노드가 앞에 있어야 한다.
+    for n in g.nodes:
+        if n.type != "posterGeneratorNode":
+            continue
+        incoming_sources = [nodes_by_id[e.source] for e in g.edges if e.target == n.id and e.source in nodes_by_id]
+        if not incoming_sources:
+            errors.append(
+                f"{n.id}(posterGeneratorNode)에 연결된 이전 노드가 없다 — HTML을 만들어주는 노드"
+                "(promptNode → llmNode 조합 등)를 앞에 연결하라"
+            )
+        elif all(s.type == "startNode" for s in incoming_sources):
+            errors.append(
+                f"{n.id}(posterGeneratorNode)의 직전 노드가 startNode뿐이라 렌더링할 HTML을 얻을 수 없다 — "
+                "llmNode 등 HTML을 만들어주는 노드를 사이에 연결하라"
+            )
+
     # 3) 순환(cycle)
     has_cycle, stuck = _has_cycle(ids, g.edges)
     if has_cycle:
@@ -1155,7 +1627,7 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
     # 14) 고아 노드 — 시작 노드가 아닌데 들어오는 엣지가 하나도 없음(require_complete일 때만:
     # add_node 등으로 그리는 중에는 아직 안 이어진 노드가 정상적으로 있을 수 있다)
     if require_complete:
-        start_types = {"startNode", "scheduleNode", "webhookNode"}
+        start_types = {"startNode", "scheduleNode", "webhookNode", "discordTriggerNode", "telegramTriggerNode"}
         targets_with_incoming = {e.target for e in g.edges}
         tool_or_template_sources = {e.source for e in g.edges if e.targetHandle in ("tools", "template")}
         for n in g.nodes:
@@ -1221,6 +1693,21 @@ def _validate_node_data(n: FlowNode) -> List[str]:
             errors.append(f"{n.id}(llmNode)의 model '{model}'은 허용되지 않는다 (허용: {', '.join(sorted(ALLOWED_MODELS))})")
         if not d.get("systemPrompt"):
             errors.append(f"{n.id}(llmNode)에 systemPrompt가 없다")
+        if d.get("useStructuredOutput"):
+            json_schema_str = d.get("jsonSchema")
+            if not json_schema_str:
+                errors.append(f"{n.id}(llmNode)는 useStructuredOutput이 true인데 jsonSchema가 없다")
+            else:
+                try:
+                    parsed_schema = json.loads(json_schema_str)
+                    if isinstance(parsed_schema, dict) and not parsed_schema.get("title"):
+                        errors.append(
+                            f"{n.id}(llmNode)의 jsonSchema에 최상위 'title' 키가 없다 — OpenAI 구조적 "
+                            "출력이 title을 함수 이름으로 쓰기 때문에 없으면 'Unsupported function' "
+                            "오류로 실행이 즉시 실패한다. 예: \"title\":\"Result\"를 추가하라"
+                        )
+                except (json.JSONDecodeError, TypeError):
+                    errors.append(f"{n.id}(llmNode)의 jsonSchema가 유효한 JSON이 아니다 — 실행 시 파싱에서 그대로 실패한다")
 
     elif n.type == "tokenizerNode":
         method = d.get("method")
@@ -1246,7 +1733,9 @@ def _validate_node_data(n: FlowNode) -> List[str]:
                     seen_rule_ids.add(rid)
                 if op not in ALLOWED_OPERATORS:
                     errors.append(f"{n.id}(conditionNode)의 rule {label} operator '{op}'는 허용되지 않는다 (허용: {', '.join(sorted(ALLOWED_OPERATORS))})")
-                if val is None or val == "":
+                # value=""는 "비어있는지 검사"하는 정상적인 규칙이다(예: 텍스트 추출 실패 시 결과가
+                # 빈 문자열인지 확인) — value 필드 자체가 아예 없는 경우(None)만 오류로 본다.
+                if "value" not in r or r.get("value") is None:
                     errors.append(f"{n.id}(conditionNode)의 rule {label}에 value가 없다")
 
     elif n.type == "pythonNode":
@@ -1259,6 +1748,44 @@ def _validate_node_data(n: FlowNode) -> List[str]:
         elif d.get("botToken") and not d.get("botToken", "").startswith("http"):
             if not d.get("channelId"):
                 errors.append(f"{n.id}(discordNode)가 Webhook이 아닌 봇 토큰 방식일 때는 channelId가 필수다")
+        # 실제 디스코드 채널 ID는 숫자로만 된 스노우플레이크 하나다(예: "1234567890123456789").
+        # 사용자가 채널을 안 알려줬는데도 지어낸 값(자리표시자 문자열, "길드ID/채널ID"처럼 "/"로
+        # 이어붙인 값 등)을 넣는 경우가 실제로 있었다 — 형식이 이상하면 지어낸 값일 가능성이 높으니
+        # 여기서 걸러서 재시도하게 만든다(빈 문자열은 "아직 모른다"는 정상 상태라 통과).
+        channel_id = d.get("channelId", "")
+        if channel_id and not channel_id.isdigit():
+            errors.append(
+                f"{n.id}(discordNode)의 channelId({channel_id!r})가 실제 디스코드 채널 ID 형식(숫자로만 된 스노우플레이크)이 "
+                "아니다 — 사용자가 채널을 알려주지 않았다면 지어내지 말고 빈 문자열로 둬라"
+            )
+
+    elif n.type == "telegramNode":
+        # 텔레그램 chat_id는 디스코드 channelId와 달리 형식이 여러 개다 — 개인 채팅은 양수,
+        # 그룹/슈퍼그룹은 보통 음수(예: "-1001234567890"), 공개 채널은 "@channel_username"도
+        # 유효하다. 그래서 숫자 하나만 허용하면 정상 케이스까지 막힌다 — 세 형식 중 하나인지만
+        # 검사해서, 디스코드 channelId 검증과 같은 이유(지어낸 값 방지)로 형식이 완전히
+        # 이상한 경우만 걸러낸다.
+        chat_id = d.get("chatId", "")
+        if chat_id and not re.match(r"^-?\d+$|^@\w+$", chat_id):
+            errors.append(
+                f"{n.id}(telegramNode)의 chatId({chat_id!r})가 유효한 텔레그램 chat_id 형식(숫자, 음수 "
+                "가능, 또는 \"@채널명\")이 아니다 — 사용자가 채팅방을 알려주지 않았다면 지어내지 말고 "
+                "빈 문자열로 둬라"
+            )
+
+    elif n.type == "kakaoNode":
+        # API 센터에는 카카오 관련 provider가 두 개 있다 — "kakao"(REST API 키=client_id, 토큰
+        # 자동 갱신에만 쓰임)와 "kakao_token"(실제 발송용 access_token). 실제로 LLM이 지침을
+        # 놓치고 accessToken을 "{{API_CENTER:kakao}}"(잘못된 쪽)로 채운 사례가 있었다 — REST
+        # 키는 Bearer 토큰으로 못 써서 카카오 서버가 401로 거부한다. 여기서 미리 걸러낸다
+        # (실행 엔진에도 동일한 값을 자동 교정하는 안전장치가 있지만,애초에 맞게 생성되는 게 낫다).
+        access_token = d.get("accessToken", "")
+        if access_token.strip() == "{{API_CENTER:kakao}}":
+            errors.append(
+                f"{n.id}(kakaoNode)의 accessToken이 '{{{{API_CENTER:kakao}}}}'로 되어 있는데, 이건 "
+                "REST API 키(client_id)라 실제 메시지 발송에는 쓸 수 없다 — 반드시 "
+                "'{{API_CENTER:kakao_token}}'으로 바꿔라"
+            )
 
     elif n.type == "slackNode":
         if "channel" not in d:
@@ -1282,6 +1809,21 @@ def _validate_node_data(n: FlowNode) -> List[str]:
             errors.append(f"{n.id}(jsonParserNode)의 mode는 parse/stringify/extract 중 하나여야 한다 (현재: {mode!r})")
         if mode == "extract" and not d.get("extractKey"):
             errors.append(f"{n.id}(jsonParserNode)는 mode가 extract일 때 extractKey가 필요하다")
+
+    elif n.type == "googleSheetsNode":
+        mode = d.get("mode", "read")
+        if mode not in ("read", "append", "write"):
+            errors.append(f"{n.id}(googleSheetsNode)의 mode는 read/append/write 중 하나여야 한다 (현재: {mode!r})")
+
+    elif n.type == "googleCalendarNode":
+        mode = d.get("mode", "create")
+        if mode not in ("create", "list"):
+            errors.append(f"{n.id}(googleCalendarNode)의 mode는 create/list 중 하나여야 한다 (현재: {mode!r})")
+
+    elif n.type == "notionNode":
+        mode = d.get("mode", "create")
+        if mode not in ("create", "query"):
+            errors.append(f"{n.id}(notionNode)의 mode는 create/query 중 하나여야 한다 (현재: {mode!r})")
 
     elif n.type == "delayNode":
         seconds = d.get("seconds")
@@ -1323,8 +1865,11 @@ def _validate_node_data(n: FlowNode) -> List[str]:
             errors.append(f"{n.id}(multiAgentNode)의 mode는 'supervisor' 또는 'group_chat'이어야 한다 (현재: {mode!r})")
 
     elif n.type == "databaseNode":
-        if not d.get("connectionString"):
-            errors.append(f"{n.id}(databaseNode)에 connectionString이 없다")
+        # connectionString은 httpRequestNode의 PLACEHOLDER_URL과 같은 성격의 필드다 — 사용자가
+        # 실제 값을 아직 안 줬으면 비워두는 게 맞고(지어내면 안 됨), 실행 시 친절한 안내로
+        # 대체되도록 이미 처리되어 있다(data_nodes.py). 그래서 이걸 없다고 검증 실패로 막으면
+        # 정상적인 "아직 credential 안 채워짐" 템플릿까지 구조 검증에서 통째로 걸러진다 — query만
+        # 검사한다.
         query = d.get("query", "")
         if not query:
             errors.append(f"{n.id}(databaseNode)에 query가 없다")
@@ -1517,6 +2062,8 @@ def _summarize_node_data(node_type: str, data: Dict[str, Any]) -> str:
         return f"template_path={data.get('template_path', '')!r}"
     if node_type == "fileModifierNode":
         return f"template_path={data.get('template_path', '')!r}, output_path={data.get('output_path', '')!r}"
+    if node_type == "posterGeneratorNode":
+        return f"outputFormat={data.get('outputFormat', 'png')!r}, width={data.get('width', 900)!r}, height={data.get('height', 1200)!r}"
     if node_type == "emailNode":
         return f"toEmail={data.get('toEmail', '')!r}, subject={data.get('subject', '')!r}"
     if node_type == "databaseNode":
@@ -1555,8 +2102,66 @@ def _dynamic_input_note(n: FlowNode) -> Optional[str]:
     return f"{n.id}(dynamicInputNode)에 마땅한 예시가 없어 testValue를 비워뒀다 — 실제 실행 시 호출자가 넘긴 값으로 채워짐을 답변에서 알려줄 것"
 
 
-def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple[List, Callable[[], FlowGraph]]:
-    """요청 하나(=대화 한 턴)마다 호출. (도구 6개 리스트, 현재 그래프를 꺼내는 함수) 튜플을 반환한다.
+def _web_search_duckduckgo(query: str, max_results: int = 5) -> str:
+    """API 키 없이 DuckDuckGo HTML 결과 페이지를 스크래핑해서 검색한다.
+    워크플로우 생성 챗봇이 최신 정보(사용법, 시세, 뉴스 등)를 참고할 때 쓰는 보조 도구."""
+    import requests
+    from bs4 import BeautifulSoup
+    try:
+        resp = requests.post(
+            "https://html.duckduckgo.com/html/",
+            data={"q": query},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = []
+        for result in soup.select(".result__body")[:max_results]:
+            title_tag = result.select_one(".result__title")
+            snippet_tag = result.select_one(".result__snippet")
+            link_tag = result.select_one(".result__url")
+            title = title_tag.get_text(strip=True) if title_tag else ""
+            snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
+            url = link_tag.get_text(strip=True) if link_tag else ""
+            if title:
+                results.append(f"- {title}\n  {url}\n  {snippet}")
+        return "\n\n".join(results) if results else "검색 결과가 없습니다."
+    except Exception as e:
+        return f"웹 검색 실패: {e}"
+
+
+def _verify_url(url: str) -> str:
+    """webCrawlerNode/httpRequestNode에 채워 넣을 URL이 실제로 존재/접속 가능한지 확인한다.
+    web_search는 검색 결과만 줄 뿐 그 링크가 지금도 살아있는지는 보장하지 않으므로(오래된 문서,
+    깨진 링크 등), 채팅 챗봇이 URL을 자동으로 채워 넣기 전에 실제 HTTP 요청으로 한 번 더
+    검증하는 용도. 사용자가 직접 타이핑할 필요 없이 챗봇이 사이트 주소를 검증→자동 입력하게
+    해달라는 요청으로 추가됨."""
+    import requests
+    try:
+        resp = requests.get(
+            url, timeout=8, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True
+        )
+        status = resp.status_code
+        title = ""
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(resp.text[:20000], "html.parser")
+            if soup.title and soup.title.get_text(strip=True):
+                title = soup.title.get_text(strip=True)
+        except Exception:
+            pass
+        if 200 <= status < 400:
+            return (
+                f"접속 성공 (상태 코드 {status}). 최종 URL: {resp.url}. "
+                f"페이지 제목: {title or '(확인 안 됨)'}"
+            )
+        return f"접속 실패 (상태 코드 {status}) — 이 URL은 유효하지 않을 수 있으니 다른 후보를 확인해라."
+    except Exception as e:
+        return f"접속 실패: {e} — 이 URL은 유효하지 않을 수 있으니 다른 후보를 확인해라."
+
+
+def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None) -> Tuple[List, Callable[[], FlowGraph], Callable[[], Optional[Dict[str, Any]]]]:
+    """요청 하나(=대화 한 턴)마다 호출. (도구 리스트, 현재 그래프를 꺼내는 함수, 확인 질문을 꺼내는 함수) 튜플을 반환한다.
 
     두 번째 값 get_current_graph()가 필요한 이유: 도구들이 참조하는 그릇(state)은 클로저 안에
     갇혀 있어서 바깥에서 직접 못 꺼낸다. 롤백이 일어나면 state["graph"]가 통째로 새 객체로
@@ -1577,7 +2182,7 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
     """
     from langchain_core.tools import tool
 
-    state: Dict[str, Any] = {"graph": initial_graph, "fail_streak": 0, "last_errors": []}
+    state: Dict[str, Any] = {"graph": initial_graph, "fail_streak": 0, "last_errors": [], "clarification": None}
 
     def _snapshot() -> FlowGraph:
         return state["graph"].model_copy(deep=True)
@@ -1707,26 +2312,41 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
         g.edges = [e for e in g.edges if e.source != node_id and e.target != node_id]
         return _commit_or_rollback(before, f"노드 {node_id} 및 연결된 엣지 삭제됨")
 
+    QUALITY_GATE_THRESHOLD = 70
+    # 재시도 1회당 평가 사이클(테스트케이스 생성+실행+채점) 전체가 다시 도는 데다, 매 시도마다
+    # generate_flow_precise까지 새로 호출돼서 비용이 크다 — 원래 3이었는데, 체감 생성 시간이
+    # 너무 길다는 피드백으로 2로 낮췄다(사용자 확인 완료).
+    QUALITY_GATE_MAX_ATTEMPTS = 2
+    # 품질 게이트는 "대충 괜찮은지" 빠르게 감만 보면 되는 용도라, 정식 /api/evaluate(3개)보다
+    # 적은 1개 테스트케이스만 돌려서 속도를 우선한다(사용자 확인 완료).
+    QUALITY_GATE_NUM_TEST_CASES = 1
+
     @tool("generate_flow")
-    def _generate_flow_tool(request: str) -> str:
+    async def _generate_flow_tool(request: str) -> str:
         """완전히 새로운 flow를 통째로 생성해서 기존 flow를 전부 대체한다.
         "~봇 만들어줘"처럼 처음부터 새로 만드는 요청에만 쓴다.
         기존 flow에 노드를 붙이거나 일부만 고치는 요청에는 add_node/connect_nodes/update_node를 쓴다."""
-        
+
         g = None
         template = None
-        mode_label = "few-shot"
-        
+        mode_label = "빠름 생성"
+
+        # generate_flow*/search_and_parse_template은 내부적으로 LLM·임베딩 API를 동기(blocking)로
+        # 호출한다. uvicorn이 --workers 1(단일 워커)로 떠 있어서, 이 도구 함수가 async라고 해도 그
+        # 안에서 동기 호출을 await 없이 그냥 부르면 그 호출이 끝날 때까지 이벤트 루프 전체가 멈춰서
+        # 다른 모든 사용자의 요청까지 같이 멈춘다("서버가 멈춘 것 같다"는 증상의 실제 원인 — AI로
+        # 워크플로우를 생성/재생성할 때마다(특히 재시도 루프가 도는 정밀 모드) 이 경로를 타므로 흔하게
+        # 재발할 수 있었다). asyncio.to_thread로 스레드에 넘겨서 이벤트 루프를 막지 않게 한다.
         if complexity_level == "high":
             # ── 정밀 모드: 템플릿 검색 없이, 요청을 더 꼼꼼히 해석해서 살을 붙여 생성 ──
-            g = generate_flow_precise(request, complexity_level=complexity_level)
+            g = await asyncio.to_thread(generate_flow_precise, request, complexity_level=complexity_level)
             mode_label = "정밀 생성"
 
         elif complexity_level == "medium":
             # ── 확장 모드: Pre-translated DB에서 템플릿 검색 → 구조 유지 + 파라미터 수정 ──
             try:
                 from rag_utils import search_and_parse_template
-                template_data = search_and_parse_template(request)
+                template_data = await asyncio.to_thread(search_and_parse_template, request)
                 if template_data:
                     template = FlowGraph(
                         title=template_data.get("title") or "참고 템플릿",
@@ -1741,9 +2361,15 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
         # 확장 모드에서 템플릿을 못 찾았을 때
         if not g:
             if template:
-                g = generate_flow_from_template(request, template, complexity_level=complexity_level)
+                g = await asyncio.to_thread(generate_flow_from_template, request, template, complexity_level=complexity_level)
             else:
-                g = generate_flow(request, complexity_level=complexity_level)  # low 모드 또는 fallback
+                if complexity_level == "medium":
+                    # 템플릿 검색이 빗나가도 low few-shot으로 급락시키지 않고,
+                    # 구조를 적극 활용하는 확장 생성 경로를 유지한다.
+                    g = await asyncio.to_thread(generate_flow_precise, request, complexity_level=complexity_level)
+                    mode_label = "확장 생성"
+                else:
+                    g = await asyncio.to_thread(generate_flow, request, complexity_level=complexity_level)
 
         # ── Validation + 재시도 (최대 5회 시도 — LLM이 검증 에러 메시지를 보고도 매번
         # 고치는 건 아니라서, 1회만으로는 실패율이 꽤 있었다) ──
@@ -1754,28 +2380,108 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low") -> Tuple
             attempt += 1
             retry = f'{request}\n\n(직전 생성이 아래 이유로 잘못됐다. 고쳐서 다시: {"; ".join(errs)})'
             if mode_label == "정밀 생성":
-                g = generate_flow_precise(retry)
+                g = await asyncio.to_thread(generate_flow_precise, retry, complexity_level=complexity_level)
             elif template:
-                g = generate_flow_from_template(retry, template)
+                g = await asyncio.to_thread(generate_flow_from_template, retry, template, complexity_level=complexity_level)
+            elif mode_label == "확장 생성":
+                g = await asyncio.to_thread(generate_flow_precise, retry, complexity_level=complexity_level)
             else:
-                g = generate_flow(retry)
+                g = await asyncio.to_thread(generate_flow, retry, complexity_level=complexity_level)
             ok, errs = validate_flow(g)
 
         if not ok:
             return _fail(f"생성 실패(기존 flow 유지, {attempt}회 시도): {errs}")
+
+        # ── 정밀 모드 전용 품질 게이트: 구조 검증을 통과해도 실제 품질이 낮을 수 있으므로,
+        # 평가 기능(evaluator)으로 채점해서 기준 점수 미달이면 개선 제안을 반영해 재생성한다.
+        # (db 세션이 있어야 실제 워크플로우를 실행해볼 수 있어서, db 없으면 조용히 건너뛴다.)
+        quality_score = None
+        quality_attempts = 0
+        if complexity_level in ("medium", "high") and db is not None:
+            from evaluator import run_evaluation_pipeline
+            while quality_attempts < QUALITY_GATE_MAX_ATTEMPTS:
+                quality_attempts += 1
+                try:
+                    eval_report = await run_evaluation_pipeline(
+                        project_id=None,
+                        title=g.title or "워크플로우",
+                        description=g.description or "",
+                        nodes=[n.model_dump() for n in g.nodes],
+                        edges=[e.model_dump() for e in g.edges],
+                        db=db,
+                        num_test_cases=QUALITY_GATE_NUM_TEST_CASES,
+                    )
+                except Exception as ex:
+                    print(f"[정밀 생성 품질 게이트] 평가 실패, 건너뜀: {ex}")
+                    break
+                if not isinstance(eval_report, dict) or "error" in eval_report:
+                    break
+                quality_score = eval_report.get("score", 0)
+                if quality_score >= QUALITY_GATE_THRESHOLD or quality_attempts >= QUALITY_GATE_MAX_ATTEMPTS:
+                    break
+                suggestions = eval_report.get("suggestions", [])
+                retry_request = (
+                    f'{request}\n\n(방금 생성한 워크플로우가 자동 평가에서 {quality_score}/100점을 받아 '
+                    f'기준({QUALITY_GATE_THRESHOLD}점)에 못 미쳤다. 아래 개선 제안을 반영해서 다시 생성해줘:\n'
+                    + "\n".join(f"- {s}" for s in suggestions)
+                )
+                if template:
+                    candidate = await asyncio.to_thread(generate_flow_from_template, retry_request, template, complexity_level=complexity_level)
+                else:
+                    candidate = await asyncio.to_thread(generate_flow_precise, retry_request, complexity_level=complexity_level)
+                cand_ok, _ = validate_flow(candidate)
+                if cand_ok:
+                    g = candidate
+                else:
+                    # 재생성이 구조 검증에 실패하면 직전까지의 g(구조는 유효함)를 유지하고 품질 루프 종료
+                    break
+
         state["graph"] = g
         msg = f"새 플로우 생성됨 ({mode_label}): 노드 {len(g.nodes)}개, 엣지 {len(g.edges)}개"
+        if quality_score is not None:
+            msg += f"\n자동 품질 평가: {quality_score}/100점 ({quality_attempts}회 시도)"
         notes = [n for n in (_dynamic_input_note(node) for node in g.nodes) if n]
         if notes:
             msg += "\n" + "\n".join(notes)
         return _succeed(msg)
 
+    @tool
+    def ask_clarification(question: str, options: List[str]) -> str:
+        """새 워크플로우를 생성하기 전에 결과물에 꼭 필요한 정보(목적지 URL, 알림 받을 대상,
+        처리할 파일 종류, 실행 주기·시간 등)가 요청에 빠져 있을 때, 추측해서 바로 만들지 말고
+        사용자에게 되물어야 할 때 쓴다. options는 사용자가 클릭 한 번으로 고를 수 있는 2~4개의
+        구체적인 답변 후보 — "기타"/"모름" 같은 항목은 넣지 않는다(사용자는 언제든 직접 타이핑해서
+        답할 수 있다). 이 도구를 호출하면 이번 턴에는 generate_flow를 호출하지 않고 질문만 보여준다.
+        사용자가 이미 필요한 정보를 줬거나, "몰라도 돼"/"그냥 만들어줘"처럼 건너뛰겠다는 의사를
+        밝혔으면 이 도구를 쓰지 말고 바로 generate_flow로 진행한다(그때는 지금처럼 빈 값/placeholder로
+        채워서 만든다)."""
+        state["clarification"] = {"question": question, "options": options}
+        return f"[사용자에게 확인 질문을 표시함: {question}]"
+
+    @tool
+    def web_search(query: str) -> str:
+        """인터넷에서 최신 정보를 검색한다. 워크플로우를 만들거나 노드 값을 채울 때 필요한
+        실시간/최신 정보(특정 API 사용법, 최근 뉴스, 가격·시세, 최신 모델명 등)를 참고하고 싶을 때 사용한다.
+        검색 결과(제목/URL/요약)를 텍스트로 반환할 뿐, 워크플로우 자체를 수정하지는 않는다."""
+        return _web_search_duckduckgo(query)
+
+    @tool
+    def verify_url(url: str) -> str:
+        """webCrawlerNode/httpRequestNode에 채워 넣으려는 URL이 실제로 접속되는지 확인한다.
+        web_search로 찾은 후보 URL이 지금도 살아있는지, 오타는 없는지 마지막으로 확인할 때 쓴다.
+        접속 성공 시 페이지 제목도 같이 알려주므로, 찾으려던 사이트가 맞는지 대조할 수 있다."""
+        return _verify_url(url)
+
     def get_current_graph() -> FlowGraph:
         """컨테이너의 최신 그래프를 반환. Phase 3/4가 에이전트 실행 후 최종 결과를 읽을 때 쓴다."""
         return state["graph"]
 
-    tools = [show_flow, add_node, connect_nodes, update_node, delete_node, _generate_flow_tool]
-    return tools, get_current_graph
+    def get_clarification() -> Optional[Dict[str, Any]]:
+        """ask_clarification이 이번 턴에 호출됐으면 {question, options}를, 아니면 None을 반환한다."""
+        return state["clarification"]
+
+    tools = [show_flow, add_node, connect_nodes, update_node, delete_node, _generate_flow_tool, ask_clarification, web_search, verify_url]
+    return tools, get_current_graph, get_clarification
 
 
 # ── ⑨ Phase 3: create_agent 조립 + 한 턴 실행 ───────────────────────────────
@@ -1797,25 +2503,83 @@ AGENT_SYSTEM_PROMPT = (
     + NODE_CATALOG +
     "\n[도구 사용 지침]\n"
     '- 완전히 새로 만드는 요청("~봇 만들어줘")에는 반드시 `generate_flow` 하나만 호출한다. 절대 여러 번의 `add_node`를 병렬로 호출해서 직접 조립하지 마라.\n'
+    '- ⚠️ `generate_flow`는 캔버스의 노드를 통째로 지우고 완전히 새로 대체한다 — 캔버스에 이미 노드가 있는데 '
+    '함부로 호출하면 사용자가 공들여 만든 기존 워크플로우가 전부 사라진다. 캔버스에 노드가 하나라도 있으면, '
+    'show_flow로 먼저 현재 구조를 확인하고, 요청이 "이 워크플로우를 참고/수정/보완"하는 성격이면 '
+    '(예: "여기에 ~ 추가해줘", "이 노드를 ~로 바꿔줘", "~도 되게 해줘" 등 기존 구조를 전제로 하는 표현) '
+    'add_node/connect_nodes/update_node/delete_node로 그 구조를 유지한 채 편집한다. `generate_flow`는 캔버스가 '
+    '비어있거나, 사용자가 "처음부터 다시/완전히 새로" 만들어달라고 명시적으로 요청했을 때만 쓴다. '
+    '애매하면 지우지 말고 먼저 "기존 워크플로우를 그대로 두고 일부만 고칠까요, 아니면 처음부터 새로 만들까요?"라고 되묻는다.\n'
     '- 기존 flow에 붙이거나 일부만 고치는 요청에는 add_node/connect_nodes/update_node/delete_node를 쓴다.\n'
     '- 노드 id가 뭔지 확실하지 않으면 먼저 show_flow로 현재 상태를 확인하고 나서 편집한다.\n'
     '- 그래프 편집과 무관한 잡담(인사, 이 앱이 뭔지 설명 등)에는 도구를 부르지 말고 그냥 대화로 답한다.\n'
     '- 요청이 너무 모호해서 어떤 노드가 필요한지 판단할 수 없으면, 임의로 짐작해서 도구를 부르지 말고 '
     '먼저 무엇을 원하는지 구체적으로 되묻는다. 특히 대화가 길어져서 이전 요청들과 섞여 헷갈릴 수 있는 '
     '상황일수록(예: 여러 flow를 이미 만들어본 뒤) 짐작하지 말고 먼저 확인한다.\n'
+    '- ⚠️ [필수 정보 확인 — ask_clarification] 캔버스가 비어있어 `generate_flow`로 완전히 새 워크플로우를 '
+    '만들어야 하는 상황에서, 그 워크플로우가 실제로 쓸모 있으려면 반드시 있어야 하는 핵심 정보가 요청에 '
+    '없으면(예: 알림을 어느 메신저/채널로 보낼지, 몇 시/무슨 주기로 실행할지, 어떤 형식의 파일을 만들지, '
+    '크롤링할 대상이 여러 후보 중 무엇인지) 짐작해서 바로 `generate_flow`를 부르지 말고 먼저 '
+    '`ask_clarification`으로 되묻는다. 한 턴에 하나의 질문만, 답변 후보 2~4개를 구체적인 문구로 만들어서 '
+    '넘긴다(예: question="알림을 어디로 보낼까요?", options=["카카오톡", "디스코드", "이메일"]). '
+    '단, 있으면 더 좋지만 없어도 그럴듯하게 채울 수 있는 부수적인 디테일(정확한 문구, 색상, 세부 조건 등)'
+    '까지 전부 물어보지는 마라 — 결과물의 핵심 목적 자체를 좌우하는 정보만 대상이다. '
+    '⚠️ 한 대화당 ask_clarification은 원칙적으로 딱 한 번만 쓴다 — 사용자가 답하면(칩을 고르든 직접 '
+    '타이핑하든) 그 답변을 대화 맨 처음의 원래 요청과 반드시 결합해서 곧바로 `generate_flow`를 호출한다. '
+    '예를 들어 원래 요청이 "매일 아침 뉴스 요약해서 알려줘"였고 질문에 사용자가 "디스코드"라고만 답했어도, '
+    '"어떤 워크플로우를 원하냐"고 또 되묻지 말고 두 정보를 합쳐 즉시 '
+    'generate_flow("매일 아침 뉴스 요약해서 디스코드로 알려줘")를 호출한다 — 짧은 답 하나만으로 부족해 '
+    '보여도 이미 원래 요청에 있던 목적·조건은 그대로 유효하니 다시 물을 필요가 없다. 그리고 사용자가 이미 '
+    '"몰라도 돼"/"그냥 만들어줘"/"아무거나"처럼 건너뛰겠다는 의사를 밝혔거나, 직전에 이미 질문을 한 번 '
+    '했다면(같은 종류든 아니든) 다시 묻지 말고 지금까지 받은 정보 + 합리적인 기본값으로 바로 `generate_flow`를 호출한다 '
+    '(URL처럼 자동으로 못 찾는 값은 기존 안내대로 REPLACE_WITH_ACTUAL_URL로 남기면 된다 — ask_clarification은 '
+    '"카카오톡 vs 디스코드"처럼 후보가 몇 개로 정해지는 선택에 특히 적합하고, 정확한 URL·이메일 주소처럼 '
+    '순수 자유입력값에는 억지로 쓰지 않아도 된다).\n'
     '- 도구 응답에 \'⚠️ 연속 N회 실패\' 경고가 붙으면, 같은 방식을 반복하지 말고 사용자에게 무엇이 '
     '막혔는지 설명하고 어떻게 할지 물어본다.\n'
     '- 도구 응답에 \'dynamicInputNode의 testValue를...\' 같은 안내 문장이 붙어 있으면, 그 내용을 반드시 '
     '최종 답변에 그대로(추측해서 다른 값을 지어내지 말고) 포함시켜 사용자에게 알려준다 — 예시값인지, '
     '비워뒀는지를 사용자가 알아야 실제 실행 때 뭐가 들어가는지 헷갈리지 않는다.\n'
+    '- ⚠️ webCrawlerNode/httpRequestNode를 만들거나 채울 때, 사용자가 사이트를 이름으로만 말하고'
+    '(예: "네이버 뉴스", "잡코리아 채용공고", "한국거래소 공시") 정확한 URL을 안 줬다면, url을 '
+    'REPLACE_WITH_ACTUAL_URL로 비워두고 사용자에게 입력해달라고 안내하는 게 기본값이었지만, 이제는 '
+    '누구나 아는 공개 서비스/기관 이름일 때만(고유명사로 특정 가능한 경우) 그전에 먼저 `web_search`로 '
+    '그 사이트의 실제 주소 후보를 찾고, `verify_url`로 후보가 지금도 접속되는지, 그리고 검색으로 찾은 '
+    '사이트 이름/페이지 제목이 사용자가 말한 대상과 정확히 일치하는지(비슷하게 들리는 다른 사이트가 '
+    '아닌지) 확인해라. 확인되면 그 URL을 그대로 generate_flow에 넘기는 요청 문자열에 명시하거나'
+    '(예: `generate_flow("네이버 뉴스 크롤링해줘. url은 https://news.naver.com 으로 설정")`) '
+    'update_node의 data.url로 채워서, 사용자가 URL을 직접 타이핑할 필요가 없게 만든다. '
+    '⚠️ "우리 회사", "우리 학교", "저희 사내 시스템/인트라넷", "내 블로그"처럼 사용자 개인이나 소속'
+    '조직만 아는 비공개 대상은 애초에 web_search로 찾을 수 있는 게 아니다 — 이런 경우는 검색을 '
+    '시도하지도 말고 곧바로 REPLACE_WITH_ACTUAL_URL로 남기고 "이건 비공개 사이트라 자동으로 찾을 수 '
+    '없으니 직접 주소를 입력해달라"고 안내한다(검색 결과에 그럴듯해 보이는 사이트가 걸려도 그건 다른 '
+    '사이트일 뿐이니 무시한다). web_search/verify_url을 썼는데도 실패하거나 애매하면(이름이 정확히 '
+    '일치하지 않거나, 동명이인 사이트가 여럿이거나, 접속이 계속 실패하면) 절대 불확실한 URL을 지어내서 '
+    '채우지 말고, 기존처럼 REPLACE_WITH_ACTUAL_URL로 '
+    '남기고 어떤 후보를 찾았는지/왜 확신 못했는지 사용자에게 알려준다.\n'
     '\n[예시]\n'
     '- 사용자: "PDF 요약봇 만들어줘" → generate_flow("PDF 요약봇 만들어줘") 호출\n'
+    '- 사용자: "매일 아침 뉴스 요약해서 알려줘" (캔버스 비어있음) → 어느 메신저로 받을지가 워크플로우의 '
+    '핵심 노드(카카오/디스코드/텔레그램/이메일 중 무엇을 쓸지)를 결정하는 필수 정보인데 빠져 있음 → '
+    'ask_clarification(question="어디로 알려드릴까요?", options=["카카오톡", "디스코드", "이메일"]) 호출 → '
+    '사용자가 "디스코드"라고 답하면(또는 칩을 클릭하면) 그 답을 반영해서 '
+    'generate_flow("매일 아침 뉴스 요약해서 디스코드로 알려줘") 호출\n'
     '- 사용자: "요약 뒤에 번역 추가해줘" → show_flow로 현재 노드 확인 → add_node로 promptNode·llmNode 추가 → connect_nodes로 연결\n'
     '- 사용자: "모델을 gpt-4o로 바꿔줘" → show_flow로 llmNode id 확인 → update_node(그 id, {"model": "gpt-4o"})\n'
     '- 사용자: "매번 다른 문장을 입력받아서 번역해주는 봇 만들어줘" → generate_flow 호출 → 도구 응답에 '
     '"n2(dynamicInputNode)의 testValue를 예시로 \'Hello, how are you?\'로 채웠다..." 같은 note가 붙으면, '
     '답변에서 "테스트용으로 \'Hello, how are you?\'라는 예시 문장을 넣어뒀어요. 실제로 실행할 때는 그때 '
     '입력하는 문장이 대신 들어갑니다." 처럼 그대로 안내한다\n'
+    '- 사용자: "잡코리아에서 채용공고 크롤링해서 요약해줘" → web_search("잡코리아 공식 사이트 URL") → '
+    '후보로 "https://www.jobkorea.co.kr" 발견 → verify_url("https://www.jobkorea.co.kr")로 접속 성공 + '
+    '페이지 제목이 "잡코리아"인 것 확인 → generate_flow("잡코리아(https://www.jobkorea.co.kr)에서 채용공고를 '
+    '크롤링해서 요약해줘") 호출 → 최종 답변에서 "잡코리아 실제 주소(https://www.jobkorea.co.kr)를 확인해서 '
+    '자동으로 채워뒀어요"라고 안내한다\n'
+    '- 사용자: "우리 회사 사내 인트라넷에서 공지사항 크롤링해줘" → "사내 인트라넷"은 특정 공개 서비스명이 '
+    '아니라 이 사용자만 아는 비공개 시스템이므로 web_search를 시도하지 않는다 → url은 '
+    'REPLACE_WITH_ACTUAL_URL로 둔 채 generate_flow 호출 → 최종 답변에서 "사내 인트라넷은 외부에서 검색해 '
+    '찾을 수 없는 비공개 사이트라 주소를 비워뒀어요. 웹크롤러 노드를 클릭해서 실제 인트라넷 주소를 직접 '
+    '입력해 주세요"라고 안내한다\n'
     '- 사용자: "안녕" → 도구 호출 없이 그냥 인사만 한다 (예: "안녕하세요! 어떤 워크플로우를 만들어드릴까요?")\n'
     "# ↑ 초안 5개. 실패 사례 생기는 대로 팀원 C가 계속 보강할 자리."
 )
@@ -1833,11 +2597,11 @@ def _get_default_checkpointer():
     return _default_checkpointer
 
 
-def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None, thread_id: str = "", langfuse_handler=None):
+def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None, thread_id: str = "", langfuse_handler=None, db=None):
     """이번 요청 전용 에이전트 + get_current_graph 접근자를 만든다. (tools, agent 둘 다 요청마다 새로 만듦.)"""
     from langchain.agents import create_agent
 
-    tools, get_current_graph = make_tools(graph_data, complexity_level=complexity_level)
+    tools, get_current_graph, get_clarification = make_tools(graph_data, complexity_level=complexity_level, db=db)
     
     prompt = AGENT_SYSTEM_PROMPT
     if complexity_level == "high":
@@ -1861,17 +2625,22 @@ def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpoint
         system_prompt=prompt,
         checkpointer=checkpointer or _get_default_checkpointer(),
     )
-    return agent, get_current_graph
+    return agent, get_current_graph, get_clarification
 
 
-async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_level: str = "low", checkpointer=None) -> Tuple[str, dict]:
+async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_level: str = "low", checkpointer=None, db=None) -> Tuple[str, dict, dict, Optional[Dict[str, Any]]]:
     """대화 한 턴을 실행한다. /api/chat은 이 함수를 그대로 감싸기만 하면 된다.
 
     흐름: graph_data(raw dict, 프론트가 보낸 것) → FlowGraph로 파싱 → 이번 요청 전용 에이전트 조립
     → agent.ainvoke → 끝나면 최종 완결성 게이트(validate_flow, require_complete=True 기본값) →
     통과하면 auto_layout한 graph_data, 실패하면 원본 graph_data 그대로 반환.
 
-    반환: (reply: str, graph_data: dict) — API 응답 {reply, graph_data}에 그대로 매핑된다.
+    db: 정밀(high) 모드의 생성 품질 게이트(생성 → 평가 → 기준 미달 시 재생성)가 실제로 워크플로우를
+    실행해봐야 해서 필요하다 — 없으면(None) 품질 게이트는 조용히 건너뛰고 구조 검증까지만 한다.
+
+    반환: (reply: str, graph_data: dict, token_usage: dict, clarification: dict|None) — 마지막 값은
+    ask_clarification 도구가 이번 턴에 호출됐을 때만 {question, options}로 채워진다(그 외엔 None).
+    API 응답 {reply, graph_data, token_usage, clarification}에 그대로 매핑된다.
     """
     g = FlowGraph(
         title=graph_data.get("title", ""),
@@ -1880,16 +2649,18 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
         edges=graph_data.get("edges", [])
     )
     initial_dump = g.model_dump()
-    
+
     handler = None
     if has_langfuse:
         handler = CallbackHandler()
-        
-    agent, get_current_graph = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id, langfuse_handler=handler)
 
-    # 사용자 문서 기반 RAG 컨텍스트 주입
+    agent, get_current_graph, get_clarification = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id, langfuse_handler=handler, db=db)
+
+    # 사용자 문서 기반 RAG 컨텍스트 주입 — retrieve_chat_context는 임베딩 API 호출을 포함한
+    # 동기(blocking) 함수라, 대화할 때마다(생성 요청이 아니어도) 이벤트 루프를 막을 수 있었다.
+    # generate_flow* 계열과 동일한 이유로 asyncio.to_thread로 넘긴다.
     project_id = thread_id.replace("project-", "") if thread_id.startswith("project-") else ""
-    context = retrieve_chat_context(project_id, message) if project_id else ""
+    context = await asyncio.to_thread(retrieve_chat_context, project_id, message) if project_id else ""
     
     final_message = message
     if context:
@@ -1912,12 +2683,13 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
             break  # 마지막 AI 메시지 한 번만 집계
 
     final_graph = get_current_graph()
+    clarification = get_clarification()
 
     # If the AI did not modify the graph in this turn, just return as is without warnings.
     if initial_dump == final_graph.model_dump():
         if handler and hasattr(handler, 'flush'):
             handler.flush()
-        return reply, graph_data, token_usage
+        return reply, graph_data, token_usage, clarification
 
     ok, errs = validate_flow(final_graph, require_complete=False)  # 에디터 편집 중일 수 있으므로 완결성 검증은 완화
     
@@ -1930,7 +2702,7 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     if handler and hasattr(handler, 'flush'):
         handler.flush()
 
-    return reply, response_graph_data, token_usage
+    return reply, response_graph_data, token_usage, clarification
 
 
 # ── 데모 ─────────────────────────────────────────────────────────────────

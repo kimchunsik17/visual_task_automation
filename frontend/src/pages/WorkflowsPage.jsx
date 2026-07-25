@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
+import { customConfirm } from '../CustomConfirm';
 import { Play, Plus, LayoutGrid, Smartphone, Trash2, Clock } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
 import './MainPage.css';
@@ -46,7 +47,7 @@ function WorkflowsPage() {
   useEffect(() => { fetchMyProjects(); }, [user, token]);
 
   const handleDelete = async (projectId) => {
-    if (!window.confirm("정말로 이 워크플로우를 삭제하시겠습니까?")) return;
+    if (!(await customConfirm("정말로 이 워크플로우를 삭제하시겠습니까?"))) return;
     try {
       await axios.delete(`/api/projects/${projectId}`, { headers: { Authorization: `Bearer ${token}` } });
       setMyProjects(prev => prev.filter(p => p.id !== projectId));

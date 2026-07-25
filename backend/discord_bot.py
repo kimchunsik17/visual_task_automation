@@ -1,22 +1,63 @@
 import discord
 import asyncio
+import re
+import os
 from sqlalchemy.orm import Session
 from database import SessionLocal
 import models
 from graph import run_workflow
 
+# posterGeneratorNode/fileModifierNode 등이 결과에 남기는 생성 파일 경로를 찾는다
+# (AppViewerPage.jsx의 FILE_PATH_REGEX, integration_nodes.py의 discordNode와 동일한 패턴).
+_UPLOADS_FILE_RE = re.compile(r'uploads/[^\s"\'<>]+')
+
 # Store active bots by project_id
 _active_bots = {}
+
+
+def find_discord_trigger_node(graph_data: dict):
+    """그래프에서 discordTriggerNode를 찾는다. (node_id, botToken 원본값) 튜플, 없으면 (None, None).
+
+    예전엔 디스코드 봇이 "배포" 모달에서 토큰을 입력받아 graph_data.discord_bot_token에 저장하는
+    별도 경로였는데, 다른 트리거(webhookNode/scheduleNode)처럼 그래프 안의 노드 하나로 통일했다 —
+    에디터의 "라이브 시작" 토글 하나로 스케줄/웹훅/디스코드봇이 전부 같은 방식으로 켜지고 꺼진다.
+    """
+    nodes = (graph_data or {}).get('nodes', [])
+    for n in nodes:
+        if n.get('type') == 'discordTriggerNode':
+            return n.get('id'), (n.get('data', {}) or {}).get('botToken', '')
+    return None, None
+
+
+def resolve_discord_token(graph_data: dict, owner_user_id: int, db) -> str:
+    """discordTriggerNode.data.botToken을 실제 봇 토큰 문자열로 바꾼다.
+    "{{API_CENTER:discord}}" 플레이스홀더면 UserApiKey(provider='discord')에서 찾아온다
+    (discordNode 발송 노드와 동일한 API 센터 자격증명을 그대로 재사용 — 어차피 같은 봇 토큰이다)."""
+    _, raw_token = find_discord_trigger_node(graph_data)
+    if not raw_token:
+        return ""
+    if raw_token.strip() == "{{API_CENTER:discord}}":
+        key_row = (
+            db.query(models.UserApiKey)
+            .filter(models.UserApiKey.user_id == owner_user_id, models.UserApiKey.provider == "discord")
+            .first()
+        )
+        return key_row.api_key if key_row else ""
+    return raw_token
 
 def start_discord_bot(project_id: int, token: str):
     """
     Start a discord bot for a given project.
     If a bot is already running for this project, stop it and restart it.
+
+    옛 클라이언트의 close()와 새 클라이언트의 start()를 각각 별도 태스크로 fire-and-forget하면
+    둘 다 이벤트 루프에서 동시에 돌아서, 옛 봇이 아직 완전히 끊기기 전 새 봇이 먼저 연결되는
+    구간이 생긴다 — 그 구간 동안 같은 메시지를 두 클라이언트가 동시에 받아 각자 답장해서
+    메시지가 두 개씩 나오는 버그가 있었다. run_client() 안에서 close()를 먼저 await한 뒤에
+    start()를 부르도록 순서를 강제해서 고친다.
     """
-    if project_id in _active_bots:
-        old_client = _active_bots[project_id]
-        asyncio.create_task(old_client.close())
-    
+    old_client = _active_bots.pop(project_id, None)
+
     intents = discord.Intents.default()
     intents.message_content = True  # Need message content to read user inputs
     
@@ -60,35 +101,74 @@ def start_discord_bot(project_id: int, token: str):
             try:
                 project = db.query(models.Project).filter(models.Project.id == project_id).first()
                 if not project:
-                    return "Error: Project not found.", {}, []
-                
+                    return "Error: Project not found.", {}, [], False
+
                 # 토큰 체크 및 봇 정지
                 user = db.query(models.User).filter(models.User.id == project.user_id).first()
                 if user and user.token_balance <= 0:
                     stop_discord_bot(project_id)
                     project.deploy_mode = 'chatbot'
                     db.commit()
-                    return "토큰을 모두 소진하여 디스코드 봇이 정지되었습니다. 토큰 충전 후 봇을 다시 배포해주세요.", {}, []
-                
+                    return "토큰을 모두 소진하여 디스코드 봇이 정지되었습니다. 토큰 충전 후 봇을 다시 배포해주세요.", {}, [], False
+
                 nodes = project.graph_data.get('nodes', [])
                 edges = project.graph_data.get('edges', [])
-                return run_workflow(nodes, edges, db=db, session_id=str(message.author), project_id=project_id, default_input=content)
+                # 워크플로우가 discordNode(더 이상 나가는 엣지가 없는 리프)로 끝나면, 그 노드가
+                # 이미 실제 내용을 채널에 직접 보낸 상태다 — 문자열 매칭이 아니라 그래프 구조로
+                # 판단해야, discordNode의 결과값이 이제 실제 발송 내용을 담고 있어도(평가 기능이
+                # 제대로 채점할 수 있도록 바꿨다) 여기서 중복 표시하지 않을 수 있다.
+                sources_with_outgoing = {e.get('source') for e in edges}
+                ends_in_discord_send = any(
+                    n.get('type') == 'discordNode' and n.get('id') not in sources_with_outgoing
+                    for n in nodes
+                )
+                result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id=str(message.author), project_id=project_id, default_input=content)
+                return result_text, tokens, logs, ends_in_discord_send
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                return f"Error executing workflow: {str(e)}", {}, []
+                return f"Error executing workflow: {str(e)}", {}, [], False
             finally:
                 db.close()
-                
-        result_text, tokens, logs = await asyncio.to_thread(_run)
-        
+
+        result_text, tokens, logs, ends_in_discord_send = await asyncio.to_thread(_run)
+
         # Handle empty or too long results
         if not result_text or result_text.strip() == "":
             result_text = "No output generated."
         elif len(result_text) > 1950:
             result_text = result_text[:1950] + "\n... (truncated)"
-            
-        await processing_msg.edit(content=result_text)
+
+        # discordNode(발송)가 실패하면 실제로 반환하는 문자열은 (콘솔 print의 영어 문구가 아니라)
+        # "⚠️ Discord 발송 실패/오류/...설정되지 않아" 같은 한국어 경고문이다(integration_nodes.py
+        # generate_discord_node 참고). 예전엔 여기서 print 전용 영어 문구를 찾고 있어서 이 체크가
+        # 항상 False가 되어, 발송이 실패해도 무조건 "처리 중..." placeholder를 지워버리는 바람에
+        # 사용자에게는 답장이 통째로 사라지는 것처럼 보이는 버그가 있었다.
+        is_discord_failure = "⚠️ Discord 발송" in result_text or "⚠️ Discord 봇 토큰" in result_text
+        if ends_in_discord_send and not is_discord_failure:
+            # 실제 내용은 discordNode가 이미 채널에 직접 보냈으므로, "처리 중..." placeholder를
+            # 다시 그 내용으로 덮어쓰면 중복으로 남으니 그냥 지운다. 발송이 실패/스킵된 경우는
+            # 사용자가 알아야 하니 그대로 보여준다.
+            try:
+                await processing_msg.delete()
+            except Exception:
+                pass
+        else:
+            _file_match = _UPLOADS_FILE_RE.search(result_text)
+            _file_path = _file_match.group(0) if _file_match and os.path.exists(_file_match.group(0)) else None
+            if _file_path:
+                # 메시지 편집으로는 첨부파일을 깔끔하게 붙일 수 없어서, placeholder는 지우고
+                # 파일이 첨부된 새 메시지를 보낸다(discordNode의 파일 첨부 처리와 동일한 이유).
+                try:
+                    await processing_msg.delete()
+                except Exception:
+                    pass
+                try:
+                    await message.channel.send(file=discord.File(_file_path))
+                except Exception as e:
+                    await message.channel.send(f"⚠️ 파일 전송 실패: {e}")
+            else:
+                await processing_msg.edit(content=result_text)
         
         def _save_log():
             import json
@@ -130,13 +210,18 @@ def start_discord_bot(project_id: int, token: str):
         await asyncio.to_thread(_save_log)
         
     _active_bots[project_id] = client
-    
+
     async def run_client():
+        if old_client is not None:
+            try:
+                await old_client.close()
+            except Exception as e:
+                print(f"Error closing previous bot for project {project_id}: {e}")
         try:
             await client.start(token)
         except Exception as e:
             print(f"Discord Bot Error for project {project_id}: {e}")
-            
+
     asyncio.create_task(run_client())
 
 def stop_discord_bot(project_id: int):
@@ -160,15 +245,18 @@ def stop_discord_bot(project_id: int):
 
 def boot_existing_discord_bots(db: Session):
     """
-    Start all discord bots on server startup.
+    서버 시작 시 "라이브"로 켜져 있던 봇들을 전부 다시 띄운다. scheduler.sync_all_schedules와
+    동일한 방식으로(deploy_mode가 아니라) 모든 프로젝트를 스캔해서 discordTriggerNode가 있고
+    graph_data.is_live가 True인 것만 골라 토큰을 해석해서 시작한다.
     """
-    projects = db.query(models.Project).filter(models.Project.deploy_mode == "discord").all()
+    projects = db.query(models.Project).all()
     for p in projects:
-        if p.graph_data and p.graph_data.get("discord_bot_stopped"):
-            print(f"Skipping stopped Discord Bot for project {p.id}")
+        if not p.graph_data or not p.graph_data.get("is_live"):
             continue
-            
-        token = p.graph_data.get("discord_bot_token") if p.graph_data else None
+        node_id, _ = find_discord_trigger_node(p.graph_data)
+        if not node_id:
+            continue
+        token = resolve_discord_token(p.graph_data, p.user_id, db)
         if token:
             print(f"Booting up Discord Bot for project {p.id}")
             start_discord_bot(p.id, token)

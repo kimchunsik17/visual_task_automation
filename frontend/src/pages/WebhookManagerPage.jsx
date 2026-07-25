@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
+import { customConfirm } from '../CustomConfirm';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
 import { Globe, Copy, Play, Square, Activity, ExternalLink, RefreshCw, Trash2, FileText, MoreVertical } from 'lucide-react';
@@ -38,7 +39,7 @@ export default function WebhookManagerPage() {
   const handleAction = async (id, projectId, action) => {
     try {
       const isLive = action === 'resume';
-      const response = await fetch(`http://localhost:8000/api/projects/${projectId}/live`, {
+      const response = await fetch(`/api/projects/${projectId}/live`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -59,9 +60,22 @@ export default function WebhookManagerPage() {
     }
   };
 
-  const handleDelete = (id) => {
-    if (!window.confirm('정말로 이 웹훅을 삭제하시겠습니까? (워크플로우에서 진입점이 사라집니다)')) return;
-    setWebhooks(webhooks.filter(wh => wh.id !== id));
+  const handleDelete = async (id) => {
+    if (!(await customConfirm('정말로 이 웹훅을 삭제하시겠습니까? (워크플로우에서 진입점이 사라집니다)'))) return;
+    try {
+      const response = await fetch(`/api/webhooks/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        setWebhooks(webhooks.filter(wh => wh.id !== id));
+      } else {
+        alert('웹훅 삭제에 실패했습니다.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('웹훅 삭제 중 오류가 발생했습니다.');
+    }
   };
 
   const openLogs = (id) => {
@@ -77,7 +91,7 @@ export default function WebhookManagerPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/webhooks', {
+      const response = await fetch('/api/webhooks', {
         headers: {
           'Authorization': `Bearer ${token}`
         }

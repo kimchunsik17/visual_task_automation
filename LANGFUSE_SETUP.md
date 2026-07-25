@@ -6,8 +6,8 @@
 
 - Docker 및 Docker Compose가 설치되어 있어야 합니다.
 - 포트 충돌 확인:
-  - **3000 포트**: Langfuse 웹 UI 및 API 서버가 사용합니다.
-  - **5432 포트**: Langfuse용 PostgreSQL DB가 사용합니다. (만약 로컬에 이미 PostgreSQL이 5432 포트로 실행 중이라면, `docker-compose.langfuse.yml` 파일에서 `ports: - "5432:5432"` 부분을 `"5433:5432"` 등으로 수정해야 할 수 있습니다.)
+  - **3001 포트**: Langfuse 웹 UI 및 API 서버가 사용합니다 (`3001:3000`으로 매핑, 시연을 위해 외부에 개방됨). EC2 보안그룹에서 3001 인바운드를 허용해야 외부 접속이 가능하며, `http://wa-pnu.duckdns.org:3001`로 접속합니다. 시크릿 값은 `docker-compose.langfuse.yml`과 같은 디렉토리의 `.env` 파일에서 랜덤 값으로 설정되어 있습니다 (CHANGEME 기본값 사용 금지).
+  - **5433 포트**: Langfuse용 PostgreSQL DB가 사용합니다 (`127.0.0.1:5433:5432`로 매핑되어 있어 호스트의 5432(다른 PostgreSQL/RDS 연결 등)와 충돌하지 않습니다).
 
 ## 2. Langfuse 서버 실행
 
@@ -18,12 +18,12 @@
 docker-compose -f docker-compose.langfuse.yml up -d
 ```
 
-명령어가 성공적으로 실행되면, 브라우저를 열고 **http://localhost:3000** 에 접속합니다.
+명령어가 성공적으로 실행되면, 브라우저를 열고 **http://wa-pnu.duckdns.org:3001** 에 접속합니다 (서버 내부에서 작업 중이라면 `http://localhost:3001`도 가능).
 초기 접속 시 회원가입 화면이 나타나며, 로컬 환경에서 사용할 관리자 계정을 생성해 주시면 됩니다.
 
 ## 3. 프로젝트(Project) 생성 및 API 키 발급
 
-1. Langfuse 웹(http://localhost:3000)에 로그인합니다.
+1. Langfuse 웹(http://wa-pnu.duckdns.org:3001)에 로그인합니다.
 2. 새 프로젝트(예: `visual_task_automation`)를 생성합니다.
 3. 프로젝트 설정(Settings) -> **API Keys** 메뉴로 이동하여 새로운 API 키를 생성합니다.
 4. 발급된 **Public Key**, **Secret Key**, **Host URL** 값을 복사해 둡니다.
@@ -38,7 +38,7 @@ docker-compose -f docker-compose.langfuse.yml up -d
 # Langfuse 연동 키
 LANGFUSE_PUBLIC_KEY="발급받은_PUBLIC_KEY"
 LANGFUSE_SECRET_KEY="발급받은_SECRET_KEY"
-LANGFUSE_HOST="http://localhost:3000"
+LANGFUSE_HOST="http://localhost:3001"
 ```
 
 ## 5. 컨테이너 종료 방법

@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals, NodeResizer, useStore } from '@xyflow/react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, CreditCard } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, CreditCard, Send, StickyNote } from 'lucide-react';
 import axios from 'axios';
 
 const calculateNodeCost = (tokens, model, currency) => {
@@ -130,6 +130,18 @@ export const NodeDetachedHandles = ({ id, data }) => {
 // ── Common hook: tracks expand state and notifies EditorPage via onExpandChange ──
 const useNodeExpand = (id, data) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const lastCommandToken = useRef(null);
+
+  // Responds to a global "expand all / collapse all" command broadcast via node data
+  useEffect(() => {
+    const cmd = data?.expandAllCommand;
+    if (!cmd || cmd.token === lastCommandToken.current) return;
+    lastCommandToken.current = cmd.token;
+    const next = cmd.action === 'expand';
+    setIsExpanded(next);
+    if (data?.onExpandChange) data.onExpandChange(id, next);
+  }, [data?.expandAllCommand, id, data]);
+
   const toggleExpand = useCallback(() => {
     setIsExpanded(prev => {
       const next = !prev;
@@ -886,7 +898,7 @@ export const FileModifierNode = ({ id, data }) => {
     formData.append('file', file);
 
     try {
-      const response = await axios.post('http://localhost:8000/api/upload', formData, {
+      const response = await axios.post('/api/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       if (response.data.status === 'success') {
@@ -976,7 +988,7 @@ export const TemplateAnalyzerNode = ({ id, data }) => {
     formData.append('file', file);
 
     try {
-      const response = await axios.post('http://localhost:8000/api/upload', formData, {
+      const response = await axios.post('/api/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       if (response.data.status === 'success') {
@@ -1240,7 +1252,7 @@ export const KakaoNode = ({ id, data }) => {
       {isExpanded && (
         <div className="node-body">
           <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>* 이전 노드의 결과값이 카카오톡 메시지로 전송됩니다.</p>
-          <ApiKeyInput id={id} data={data} provider="kakao" fieldKey="accessToken" placeholder="Access Token" />
+          <ApiKeyInput id={id} data={data} provider="kakao_token" fieldKey="accessToken" placeholder="Access Token" />
 
           <label>수신자 (옵션)</label>
           <input
@@ -1546,13 +1558,24 @@ export const DynamicNode = ({ id, data, type }) => {
                   onChange={(e) => data.onChange && data.onChange(id, f.name, e.target.value)}
                   placeholder={f.placeholder}
                 />
+              ) : f.type === 'select' ? (
+                <select
+                  className="nodrag"
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', boxSizing: 'border-box' }}
+                  defaultValue={data[f.name] || f.options?.[0]?.value || ''}
+                  onChange={(e) => data.onChange && data.onChange(id, f.name, e.target.value)}
+                >
+                  {f.options?.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               ) : (
                 <input
                   type={f.type}
                   className="nodrag"
                   style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', boxSizing: 'border-box' }}
-                  defaultValue={data[f.name] || ''}
-                  onChange={(e) => data.onChange && data.onChange(id, f.name, e.target.value)}
+                  defaultValue={data[f.name] ?? ''}
+                  onChange={(e) => data.onChange && data.onChange(id, f.name, f.type === 'number' ? Number(e.target.value) : e.target.value)}
                   placeholder={f.placeholder}
                 />
               )}
@@ -1633,6 +1656,36 @@ export const MultiAgentNode = ({ id, data }) => {
   );
 };
 
+const SCHEDULE_WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+
+// cron 표현식("0 7 * * *" 같은)을 사람이 이해하기 쉬운 매일/매주/매월 선택지로 최대한 되짚어본다.
+// 이 세 패턴에 안 맞는(초 단위, 범위/목록 등 복잡한) 표현식이면 '직접 입력' 모드로 빠져서 원본을 그대로 보여준다.
+function parseScheduleCron(expr) {
+  if (!expr) return { mode: 'daily', hour: 7, minute: 0, weekday: 1, day: 1 };
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return { mode: 'custom', hour: 7, minute: 0, weekday: 1, day: 1 };
+  const [min, hour, dom, mon, dow] = parts;
+  const isNum = (v) => /^\d+$/.test(v);
+  if (isNum(min) && isNum(hour)) {
+    if (dom === '*' && mon === '*' && dow === '*') {
+      return { mode: 'daily', hour: Number(hour), minute: Number(min), weekday: 1, day: 1 };
+    }
+    if (dom === '*' && mon === '*' && isNum(dow)) {
+      return { mode: 'weekly', hour: Number(hour), minute: Number(min), weekday: Number(dow), day: 1 };
+    }
+    if (mon === '*' && dow === '*' && isNum(dom)) {
+      return { mode: 'monthly', hour: Number(hour), minute: Number(min), weekday: 1, day: Number(dom) };
+    }
+  }
+  return { mode: 'custom', hour: 7, minute: 0, weekday: 1, day: 1 };
+}
+
+function buildScheduleCron(mode, hour, minute, weekday, day) {
+  if (mode === 'weekly') return `${minute} ${hour} * * ${weekday}`;
+  if (mode === 'monthly') return `${minute} ${hour} ${day} * *`;
+  return `${minute} ${hour} * * *`; // daily
+}
+
 export const ScheduleNode = ({ id, data }) => {
   const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
@@ -1642,8 +1695,21 @@ export const ScheduleNode = ({ id, data }) => {
     }
   };
 
+  const parsed = parseScheduleCron(data.cronExpression);
+  const [mode, setMode] = useState(parsed.mode);
+
+  const applyChange = (nextMode, overrides = {}) => {
+    setMode(nextMode);
+    if (nextMode === 'custom') return; // 직접 입력 모드는 아래 텍스트 필드가 그대로 처리
+    const hour = overrides.hour ?? parsed.hour;
+    const minute = overrides.minute ?? parsed.minute;
+    const weekday = overrides.weekday ?? parsed.weekday;
+    const day = overrides.day ?? parsed.day;
+    data.onChange(id, 'cronExpression', buildScheduleCron(nextMode, hour, minute, weekday, day));
+  };
+
   return (
-    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} schedule ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '200px' : undefined }}>
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} schedule ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '240px' : undefined }}>
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
@@ -1653,16 +1719,69 @@ export const ScheduleNode = ({ id, data }) => {
       {isExpanded && (
         <div className="node-body">
           <div className="input-group">
-            <label>Cron 표현식</label>
-            <input
-              type="text"
-              className="nodrag"
-              value={data.cronExpression || ''}
-              onChange={(e) => data.onChange(id, 'cronExpression', e.target.value)}
-              placeholder="0 7 * * *"
-            />
-            <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)' }}>예: 0 7 * * * (매일 오전 7시)</small>
+            <label>반복 주기</label>
+            <select className="nodrag" value={mode} onChange={(e) => applyChange(e.target.value)}>
+              <option value="daily">매일</option>
+              <option value="weekly">매주</option>
+              <option value="monthly">매월</option>
+              <option value="custom">직접 입력 (cron)</option>
+            </select>
           </div>
+
+          {mode === 'weekly' && (
+            <div className="input-group">
+              <label>요일</label>
+              <select className="nodrag" value={parsed.weekday} onChange={(e) => applyChange('weekly', { weekday: Number(e.target.value) })}>
+                {SCHEDULE_WEEKDAY_LABELS.map((label, idx) => (
+                  <option key={idx} value={idx}>{label}요일</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {mode === 'monthly' && (
+            <div className="input-group">
+              <label>날짜</label>
+              <select className="nodrag" value={parsed.day} onChange={(e) => applyChange('monthly', { day: Number(e.target.value) })}>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={d}>{d}일</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {mode !== 'custom' ? (
+            <div className="input-group">
+              <label>시각</label>
+              <input
+                type="time"
+                className="nodrag"
+                value={`${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute).padStart(2, '0')}`}
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(':').map(Number);
+                  applyChange(mode, { hour: h, minute: m });
+                }}
+              />
+            </div>
+          ) : (
+            <div className="input-group">
+              <label>Cron 표현식</label>
+              <input
+                type="text"
+                className="nodrag"
+                value={data.cronExpression || ''}
+                onChange={(e) => data.onChange(id, 'cronExpression', e.target.value)}
+                placeholder="0 7 * * *"
+              />
+              <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)' }}>분 시 일 월 요일 순서 (예: 0 7 * * * → 매일 오전 7시)</small>
+            </div>
+          )}
+
+          {data.cronExpression && (
+            <small style={{ display: 'block', marginTop: '8px', color: 'var(--text-muted)' }}>
+              현재 설정: {data.cronExpression}
+            </small>
+          )}
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
@@ -1711,11 +1830,195 @@ export const DiscordNode = ({ id, data }) => {
   );
 };
 
+export const DiscordTriggerNode = ({ id, data }) => {
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
+  const isAIModified = data.isAIModified;
+  const handleNodeClick = () => {
+    if (data.isAIModified && data.onClearAIHighlight) {
+      data.onClearAIHighlight(id);
+    }
+  };
 
+  return (
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} discord ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '220px' : undefined }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
+        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageCircle size={16} color="#5865F2" /> 디스코드 봇 (시작)</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      {isExpanded && (
+        <div className="node-body">
+          <ApiKeyInput id={id} data={data} provider="discord" fieldKey="botToken" placeholder="Bot Token" />
+          <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)' }}>
+            DM을 보내거나 봇을 멘션하면 그 메시지로 워크플로우가 시작됩니다. 상단의 "라이브 시작"을
+            켜야 실제로 메시지를 기다립니다.
+          </small>
+        </div>
+      )}
+      <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
+    </div>
+  );
+};
+
+export const TelegramNode = ({ id, data }) => {
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
+  const isAIModified = data.isAIModified;
+  const handleNodeClick = () => {
+    if (data.isAIModified && data.onClearAIHighlight) {
+      data.onClearAIHighlight(id);
+    }
+  };
+
+  return (
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} telegram ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
+        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Send size={16} color="#26A5E4" /> 텔레그램 발송</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      {isExpanded && (
+        <div className="node-body">
+          <ApiKeyInput id={id} data={data} provider="telegram" fieldKey="botToken" placeholder="Bot Token" />
+          <div className="input-group">
+            <label>Chat ID</label>
+            <input
+              type="text"
+              className="nodrag"
+              value={data.chatId || ''}
+              onChange={(e) => data.onChange(id, 'chatId', e.target.value)}
+              placeholder="예: 123456789 또는 @channel_username"
+            />
+          </div>
+        </div>
+      )}
+      <NodeDetachedHandles id={id} data={data} />
+
+    </div>
+  );
+};
+
+export const TelegramTriggerNode = ({ id, data }) => {
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
+  const isAIModified = data.isAIModified;
+  const handleNodeClick = () => {
+    if (data.isAIModified && data.onClearAIHighlight) {
+      data.onClearAIHighlight(id);
+    }
+  };
+
+  return (
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} telegram ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '220px' : undefined }}>
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
+        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Send size={16} color="#26A5E4" /> 텔레그램 봇 (시작)</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      {isExpanded && (
+        <div className="node-body">
+          <ApiKeyInput id={id} data={data} provider="telegram" fieldKey="botToken" placeholder="Bot Token" />
+          <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)' }}>
+            봇에게 메시지를 보내면 그 메시지로 워크플로우가 시작됩니다. 상단의 "라이브 시작"을
+            켜야 실제로 메시지를 기다립니다.
+          </small>
+        </div>
+      )}
+      <Handle type="source" position={Position.Right} id="out" />
+      <NodeDetachedHandles id={id} data={data} />
+
+    </div>
+  );
+};
+
+export const NotionNode = ({ id, data }) => {
+  const { isExpanded, toggleExpand } = useNodeExpand(id, data);
+  const isAIModified = data.isAIModified;
+  const handleNodeClick = () => {
+    if (data.isAIModified && data.onClearAIHighlight) {
+      data.onClearAIHighlight(id);
+    }
+  };
+  const mode = data.mode || 'create';
+
+  return (
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} notion ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ minWidth: isExpanded ? '240px' : undefined }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
+        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><StickyNote size={16} color="#9B9B9B" /> Notion</div>
+        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+      </div>
+      {isExpanded && (
+        <div className="node-body">
+          <ApiKeyInput id={id} data={data} provider="notion" fieldKey="token" placeholder="Internal Integration Token" />
+          <div className="input-group">
+            <label>동작</label>
+            <select
+              className="nodrag"
+              value={mode}
+              onChange={(e) => data.onChange(id, 'mode', e.target.value)}
+              style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+            >
+              <option value="create">페이지 생성</option>
+              <option value="query">데이터베이스 조회</option>
+            </select>
+          </div>
+          <div className="input-group">
+            <label>데이터베이스 ID</label>
+            <input
+              type="text"
+              className="nodrag"
+              value={data.databaseId || ''}
+              onChange={(e) => data.onChange(id, 'databaseId', e.target.value)}
+              placeholder="Notion 데이터베이스 URL에 있는 ID"
+            />
+          </div>
+          {mode === 'create' && (
+            <div className="input-group">
+              <label>등록할 속성 (JSON, 선택 — 비우면 직전 노드 출력 사용)</label>
+              <textarea
+                className="nodrag"
+                value={data.properties || ''}
+                onChange={(e) => data.onChange(id, 'properties', e.target.value)}
+                placeholder='{"이름": {"title": [{"text": {"content": "..."}}]}}'
+                style={{ width: '100%', minHeight: '60px', padding: '0.5rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      <NodeDetachedHandles id={id} data={data} />
+    </div>
+  );
+};
 
 export const DetachedTextNode = ({ id, data }) => {
   const [localValue, setLocalValue] = useState(data.value || '');
   const updateNodeInternals = useUpdateNodeInternals();
+  const textareaRef = useRef(null);
+
+  // textarea 높이를 안의 텍스트 양에 맞춰 자동으로 늘린다(스크롤 없이 전체가 다 보이도록).
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    // box-sizing: border-box라서 scrollHeight(테두리 제외)만 그대로 height에 넣으면
+    // 테두리 두께만큼 콘텐츠 영역이 부족해져서 마지막 줄이 살짝 잘린다 — 테두리 두께를 더해준다.
+    const cs = window.getComputedStyle(el);
+    const borderHeight = parseFloat(cs.borderTopWidth || '0') + parseFloat(cs.borderBottomWidth || '0');
+    el.style.height = `${el.scrollHeight + borderHeight}px`;
+    updateNodeInternals(id);
+  }, [id, updateNodeInternals]);
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [localValue, resizeTextarea]);
 
   const parentNodeX = useStore((s) => {
     const map = s.nodeLookup || s.nodeInternals;
@@ -1743,10 +2046,14 @@ export const DetachedTextNode = ({ id, data }) => {
     const val = e.target.value;
     setLocalValue(val);
     data.onChange(data.sourceId, data.fieldKey, val);
+    // 분리 노드 자신의 data.value도 같이 갱신해야 한다 — 안 그러면 이 노드 자체는 분리
+    // 당시의 값으로 멈춰있는 채로 저장돼서, 새로고침하면 방금 수정한 내용이 사라진 것처럼
+    // 보이는 버그가 생긴다(원본 노드 쪽 값은 정상 저장되지만 이 노드의 표시값만 안 바뀜).
+    data.onChange(id, 'value', val);
   };
 
   return (
-    <div className={`custom-node expanded detached-text-node`} style={{ minWidth: '300px' }}>
+    <div className={`custom-node expanded detached-text-node`} style={{ minWidth: '300px', maxWidth: '640px' }}>
       <div className="node-header" style={{ padding: '0.5rem 1rem', background: 'var(--btn-active-bg)', cursor: 'grab' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
           <span>{data.label || 'Detached Text'}</span>
@@ -1754,11 +2061,13 @@ export const DetachedTextNode = ({ id, data }) => {
       </div>
       <div className="node-body">
         <textarea
+          ref={textareaRef}
           className="nodrag"
           value={localValue}
           onChange={handleChange}
           placeholder="텍스트를 입력하세요..."
-          style={{ minHeight: '150px' }}
+          rows={1}
+          style={{ minHeight: '80px', maxHeight: 'none', height: 'auto', overflow: 'hidden', resize: 'none' }}
         />
       </div>
       <Handle

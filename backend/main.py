@@ -26,6 +26,7 @@ import models
 from graph import compile_workflow, run_workflow
 from meta_agent import run_agent_turn
 import discord_bot
+import telegram_bot
 import scheduler
 from rag_utils import process_and_store_chat_context
 
@@ -63,7 +64,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Setup CORS to allow requests from the React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], # Vite default port
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://wa-pnu.duckdns.org"], # Vite default port + production domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,6 +77,10 @@ async def startup_event():
         discord_bot.boot_existing_discord_bots(db)
     except Exception as e:
         print(f"Failed to boot discord bots: {e}")
+    try:
+        telegram_bot.sync_all_telegram_webhooks(db)
+    except Exception as e:
+        print(f"Failed to sync telegram webhooks: {e}")
     try:
         scheduler.start_scheduler()
         scheduler.sync_all_schedules(db)
@@ -91,7 +96,6 @@ class FlowPayload(BaseModel):
 
 class DeployPayload(BaseModel):
     mode: str
-    discord_bot_token: str = None
 
 class ExecutePayload(BaseModel):
     inputs: Dict[str, Any]
@@ -100,7 +104,7 @@ class ChatPayload(BaseModel):
     project_id: str
     message: str
     graph_data: Dict[str, Any]
-    complexity_level: str = "low"
+    complexity_level: str = "medium"
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -271,6 +275,10 @@ def get_sudo_user(credentials: HTTPAuthorizationCredentials = Depends(security),
 class ApiKeyCreate(BaseModel):
     provider: str
     api_key: str
+    # kakao_token 전용(다른 provider는 무시됨) — 카카오 access_token과 함께 받은 refresh_token,
+    # 그리고 access_token의 남은 유효시간(초). expires_in을 안 주면 카카오 기본값인 6시간으로 가정한다.
+    refresh_token: Optional[str] = None
+    expires_in: Optional[int] = None
 
 @app.get("/api/user/apikeys")
 def get_api_keys(user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
@@ -280,8 +288,15 @@ def get_api_keys(user: models.User = Depends(get_sudo_user), db: Session = Depen
         if len(k) > 12:
             return k[:6] + "*" * (len(k) - 10) + k[-4:]
         return "*" * len(k)
-        
-    return [{"provider": k.provider, "masked_key": mask_key(k.api_key)} for k in keys]
+
+    result = []
+    for k in keys:
+        entry = {"provider": k.provider, "masked_key": mask_key(k.api_key)}
+        if k.provider == "kakao_token":
+            entry["has_refresh_token"] = bool(k.refresh_token)
+            entry["token_expires_at"] = k.token_expires_at.isoformat() if k.token_expires_at else None
+        result.append(entry)
+    return result
 
 @app.post("/api/user/apikeys")
 def save_api_key(payload: ApiKeyCreate, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
@@ -291,6 +306,13 @@ def save_api_key(payload: ApiKeyCreate, user: models.User = Depends(get_sudo_use
     else:
         key = models.UserApiKey(user_id=user.id, provider=payload.provider, api_key=payload.api_key)
         db.add(key)
+
+    if payload.provider == "kakao_token":
+        if payload.refresh_token:
+            key.refresh_token = payload.refresh_token
+        expires_in = payload.expires_in if payload.expires_in else 6 * 3600  # 카카오 access_token 기본 유효시간
+        key.token_expires_at = datetime.datetime.utcnow() + datetime.timedelta(seconds=expires_in)
+
     db.commit()
     return {"status": "success"}
 
@@ -327,6 +349,7 @@ class ProjectCreate(BaseModel):
     description: Optional[str] = None
     graph_data: Dict[str, Any]
     visibility: str = "private"
+    draft_session_id: Optional[str] = None
 
 @app.get("/api/projects/public")
 def get_public_projects(db: Session = Depends(get_db)):
@@ -350,6 +373,20 @@ def create_project(payload: ProjectCreate, user: models.User = Depends(get_curre
     db.add(project)
     db.commit()
     db.refresh(project)
+
+    # 홈페이지(MainPage)에서 draft-<timestamp> 세션으로 대화하다가 이 워크플로우를 처음 저장하는
+    # 경우, 그 draft 세션의 채팅 기록을 새로 생긴 실제 project_id로 옮겨서 에디터에서도 이어서
+    # 보이게 한다 (안 옮기면 에디터가 project_id가 달라진 새 세션으로 취급해서 대화 기록이
+    # 안 보이는 버그가 생긴다).
+    if payload.draft_session_id:
+        draft_session = db.query(models.ChatSession).filter(
+            models.ChatSession.user_id == user.id,
+            models.ChatSession.project_id == payload.draft_session_id
+        ).first()
+        if draft_session:
+            draft_session.project_id = str(project.id)
+            db.commit()
+
     return {"status": "success", "id": project.id}
 
 @app.get("/api/projects/{project_id}")
@@ -420,8 +457,44 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
                     "lastTriggered": last_triggered
                 })
                 break
-                
+
     return webhooks
+
+@app.delete("/api/webhooks/{webhook_id}")
+def delete_webhook(webhook_id: str, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    # webhook_id는 get_my_webhooks가 만든 합성 id "wh-{projectId}-{nodeId}" 형식이다.
+    # 웹훅은 별도 DB 테이블 없이 graph_data 안의 webhookNode 자체이므로, "삭제"는 그 노드와
+    # 연결된 엣지를 그래프에서 제거하는 것을 뜻한다 (discordTriggerNode 삭제와 동일한 패턴).
+    parts = webhook_id.split("-", 2)
+    if len(parts) != 3 or parts[0] != "wh":
+        raise HTTPException(status_code=400, detail="Invalid webhook id")
+    try:
+        project_id = int(parts[1])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid webhook id")
+    node_id = parts[2]
+
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if project.graph_data:
+        new_data = dict(project.graph_data)
+        nodes = new_data.get('nodes', [])
+        if not any(n.get('id') == node_id and n.get('type') == 'webhookNode' for n in nodes):
+            raise HTTPException(status_code=404, detail="Webhook node not found")
+        new_data['nodes'] = [n for n in nodes if n.get('id') != node_id]
+        new_data['edges'] = [e for e in new_data.get('edges', []) if e.get('source') != node_id and e.get('target') != node_id]
+        project.graph_data = new_data
+        flag_modified(project, "graph_data")
+        db.commit()
+
+        try:
+            scheduler.sync_project_schedule(project_id, project)
+        except Exception as e:
+            print(f"Failed to sync schedule after webhook delete: {e}")
+
+    return {"status": "success", "message": "Webhook deleted"}
 
 @app.delete("/api/projects/{project_id}")
 async def delete_project(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -438,9 +511,16 @@ async def delete_project(project_id: int, user: models.User = Depends(get_curren
     except Exception as e:
         print(f"Failed to remove schedule: {e}")
 
-    # Stop bot if running
+    # Stop bots if running
     discord_bot.stop_discord_bot(project_id)
-    
+    try:
+        tg_node_id, _ = telegram_bot.find_telegram_trigger_node(project.graph_data or {})
+        if tg_node_id:
+            tg_token = telegram_bot.resolve_telegram_token(project.graph_data, project.user_id, db)
+            telegram_bot.delete_telegram_webhook(tg_token)
+    except Exception as e:
+        print(f"Failed to delete telegram webhook: {e}")
+
     # Delete bot logs to avoid IntegrityError
     db.query(models.BotLog).filter(models.BotLog.project_id == project_id).delete(synchronize_session=False)
 
@@ -449,7 +529,7 @@ async def delete_project(project_id: int, user: models.User = Depends(get_curren
     return {"status": "success"}
 
 @app.put("/api/projects/{project_id}")
-def update_project(project_id: int, payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+async def update_project(project_id: int, payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -459,12 +539,7 @@ def update_project(project_id: int, payload: ProjectCreate, user: models.User = 
     project.title = payload.title
     project.description = payload.description
 
-    old_graph_data = project.graph_data or {}
     new_graph_data = payload.graph_data or {}
-    if isinstance(old_graph_data, dict) and isinstance(new_graph_data, dict):
-        if "discord_bot_token" in old_graph_data:
-            new_graph_data["discord_bot_token"] = old_graph_data["discord_bot_token"]
-            
     project.graph_data = new_graph_data
     flag_modified(project, "graph_data")
     project.visibility = payload.visibility
@@ -478,11 +553,43 @@ def update_project(project_id: int, payload: ProjectCreate, user: models.User = 
             scheduler.sync_project_schedule(project_id, project) # sync_project_schedule will remove if not live
     except Exception as e:
         print(f"Failed to sync schedule: {e}")
-        
+
+    # 스케줄과 동일하게, 저장할 때 이미 라이브 상태였다면 (예: 토큰을 방금 고친 경우를 반영해)
+    # 봇을 최신 설정으로 재시작한다. start_discord_bot 자체가 "이미 떠 있으면 껐다가 다시 켠다"이므로
+    # 매번 불러도 안전하다. 라이브가 아니면 혹시 떠 있던 봇을 정지한다.
+    try:
+        node_id, _ = discord_bot.find_discord_trigger_node(new_graph_data)
+        if node_id and new_graph_data.get("is_live") is True:
+            token = discord_bot.resolve_discord_token(new_graph_data, project.user_id, db)
+            if token:
+                discord_bot.start_discord_bot(project_id, token)
+        else:
+            # node_id가 없으면(트리거 노드를 캔버스에서 지우고 저장한 경우) is_live 값과 무관하게
+            # 정지해야 한다 — 안 그러면 그래프에서 노드가 사라졌는데도 봇 프로세스는 계속 떠서
+            # 메시지에 응답하는 상태가 된다. stop_discord_bot은 떠 있는 봇이 없으면 그냥 no-op.
+            discord_bot.stop_discord_bot(project_id)
+    except Exception as e:
+        print(f"Failed to sync discord bot: {e}")
+
+    # 텔레그램도 디스코드와 완전히 동일한 판단 로직 — 트리거 노드가 있고 라이브면 웹훅을
+    # (재)등록하고, 없으면(노드가 지워졌거나 라이브가 꺼졌으면) 웹훅을 지운다.
+    try:
+        tg_node_id, _ = telegram_bot.find_telegram_trigger_node(new_graph_data)
+        if tg_node_id and new_graph_data.get("is_live") is True:
+            tg_token = telegram_bot.resolve_telegram_token(new_graph_data, project.user_id, db)
+            if tg_token:
+                telegram_bot.set_telegram_webhook(tg_token, project_id)
+        else:
+            tg_token = telegram_bot.resolve_telegram_token(new_graph_data, project.user_id, db) if tg_node_id else ""
+            if tg_token:
+                telegram_bot.delete_telegram_webhook(tg_token)
+    except Exception as e:
+        print(f"Failed to sync telegram bot: {e}")
+
     return {"status": "success"}
 
 @app.post("/api/projects/{project_id}/live")
-def toggle_project_live(project_id: int, payload: dict, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+async def toggle_project_live(project_id: int, payload: dict, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -500,16 +607,37 @@ def toggle_project_live(project_id: int, payload: dict, user: models.User = Depe
     except Exception as e:
         print(f"Failed to sync schedule on live toggle: {e}")
         
-    # If discord node is present, we might want to start/stop the bot
-    has_discord = any(n.get('type') == 'discordNode' for n in graph_data.get('nodes', []))
-    if has_discord:
-        token = graph_data.get("discord_bot_token")
-        if is_live and token:
-            discord_bot.start_discord_bot(project_id, token)
+    # discordTriggerNode가 있으면 스케줄/웹훅과 동일하게 이 라이브 토글 하나로 봇을 켜고 끈다
+    # (예전엔 별도 "배포" 모달에서 discordNode 유무 + graph_data.discord_bot_token으로 판단했다).
+    warning = None
+    node_id, _ = discord_bot.find_discord_trigger_node(graph_data)
+    if node_id:
+        if is_live:
+            token = discord_bot.resolve_discord_token(graph_data, project.user_id, db)
+            if token:
+                discord_bot.start_discord_bot(project_id, token)
+            else:
+                # 토큰이 없으면 라이브 플래그는 켜졌지만 실제 봇은 뜨지 않는다 — 프론트에서
+                # "라이브 시작됨" 성공 메시지만 보고 봇이 켜졌다고 착각하지 않도록 경고를 돌려준다.
+                warning = "디스코드 봇(시작) 노드에 토큰이 설정되어 있지 않아 봇은 실제로 시작되지 않았습니다. 노드에서 토큰을 입력하거나 API 센터에 연동해주세요."
         else:
             discord_bot.stop_discord_bot(project_id)
-            
-    return {"status": "success", "is_live": is_live}
+
+    # telegramTriggerNode도 동일한 방식 — 이 라이브 토글 하나로 웹훅이 등록/해제된다.
+    tg_node_id, _ = telegram_bot.find_telegram_trigger_node(graph_data)
+    if tg_node_id:
+        if is_live:
+            tg_token = telegram_bot.resolve_telegram_token(graph_data, project.user_id, db)
+            if tg_token:
+                telegram_bot.set_telegram_webhook(tg_token, project_id)
+            elif not warning:
+                warning = "텔레그램 봇(시작) 노드에 토큰이 설정되어 있지 않아 봇은 실제로 시작되지 않았습니다. 노드에서 토큰을 입력하거나 API 센터에 연동해주세요."
+        else:
+            tg_token = telegram_bot.resolve_telegram_token(graph_data, project.user_id, db)
+            if tg_token:
+                telegram_bot.delete_telegram_webhook(tg_token)
+
+    return {"status": "success", "is_live": is_live, "warning": warning}
 
 @app.post("/api/projects/{project_id}/deploy")
 def deploy_project(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -745,7 +873,9 @@ class EvaluatePayload(BaseModel):
     graph_data: Dict[str, Any]
 
 @app.post("/api/evaluate")
-async def evaluate_project(payload: EvaluatePayload, db: Session = Depends(get_db)):
+async def evaluate_project(payload: EvaluatePayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user and user.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
     import evaluator
     try:
         report = await evaluator.run_evaluation_pipeline(
@@ -754,8 +884,50 @@ async def evaluate_project(payload: EvaluatePayload, db: Session = Depends(get_d
             description=payload.description,
             nodes=payload.graph_data.get('nodes', []),
             edges=payload.graph_data.get('edges', []),
-            db=db
+            db=db,
+            user_id=user.id if user else None,
         )
+
+        eval_tokens = report.get("token_usage", {}).get("total_tokens", 0) if isinstance(report, dict) else 0
+        if user and eval_tokens > 0:
+            user.token_balance -= eval_tokens
+            db.commit()
+
+        return {"status": "success", "report": report}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+class EvaluateAutofixPayload(EvaluatePayload):
+    threshold: int = 70
+    max_attempts: int = 3
+
+@app.post("/api/evaluate/autofix")
+async def evaluate_project_with_autofix(payload: EvaluateAutofixPayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """평가 -> 기준 미달 시 개선 제안을 메타 에이전트에 넣어 자동 수정 -> 재평가를 반복한다."""
+    if user and user.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
+    import evaluator
+    try:
+        report = await evaluator.run_evaluation_with_autofix(
+            project_id=payload.project_id,
+            title=payload.title,
+            description=payload.description,
+            nodes=payload.graph_data.get('nodes', []),
+            edges=payload.graph_data.get('edges', []),
+            db=db,
+            user_id=user.id if user else None,
+            threshold=payload.threshold,
+            max_attempts=payload.max_attempts,
+        )
+        if report is None or "error" in report:
+            return {"status": "error", "message": (report or {}).get("error", "평가 실패")}
+
+        autofix_tokens = report.get("autofix_token_usage", {}).get("total_tokens", 0)
+        if user and autofix_tokens > 0:
+            user.token_balance -= autofix_tokens
+            db.commit()
+
         return {"status": "success", "report": report}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -770,6 +942,81 @@ def run_eval(ids: str = None):
     import evaluation
     selected = ids.split(",") if ids else None
     return StreamingResponse(evaluation.run_evaluation_suite(selected), media_type="text/event-stream")
+
+# ── 사이트(제품) 사용자 평가 ─────────────────────────────────────────────
+# 워크플로우 하나를 채점하는 /api/evaluate와는 별개로, 서비스 자체에 대한 사용자 만족도
+# 설문(1~5점, 문항별)을 받는다. 문항 id는 프론트(SiteFeedbackWidget)와 반드시 일치해야 한다.
+SITE_FEEDBACK_QUESTIONS = {
+    "gen_intent_match": "프롬프트 입력 시 사용자가 의도한 대로 워크플로우가 정확하게 생성되는가",
+    "gen_logic_match": "LLM이 제안한 자동화 단계가 실제 업무 로직과 잘 일치하는가",
+    "gen_edit_convenience": "자동 생성된 워크플로우를 사용자가 상황에 맞게 수정하고 편집하기 편리한가",
+    "gen_detail_completeness": "복잡한 조건을 요구했을 때 누락 없이 디테일한 부분까지 잘 반영하여 생성하는가",
+    "ux_intuitiveness": "전반적인 인터페이스가 직관적이고 처음 접속해도 적응하기 쉬운가",
+    "ux_visual_clarity": "복잡한 자동화 흐름을 시각적으로 쉽게 파악할 수 있도록 화면이 구성되었는가",
+    "ux_menu_layout": "메뉴 및 기능 버튼의 배치가 업무 흐름을 방해하지 않고 자연스러운가",
+    "ux_customization": "다크모드 지원이나 화면 분할 등 작업 환경을 커스터마이징하기 좋은가",
+    "perf_speed": "워크플로우가 실행될 때 지연 없이 빠른 속도로 처리되는가",
+    "perf_stability": "작업 실행 중 원인을 알 수 없는 오류나 멈춤 현상이 발생하지 않는가",
+    "perf_error_clarity": "에러가 발생했을 때 어디서 문제가 생겼는지 명확하고 쉽게 안내해 주는가",
+    "integration_smoothness": "평소 자주 사용하는 외부 서비스나 앱과의 연동이 매끄럽게 이루어지는가",
+    "integration_extensibility": "새로운 API를 추가하거나 커스텀 기능을 설정하는 과정이 편리한가",
+}
+
+class SiteFeedbackPayload(BaseModel):
+    scores: Dict[str, int]
+    comment: Optional[str] = None
+
+@app.get("/api/site-feedback/me")
+def get_my_site_feedback(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """현재 로그인한 사용자가 이미 웹사이트 평가를 제출했는지 확인 — 프론트가 위젯을 다시
+    열어도 중복 제출 폼을 못 띄우게 미리 걸러내는 용도."""
+    existing = db.query(models.SiteFeedback).filter(models.SiteFeedback.user_id == user.id).first()
+    if not existing:
+        return {"submitted": False}
+    return {"submitted": True, "scores": existing.scores, "comment": existing.comment}
+
+@app.post("/api/site-feedback")
+def submit_site_feedback(payload: SiteFeedbackPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    # 유저당 1회만 허용 — 클라이언트 체크를 우회해서 직접 API를 호출해도 여기서 막힌다
+    # (여러 번 제출해서 평균 점수를 마음대로 왜곡할 수 있던 버그).
+    existing = db.query(models.SiteFeedback).filter(models.SiteFeedback.user_id == user.id).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="이미 웹사이트 평가를 제출하셨습니다. 소중한 의견 감사합니다!")
+
+    unknown_keys = set(payload.scores.keys()) - set(SITE_FEEDBACK_QUESTIONS.keys())
+    if unknown_keys:
+        raise HTTPException(status_code=400, detail=f"알 수 없는 문항: {sorted(unknown_keys)}")
+    for key, val in payload.scores.items():
+        if not isinstance(val, int) or not (1 <= val <= 5):
+            raise HTTPException(status_code=400, detail=f"{key}의 점수는 1~5 사이 정수여야 합니다")
+
+    feedback = models.SiteFeedback(
+        user_id=user.id,
+        scores=payload.scores,
+        comment=payload.comment,
+    )
+    db.add(feedback)
+    db.commit()
+    return {"status": "success"}
+
+@app.get("/api/site-feedback/summary")
+def get_site_feedback_summary(db: Session = Depends(get_db)):
+    """문항별 평균 점수 + 응답 수. 관리 목적 — 인증 없이도 조회 가능(민감 정보 없음)."""
+    rows = db.query(models.SiteFeedback).all()
+    totals: Dict[str, list] = {k: [] for k in SITE_FEEDBACK_QUESTIONS}
+    for r in rows:
+        for k, v in (r.scores or {}).items():
+            if k in totals:
+                totals[k].append(v)
+    summary = {
+        k: {
+            "question": SITE_FEEDBACK_QUESTIONS[k],
+            "average": round(sum(vs) / len(vs), 2) if vs else None,
+            "count": len(vs),
+        }
+        for k, vs in totals.items()
+    }
+    return {"status": "success", "response_count": len(rows), "questions": summary}
 
 @app.get("/api/projects/{project_id}/runs")
 def get_project_runs(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
@@ -886,11 +1133,12 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
 
     try:
-        reply, graph_data, token_usage = await run_agent_turn(
+        reply, graph_data, token_usage, clarification = await run_agent_turn(
             payload.graph_data,
             payload.message,
             thread_id=f"project-{payload.project_id}",
             complexity_level=payload.complexity_level,
+            db=db,
         )
         
         # 에이전트 토큰 차감 + DB 기록
@@ -952,7 +1200,7 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
                 
             await run_in_threadpool(save_session)
 
-        return {"status": "success", "reply": reply, "graph_data": graph_data, "token_usage": token_usage}
+        return {"status": "success", "reply": reply, "graph_data": graph_data, "token_usage": token_usage, "clarification": clarification}
     except asyncio.CancelledError:
         print(f"Chat generation cancelled by client for project {payload.project_id}")
         return {"status": "cancelled", "message": "Client disconnected or cancelled"}
@@ -1035,24 +1283,11 @@ async def deploy_project(project_id: int, payload: DeployPayload, db: Session = 
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
+    # 디스코드 봇은 이제 이 "배포" 엔드포인트가 아니라 discordTriggerNode + 에디터의 "라이브 시작"
+    # 토글로 켜고 끈다(webhookNode/scheduleNode와 동일한 방식) — 그래서 여기서 deploy_mode만
+    # 바꿀 뿐, discord_bot을 건드리지 않는다(안 그러면 이 값을 apprunner/chatbot 등으로 바꿀 때마다
+    # 실제로 떠 있는 디스코드 봇을 실수로 꺼버리게 된다).
     project.deploy_mode = payload.mode
-    
-    # 디스코드 봇 배포 로직
-    if payload.mode == "discord":
-        if payload.discord_bot_token:
-            # 기존 딕셔너리를 복사하여 업데이트 (SQLAlchemy JSON 업데이트 감지)
-            new_data = dict(project.graph_data)
-            new_data["discord_bot_token"] = payload.discord_bot_token
-            project.graph_data = new_data
-            flag_modified(project, "graph_data")
-            db.commit()
-            
-            # 봇 시작
-            discord_bot.start_discord_bot(project.id, payload.discord_bot_token)
-    else:
-        # 다른 모드로 변경 시 디스코드 봇 정지
-        discord_bot.stop_discord_bot(project.id)
-
     db.commit()
 
     if payload.mode in ["fastapi", "mcp"]:
@@ -1230,26 +1465,63 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
         return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
 
 
+@app.post("/telegram-webhook/{project_id}")
+async def telegram_webhook(project_id: int, request: Request):
+    # 텔레그램은 이 엔드포인트가 빠르게 200을 반환하길 기대한다(느리면 재전송을 시도한다) —
+    # 실제 워크플로우 실행(동기/블로킹)은 백그라운드 스레드로 넘기고 곧바로 응답한다
+    # (discord_bot.py의 on_message가 asyncio.to_thread로 _run을 넘기는 것과 동일한 이유).
+    try:
+        update = await request.json()
+    except Exception:
+        return {"ok": True}
+    import asyncio
+    asyncio.create_task(asyncio.to_thread(telegram_bot.process_update, project_id, update))
+    return {"ok": True}
+
+
 @app.get("/api/bots")
 def get_active_bots(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
-    projects = db.query(models.Project).filter(models.Project.user_id == user.id, models.Project.deploy_mode == "discord").all()
-    
+    # deploy_mode가 아니라 discordTriggerNode/telegramTriggerNode가 실제로 그래프 안에 있는지로
+    # 판단한다(scheduleNode를 scheduler가 deploy_mode와 무관하게 스캔하는 것과 동일한 방식).
+    projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
+
     result = []
     for p in projects:
-        client = discord_bot._active_bots.get(p.id)
-        status = "offline"
-        bot_name = None
-        if client:
-            status = "online" if client.is_ready() else "connecting"
-            bot_name = str(client.user) if client.user else None
-            
-        result.append({
-            "project_id": p.id,
-            "project_title": p.title,
-            "status": status,
-            "bot_name": bot_name,
-            "updated_at": p.updated_at
-        })
+        graph_data = p.graph_data or {}
+        discord_node_id, _ = discord_bot.find_discord_trigger_node(graph_data)
+        telegram_node_id, _ = telegram_bot.find_telegram_trigger_node(graph_data)
+
+        if discord_node_id:
+            client = discord_bot._active_bots.get(p.id)
+            status = "offline"
+            bot_name = None
+            if client:
+                status = "online" if client.is_ready() else "connecting"
+                bot_name = str(client.user) if client.user else None
+            result.append({
+                "project_id": p.id,
+                "project_title": p.title,
+                "platform": "discord",
+                "status": status,
+                "bot_name": bot_name,
+                "updated_at": p.updated_at
+            })
+        elif telegram_node_id:
+            # 텔레그램은 게이트웨이 연결이 없는 웹훅 방식이라 discord처럼 "연결 중" 상태가 없다 —
+            # is_live 여부가 곧 상태다.
+            is_live = graph_data.get("is_live", False)
+            bot_name = None
+            if is_live:
+                tg_token = telegram_bot.resolve_telegram_token(graph_data, p.user_id, db)
+                bot_name = telegram_bot.get_telegram_bot_name(tg_token) or None
+            result.append({
+                "project_id": p.id,
+                "project_title": p.title,
+                "platform": "telegram",
+                "status": "online" if is_live else "offline",
+                "bot_name": bot_name,
+                "updated_at": p.updated_at
+            })
     return result
 
 @app.post("/api/bots/{project_id}/stop")
@@ -1257,22 +1529,27 @@ async def stop_bot_endpoint(project_id: int, user: models.User = Depends(get_cur
     project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     # Toggle live state
     graph_data = dict(project.graph_data) if project.graph_data else {}
     graph_data["is_live"] = False
     project.graph_data = graph_data
     flag_modified(project, "graph_data")
     db.commit()
-    
+
     discord_bot.stop_discord_bot(project_id)
-    
+    tg_node_id, _ = telegram_bot.find_telegram_trigger_node(graph_data)
+    if tg_node_id:
+        tg_token = telegram_bot.resolve_telegram_token(graph_data, project.user_id, db)
+        if tg_token:
+            telegram_bot.delete_telegram_webhook(tg_token)
+
     from scheduler import sync_project_schedule
     try:
         sync_project_schedule(project_id, project)
     except Exception:
         pass
-    
+
     return {"status": "success", "message": "Bot stopped and project live status disabled"}
 
 @app.post("/api/bots/{project_id}/start")
@@ -1280,30 +1557,43 @@ async def start_bot_endpoint(project_id: int, user: models.User = Depends(get_cu
     project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    token = project.graph_data.get("discord_bot_token")
-    if not token:
-        raise HTTPException(status_code=400, detail="No Discord token saved for this project")
-    
+
+    graph_data = dict(project.graph_data) if project.graph_data else {}
+    discord_node_id, _ = discord_bot.find_discord_trigger_node(graph_data)
+    telegram_node_id, _ = telegram_bot.find_telegram_trigger_node(graph_data)
+    if not discord_node_id and not telegram_node_id:
+        raise HTTPException(status_code=400, detail="이 프로젝트에는 디스코드 봇(시작) 또는 텔레그램 봇(시작) 노드가 없습니다")
+
+    if discord_node_id:
+        token = discord_bot.resolve_discord_token(graph_data, project.user_id, db)
+        if not token:
+            raise HTTPException(status_code=400, detail="No Discord token saved for this project")
+    else:
+        token = telegram_bot.resolve_telegram_token(graph_data, project.user_id, db)
+        if not token:
+            raise HTTPException(status_code=400, detail="No Telegram token saved for this project")
+
     # Check tokens before starting
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 봇을 시작할 수 없습니다.")
-        
+
     # Toggle live state
-    graph_data = dict(project.graph_data) if project.graph_data else {}
     graph_data["is_live"] = True
     project.graph_data = graph_data
     flag_modified(project, "graph_data")
     db.commit()
 
-    discord_bot.start_discord_bot(project_id, token)
-    
+    if discord_node_id:
+        discord_bot.start_discord_bot(project_id, token)
+    else:
+        telegram_bot.set_telegram_webhook(token, project_id)
+
     from scheduler import sync_project_schedule
     try:
         sync_project_schedule(project_id, project)
     except Exception:
         pass
-        
+
     return {"status": "success", "message": "Bot started and project live status enabled"}
 
 @app.delete("/api/bots/{project_id}")
@@ -1311,19 +1601,31 @@ async def delete_bot_endpoint(project_id: int, user: models.User = Depends(get_c
     project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     discord_bot.stop_discord_bot(project_id)
-    
+    graph_data = project.graph_data or {}
+    tg_node_id, _ = telegram_bot.find_telegram_trigger_node(graph_data)
+    if tg_node_id:
+        tg_token = telegram_bot.resolve_telegram_token(graph_data, project.user_id, db)
+        if tg_token:
+            telegram_bot.delete_telegram_webhook(tg_token)
+
+    # "봇 삭제"는 이제 이 프로젝트의 discordTriggerNode/telegramTriggerNode 자체를 그래프에서
+    # 제거하는 것을 뜻한다(토큰은 노드 데이터 또는 API 센터에 있으므로, 예전처럼 graph_data의
+    # 별도 필드를 지울 게 없다).
     if project.graph_data:
         new_data = dict(project.graph_data)
-        if "discord_bot_token" in new_data:
-            del new_data["discord_bot_token"]
-            project.graph_data = new_data
-            flag_modified(project, "graph_data")
-            
-    project.deploy_mode = "chatbot"
+        trigger_ids = {n.get('id') for n in new_data.get('nodes', []) if n.get('type') in ('discordTriggerNode', 'telegramTriggerNode')}
+        if trigger_ids:
+            new_data['nodes'] = [n for n in new_data.get('nodes', []) if n.get('id') not in trigger_ids]
+            new_data['edges'] = [e for e in new_data.get('edges', []) if e.get('source') not in trigger_ids and e.get('target') not in trigger_ids]
+        new_data['is_live'] = False
+        project.graph_data = new_data
+        flag_modified(project, "graph_data")
+
+    project.deploy_mode = "chatbot"  # 레거시 필드지만 다른 화면이 참고할 수 있어 정리해둔다
     db.commit()
-    
+
     return {"status": "success", "message": "Bot deleted"}
 
 class TokenActionPayload(BaseModel):
@@ -1348,12 +1650,12 @@ def reveal_bot_token(project_id: int, payload: TokenActionPayload, user: models.
     project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-        
-    token = project.graph_data.get("discord_bot_token") if project.graph_data else None
+
+    token = discord_bot.resolve_discord_token(project.graph_data or {}, project.user_id, db)
     return {"status": "success", "token": token}
 
 @app.put("/api/bots/{project_id}/update-token")
-def update_bot_token(project_id: int, payload: TokenActionPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+async def update_bot_token(project_id: int, payload: TokenActionPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     try:
         idinfo = id_token.verify_oauth2_token(
             payload.google_token, 
@@ -1370,17 +1672,22 @@ def update_bot_token(project_id: int, payload: TokenActionPayload, user: models.
     project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-        
+
     if project.graph_data:
         new_data = dict(project.graph_data)
-        new_data["discord_bot_token"] = payload.new_discord_token
+        nodes = new_data.get('nodes', [])
+        trigger_node = next((n for n in nodes if n.get('type') == 'discordTriggerNode'), None)
+        if not trigger_node:
+            raise HTTPException(status_code=400, detail="이 프로젝트에는 디스코드 봇(시작) 노드가 없습니다")
+        trigger_node.setdefault('data', {})['botToken'] = payload.new_discord_token
+        trigger_node['data']['botToken_source'] = 'manual'
         project.graph_data = new_data
         flag_modified(project, "graph_data")
         db.commit()
-        
+
     if project.id in discord_bot._active_bots:
         discord_bot.start_discord_bot(project.id, payload.new_discord_token)
-        
+
     return {"status": "success", "message": "Token updated"}
 
 @app.get("/api/bots/{project_id}/logs")
@@ -1443,7 +1750,7 @@ def get_schedules(user: models.User = Depends(get_current_user_required), db: Se
     return schedules
 
 @app.post("/api/schedules/{project_id}/pause")
-def pause_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+async def pause_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1460,15 +1767,20 @@ def pause_schedule(project_id: int, user: models.User = Depends(get_current_user
     except Exception:
         pass
         
-    # Also stop discord bot if exists
-    has_discord = any(n.get('type') == 'discordNode' for n in graph_data.get('nodes', []))
-    if has_discord:
+    # Also stop discord/telegram bot if exists
+    node_id, _ = discord_bot.find_discord_trigger_node(graph_data)
+    if node_id:
         discord_bot.stop_discord_bot(project_id)
-        
+    tg_node_id, _ = telegram_bot.find_telegram_trigger_node(graph_data)
+    if tg_node_id:
+        tg_token = telegram_bot.resolve_telegram_token(graph_data, project.user_id, db)
+        if tg_token:
+            telegram_bot.delete_telegram_webhook(tg_token)
+
     return {"status": "success", "message": "Schedule paused and project live status disabled"}
 
 @app.post("/api/schedules/{project_id}/resume")
-def resume_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+async def resume_schedule(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.user_id == user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1485,13 +1797,18 @@ def resume_schedule(project_id: int, user: models.User = Depends(get_current_use
     except Exception as e:
         print(f"Schedule sync failed: {e}")
         
-    # Also start discord bot if exists
-    has_discord = any(n.get('type') == 'discordNode' for n in graph_data.get('nodes', []))
-    if has_discord:
-        token = graph_data.get("discord_bot_token")
+    # Also start discord/telegram bot if exists
+    node_id, _ = discord_bot.find_discord_trigger_node(graph_data)
+    if node_id:
+        token = discord_bot.resolve_discord_token(graph_data, project.user_id, db)
         if token:
             discord_bot.start_discord_bot(project_id, token)
-            
+    tg_node_id, _ = telegram_bot.find_telegram_trigger_node(graph_data)
+    if tg_node_id:
+        tg_token = telegram_bot.resolve_telegram_token(graph_data, project.user_id, db)
+        if tg_token:
+            telegram_bot.set_telegram_webhook(tg_token, project_id)
+
     return {"status": "success", "message": "Schedule resumed and project live status enabled"}
 
 @app.delete("/api/schedules/{project_id}")

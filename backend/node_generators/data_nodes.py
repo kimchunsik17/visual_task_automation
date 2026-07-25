@@ -1,5 +1,7 @@
 import datetime
 from node_registry import node_registry
+from meta_agent import PLACEHOLDER_URL
+from .action_nodes import _emit_needs_input
 
 @node_registry.register('jsonParserNode')
 def generate_json_parser_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
@@ -13,12 +15,12 @@ def generate_json_parser_node(node_id, node, indent, active_llm_id, prev_res_var
     lines.append(f"{indent}    parser_in = {prev_res_var if prev_res_var else 'last_result'}")
     
     if mode == 'parse':
-        lines.append(f"{indent}    parser_out_{node_id} = json.loads(str(parser_in))")
+        lines.append(f"{indent}    parser_out_{node_id} = json.loads(_strip_json_fence(parser_in))")
     elif mode == 'stringify':
         lines.append(f"{indent}    parser_out_{node_id} = json.dumps(parser_in, ensure_ascii=False, indent=2)")
     elif mode == 'extract':
         lines.append(f"{indent}    if isinstance(parser_in, str):")
-        lines.append(f"{indent}        tmp_dict = json.loads(parser_in)")
+        lines.append(f"{indent}        tmp_dict = json.loads(_strip_json_fence(parser_in))")
         lines.append(f"{indent}    else:")
         lines.append(f"{indent}        tmp_dict = parser_in")
         lines.append(f"{indent}    parser_out_{node_id} = tmp_dict.get('{extract_key}', '')")
@@ -42,7 +44,14 @@ def generate_database_node(node_id, node, indent, active_llm_id, prev_res_var, v
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     conn_str = node.get('data', {}).get('connectionString', '').replace('"', '\\"')
     query_str = node.get('data', {}).get('query', '').replace('"', '\\"').replace('\n', '\\n')
-    
+
+    # httpRequestNode는 connectionString이 비어있거나 PLACEHOLDER_URL이면 친절한 안내로 대체하는데
+    # (_emit_needs_input), databaseNode는 그 처리가 아예 없어서 raw SQLAlchemy 에러(URL 파싱 실패,
+    # connection refused 등)가 사용자에게 그대로 노출되고 있었다. 동일하게 맞춘다.
+    if not conn_str or conn_str == PLACEHOLDER_URL:
+        _emit_needs_input(node_id, node['type'], indent, lines, forward_edges, generate_block_fn, active_llm_id, visited, f"db_out_{node_id}")
+        return
+
     lines.append(f"{indent}import json")
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    from sqlalchemy import create_engine, text")

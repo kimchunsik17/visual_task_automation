@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Settings, User, Bell, Palette, DollarSign, AlertTriangle, Users, UserPlus, UserMinus, UserCheck, UserX, Clock } from 'lucide-react';
+import { Settings, User, Bell, Palette, DollarSign, AlertTriangle, Users, UserPlus, UserMinus, UserCheck, UserX, Clock, PlayCircle } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
 import { useAuth } from '../AuthContext';
+import { customConfirm } from '../CustomConfirm';
 import './MainPage.css';
 
 function SettingsPage() {
@@ -78,8 +79,18 @@ function SettingsPage() {
     localStorage.setItem('costCurrency', currency);
   };
 
+  const handleReplayTutorial = (page) => {
+    if (page === 'main') {
+      localStorage.removeItem('tutorial_main_seen_v1');
+      navigate('/');
+    } else {
+      localStorage.removeItem('tutorial_editor_seen_v1');
+      navigate('/editor');
+    }
+  };
+
   const handleDeleteAccount = async () => {
-    const confirmDelete = window.confirm("정말로 탈퇴하시겠습니까? 모든 프로젝트와 데이터가 완전히 삭제되며 복구할 수 없습니다.");
+    const confirmDelete = await customConfirm("정말로 탈퇴하시겠습니까? 모든 프로젝트와 데이터가 완전히 삭제되며 복구할 수 없습니다.");
     if (!confirmDelete) return;
     try {
       await axios.delete('/api/users/me', { headers: { Authorization: `Bearer ${token}` } });
@@ -247,8 +258,8 @@ function SettingsPage() {
                                 <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{friend.email}</p>
                               </div>
                             </div>
-                            <button onClick={() => {
-                              const ok = window.confirm(`${friend.name}님을 친구 목록에서 삭제할까요?`);
+                            <button onClick={async () => {
+                              const ok = await customConfirm(`${friend.name}님을 친구 목록에서 삭제할까요?`);
                               if (ok) axios.delete(`/api/friends/${friend.id}`, { headers: { Authorization: `Bearer ${token}` } }).then(loadFriends);
                             }} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', padding: '0.3rem 0.5rem', borderRadius: '4px' }}>
                               <UserMinus size={15} /> 삭제
@@ -283,6 +294,26 @@ function SettingsPage() {
                     >
                       <span style={{ fontSize: '2rem' }}>☀️</span>
                       <span style={{ fontWeight: 600 }}>라이트 모드</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── 튜토리얼 다시보기 ─── */}
+              {activeTab === 'appearance' && (
+                <div style={card}>
+                  <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 0, color: 'var(--text-color)' }}>
+                    <PlayCircle size={18} color="#60a5fa" /> 튜토리얼
+                  </h4>
+                  <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0 1rem 0', fontSize: '0.9rem' }}>
+                    처음 접속했을 때 나왔던 안내를 다시 볼 수 있어요.
+                  </p>
+                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                    <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem' }} onClick={() => handleReplayTutorial('main')}>
+                      <PlayCircle size={16} /> 메인 페이지 튜토리얼 다시보기
+                    </button>
+                    <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem' }} onClick={() => handleReplayTutorial('editor')}>
+                      <PlayCircle size={16} /> 에디터 튜토리얼 다시보기
                     </button>
                   </div>
                 </div>

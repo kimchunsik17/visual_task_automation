@@ -110,6 +110,13 @@ class _CategoryPick(BaseModel):
     )
 
 
+class _TemplatePick(BaseModel):
+    name: str = Field(
+        description="후보 템플릿 중 사용자 요청과 가장 잘 맞는 템플릿의 name. "
+                    "확신이 약하면 첫 번째 후보의 name을 반환한다."
+    )
+
+
 _known_categories_cache: Optional[List[str]] = None
 _category_examples_cache: Optional[Dict[str, List[str]]] = None
 
@@ -194,45 +201,138 @@ def _classify_category(query: str) -> Optional[str]:
         return None
 
 
+def _summarize_template_candidate(doc: Document) -> Optional[Dict[str, Any]]:
+    try:
+        data = json.loads(doc.page_content)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    nodes = data.get("nodes", []) or []
+    edges = data.get("edges", []) or []
+    node_types: List[str] = []
+    for n in nodes:
+        node_type = n.get("type")
+        if node_type and node_type not in node_types:
+            node_types.append(node_type)
+
+    return {
+        "name": doc.metadata.get("name", ""),
+        "category": doc.metadata.get("category", ""),
+        "title": data.get("title", ""),
+        "description": data.get("description", ""),
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "node_types": node_types,
+    }
+
+
+def _rerank_template_candidates(query: str, candidates: List[Dict[str, Any]]) -> Optional[str]:
+    if len(candidates) <= 1:
+        return candidates[0]["name"] if candidates else None
+
+    from meta_agent import get_llm
+    llm = get_llm(complexity_level="medium").with_structured_output(_TemplatePick, method="function_calling")
+
+    prompt_lines = []
+    for idx, candidate in enumerate(candidates, start=1):
+        prompt_lines.append(
+            f"{idx}. name={candidate['name']}\n"
+            f"   category={candidate['category']}\n"
+            f"   title={candidate['title']}\n"
+            f"   description={candidate['description']}\n"
+            f"   node_count={candidate['node_count']}, edge_count={candidate['edge_count']}\n"
+            f"   node_types={', '.join(candidate['node_types'])}"
+        )
+
+    prompt = (
+        f"사용자 요청: '{query}'\n\n"
+        "아래는 구조가 서로 다른 템플릿 후보들이다. 사용자의 요청을 가장 자연스럽게 구현할 수 있는 "
+        "템플릿의 name 하나만 골라라. 요청과 무관한 복잡도를 억지로 높이지 말고, 필요한 구조를 가장 잘 "
+        "담고 있는 템플릿을 선택하라.\n\n"
+        "[후보 목록]\n" + "\n".join(prompt_lines)
+    )
+
+    try:
+        result = llm.invoke([("user", prompt)])
+        picked_name = (result.name or "").strip()
+        if picked_name:
+            return picked_name
+    except Exception as e:
+        print(f"Template reranking failed: {e}")
+    return candidates[0]["name"] if candidates else None
+
+
+MIN_TEMPLATE_RELEVANCE = 0.25
+
 def search_and_parse_template(query: str, k: int = 3) -> Optional[Dict[str, Any]]:
-    """Medium 모드 전용: Pre-translated DB에서 가장 유사한 템플릿을 검색하고,
-    노드 수가 가장 많은(= 비선형 구조일 확률이 높은) 것을 FlowGraph JSON dict로 반환.
+    """Medium 모드 전용: Pre-translated DB에서 가장 유사한 템플릿을 검색해
+    FlowGraph JSON dict로 반환.
 
     검색은 먼저 요청을 카테고리로 분류해 그 카테고리 안에서만 유사도 검색을 하고,
     분류가 안 되거나(None) 그 카테고리 안에 결과가 없으면 필터 없이 전체 재검색한다(폴백).
 
-    k개를 검색한 뒤 파싱 가능한 것 중 노드 수가 가장 많은 것을 선택한다.
+    k개를 검색해 유사도 순위가 가장 높은 것부터 파싱을 시도하고, 그중 파싱 가능하면서
+    관련성 점수가 MIN_TEMPLATE_RELEVANCE 이상인 첫 번째 결과를 선택한다.
+    (예전에는 유사도와 무관하게 노드 수가 가장 많은 것을 골랐는데, 이러면 실제로는 관련
+    없는 템플릿이라도 노드 수만 많으면 뽑혀버려서 — 예: '간단한 번역'을 검색했는데 무관한
+    '이력서 PDF 파싱' 템플릿이 선택되는 식 — 엉뚱한 구조가 그대로 강요되는 버그가 있었다.
+    이후 유사도 1위를 그대로 신뢰하도록 고쳤는데, DB에 애초에 맞는 템플릿이 없는 쿼리
+    (관련성 점수가 실제 좋은 매칭 대비 훨씬 낮음, 실측상 진짜 매칭은 ~0.3 이상, 무관한
+    건 ~0.15~0.18)에서는 그마저도 억지로 무관한 템플릿을 골라버려서, 관련성 최소 기준을
+    추가했다 — 기준 미달이면 아예 템플릿을 쓰지 않고 None을 반환해 low 모드로 폴백시킨다.)
     파싱 실패 또는 결과 없음 시 None을 반환 → 호출자가 low 모드(few-shot)로 fallback."""
     store = get_vector_store(TRANSLATED_COLLECTION)
     try:
         category = _classify_category(query)
         results = []
         if category:
-            results = store.similarity_search(query, k=k, filter={"category": category})
+            results = store.similarity_search_with_relevance_scores(query, k=k, filter={"category": category})
             if results:
                 print(f"[RAG] category filter hit: '{category}' ({len(results)} results)")
             else:
                 print(f"[RAG] category filter '{category}' returned no results — falling back to unfiltered search")
 
         if not results:
-            results = store.similarity_search(query, k=k)
+            results = store.similarity_search_with_relevance_scores(query, k=k)
 
         if not results:
             return None
 
-        best: Optional[Dict[str, Any]] = None
-        best_node_count = 0
-        for doc in results:
+        viable_results = []
+        for doc, score in results:
+            if score < MIN_TEMPLATE_RELEVANCE:
+                print(f"[RAG] best match below relevance threshold ({score:.3f} < {MIN_TEMPLATE_RELEVANCE}) — no template used")
+                break
+            viable_results.append((doc, score))
+
+        if not viable_results:
+            return None
+
+        candidate_summaries = []
+        doc_by_name = {}
+        for doc, _score in viable_results:
+            summary = _summarize_template_candidate(doc)
+            if not summary or not summary.get("name"):
+                continue
+            candidate_summaries.append(summary)
+            doc_by_name[summary["name"]] = doc
+
+        if not candidate_summaries:
+            return None
+
+        picked_name = _rerank_template_candidates(query, candidate_summaries)
+        ordered_docs = []
+        if picked_name and picked_name in doc_by_name:
+            ordered_docs.append(doc_by_name[picked_name])
+        ordered_docs.extend(doc for doc, _score in viable_results if doc not in ordered_docs)
+
+        for doc in ordered_docs:
             try:
-                parsed = json.loads(doc.page_content)
-                node_count = len(parsed.get("nodes", []))
-                if node_count > best_node_count:
-                    best = parsed
-                    best_node_count = node_count
+                return json.loads(doc.page_content)
             except (json.JSONDecodeError, Exception):
                 continue
 
-        return best
+        return None
     except Exception as e:
         print(f"Error searching Pre-translated DB: {e}")
         return None

@@ -1,11 +1,60 @@
 import datetime
+import json as _json
+import os
+import uuid
 from node_registry import node_registry
+
+
+def _find_downstream_schema_fields(start_id, node_dict, forward_edges, max_hops=8):
+    """templateAnalyzerNode 뒤에 이미 useStructuredOutput+jsonSchema(고정된 필드 이름)를
+    가진 llmNode가 있으면 그 property 이름들을 반환한다.
+
+    템플릿이 없어서 즉석 생성해야 할 때, 이 스키마를 무시하고 별도 LLM 호출로 필드 이름을
+    "따로" 지어내면 두 곳이 서로 다른 이름을 짓게 되어(예: 템플릿엔 fullName, 채움 JSON엔
+    name) fileModifierNode가 그 필드를 하나도 못 채우는 문제가 생긴다(실제로 겪음 — 자기소개서
+    hwpx에 experience 하나만 우연히 이름이 겹쳐서 채워지고 나머지는 전부 {{key}}로 남았음).
+    그래서 이미 정해진 다운스트림 스키마가 있으면 그걸 그대로 템플릿 필드 이름으로 재사용해서
+    애초에 어긋날 일이 없게 한다.
+    """
+    visited = set()
+    queue = [start_id]
+    hops = 0
+    while queue and hops < max_hops:
+        next_queue = []
+        for nid in queue:
+            for target_id, _handle in forward_edges.get(nid, []):
+                if target_id in visited:
+                    continue
+                visited.add(target_id)
+                tgt = node_dict.get(target_id)
+                if not tgt:
+                    continue
+                if tgt.get('type') == 'llmNode':
+                    data = tgt.get('data', {})
+                    if data.get('useStructuredOutput') and data.get('jsonSchema'):
+                        try:
+                            schema = _json.loads(data['jsonSchema'])
+                        except Exception:
+                            schema = None
+                        if isinstance(schema, dict):
+                            props = schema.get('properties')
+                            if isinstance(props, dict) and props:
+                                return list(props.keys())
+                next_queue.append(target_id)
+        queue = next_queue
+        hops += 1
+    return None
 
 @node_registry.register('templateAnalyzerNode')
 def generate_template_analyzer_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Template Analyzer Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     template_file = node.get('data', {}).get('template_path', '').replace('"', '\\"').replace('\n', '\\n').replace('\\', '/')
+    # output_file과 동일하게 uploads/ 밑으로 정규화한다 — 안 그러면 챗봇이 지어낸 "자기소개서_템플릿.hwpx"
+    # 처럼 디렉터리 없는 경로가 서버 실행 위치(backend/) 바로 밑에 그대로 생겨 uploads/ 밖에 파일이
+    # 흩어지는 문제가 있었다(실제로 backend/ 루트에 파일이 생기는 것을 확인함).
+    if template_file and not template_file.startswith('uploads/') and not template_file.startswith('uploads\\\\'):
+        template_file = 'uploads/' + os.path.basename(template_file)
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    import re")
     lines.append(f"{indent}    import json")
@@ -13,25 +62,75 @@ def generate_template_analyzer_node(node_id, node, indent, active_llm_id, prev_r
     lines.append(f"{indent}    template_ext = \"{template_file}\".lower()")
     lines.append(f"{indent}    extracted_keys = set()")
     lines.append(f"{indent}    full_text = ''")
-    lines.append(f"{indent}    if template_ext.endswith('.hwp') or template_ext.endswith('.hwpx'):")
-    lines.append(f"{indent}        import pythoncom")
-    lines.append(f"{indent}        pythoncom.CoInitialize()")
-    lines.append(f"{indent}        from pyhwpx import Hwp")
-    lines.append(f"{indent}        hwp = Hwp(visible=False)")
-    lines.append(f"{indent}        try:")
-    lines.append(f"{indent}            hwp.open(os.path.abspath(\"{template_file}\"))")
-    lines.append(f"{indent}            hwp.InitScan()")
-    lines.append(f"{indent}            while True:")
-    lines.append(f"{indent}                status, text = hwp.GetText()")
-    lines.append(f"{indent}                if status in [0, 1]: break")
-    lines.append(f"{indent}                full_text += text")
-    lines.append(f"{indent}            hwp.ReleaseScan()")
-    lines.append(f"{indent}            field_str = hwp.get_field_list(1, 0)")
-    lines.append(f"{indent}            if field_str:")
-    lines.append(f"{indent}                for field in field_str.split('\\x02'):")
-    lines.append(f"{indent}                    if field.strip(): extracted_keys.add(field.strip())")
-    lines.append(f"{indent}        finally:")
-    lines.append(f"{indent}            hwp.quit()")
+    # 챗봇이 지어낸 template_path("계약서_템플릿.docx" 같은)는 실제로 업로드된 적이 없어 파일이
+    # 존재하지 않는 경우가 흔하다(예: project 30에서 실제로 겪은 "No such file or directory").
+    # 사용자가 직접 파일을 올릴 때까지 기다리지 않고, 파일명에서 문서 종류를 추측해 생성형 LLM으로
+    # 그럴듯한 빈칸 필드 이름을 지어낸 뒤 실제 .hwpx/.docx 파일을 즉석에서 만들어 그 자리에 채운다.
+    # 그러면 아래 스캔 로직이 방금 만든 진짜 파일을 그대로 읽어 {{key}} 목록을 뽑아낸다.
+    downstream_fields = _find_downstream_schema_fields(node_id, node_dict, forward_edges)
+    lines.append(f"{indent}    _tmpl_needs_regen_{node_id} = not os.path.exists(\"{template_file}\")")
+    if downstream_fields:
+        # 파일이 이미 있어도(챗봇이 지어낸 이름이 이전 실행의 잔재와 우연히 겹치는 경우가 실제로
+        # 있었다), 그 안의 {{key}}가 뒤에서 실제로 채울 스키마(downstream_fields)와 절반도 안
+        # 겹치면 낡은 템플릿으로 보고 다시 만든다 — fileModifierNode의 동일한 안전장치와 짝을 이룸.
+        fields_check_literal = _json.dumps(downstream_fields, ensure_ascii=False)
+        lines.append(f"{indent}    if not _tmpl_needs_regen_{node_id} and (template_ext.endswith('.hwpx') or template_ext.endswith('.docx')):")
+        lines.append(f"{indent}        from template_generator import extract_template_keys")
+        lines.append(f"{indent}        _tmpl_existing_keys_{node_id} = extract_template_keys(\"{template_file}\")")
+        lines.append(f"{indent}        _tmpl_wanted_keys_{node_id} = set({fields_check_literal})")
+        lines.append(f"{indent}        _tmpl_overlap_{node_id} = _tmpl_existing_keys_{node_id} & _tmpl_wanted_keys_{node_id}")
+        lines.append(f"{indent}        if not _tmpl_existing_keys_{node_id} or len(_tmpl_overlap_{node_id}) < (len(_tmpl_wanted_keys_{node_id}) + 1) // 2:")
+        lines.append(f"{indent}            _tmpl_needs_regen_{node_id} = True")
+    lines.append(f"{indent}    if _tmpl_needs_regen_{node_id} and (template_ext.endswith('.hwpx') or template_ext.endswith('.docx')):")
+    if downstream_fields:
+        # 뒤에 이미 필드 이름이 고정된 useStructuredOutput 스키마(llmNode)가 있으면, 별도로
+        # LLM을 불러 이름을 새로 짓지 않고 그 스키마의 키를 그대로 재사용한다 — 그래야 나중에
+        # fileModifierNode가 채울 JSON의 키와 방금 만든 템플릿의 {{key}}가 반드시 일치한다.
+        fields_literal = _json.dumps(downstream_fields, ensure_ascii=False)
+        lines.append(f"{indent}        _tmpl_fields_{node_id} = {fields_literal}")
+    else:
+        lines.append(f"{indent}        try:")
+        lines.append(f"{indent}            from langchain_openai import ChatOpenAI")
+        lines.append(f"{indent}            _tmpl_llm_{node_id} = ChatOpenAI(model='gpt-4o-mini', max_retries=0)")
+        lines.append(f"{indent}            _tmpl_prompt_{node_id} = \"다음 파일명으로 미루어 짐작되는 문서 종류에 맞는 서식 빈칸 필드 이름들을 만들어라: '\" + \"{template_file}\" + \"'. 영어 소문자 camelCase 키 이름으로 최대 8개, 콤마로만 구분해서 다른 설명 없이 한 줄로 출력해라. 예: candidateName,summary,motivation\"")
+        lines.append(f"{indent}            _tmpl_resp_{node_id} = _tmpl_llm_{node_id}.invoke(_tmpl_prompt_{node_id})")
+        lines.append(f"{indent}            _tmpl_text_{node_id} = _tmpl_resp_{node_id}.content if hasattr(_tmpl_resp_{node_id}, 'content') else str(_tmpl_resp_{node_id})")
+        lines.append(f"{indent}            _tmpl_fields_{node_id} = [f.strip() for f in _tmpl_text_{node_id}.replace(chr(10), ',').split(',') if f.strip()]")
+        lines.append(f"{indent}        except Exception:")
+        lines.append(f"{indent}            _tmpl_fields_{node_id} = []")
+        lines.append(f"{indent}        if not _tmpl_fields_{node_id}:")
+        lines.append(f"{indent}            _tmpl_fields_{node_id} = ['content']")
+    lines.append(f"{indent}        _tmpl_title_{node_id} = os.path.splitext(os.path.basename(\"{template_file}\"))[0].replace('_템플릿', '').replace('_template', '')")
+    lines.append(f"{indent}        from template_generator import generate_hwpx_template, generate_docx_template")
+    lines.append(f"{indent}        if template_ext.endswith('.hwpx'):")
+    lines.append(f"{indent}            generate_hwpx_template(\"{template_file}\", _tmpl_fields_{node_id}, title=_tmpl_title_{node_id})")
+    lines.append(f"{indent}        else:")
+    lines.append(f"{indent}            generate_docx_template(\"{template_file}\", _tmpl_fields_{node_id}, title=_tmpl_title_{node_id})")
+    # .hwp(구버전 바이너리)는 윈도우 전용 COM 자동화(pythoncom+pyhwpx)로만 다룰 수 있어 이
+    # 리눅스 서버에서는 여전히 지원하지 않는다. 반면 .hwpx는 docx/pptx처럼 zip으로 묶인
+    # XML(OWPML) 포맷이라 순수 파이썬(zipfile+xml.etree)만으로 읽고 쓸 수 있다 — tokenizerNode의
+    # .hwpx 읽기 로직과 동일한 방식으로 텍스트를 추출해서 {{key}} 플레이스홀더를 찾는다.
+    lines.append(f"{indent}    if template_ext.endswith('.hwp'):")
+    lines.append(f"{indent}        raise ValueError('HWP(.hwp) 서식 파일은 현재 지원하지 않습니다. HWPX(.hwpx)나 Word(.docx) 서식을 사용해주세요.')")
+    lines.append(f"{indent}    elif template_ext.endswith('.hwpx'):")
+    lines.append(f"{indent}        import zipfile")
+    lines.append(f"{indent}        import xml.etree.ElementTree as ET")
+    lines.append(f"{indent}        with zipfile.ZipFile(\"{template_file}\", 'r') as zf:")
+    lines.append(f"{indent}            sec_files = [n for n in zf.namelist() if n.startswith('Contents/section') and n.endswith('.xml')]")
+    lines.append(f"{indent}            for sec in sorted(sec_files):")
+    lines.append(f"{indent}                root = ET.fromstring(zf.read(sec))")
+    lines.append(f"{indent}                for elem in root.iter():")
+    lines.append(f"{indent}                    if elem.tag.endswith('}}t') or elem.tag.endswith(':t'):")
+    lines.append(f"{indent}                        if elem.text: full_text += elem.text + ' '")
+    lines.append(f"{indent}    elif template_ext.endswith('.docx') or template_ext.endswith('.doc'):")
+    lines.append(f"{indent}        from docx import Document as _DocxDocument")
+    lines.append(f"{indent}        _docx_doc = _DocxDocument(\"{template_file}\")")
+    lines.append(f"{indent}        for p in _docx_doc.paragraphs:")
+    lines.append(f"{indent}            if p.text: full_text += p.text + ' '")
+    lines.append(f"{indent}        for _tbl in _docx_doc.tables:")
+    lines.append(f"{indent}            for _row in _tbl.rows:")
+    lines.append(f"{indent}                for _cell in _row.cells:")
+    lines.append(f"{indent}                    if _cell.text: full_text += _cell.text + ' '")
     lines.append(f"{indent}    elif template_ext.endswith('.xlsx') or template_ext.endswith('.xls'):")
     lines.append(f"{indent}        import openpyxl")
     lines.append(f"{indent}        wb = openpyxl.load_workbook(\"{template_file}\")")
@@ -59,7 +158,15 @@ def generate_template_analyzer_node(node_id, node, indent, active_llm_id, prev_r
     lines.append(f"{indent}        extracted_keys.add(k.strip())")
     lines.append(f"{indent}    ")
     lines.append(f"{indent}    schema_dict = {{k: '' for k in extracted_keys}}")
-    lines.append(f"{indent}    res_val_{node_id} = json.dumps(schema_dict, ensure_ascii=False, indent=2)")
+    # 예전엔 여기서 빈칸 스키마만 내보내고 직전 노드가 갖고 있던 실제 데이터(예: 자기소개 원문을
+    # 분석해서 뽑아낸 이름/경력/지원동기 등)를 그냥 버렸다. 그러면 바로 뒤에서 빈칸을 채우는
+    # llmNode는 "어떤 빈칸이 있는지"만 알고 "무엇으로 채워야 할지"는 전혀 모른 채 실행돼서, 실제
+    # 내용 대신 그럴듯하게 지어낸 값(홍길동, 서울대학교 등)을 채우거나 아예 빈칸 여러 개를 그냥
+    # 건너뛰는 문제가 있었다(사용자가 실제로 겪음 — 자기소개서 hwpx에 {{fullName}} 등이 안 채워진
+    # 채로 남아있었음). 빈칸 목록과 함께 실제 데이터도 그대로 실어 보내서, 뒤에 오는 프롬프트/LLM이
+    # 둘 다 보고 채우게 한다.
+    lines.append(f"{indent}    _tmpl_incoming_{node_id} = {prev_res_var if prev_res_var else 'last_result'}")
+    lines.append(f"{indent}    res_val_{node_id} = '[채워야 할 빈칸 목록]:\\n' + json.dumps(schema_dict, ensure_ascii=False, indent=2) + '\\n\\n[사용 가능한 실제 데이터]:\\n' + str(_tmpl_incoming_{node_id})")
     lines.append(f"{indent}except Exception as e:")
     lines.append(f"{indent}    res_val_{node_id} = f'Error analyzing template: {{str(e)}}'")
     lines.append(f"{indent}last_result = res_val_{node_id}")
@@ -75,25 +182,38 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}# --- Auto Fill Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     template_file = node.get('data', {}).get('template_path', '').replace('"', '\\"').replace('\n', '\\n').replace('\\', '/')
+    # output_file과 동일하게 uploads/ 밑으로 정규화한다 — 안 그러면 챗봇이 지어낸 "자기소개서_템플릿.hwpx"
+    # 처럼 디렉터리 없는 경로가 서버 실행 위치(backend/) 바로 밑에 그대로 생겨 uploads/ 밖에 파일이
+    # 흩어지는 문제가 있었다(실제로 backend/ 루트에 파일이 생기는 것을 확인함).
+    if template_file and not template_file.startswith('uploads/') and not template_file.startswith('uploads\\\\'):
+        template_file = 'uploads/' + os.path.basename(template_file)
                     
     output_file = node.get('data', {}).get('output_path', '').replace('"', '\\"').replace('\n', '\\n')
     if not output_file:
+        # output_path를 안 정해주면 예전엔 항상 "output.확장자"로 저장돼서, 다운로드한 파일
+        # 이름이 무슨 내용인지 알 수 없고, 서로 다른 실행이 같은 이름을 덮어쓸 위험도 있었다.
+        # template_path의 제목(있으면)을 따서 이름을 짓고, 실행마다 겹치지 않게 짧은 임의
+        # 문자열을 붙인다. compile_workflow는 실행할 때마다 새로 호출되므로(graph.py 참고)
+        # 이 uuid는 매 실행마다 새로 생성된다.
+        unique_suffix = uuid.uuid4().hex[:6]
         if template_file:
             ext = template_file.split('.')[-1]
-            output_file = f"output.{ext}"
+            base_title = os.path.splitext(os.path.basename(template_file))[0]
+            base_title = base_title.replace('_템플릿', '').replace('_template', '').replace('_Template', '')
+            base_title = base_title.strip() or '결과'
+            output_file = f"{base_title}_결과_{unique_suffix}.{ext}"
         else:
-            output_file = "output.txt"
-    
+            output_file = f"결과_{unique_suffix}.txt"
+
     if not output_file.startswith('uploads/') and not output_file.startswith('uploads\\\\'):
-        import os as _os
-        output_file = 'uploads/' + _os.path.basename(output_file)
+        output_file = 'uploads/' + os.path.basename(output_file)
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    import json")
     lines.append(f"{indent}    import os")
     lines.append(f"{indent}    data_in = {prev_res_var if prev_res_var else 'last_result'}")
     lines.append(f"{indent}    if isinstance(data_in, str):")
     lines.append(f"{indent}        try:")
-    lines.append(f"{indent}            data_dict = json.loads(data_in)")
+    lines.append(f"{indent}            data_dict = json.loads(_strip_json_fence(data_in))")
     lines.append(f"{indent}        except: data_dict = {{}}")
     lines.append(f"{indent}    elif isinstance(data_in, dict):")
     lines.append(f"{indent}        data_dict = data_in")
@@ -101,52 +221,105 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}        data_dict = {{}}")
     lines.append(f"{indent}    ")
     lines.append(f"{indent}    template_ext = \"{template_file}\".lower()")
-    lines.append(f"{indent}    if template_ext.endswith('.hwp') or template_ext.endswith('.hwpx'):")
-    lines.append(f"{indent}        import pythoncom")
-    lines.append(f"{indent}        pythoncom.CoInitialize()")
-    lines.append(f"{indent}        from pyhwpx import Hwp")
-    lines.append(f"{indent}        hwp = Hwp(visible=False)")
-    lines.append(f"{indent}        try:")
-    lines.append(f"{indent}            hwp.open(os.path.abspath(\"{template_file}\"))")
-    lines.append(f"{indent}            for k, v in data_dict.items():")
-    lines.append(f"{indent}                hwp.put_field_text(str(k), str(v))")
-    lines.append(f"{indent}                hwp.find_replace_all('{{{{' + str(k) + '}}}}', str(v))")
-    lines.append(f"{indent}            hwp.save_as(os.path.abspath(\"{output_file}\"))")
-    lines.append(f"{indent}        finally:")
-    lines.append(f"{indent}            hwp.quit()")
-    lines.append(f"{indent}    elif template_ext.endswith('.xlsx') or template_ext.endswith('.xls'):")
-    lines.append(f"{indent}        import openpyxl")
-    lines.append(f"{indent}        wb = openpyxl.load_workbook(\"{template_file}\")")
-    lines.append(f"{indent}        for sheet in wb.worksheets:")
-    lines.append(f"{indent}            for row in sheet.iter_rows():")
-    lines.append(f"{indent}                for cell in row:")
-    lines.append(f"{indent}                    if cell.value and isinstance(cell.value, str):")
-    lines.append(f"{indent}                        for k, v in data_dict.items():")
-    lines.append(f"{indent}                            if '{{{{' + str(k) + '}}}}' in cell.value:")
-    lines.append(f"{indent}                                cell.value = cell.value.replace('{{{{' + str(k) + '}}}}', str(v))")
-    lines.append(f"{indent}        wb.save(\"{output_file}\")")
-    lines.append(f"{indent}    elif template_ext.endswith('.pptx') or template_ext.endswith('.ppt'):")
-    lines.append(f"{indent}        from pptx import Presentation")
-    lines.append(f"{indent}        prs = Presentation(\"{template_file}\")")
-    lines.append(f"{indent}        for slide in prs.slides:")
-    lines.append(f"{indent}            for shape in slide.shapes:")
-    lines.append(f"{indent}                if shape.has_text_frame:")
-    lines.append(f"{indent}                    for p in shape.text_frame.paragraphs:")
-    lines.append(f"{indent}                        for run in p.runs:")
-    lines.append(f"{indent}                            if run.text:")
+    lines.append(f"{indent}    output_ext = \"{output_file}\".lower()")
+    # PDF는 hwpx/docx처럼 "빈칸 있는 서식 파일을 나중에 찾아 바꾸는" 방식이 안 맞는 포맷이라
+    # (텍스트 스트림을 안전하게 찾아 바꾸기 어려움) 아예 템플릿 개념을 안 쓰고, data_dict를 바로
+    # 새 PDF 문서로 렌더링해서 만든다 — output_path가 .pdf면 template_path는 아예 무시한다.
+    lines.append(f"{indent}    if output_ext.endswith('.pdf'):")
+    lines.append(f"{indent}        from template_generator import render_pdf_document")
+    lines.append(f"{indent}        _pdf_title_{node_id} = os.path.splitext(os.path.basename(\"{output_file}\"))[0]")
+    lines.append(f"{indent}        render_pdf_document(\"{output_file}\", data_dict, title=_pdf_title_{node_id})")
+    lines.append(f"{indent}        res_text_{node_id} = \"{output_file}\"")
+    lines.append(f"{indent}    else:")
+    # 챗봇이 지어낸 template_path가 실제로 업로드된 적 없어 파일이 없는 경우, 지금 채우려는
+    # 진짜 값(data_dict의 키)을 그대로 필드로 써서 즉석에서 빈 템플릿을 만들고 이어서 채운다.
+    # (templateAnalyzerNode와 달리 여기선 이미 실제 값이 있으니 LLM으로 필드명을 추측할 필요가 없다.)
+    lines.append(f"{indent}        _fm_needs_regen_{node_id} = not os.path.exists(\"{template_file}\")")
+    lines.append(f"{indent}        if not _fm_needs_regen_{node_id} and (template_ext.endswith('.hwpx') or template_ext.endswith('.docx')) and data_dict:")
+    # 파일이 이미 있어도, 그 안의 {{key}}들이 지금 채우려는 data_dict 키와 절반도 안 겹치면
+    # 챗봇이 지어낸 이름이 우연히 겹친 낡은 템플릿(이전 실행의 잔재)일 가능성이 높다 — 그대로
+    # 쓰면 하나도 안 채워진 채 남으므로, 이번 데이터에 맞게 다시 만든다.
+    lines.append(f"{indent}            from template_generator import extract_template_keys")
+    lines.append(f"{indent}            _fm_existing_keys_{node_id} = extract_template_keys(\"{template_file}\")")
+    lines.append(f"{indent}            _fm_wanted_keys_{node_id} = set(data_dict.keys())")
+    lines.append(f"{indent}            _fm_overlap_{node_id} = _fm_existing_keys_{node_id} & _fm_wanted_keys_{node_id}")
+    lines.append(f"{indent}            if not _fm_existing_keys_{node_id} or len(_fm_overlap_{node_id}) < (len(_fm_wanted_keys_{node_id}) + 1) // 2:")
+    lines.append(f"{indent}                _fm_needs_regen_{node_id} = True")
+    lines.append(f"{indent}        if _fm_needs_regen_{node_id} and (template_ext.endswith('.hwpx') or template_ext.endswith('.docx')) and data_dict:")
+    lines.append(f"{indent}            from template_generator import generate_hwpx_template, generate_docx_template")
+    lines.append(f"{indent}            _fm_title_{node_id} = os.path.splitext(os.path.basename(\"{template_file}\"))[0].replace('_템플릿', '').replace('_template', '')")
+    lines.append(f"{indent}            if template_ext.endswith('.hwpx'):")
+    lines.append(f"{indent}                generate_hwpx_template(\"{template_file}\", list(data_dict.keys()), title=_fm_title_{node_id})")
+    lines.append(f"{indent}            else:")
+    lines.append(f"{indent}                generate_docx_template(\"{template_file}\", list(data_dict.keys()), title=_fm_title_{node_id})")
+    lines.append(f"{indent}        if template_ext.endswith('.hwp'):")
+    lines.append(f"{indent}            raise ValueError('HWP(.hwp) 서식 파일은 현재 지원하지 않습니다. HWPX(.hwpx)나 Word(.docx) 서식을 사용해주세요.')")
+    lines.append(f"{indent}        elif template_ext.endswith('.hwpx'):")
+    lines.append(f"{indent}            import zipfile")
+    lines.append(f"{indent}            def _hwpx_escape(v):")
+    lines.append(f"{indent}                return str(v).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')")
+    lines.append(f"{indent}            with zipfile.ZipFile(\"{template_file}\", 'r') as zin:")
+    lines.append(f"{indent}                names = zin.namelist()")
+    lines.append(f"{indent}                contents = {{n: zin.read(n) for n in names}}")
+    lines.append(f"{indent}            sec_files = [n for n in names if n.startswith('Contents/section') and n.endswith('.xml')]")
+    lines.append(f"{indent}            for sec in sec_files:")
+    lines.append(f"{indent}                xml_str = contents[sec].decode('utf-8')")
+    lines.append(f"{indent}                for k, v in data_dict.items():")
+    lines.append(f"{indent}                    xml_str = xml_str.replace('{{{{' + str(k) + '}}}}', _hwpx_escape(v))")
+    lines.append(f"{indent}                contents[sec] = xml_str.encode('utf-8')")
+    lines.append(f"{indent}            with zipfile.ZipFile(\"{output_file}\", 'w', zipfile.ZIP_DEFLATED) as zout:")
+    lines.append(f"{indent}                for n in names:")
+    lines.append(f"{indent}                    zout.writestr(n, contents[n])")
+    lines.append(f"{indent}        elif template_ext.endswith('.docx') or template_ext.endswith('.doc'):")
+    lines.append(f"{indent}            from docx import Document as _DocxDocument")
+    lines.append(f"{indent}            _docx_doc = _DocxDocument(\"{template_file}\")")
+    lines.append(f"{indent}            for p in _docx_doc.paragraphs:")
+    lines.append(f"{indent}                for run in p.runs:")
+    lines.append(f"{indent}                    for k, v in data_dict.items():")
+    lines.append(f"{indent}                        if '{{{{' + str(k) + '}}}}' in run.text:")
+    lines.append(f"{indent}                            run.text = run.text.replace('{{{{' + str(k) + '}}}}', str(v))")
+    lines.append(f"{indent}            for _tbl in _docx_doc.tables:")
+    lines.append(f"{indent}                for _row in _tbl.rows:")
+    lines.append(f"{indent}                    for _cell in _row.cells:")
+    lines.append(f"{indent}                        for _p in _cell.paragraphs:")
+    lines.append(f"{indent}                            for run in _p.runs:")
     lines.append(f"{indent}                                for k, v in data_dict.items():")
     lines.append(f"{indent}                                    if '{{{{' + str(k) + '}}}}' in run.text:")
     lines.append(f"{indent}                                        run.text = run.text.replace('{{{{' + str(k) + '}}}}', str(v))")
-    lines.append(f"{indent}        prs.save(\"{output_file}\")")
-    lines.append(f"{indent}    else:")
-    lines.append(f"{indent}        with open(\"{output_file}\", \"w\", encoding=\"utf-8\") as _f:")
-    lines.append(f"{indent}            _f.write(str({prev_res_var if prev_res_var else 'last_result'}))")
+    lines.append(f"{indent}            _docx_doc.save(\"{output_file}\")")
+    lines.append(f"{indent}        elif template_ext.endswith('.xlsx') or template_ext.endswith('.xls'):")
+    lines.append(f"{indent}            import openpyxl")
+    lines.append(f"{indent}            wb = openpyxl.load_workbook(\"{template_file}\")")
+    lines.append(f"{indent}            for sheet in wb.worksheets:")
+    lines.append(f"{indent}                for row in sheet.iter_rows():")
+    lines.append(f"{indent}                    for cell in row:")
+    lines.append(f"{indent}                        if cell.value and isinstance(cell.value, str):")
+    lines.append(f"{indent}                            for k, v in data_dict.items():")
+    lines.append(f"{indent}                                if '{{{{' + str(k) + '}}}}' in cell.value:")
+    lines.append(f"{indent}                                    cell.value = cell.value.replace('{{{{' + str(k) + '}}}}', str(v))")
+    lines.append(f"{indent}            wb.save(\"{output_file}\")")
+    lines.append(f"{indent}        elif template_ext.endswith('.pptx') or template_ext.endswith('.ppt'):")
+    lines.append(f"{indent}            from pptx import Presentation")
+    lines.append(f"{indent}            prs = Presentation(\"{template_file}\")")
+    lines.append(f"{indent}            for slide in prs.slides:")
+    lines.append(f"{indent}                for shape in slide.shapes:")
+    lines.append(f"{indent}                    if shape.has_text_frame:")
+    lines.append(f"{indent}                        for p in shape.text_frame.paragraphs:")
+    lines.append(f"{indent}                            for run in p.runs:")
+    lines.append(f"{indent}                                if run.text:")
+    lines.append(f"{indent}                                    for k, v in data_dict.items():")
+    lines.append(f"{indent}                                        if '{{{{' + str(k) + '}}}}' in run.text:")
+    lines.append(f"{indent}                                            run.text = run.text.replace('{{{{' + str(k) + '}}}}', str(v))")
+    lines.append(f"{indent}            prs.save(\"{output_file}\")")
+    lines.append(f"{indent}        else:")
+    lines.append(f"{indent}            with open(\"{output_file}\", \"w\", encoding=\"utf-8\") as _f:")
+    lines.append(f"{indent}                _f.write(str({prev_res_var if prev_res_var else 'last_result'}))")
+    lines.append(f"{indent}        res_text_{node_id} = \"{output_file}\"")
     lines.append(f"{indent}    ")
-    lines.append(f"{indent}    res_text_{node_id} = \"{output_file}\"")
     lines.append(f"{indent}except Exception as e:")
     lines.append(f"{indent}    res_text_{node_id} = f\"Error formatting file: {{str(e)}}\"")
     lines.append(f"{indent}last_result = res_text_{node_id}")
-    
+
     lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
     next_edges = forward_edges.get(node_id, [])
     for target_id, handle in next_edges:
@@ -268,12 +441,56 @@ def generate_tokenizer_node(node_id, node, indent, active_llm_id, prev_res_var, 
     lines.append(f"{indent}if res_text_{node_id}:")
     lines.append(f"{indent}    parsed_str_{node_id} = '\\n'.join(res_text_{node_id})")
     lines.append(f"{indent}    if match_{node_id}:")
-    lines.append(f"{indent}        last_result = str(file_path_raw).replace(match_{node_id}.group(0), f'[Parsed Content:]\\n{{parsed_str_{node_id}}}\\n')")
+    lines.append(f"{indent}        parsed_output_{node_id} = str(file_path_raw).replace(match_{node_id}.group(0), f'[Parsed Content:]\\n{{parsed_str_{node_id}}}\\n')")
     lines.append(f"{indent}    else:")
-    lines.append(f"{indent}        last_result = parsed_str_{node_id}")
+    lines.append(f"{indent}        parsed_output_{node_id} = parsed_str_{node_id}")
     lines.append(f"{indent}else:")
-    lines.append(f"{indent}    last_result = str(file_path_raw)")
-    
+    lines.append(f"{indent}    parsed_output_{node_id} = str(file_path_raw)")
+    lines.append(f"{indent}last_result = parsed_output_{node_id}")
+
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+    next_edges = forward_edges.get(node_id, [])
+    for target_id, handle in next_edges:
+        # 예전엔 여기서 res_text_{node_id}(파싱 실패 시 빈 리스트 [])를 그대로 넘겨서, str([])=='[]'가
+        # 하류 conditionNode의 "결과가 빈 문자열인지" 검사를 절대 통과하지 못하게 막는 버그가 있었다.
+        # 실제로 계산된 최종 문자열(parsed_output_{node_id})을 넘긴다.
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"parsed_output_{node_id}", visited=visited)
+
+
+@node_registry.register('posterGeneratorNode')
+def generate_poster_generator_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
+    lines.append(f"{indent}# --- Poster Generator Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+
+    data = node.get('data', {})
+    fmt = data.get('outputFormat', 'png')
+    if fmt not in ('png', 'pdf'):
+        fmt = 'png'
+    try:
+        width = int(data.get('width', 900))
+    except (TypeError, ValueError):
+        width = 900
+    try:
+        height = int(data.get('height', 1200))
+    except (TypeError, ValueError):
+        height = 1200
+
+    output_file = data.get('output_path', '').replace('"', '\\"').replace('\n', '\\n')
+    if not output_file:
+        unique_suffix = uuid.uuid4().hex[:6]
+        output_file = f"poster_{unique_suffix}.{fmt}"
+    if not output_file.startswith('uploads/') and not output_file.startswith('uploads\\\\'):
+        output_file = 'uploads/' + os.path.basename(output_file)
+
+    lines.append(f"{indent}try:")
+    lines.append(f"{indent}    from poster_generator import render_html_to_file")
+    lines.append(f"{indent}    _poster_html_{node_id} = str({prev_res_var if prev_res_var else 'last_result'})")
+    lines.append(f"{indent}    render_html_to_file(_poster_html_{node_id}, \"{output_file}\", width={width}, height={height}, fmt=\"{fmt}\")")
+    lines.append(f"{indent}    res_text_{node_id} = \"{output_file}\"")
+    lines.append(f"{indent}except Exception as e:")
+    lines.append(f"{indent}    res_text_{node_id} = f\"Error generating poster: {{str(e)}}\"")
+    lines.append(f"{indent}last_result = res_text_{node_id}")
+
     lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
     next_edges = forward_edges.get(node_id, [])
     for target_id, handle in next_edges:

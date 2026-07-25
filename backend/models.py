@@ -11,7 +11,7 @@ class User(Base):
     email = Column(String, index=True)
     name = Column(String)
     picture = Column(String)
-    token_balance = Column(Integer, default=50000)
+    token_balance = Column(Integer, default=200000)
 
     projects = relationship("Project", back_populates="owner")
     api_keys = relationship("UserApiKey", back_populates="user", cascade="all, delete-orphan")
@@ -22,8 +22,14 @@ class UserApiKey(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    provider = Column(String, index=True) # e.g. openai, gemini, kakao, discord, slack
-    api_key = Column(String) # Encrypted or raw for MVP
+    provider = Column(String, index=True) # e.g. openai, gemini, kakao, kakao_token, discord, slack
+    api_key = Column(String) # Encrypted or raw for MVP. provider=kakao_token일 때는 access_token을 담는다.
+    # kakao_token 전용(다른 provider는 안 씀) — OAuth refresh_token과, access_token 만료 시각.
+    # 카카오 access_token은 6시간마다 만료되는데, refresh_token(약 2개월 유효)으로 재로그인 없이
+    # 자동 갱신할 수 있다. run_workflow()가 {{API_CENTER:kakao_token}}을 치환하기 직전에 이 두
+    # 필드를 보고 만료 임박이면 자동으로 갱신한다(graph.py 참고).
+    refresh_token = Column(String, nullable=True)
+    token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -147,4 +153,17 @@ class EvaluationLog(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     user = relationship("User", foreign_keys=[user_id], backref="evaluation_logs")
+
+
+class SiteFeedback(Base):
+    __tablename__ = "site_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    # {"gen_intent_match": 4, "gen_logic_match": 5, ...} — 각 문항 id -> 1~5점
+    scores = Column(JSON, default=dict)
+    comment = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id], backref="site_feedback")
 

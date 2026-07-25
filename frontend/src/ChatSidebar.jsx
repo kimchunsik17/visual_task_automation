@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { MessageSquare, ArrowRight, Clock, Box, RefreshCw, Trash2, Plus } from 'lucide-react';
+import { customConfirm } from './CustomConfirm';
 import './ChatSidebar.css';
 
 const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
@@ -38,7 +39,7 @@ const ChatSidebar = ({ isOpen, onClose, onExpand, onSelectSession }) => {
 
   const handleDeleteSession = async (e, sessionId) => {
     e.stopPropagation();
-    if (!window.confirm('이 대화 기록을 정말 삭제하시겠습니까?')) {
+    if (!(await customConfirm('이 대화 기록을 정말 삭제하시겠습니까?'))) {
       return;
     }
     

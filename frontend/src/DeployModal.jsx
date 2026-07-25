@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { X, Bot, LayoutTemplate, Download, Code2, MessageSquare } from 'lucide-react';
+import { X, Bot, LayoutTemplate, Download, Code2 } from 'lucide-react';
 import axios from 'axios';
+import { customConfirm } from './CustomConfirm';
 
 const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
   const [deployMode, setDeployMode] = useState('apprunner');
-  const [discordToken, setDiscordToken] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
 
   if (!isOpen) return null;
@@ -18,7 +18,7 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
         });
         const shareToken = res.data.share_token;
         const appUrl = `${window.location.origin}/app/${shareToken}`;
-        const goApp = window.confirm(`독립형 앱 배포가 완료되었습니다!\n링크: ${appUrl}\n\n지금 바로 접속하시겠습니까?`);
+        const goApp = await customConfirm(`독립형 앱 배포가 완료되었습니다!\n링크: ${appUrl}\n\n지금 바로 접속하시겠습니까?`);
         if (goApp) {
           window.open(`/app/${shareToken}`, '_blank');
         }
@@ -28,9 +28,8 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
       }
 
       // API call to save deploy config or generate code
-      const response = await axios.post(`/api/deploy/${project.id}`, { 
-        mode: deployMode,
-        discord_bot_token: deployMode === 'discord' ? discordToken : undefined
+      const response = await axios.post(`/api/deploy/${project.id}`, {
+        mode: deployMode
       }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
@@ -47,7 +46,7 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
       } else {
-        const goApp = window.confirm("배포가 완료되었습니다! 지금 챗봇/폼 뷰어 페이지로 이동하시겠습니까?");
+        const goApp = await customConfirm("배포가 완료되었습니다! 지금 챗봇/폼 뷰어 페이지로 이동하시겠습니까?");
         if (goApp) {
           window.open(`/viewer/${project.id}`, '_blank');
         }
@@ -130,40 +129,23 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
             </div>
           </div>
 
-          {/* Category 3: Integrations */}
+          {/* Integrations: 디스코드 봇은 이제 여기서 배포하는 게 아니라, 웹훅/스케줄과 동일하게
+              캔버스 안의 "디스코드 봇 (시작)" 노드 + 에디터 상단의 "라이브 시작" 토글로 켠다.
+              토큰을 모달에 매번 붙여넣을 필요 없이 API 센터에 등록해두면 자동으로 연결된다. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>Integrations</h3>
-            <div 
-              onClick={() => setDeployMode('discord')}
-              style={{ padding: '1.25rem', border: `2px solid ${deployMode === 'discord' ? '#ec4899' : 'var(--border-color)'}`, borderRadius: '10px', cursor: 'pointer', backgroundColor: deployMode === 'discord' ? 'rgba(236, 72, 153, 0.1)' : 'var(--bg-color)', transition: 'all 0.2s', boxShadow: deployMode === 'discord' ? '0 0 12px rgba(236, 72, 153, 0.3)' : 'none', display: 'flex', flexDirection: 'column' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <MessageSquare size={32} color={deployMode === 'discord' ? '#ec4899' : 'var(--text-muted)'} />
-                <div style={{ flex: 1 }}>
-                  <h4 style={{ margin: '0 0 0.25rem', fontSize: '1rem', color: 'var(--text-color)' }}>Discord Bot (Interactive)</h4>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>디스코드 채팅 채널에서 봇을 통해 워크플로우를 실행합니다.</p>
-                </div>
-              </div>
-              
-              {deployMode === 'discord' && (
-                <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed var(--border-color)', textAlign: 'left' }} onClick={e => e.stopPropagation()}>
-                  <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-color)', fontSize: '0.85rem' }}>Discord Bot Token</label>
-                  <input 
-                    type="password"
-                    value={discordToken}
-                    onChange={(e) => setDiscordToken(e.target.value)}
-                    placeholder="디스코드 개발자 포털에서 발급받은 토큰 입력"
-                    style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', background: 'var(--btn-active-bg)', color: 'var(--text-color)', border: '1px solid var(--border-color)', outline: 'none' }}
-                  />
-                </div>
-              )}
+            <div style={{ padding: '1rem', border: '1px dashed var(--border-color)', borderRadius: '10px', color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: '1.5' }}>
+              💬 <strong style={{ color: 'var(--text-color)' }}>디스코드 봇</strong>은 여기서 배포하지 않아요 —
+              캔버스에 <strong style={{ color: 'var(--text-color)' }}>"디스코드 봇 (시작)"</strong> 노드를 추가하고
+              봇 토큰을 입력한 뒤(또는 API 센터 연동), 에디터 상단의 <strong style={{ color: 'var(--text-color)' }}>"라이브 시작"</strong> 토글을
+              켜면 그 순간부터 봇이 메시지를 기다립니다. 스케줄/웹훅 트리거와 동일한 방식이에요.
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-color)' }}>
           <button className="btn-secondary" onClick={onClose} disabled={isDeploying}>취소</button>
-          <button className="btn-run" onClick={handleDeploy} disabled={isDeploying || (deployMode === 'discord' && !discordToken.trim())}>
+          <button className="btn-run" onClick={handleDeploy} disabled={isDeploying}>
             {isDeploying ? '처리 중...' : (deployMode === 'fastapi' || deployMode === 'mcp' ? '코드 다운로드' : '배포하기')}
           </button>
         </div>

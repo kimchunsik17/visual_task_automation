@@ -101,6 +101,7 @@
   justify-content: center;
   gap: 0.5rem;
   width: 100%;
+  flex: 1;
   padding: 0.75rem;
   border-radius: 8px;
   border: none;
@@ -122,8 +123,9 @@
 
 .key-display {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
   background: var(--bg-primary);
   padding: 1rem;
   border-radius: 8px;
@@ -135,14 +137,17 @@
   color: var(--success-color);
   font-size: 1.1rem;
   letter-spacing: 2px;
+  word-break: break-all;
 }
 
 .delete-key-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
+  flex: 1;
   background: none;
-  border: none;
+  border: 1px solid var(--border-color);
   color: var(--error-color);
   cursor: pointer;
   padding: 0.5rem;

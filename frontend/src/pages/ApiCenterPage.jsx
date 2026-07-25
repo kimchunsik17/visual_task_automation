@@ -3,6 +3,7 @@ import { useAuth } from '../AuthContext';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { Key, Plus, Trash2, Shield, Info, Save, ExternalLink, X } from 'lucide-react';
+import { customConfirm } from '../CustomConfirm';
 import MainSidebar from '../MainSidebar';
 import './MainPage.css';
 import './ApiCenterPage.css';
@@ -30,20 +31,33 @@ const PROVIDERS = [
       "4. 생성된 문자열을 복사합니다."
     ]
   },
-  { 
-    id: 'kakao', 
-    name: 'Kakao REST API', 
+  {
+    id: 'kakao',
+    name: 'Kakao REST API 키',
     icon: '💬',
     guide: [
       "1. [카카오 디벨로퍼스](https://developers.kakao.com/)에 로그인합니다.",
       "2. '내 애플리케이션'에서 앱을 생성하거나 선택합니다.",
       "3. '요약 정보' 탭의 'REST API 키'를 복사합니다.",
-      "4. (주의) 카카오톡 메시지 전송을 위해서는 메시지 API 활성화가 추가로 필요합니다."
+      "4. 이 키는 아래 '카카오 메시지 토큰'의 access_token을 6시간마다 자동으로 갱신하는 데 쓰입니다(client_id 역할)."
     ]
   },
-  { 
-    id: 'discord', 
-    name: 'Discord Bot Token', 
+  {
+    id: 'kakao_token',
+    name: 'Kakao 메시지 토큰 (자동 갱신)',
+    icon: '🔑',
+    isTokenPair: true,
+    guide: [
+      "1. 카카오 로그인 OAuth 동의 절차를 한 번 완료해서 access_token과 refresh_token을 발급받습니다.",
+      "   (카카오 디벨로퍼스 앱의 '카카오 로그인 > 도구 > 토큰 받기' 기능을 쓰면 간편합니다.)",
+      "2. 발급받은 access_token과 refresh_token을 아래 두 칸에 각각 붙여넣고 저장합니다.",
+      "3. access_token은 6시간 뒤 만료되지만, 워크플로우 실행 시 refresh_token으로 자동 갱신되므로 이후엔 다시 안 붙여넣어도 됩니다.",
+      "4. 위 'Kakao REST API 키'도 함께 등록되어 있어야 자동 갱신이 동작합니다."
+    ]
+  },
+  {
+    id: 'discord',
+    name: 'Discord Bot Token',
     icon: '🎮',
     guide: [
       "1. [Discord Developer Portal](https://discord.com/developers/applications)에 접속합니다.",
@@ -51,8 +65,30 @@ const PROVIDERS = [
       "3. 좌측 'Bot' 메뉴로 이동 후 'Reset Token'을 눌러 토큰을 발급합니다.",
     ]
   },
-  { 
-    id: 'google_smtp', 
+  {
+    id: 'telegram',
+    name: 'Telegram Bot Token',
+    icon: '✈️',
+    guide: [
+      "1. 텔레그램 앱에서 [@BotFather](https://t.me/BotFather)를 검색해 대화를 시작합니다.",
+      "2. '/newbot' 명령어를 보내고, 안내에 따라 봇 이름과 사용자명을 정합니다.",
+      "3. 생성이 완료되면 BotFather가 토큰(숫자:영문 조합)을 보내줍니다 — 그 값을 복사합니다.",
+      "4. 이 토큰은 만료되지 않으므로(카카오와 달리 재발급/자동 갱신이 필요 없음), 한 번만 등록하면 됩니다.",
+    ]
+  },
+  {
+    id: 'notion',
+    name: 'Notion Integration Token',
+    icon: '📝',
+    guide: [
+      "1. [Notion 내 통합](https://www.notion.so/my-integrations)에 접속합니다.",
+      "2. '새 통합 만들기'를 클릭하고 이름을 정한 뒤 생성합니다.",
+      "3. 'Internal Integration Secret' 값을 복사합니다 (secret_ 또는 ntn_으로 시작).",
+      "4. 워크플로우에서 다룰 Notion 페이지/데이터베이스를 열어 '...' 메뉴 → '연결 추가'에서 방금 만든 통합을 선택해 연결해야 실제로 접근할 수 있습니다.",
+    ]
+  },
+  {
+    id: 'google_smtp',
     name: 'Gmail SMTP', 
     icon: '📧',
     guide: [
@@ -71,6 +107,7 @@ export default function ApiCenterPage() {
   const [loading, setLoading] = useState(false);
   const [activeGuide, setActiveGuide] = useState(null);
   const [newKeyValues, setNewKeyValues] = useState({});
+  const [editingProviders, setEditingProviders] = useState({});
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
@@ -109,14 +146,37 @@ export default function ApiCenterPage() {
     }
   };
 
-  const handleSaveKey = async (providerId) => {
-    const key = newKeyValues[providerId];
-    if (!key) return;
+  const handleSaveKey = async (providerId, isTokenPair = false) => {
+    const value = newKeyValues[providerId];
+    if (isTokenPair) {
+      const accessToken = value?.access_token;
+      const refreshToken = value?.refresh_token;
+      // refresh_token은 있으면 자동 갱신에 쓰이지만 없어도 access_token만으로 당장은 동작한다
+      // (그 access_token이 만료되는 6시간 뒤부터는 다시 수동으로 넣어줘야 함).
+      if (!accessToken) return;
+      try {
+        await axios.post('/api/user/apikeys', {
+          provider: providerId,
+          api_key: accessToken,
+          ...(refreshToken ? { refresh_token: refreshToken } : {}),
+        }, {
+          headers: { Authorization: `Bearer ${sudoToken}` }
+        });
+        setNewKeyValues(prev => ({...prev, [providerId]: {}}));
+        setEditingProviders(prev => ({...prev, [providerId]: false}));
+        fetchKeys();
+      } catch (err) {
+        alert("저장에 실패했습니다.");
+      }
+      return;
+    }
+    if (!value) return;
     try {
-      await axios.post('/api/user/apikeys', { provider: providerId, api_key: key }, {
+      await axios.post('/api/user/apikeys', { provider: providerId, api_key: value }, {
         headers: { Authorization: `Bearer ${sudoToken}` }
       });
       setNewKeyValues(prev => ({...prev, [providerId]: ''}));
+      setEditingProviders(prev => ({...prev, [providerId]: false}));
       fetchKeys();
     } catch (err) {
       alert("저장에 실패했습니다.");
@@ -124,7 +184,7 @@ export default function ApiCenterPage() {
   };
 
   const handleDeleteKey = async (providerId) => {
-    if (!window.confirm("정말로 이 키를 삭제하시겠습니까? 관련 자동화가 작동하지 않을 수 있습니다.")) return;
+    if (!(await customConfirm("정말로 이 키를 삭제하시겠습니까? 관련 자동화가 작동하지 않을 수 있습니다."))) return;
     try {
       await axios.delete(`/api/user/apikeys/${providerId}`, {
         headers: { Authorization: `Bearer ${sudoToken}` }
@@ -192,28 +252,91 @@ export default function ApiCenterPage() {
                     </div>
 
                     <div className="api-card-body">
-                      {existingKey ? (
+                      {existingKey && !editingProviders[provider.id] ? (
                         <div className="key-display">
                           <div className="masked-key">{existingKey.masked_key}</div>
-                          <button className="delete-key-btn" onClick={() => handleDeleteKey(provider.id)}>
-                            <Trash2 size={16} /> 삭제
-                          </button>
+                          {provider.isTokenPair && (
+                            <div className="token-status" style={{ fontSize: '0.8rem', color: existingKey.has_refresh_token ? '#2a9d5c' : '#d97706', marginTop: '4px' }}>
+                              {existingKey.has_refresh_token
+                                ? `자동 갱신 활성화됨${existingKey.token_expires_at ? ` (현재 토큰 만료: ${new Date(existingKey.token_expires_at).toLocaleString()})` : ''}`
+                                : 'refresh_token이 없어 자동 갱신이 되지 않습니다. 다시 저장해주세요.'}
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            <button
+                              className="save-key-btn"
+                              onClick={() => setEditingProviders(prev => ({...prev, [provider.id]: true}))}
+                            >
+                              <Key size={16} /> 값 변경
+                            </button>
+                            <button className="delete-key-btn" onClick={() => handleDeleteKey(provider.id)}>
+                              <Trash2 size={16} /> 삭제
+                            </button>
+                          </div>
+                        </div>
+                      ) : provider.isTokenPair ? (
+                        <div className="key-input-area" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <input
+                            type="password"
+                            placeholder="access_token을 입력하세요"
+                            value={newKeyValues[provider.id]?.access_token || ''}
+                            onChange={(e) => setNewKeyValues({
+                              ...newKeyValues,
+                              [provider.id]: { ...newKeyValues[provider.id], access_token: e.target.value }
+                            })}
+                          />
+                          <input
+                            type="password"
+                            placeholder="refresh_token을 입력하세요 (선택 — 없으면 6시간마다 재입력 필요)"
+                            value={newKeyValues[provider.id]?.refresh_token || ''}
+                            onChange={(e) => setNewKeyValues({
+                              ...newKeyValues,
+                              [provider.id]: { ...newKeyValues[provider.id], refresh_token: e.target.value }
+                            })}
+                          />
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              className="save-key-btn"
+                              disabled={!newKeyValues[provider.id]?.access_token}
+                              onClick={() => handleSaveKey(provider.id, true)}
+                            >
+                              <Save size={16} /> 저장
+                            </button>
+                            {existingKey && (
+                              <button
+                                className="delete-key-btn"
+                                onClick={() => setEditingProviders(prev => ({...prev, [provider.id]: false}))}
+                              >
+                                취소
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <div className="key-input-area">
-                          <input 
-                            type="password" 
-                            placeholder="API 키를 입력하세요" 
+                          <input
+                            type="password"
+                            placeholder="API 키를 입력하세요"
                             value={newKeyValues[provider.id] || ''}
                             onChange={(e) => setNewKeyValues({...newKeyValues, [provider.id]: e.target.value})}
                           />
-                          <button 
-                            className="save-key-btn" 
-                            disabled={!newKeyValues[provider.id]}
-                            onClick={() => handleSaveKey(provider.id)}
-                          >
-                            <Save size={16} /> 저장
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              className="save-key-btn"
+                              disabled={!newKeyValues[provider.id]}
+                              onClick={() => handleSaveKey(provider.id)}
+                            >
+                              <Save size={16} /> 저장
+                            </button>
+                            {existingKey && (
+                              <button
+                                className="delete-key-btn"
+                                onClick={() => setEditingProviders(prev => ({...prev, [provider.id]: false}))}
+                              >
+                                취소
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

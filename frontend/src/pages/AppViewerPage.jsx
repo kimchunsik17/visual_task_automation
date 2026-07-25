@@ -1,8 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Send, Bot, User, Paperclip, X, Upload } from 'lucide-react';
+import { Send, Bot, User, Paperclip, X, Upload, Download } from 'lucide-react';
 import './MainPage.css'; // Reuse existing layout classes if needed
+
+// 실행 결과 문자열 안에 uploads/로 시작하는 생성 파일 경로가 섞여 있으면(예: fileModifierNode/
+// posterGeneratorNode가 만든 hwpx/docx/png/pdf), 파일명만 텍스트로 보여주고 끝나는 게 아니라
+// 실제로 눌러서 받을 수 있는 다운로드 버튼을 함께 보여준다. 에디터의 테스트 실행 화면에는 이미
+// 있던 기능인데, 배포된 챗봇/폼 화면에는 이 처리가 아예 없어서 파일 이름만 텍스트로 노출되고
+// 다운로드할 방법이 없었다.
+const FILE_PATH_REGEX = /uploads\/[^\s"'<>]+/;
+
+const renderContentWithDownload = (content) => {
+  if (typeof content !== 'string') return content;
+  const match = content.match(FILE_PATH_REGEX);
+  if (!match) return <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>;
+
+  const filePath = match[0].replace(/\\/g, '/');
+  const before = content.slice(0, match.index);
+  const after = content.slice(match.index + match[0].length);
+  const fileName = filePath.split('/').pop();
+
+  return (
+    <>
+      {before.trim() && <div style={{ whiteSpace: 'pre-wrap', marginBottom: '0.75rem' }}>{before.trim()}</div>}
+      <a
+        href={`/${filePath}`}
+        download={fileName}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.6rem 1rem', background: '#3b82f6', color: '#fff',
+          textDecoration: 'none', borderRadius: '8px', fontWeight: 500, fontSize: '0.9rem',
+        }}
+      >
+        <Download size={16} /> {fileName} 다운로드
+      </a>
+      {after.trim() && <div style={{ whiteSpace: 'pre-wrap', marginTop: '0.75rem' }}>{after.trim()}</div>}
+    </>
+  );
+};
 
 const AppViewerPage = () => {
   const { projectId } = useParams();
@@ -228,7 +266,7 @@ const AppViewerPage = () => {
             {formResult && (
               <div style={{ marginTop: '2rem', padding: '1.5rem', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6', borderRadius: '8px' }}>
                 <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#60a5fa' }}>실행 결과</h3>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{formResult}</pre>
+                <div style={{ margin: 0, fontFamily: 'inherit' }}>{renderContentWithDownload(formResult)}</div>
               </div>
             )}
           </div>
@@ -264,7 +302,7 @@ const AppViewerPage = () => {
                         {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
                       </div>
                       <div style={{ padding: '1rem', borderRadius: '12px', backgroundColor: msg.role === 'user' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)', color: msg.isMeta ? '#94a3b8' : '#e2e8f0', whiteSpace: 'pre-wrap', fontSize: msg.isMeta ? '0.85rem' : '1rem' }}>
-                        {msg.content}
+                        {renderContentWithDownload(msg.content)}
                       </div>
                     </div>
                   </div>

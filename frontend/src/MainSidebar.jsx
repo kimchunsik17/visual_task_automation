@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
-import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock, Globe, Key, User } from 'lucide-react';
+import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock, Globe, Key, User, ScrollText } from 'lucide-react';
 import ChatSidebar from './ChatSidebar';
 import logoImg from './logo.png';
 import './MainSidebar.css';
@@ -106,6 +106,9 @@ const MainSidebar = ({ onSelectSession }) => {
                 {pendingCount}
               </span>
             )}
+          </button>
+          <button className={`nav-item ${location.pathname === '/patch-notes' ? 'active' : ''}`} onClick={() => navigate('/patch-notes')}>
+            <ScrollText size={18} /> <span>패치 노트</span>
           </button>
         </nav>
 

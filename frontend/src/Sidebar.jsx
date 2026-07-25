@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, Puzzle, CreditCard } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, Puzzle, CreditCard, Send, StickyNote } from 'lucide-react';
 import { NodeRegistry } from './nodeRegistry';
 
 const Sidebar = () => {
@@ -27,6 +27,8 @@ const Sidebar = () => {
     
     { type: 'dynamicInputNode', label: '동적 입력', icon: <Keyboard size={16} />, color: '#d946ef', category: 'input' },
     { type: 'webhookNode', label: '웹훅 수신', icon: <Globe size={16} />, color: '#0ea5e9', category: 'input' },
+    { type: 'discordTriggerNode', label: '디스코드 봇 (시작)', icon: <MessageCircle size={16} />, color: '#5865F2', category: 'input' },
+    { type: 'telegramTriggerNode', label: '텔레그램 봇 (시작)', icon: <Send size={16} />, color: '#26A5E4', category: 'input' },
     { type: 'valueNode', label: '변수 (값)', icon: <Variable size={16} />, color: '#ec4899', category: 'input' },
     
     { type: 'promptNode', label: '프롬프트', icon: <MessageSquare size={16} />, color: '#3b82f6', category: 'ai' },
@@ -49,6 +51,8 @@ const Sidebar = () => {
     { type: 'emailNode', label: '이메일 전송', icon: <Mail size={16} />, color: '#f43f5e', category: 'integration' },
     { type: 'kakaoNode', label: '카카오 알림톡', icon: <MessageCircle size={16} />, color: '#facc15', category: 'integration' },
     { type: 'discordNode', label: '디스코드 발송', icon: <MessageCircle size={16} />, color: '#5865F2', category: 'integration' },
+    { type: 'telegramNode', label: '텔레그램 발송', icon: <Send size={16} />, color: '#26A5E4', category: 'integration' },
+    { type: 'notionNode', label: 'Notion', icon: <StickyNote size={16} />, color: '#9B9B9B', category: 'integration' },
     { type: 'tossNode', label: '토스페이먼츠', icon: <CreditCard size={16} />, color: '#3b82f6', category: 'integration' },
     { type: 'httpRequestNode', label: 'HTTP Request', icon: <ArrowRightLeft size={16} />, color: '#0ea5e9', category: 'integration' },
     

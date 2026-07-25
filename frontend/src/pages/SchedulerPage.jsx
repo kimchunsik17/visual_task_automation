@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
+import { customConfirm } from '../CustomConfirm';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
 import { Clock, Play, Square, ExternalLink, RefreshCw, Trash2, FileText, MoreVertical, Calendar } from 'lucide-react';
@@ -73,7 +74,7 @@ export default function SchedulerPage() {
   };
 
   const handleDelete = async (projectId) => {
-    if (!window.confirm('정말로 이 스케줄을 삭제하시겠습니까? (워크플로우에서 스케줄 노드가 제거됩니다)')) {
+    if (!(await customConfirm('정말로 이 스케줄을 삭제하시겠습니까? (워크플로우에서 스케줄 노드가 제거됩니다)'))) {
       return;
     }
     try {

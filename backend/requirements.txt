@@ -16,6 +16,8 @@ openpyxl
 python-pptx
 pywin32
 google-auth
+google-auth-oauthlib
+gspread
 PyJWT
 discord.py
 bs4
@@ -25,5 +27,7 @@ chromadb
 langchain-chroma
 PyMuPDF
 python-docx
+python-hwpx
+playwright
 langchain-text-splitters
 langfuse

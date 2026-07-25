@@ -49,6 +49,7 @@
   font-size: 1.1rem;
   line-height: 1.5;
   margin: 0 0 2rem 0;
+  white-space: pre-line;
   word-break: keep-all;
 }
 
@@ -74,6 +75,29 @@
 
 .custom-alert-button:active {
   transform: translateY(0);
+}
+
+.custom-confirm-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.custom-confirm-buttons .custom-alert-button {
+  margin: 0;
+  width: auto;
+  flex: 1;
+}
+
+.custom-confirm-cancel {
+  background: var(--btn-active-bg, rgba(255, 255, 255, 0.05));
+  color: var(--text-color, #f3f4f6);
+  border: 1px solid var(--border-color, #374151);
+  box-shadow: none;
+}
+
+.custom-confirm-cancel:hover {
+  filter: none;
+  background: var(--border-color, #374151);
 }
 
 @keyframes fadeIn {

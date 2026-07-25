@@ -7,8 +7,10 @@
 
 .main-page-content {
   flex: 1;
+  box-sizing: border-box;
   padding: 2rem 4rem;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -119,6 +121,19 @@
 
 .chat-bubble a:hover {
   color: #3b82f6;
+}
+
+.chat-bubble pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-bubble code {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .chat-message.user .chat-bubble {
@@ -254,6 +269,37 @@
   background: var(--card-bg);
   color: var(--text-color);
   border-color: var(--text-color);
+}
+
+/* AI가 필수 정보를 되물을 때(ask_clarification) 채팅 버블 안에 뜨는 선택지 칩 —
+   예시 문구를 채워주기만 하는 hint-chip과 달리 클릭 즉시 답변으로 전송된다. */
+.clarify-chips {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.9rem;
+}
+
+.clarify-chip {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--primary-color);
+  background: transparent;
+  border: 1.5px solid var(--primary-color);
+  padding: 0.45rem 0.9rem;
+  border-radius: 100px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.clarify-chip:hover:not(:disabled) {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.clarify-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .qa-icon-minimal {

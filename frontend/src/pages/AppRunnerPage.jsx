@@ -5,6 +5,12 @@ import ReactMarkdown from 'react-markdown';
 import { Play, Share2, Lock, Unlock, Users, AlertTriangle, Copy, Download, Check, XCircle, Clock } from 'lucide-react';
 import './AppRunnerPage.css';
 
+// 실행 결과가 fileModifierNode/posterGeneratorNode 등이 만든 실제 파일 경로(uploads/...)를
+// 담고 있을 때, "다운로드" 버튼이 그 원문 텍스트를 그냥 .txt로 감싸서 내려주는 바람에 실제
+// 파일(hwpx/docx/png/pdf 등) 대신 경로 문자열만 든 텍스트 파일이 받아지는 문제가 있었다.
+// 결과에서 실제 파일 경로를 찾아내면 그 파일을 그대로 받도록 한다.
+const FILE_PATH_REGEX = /uploads\/[^\s"'<>]+/;
+
 export default function AppRunnerPage() {
   const { shareToken } = useParams();
   const navigate = useNavigate();
@@ -19,6 +25,15 @@ export default function AppRunnerPage() {
   const [isUrlCopied, setIsUrlCopied] = useState(false);
 
   const dynamicNodes = appInfo?.graph_data?.nodes?.filter(n => n.type === 'dynamicInputNode') || [];
+
+  const fileMatch = typeof result === 'string' ? result.match(FILE_PATH_REGEX) : null;
+  const resultFilePath = fileMatch ? fileMatch[0].replace(/\\/g, '/') : null;
+  const resultFileName = resultFilePath ? resultFilePath.split('/').pop() : null;
+  // 마크다운 본문에는 파일 경로 원문 대신, 그 앞뒤에 남은 설명 텍스트만 보여준다
+  // (경로 자체는 아래 다운로드 버튼으로 대체되므로 중복 노출하지 않는다).
+  const displayResult = fileMatch
+    ? (result.slice(0, fileMatch.index) + result.slice(fileMatch.index + fileMatch[0].length)).trim()
+    : result;
 
   // Authentication logic for private apps
   const token = localStorage.getItem('token');
@@ -212,14 +227,22 @@ export default function AppRunnerPage() {
                 <button className="btn-action" onClick={handleCopyResult} title="결과 복사">
                   {isCopied ? <><Check size={16} color="#10b981"/> 복사 완료</> : <><Copy size={16} /> 복사</>}
                 </button>
-                <button className="btn-action" onClick={handleDownloadResult} title="텍스트로 다운로드">
-                  <Download size={16} /> 다운로드
-                </button>
+                {resultFilePath ? (
+                  <a className="btn-action" href={`/${resultFilePath}`} download={resultFileName} target="_blank" rel="noreferrer" title={`${resultFileName} 다운로드`} style={{ textDecoration: 'none' }}>
+                    <Download size={16} /> {resultFileName} 다운로드
+                  </a>
+                ) : (
+                  <button className="btn-action" onClick={handleDownloadResult} title="텍스트로 다운로드">
+                    <Download size={16} /> 다운로드
+                  </button>
+                )}
               </div>
             </div>
-            <div className="markdown-body">
-              <ReactMarkdown>{result}</ReactMarkdown>
-            </div>
+            {displayResult && (
+              <div className="markdown-body">
+                <ReactMarkdown>{displayResult}</ReactMarkdown>
+              </div>
+            )}
           </section>
         )}
       </div>

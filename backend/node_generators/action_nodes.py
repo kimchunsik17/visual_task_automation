@@ -145,17 +145,44 @@ def generate_delay_node(node_id, node, indent, active_llm_id, prev_res_var, visi
 
 @node_registry.register('dynamicInputNode')
 @node_registry.register('webhookNode')
+def generate_webhook_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
+    # webhookNode는 dynamicInputNode와 달리 "사람이 보는 라벨 붙은 값"이 아니라 외부 시스템이 보낸
+    # 원본 요청 바디 그 자체다. 예전엔 이 함수를 dynamicInputNode와 공유해서 "[라벨]:\n원본내용"처럼
+    # 접두사를 붙였는데, 그러면 바로 뒤에 jsonParserNode(parse)가 오는 아주 흔한 패턴(웹훅 JSON 바디
+    # 파싱)에서 그 접두사 때문에 매번 파싱이 깨지고, "JSON Parser Error: ..."라는 에러 문자열이
+    # 사용자 메시지인 것처럼 그대로 하류 LLM에게 새어나가는 문제가 있었다. 그래서 웹훅은 라벨 없이
+    # 원본 페이로드를 그대로 넘긴다(파일 입력 모드도 웹훅에는 해당 없어 제거).
+    lines.append(f"{indent}# --- Webhook Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    test_val = node.get('data', {}).get('testValue', '').replace('"', '\\"').replace('\n', '\\n')
+
+    lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
+    lines.append(f"{indent}if dyn_input_{node_id} is None:")
+    lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', \"{test_val}\" if \"{test_val}\" else '<<No input provided>>')")
+
+    if prev_res_var:
+        lines.append(f"{indent}last_result = f\"{{{prev_res_var}}}\\n\\n{{dyn_input_{node_id}}}\"")
+    else:
+        lines.append(f"{indent}last_result = str(dyn_input_{node_id})")
+
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+    next_edges = forward_edges.get(node_id, [])
+    for target_id, handle in next_edges:
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+
+
+@node_registry.register('dynamicInputNode')
 def generate_dynamic_input_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Dynamic Input Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     input_label = node.get('data', {}).get('inputLabel', 'Input').replace('"', '\\"')
     input_type = node.get('data', {}).get('inputType', 'text')
     test_val = node.get('data', {}).get('testValue', '').replace('"', '\\"').replace('\n', '\\n')
-    
+
     lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
     lines.append(f"{indent}if dyn_input_{node_id} is None:")
     lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', \"{test_val}\" if \"{test_val}\" else '<<No input provided>>')")
-    
+
     if input_type == 'file':
         lines.append(f"{indent}import os")
         lines.append(f"{indent}file_content_{node_id} = ''")
@@ -166,12 +193,12 @@ def generate_dynamic_input_node(node_id, node, indent, active_llm_id, prev_res_v
         lines.append(f"{indent}        dyn_input_{node_id} = file_content_{node_id}")
         lines.append(f"{indent}except Exception as e:")
         lines.append(f"{indent}    dyn_input_{node_id} = f'Error reading file: {{str(e)}}'")
-        
+
     if prev_res_var:
         lines.append(f"{indent}last_result = f\"{{{prev_res_var}}}\\n\\n[{input_label}]:\\n{{dyn_input_{node_id}}}\"")
     else:
         lines.append(f"{indent}last_result = f\"[{input_label}]:\\n{{dyn_input_{node_id}}}\"")
-    
+
     lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
     next_edges = forward_edges.get(node_id, [])
     for target_id, handle in next_edges:

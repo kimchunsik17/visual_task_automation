@@ -23,6 +23,38 @@ def generate_schedule_node(node_id, node, indent, active_llm_id, prev_res_var, v
     for target_id, handle in next_edges:
         generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
 
+@node_registry.register('discordTriggerNode')
+def generate_discord_trigger_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
+    # webhookNode와 동일한 방식 — discord_bot.py의 on_message가 run_workflow(..., default_input=메시지내용)로
+    # 실행을 트리거하므로, 그 kwarg를 그대로 이 노드의 출력으로 흘려보낸다. 봇 토큰 자체(data.botToken)는
+    # 이 노드가 실제로 실행되는 시점(=메시지가 이미 도착한 뒤)엔 필요 없다 — 봇을 언제 띄울지는
+    # main.py가 그래프에 이 노드가 있는지 보고 별도로 결정한다(라이브 토글 시).
+    lines.append(f"{indent}# --- Discord Trigger Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
+    lines.append(f"{indent}if dyn_input_{node_id} is None:")
+    lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', '')")
+    lines.append(f"{indent}last_result = dyn_input_{node_id}")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+    next_edges = forward_edges.get(node_id, [])
+    for target_id, handle in next_edges:
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+
+@node_registry.register('telegramTriggerNode')
+def generate_telegram_trigger_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
+    # discordTriggerNode와 완전히 동일한 패턴 — telegram_bot.py의 process_update가
+    # run_workflow(..., default_input=메시지텍스트)로 실행을 트리거한다.
+    lines.append(f"{indent}# --- Telegram Trigger Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
+    lines.append(f"{indent}if dyn_input_{node_id} is None:")
+    lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', '')")
+    lines.append(f"{indent}last_result = dyn_input_{node_id}")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+    next_edges = forward_edges.get(node_id, [])
+    for target_id, handle in next_edges:
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+
 @node_registry.register('conditionNode')
 def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     rules = node.get('data', {}).get('rules', [])
@@ -121,15 +153,23 @@ def generate_merge_node(node_id, node, indent, active_llm_id, prev_res_var, visi
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     strategy = node.get('data', {}).get('mergeStrategy', 'join_newline')
     
-    lines.append(f"{indent}merge_in_dict_{node_id} = {{}}")
+    # __node_results__는 각 노드가 log_step을 호출할 때마다 자기 결과를 node_id로 저장해두는
+    # 전역 딕셔너리다(graph.py 참고). 예전엔 여기서 각 incoming edge의 source를 찾는 딕셔너리를
+    # 만들어놓고 정작 쓰지 않은 채 prev_res_var(직전에 도착한 갈래) 하나만 merge_vals에 넣어서,
+    # 조건 분기 등으로 먼저 실행된 다른 갈래의 결과가 조용히 사라지는 버그가 있었다(실제로 겪음 —
+    # 포스터 생성 워크플로우에서 conditionNode 이전 갈래의 구조화된 정보가 통째로 없어졌었음).
+    # 이제 실제로 존재하는 모든 incoming source의 결과를 __node_results__에서 찾아 합친다
+    # (조건 분기로 인해 실행되지 않은 갈래는 빈 문자열로 빠지고, 실행된 것만 합쳐진다).
     inc_edges = incoming_edges.get(node_id, [])
-    for inc in inc_edges:
-        src_id = inc['source']
-        lines.append(f"{indent}merge_in_dict_{node_id}['{src_id}'] = __global_results.get('{src_id}', '') if '{src_id}' in globals().get('__global_results', {{}}) else ''")
-        
-    lines.append(f"{indent}# Simple fallback to prev_res_var if complex branching isn't fully supported")
-    lines.append(f"{indent}merge_vals_{node_id} = [str({prev_res_var if prev_res_var else 'last_result'})]")
-    
+    inc_source_ids = [inc['source'] for inc in inc_edges]
+    if inc_source_ids:
+        src_list_literal = ", ".join(f"'{sid}'" for sid in inc_source_ids)
+        lines.append(f"{indent}merge_vals_{node_id} = [str(__node_results__.get(_sid, '')) for _sid in [{src_list_literal}] if __node_results__.get(_sid, '')]")
+        lines.append(f"{indent}if not merge_vals_{node_id}:")
+        lines.append(f"{indent}    merge_vals_{node_id} = [str({prev_res_var if prev_res_var else 'last_result'})]")
+    else:
+        lines.append(f"{indent}merge_vals_{node_id} = [str({prev_res_var if prev_res_var else 'last_result'})]")
+
     if strategy == 'join_newline':
         lines.append(f"{indent}merge_out_{node_id} = '\\n'.join(merge_vals_{node_id})")
     elif strategy == 'join_comma':

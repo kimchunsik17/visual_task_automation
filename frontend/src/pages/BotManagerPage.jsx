@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
+import { customConfirm } from '../CustomConfirm';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
 import { GoogleLogin } from '@react-oauth/google';
-import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key, FileText, MoreVertical, Edit } from 'lucide-react';
+import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key, FileText, MoreVertical, Edit, MessageCircle, Send } from 'lucide-react';
 import './MainPage.css';
 import './BotManagerPage.css';
 
@@ -119,7 +120,7 @@ export default function BotManagerPage() {
   };
 
   const handleDelete = async (projectId) => {
-    if (!window.confirm('정말로 이 디스코드 봇 연결을 삭제하시겠습니까? 봇이 정지되며 토큰이 삭제됩니다.')) {
+    if (!(await customConfirm('정말로 이 디스코드 봇 연결을 삭제하시겠습니까? 봇이 정지되며 토큰이 삭제됩니다.'))) {
       return;
     }
     try {
@@ -171,7 +172,7 @@ export default function BotManagerPage() {
             <div className="empty-state">
               <Bot size={48} className="empty-icon" />
               <h3>활성화된 봇이 없습니다</h3>
-              <p>에디터에서 '디스코드 봇' 모드로 배포한 프로젝트가 여기에 표시됩니다.</p>
+              <p>에디터에서 '디스코드 봇 (시작)' 또는 '텔레그램 봇 (시작)' 노드를 추가한 프로젝트가 여기에 표시됩니다.</p>
             </div>
           ) : (
             <div className="bot-grid">
@@ -183,6 +184,10 @@ export default function BotManagerPage() {
                       <span className="status-text">
                         {bot.status === 'online' ? '온라인' : bot.status === 'connecting' ? '연결 중' : '오프라인'}
                       </span>
+                    </div>
+                    <div className="bot-platform-badge" style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      {bot.platform === 'telegram' ? <Send size={14} color="#26A5E4" /> : <MessageCircle size={14} color="#5865F2" />}
+                      {bot.platform === 'telegram' ? '텔레그램' : '디스코드'}
                     </div>
                   </div>
                   
@@ -217,9 +222,11 @@ export default function BotManagerPage() {
                           <button className="dropdown-item" onClick={() => navigate(`/editor/${bot.project_id}`)}>
                             <Edit size={16} /> 워크플로우 수정
                           </button>
-                          <button className="dropdown-item" onClick={() => openTokenManager(bot.project_id)}>
-                            <Key size={16} /> 토큰 관리
-                          </button>
+                          {bot.platform !== 'telegram' && (
+                            <button className="dropdown-item" onClick={() => openTokenManager(bot.project_id)}>
+                              <Key size={16} /> 토큰 관리
+                            </button>
+                          )}
                           <button className="dropdown-item" onClick={() => openLogs(bot.project_id)}>
                             <FileText size={16} /> 로그 보기
                           </button>

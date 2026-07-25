@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Folder, X, Play, Info } from 'lucide-react';
+import { customConfirm } from './CustomConfirm';
 import './TemplateModal.css';
 
 const BUILT_IN_TEMPLATES = [
@@ -505,15 +506,15 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
     setNewTemplateName('');
   };
 
-  const handleDelete = (id) => {
-    if (!window.confirm('Delete this template?')) return;
+  const handleDelete = async (id) => {
+    if (!(await customConfirm('Delete this template?'))) return;
     const updated = savedTemplates.filter(t => t.id !== id);
     localStorage.setItem('user_templates', JSON.stringify(updated));
     setSavedTemplates(updated);
   };
 
-  const loadTemplate = (template) => {
-    if (window.confirm(`Load template "${template.name}"? This will overwrite your current canvas.`)) {
+  const loadTemplate = async (template) => {
+    if (await customConfirm(`Load template "${template.name}"? This will overwrite your current canvas.`)) {
       onLoad(template.data);
       onClose();
     }

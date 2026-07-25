@@ -13,15 +13,50 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square, Network, TestTube } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square, Network, TestTube, ChevronsDown, ChevronsUp, Undo2, Redo2 } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
+import TutorialOverlay from '../TutorialOverlay';
 import { useAuth } from '../AuthContext';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DetachedTextNode, WebhookNode } from '../customNodes';
+import { customConfirm } from '../CustomConfirm';
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DiscordTriggerNode, TelegramNode, TelegramTriggerNode, NotionNode, DetachedTextNode, WebhookNode } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 import dagre from 'dagre';
 import ReactMarkdown from 'react-markdown';
+
+const EDITOR_TUTORIAL_STEPS = [
+  {
+    target: '.sidebar',
+    title: '노드 팔레트',
+    description: '워크플로우에 쓸 수 있는 모든 노드가 여기 있어요. 원하는 노드를 캔버스로 드래그해서 놓아보세요.',
+    placement: 'right',
+  },
+  {
+    target: '.flow-wrapper',
+    title: '캔버스',
+    description: '노드를 배치하고 서로 연결해서 워크플로우를 그리는 공간이에요. 노드를 클릭하면 세부 설정도 바꿀 수 있어요.',
+    placement: 'right',
+  },
+  {
+    target: '[data-tutorial="ai-assistant-btn"]',
+    title: 'AI 워크플로우 어시스턴트',
+    description: '말로 설명하면 AI가 노드를 대신 만들어주거나 지금 만든 워크플로우를 수정해줘요. 막힐 때 가장 먼저 써보세요.',
+    placement: 'left',
+  },
+  {
+    target: '[data-tutorial="quality-gate-group"]',
+    title: '평가 & 자동 개선',
+    description: '실제로 실행하기 전에 "평가"로 미리 테스트해보고, "자동 개선"으로 부족한 부분을 AI가 보완하게 할 수 있어요.',
+    placement: 'bottom',
+  },
+  {
+    target: '.btn-run',
+    title: '실행',
+    description: '워크플로우가 준비되면 이 버튼으로 직접 실행해서 결과를 확인해보세요.',
+    placement: 'bottom',
+  },
+];
 
 const getLayoutedElements = (nodes, edges, direction = 'LR') => {
   const dagreGraph = new dagre.graphlib.Graph();
@@ -75,6 +110,19 @@ const getLayoutedElements = (nodes, edges, direction = 'LR') => {
 
   return { nodes: layoutedNodes, edges: layoutedEdges };
 };
+
+// 백엔드 auto_layout()은 새로 생성된 노드를 전부 같은 y좌표의 한 줄로만 배치한다(분기/병합
+// 구조를 고려하지 않음). 분기가 있는 워크플로우에서는 노드들이 한 줄에 다닥다닥 겹쳐 보여서
+// "노드가 중복돼서 나온다"는 것처럼 보이는 원인이 된다. 노드가 2개 이상인데 전부 y좌표가
+// 같으면 이 패턴으로 보고, dagre로 제대로 된 2D 레이아웃을 다시 계산해서 덮어쓴다.
+// (이미 여러 y값으로 흩어져 있는 — 즉 사용자가 손으로 배치했거나 이미 정렬된 — 그래프는
+// 건드리지 않는다.)
+const looksLikeUnlaidOutRow = (nodes) => {
+  if (!nodes || nodes.length < 2) return false;
+  const ys = new Set(nodes.map(n => n.position?.y));
+  return ys.size <= 1;
+};
+
 const nodeTypes = {
   webhookNode: WebhookNode,
   detachedText: DetachedTextNode,
@@ -104,6 +152,10 @@ const nodeTypes = {
   humanApprovalNode: HumanApprovalNode,
   multiAgentNode: MultiAgentNode,
   discordNode: DiscordNode,
+  discordTriggerNode: DiscordTriggerNode,
+  telegramNode: TelegramNode,
+  telegramTriggerNode: TelegramTriggerNode,
+  notionNode: NotionNode,
 };
 
 // Auto-register dynamic nodes
@@ -154,6 +206,7 @@ function FlowContent() {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evalStep, setEvalStep] = useState(0);
   const [evaluationReport, setEvaluationReport] = useState(null);
+  const [isAutoImproving, setIsAutoImproving] = useState(false);
 
   const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
   const costCurrency = localStorage.getItem('costCurrency') || 'USD';
@@ -182,20 +235,30 @@ function FlowContent() {
   });
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [complexityLevel, setComplexityLevel] = useState('low');
+  const [chatStage, setChatStage] = useState('대기 중');
+  const [complexityLevel, setComplexityLevel] = useState('medium');
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
+
+  // 챗봇이 그래프를 바꿀 때마다 스냅샷을 쌓아서 되돌리기/다시 실행을 지원한다. index 0은 챗봇이
+  // 처음 손대기 "직전"의 캔버스 상태(베이스라인)이고, 그 뒤로 챗봇 턴마다 하나씩 쌓인다 — 이미
+  // undo한 상태에서 챗봇이 새로 작업하면(redo 가능 구간을 무시하고 새 분기가 생기는 것과 같음)
+  // 그 시점 이후의 "미래" 스냅샷은 버린다(표준 undo/redo 스택 동작과 동일).
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatHistoryIndex, setChatHistoryIndex] = useState(-1);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, isChatLoading]);
 
+  const [expandAllCommand, setExpandAllCommand] = useState(null);
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
   const [projectDescription, setProjectDescription] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [visibility, setVisibility] = useState('private');
   const [isOwner, setIsOwner] = useState(true); // Default true for new projects
   const [currentId, setCurrentId] = useState(projectId);
+  const [draftSessionId, setDraftSessionId] = useState(null);
 
   // Configure Axios auth header
   const getAuthHeaders = () => token ? { headers: { Authorization: `Bearer ${token}` } } : {};
@@ -205,20 +268,44 @@ function FlowContent() {
       loadProject(projectId);
     } else if (location.state?.initialGraph) {
       const graph = location.state.initialGraph;
-      setNodes(graph.nodes.map(n => ({
+      const rawNodes = graph.nodes.map(n => ({
         ...n,
         data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange }
-      })));
-      setEdges(graph.edges || []);
+      }));
+      if (looksLikeUnlaidOutRow(rawNodes)) {
+        const layouted = getLayoutedElements(rawNodes, graph.edges || [], 'LR');
+        setNodes(layouted.nodes);
+        setEdges(layouted.edges);
+      } else {
+        setNodes(rawNodes);
+        setEdges(graph.edges || []);
+      }
 
       if (graph.title) {
         setProjectTitle(graph.title);
       } else if (location.state?.prompt) {
         setProjectTitle("AI 생성 워크플로우");
       }
-      
+
       if (graph.description) {
         setProjectDescription(graph.description);
+      }
+
+      // 홈페이지(MainPage)에서 이어진 draft 채팅 세션이면, 같은 세션 id를 그대로 이어받아서
+      // 채팅 스레드가 끊기지 않게 한다 — 안 그러면 에디터가 완전히 새 대화로 시작해서
+      // 홈페이지에서 나눈 대화 맥락을 전혀 모르는 상태가 된다.
+      if (location.state?.draftId) {
+        const draftId = location.state.draftId;
+        setDraftSessionId(draftId);
+        if (token) {
+          axios.get(`/api/chat/session/${draftId}`, getAuthHeaders())
+            .then(res => {
+              if (res.data.session && res.data.session.messages) {
+                setChatMessages(res.data.session.messages);
+              }
+            })
+            .catch(err => console.error("Failed to load draft chat history", err));
+        }
       }
     }
 
@@ -264,16 +351,20 @@ function FlowContent() {
     }
   };
 
-  const handleSave = async (overrideVisibility = null) => {
+  const handleSave = async (overrideVisibility = null, overrideFlowData = null) => {
     if (!user) {
       alert("프로젝트를 저장하려면 로그인이 필요합니다. 왼쪽 메뉴에서 구글 계정으로 로그인해주세요.");
       return null;
     }
     try {
+      // overrideFlowData: setNodes/setEdges 직후 곧바로 저장해야 할 때(예: AI 생성 직후 자동 저장)
+      // getCurrentFlowData()가 React Flow 내부 상태 반영 전이라 방금 만든 노드를 못 읽어오는
+      // 타이밍 문제가 있었다(실제로 빈 그래프가 저장되는 걸 확인함) — 이럴 땐 이미 손에 들고 있는
+      // 최신 graph_data를 그대로 쓰도록 우회 경로를 둔다.
       const payload = {
         title: projectTitle,
         description: projectDescription,
-        graph_data: getCurrentFlowData(),
+        graph_data: overrideFlowData || getCurrentFlowData(),
         visibility: overrideVisibility !== null ? overrideVisibility : visibility
       };
 
@@ -281,6 +372,9 @@ function FlowContent() {
         await axios.put(`/api/projects/${currentId}`, payload, getAuthHeaders());
         return currentId;
       } else {
+        if (draftSessionId) {
+          payload.draft_session_id = draftSessionId;
+        }
         const res = await axios.post('/api/projects', payload, getAuthHeaders());
         setCurrentId(res.data.id);
         navigate(`/editor/${res.data.id}`, { replace: true });
@@ -314,7 +408,11 @@ function FlowContent() {
       const res = await axios.post(`/api/projects/${currentId}/live`, { is_live: !isLive }, getAuthHeaders());
       if (res.data.status === 'success') {
         setIsLive(res.data.is_live);
-        alert(res.data.is_live ? "라이브 모드가 시작되었습니다! (웹훅/스케줄/봇 대기중)" : "라이브 모드가 중지되었습니다.");
+        if (res.data.warning) {
+          alert("⚠️ " + res.data.warning);
+        } else {
+          alert(res.data.is_live ? "라이브 모드가 시작되었습니다! (웹훅/스케줄/봇 대기중)" : "라이브 모드가 중지되었습니다.");
+        }
       }
     } catch (e) {
       console.error("Live toggle failed", e);
@@ -642,7 +740,7 @@ function FlowContent() {
     }
 
     // Warn about cost if necessary, or just run
-    const confirmed = window.confirm("워크플로우 평가는 다중 LLM 에이전트(Dataset 생성, 실행, 평가, 종합)를 활용하므로 다수의 API 호출이 발생합니다. (테스트 케이스 3개, 외부 API 노드가 있다면 그대로 1회 실행됩니다.)\\n\\n계속하시겠습니까?");
+    const confirmed = await customConfirm("워크플로우 평가는 다중 LLM 에이전트(Dataset 생성, 실행, 평가, 종합)를 활용하므로 다수의 API 호출이 발생합니다. (테스트 케이스 3개, 외부 API 노드가 있다면 그대로 1회 실행됩니다.)\n\n계속하시겠습니까?");
     if (!confirmed) return;
 
     setIsEvaluating(true);
@@ -683,6 +781,65 @@ function FlowContent() {
     } finally {
       clearInterval(stepInterval);
       setIsEvaluating(false);
+    }
+  };
+
+  const autoImproveFlow = async () => {
+    const savedId = await handleSave();
+    if (!savedId) {
+      alert("프로젝트 저장에 실패하여 자동 개선을 취소합니다.");
+      return;
+    }
+
+    const confirmed = await customConfirm("자동 개선은 평가와 수정을 기준 점수를 넘거나 최대 3회에 도달할 때까지 반복합니다. 평가 1회보다 훨씬 많은 API 호출과 토큰이 소모될 수 있습니다.\n\n계속하시겠습니까?");
+    if (!confirmed) return;
+
+    setIsAutoImproving(true);
+    setEvaluationReport(null);
+    setIsExecutionPanelOpen(true);
+    setExecutionPanelTab('evaluation');
+
+    try {
+      const currentNodes = getNodes();
+      const currentEdges = getEdges();
+
+      const payload = {
+        project_id: savedId,
+        title: projectTitle,
+        description: projectDescription,
+        graph_data: {
+          nodes: currentNodes.map(n => ({ id: n.id, type: n.type, data: n.data })),
+          edges: currentEdges.map(e => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
+        }
+      };
+
+      const res = await axios.post('/api/evaluate/autofix', payload, getAuthHeaders());
+      if (res.data.status === 'success') {
+        const report = res.data.report;
+        setEvaluationReport(report);
+        if (report.graph_data) {
+          const rawNodes = report.graph_data.nodes.map(n => ({
+            ...n,
+            data: { ...n.data, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange }
+          }));
+          if (looksLikeUnlaidOutRow(rawNodes)) {
+            const layouted = getLayoutedElements(rawNodes, report.graph_data.edges || [], 'LR');
+            setNodes(layouted.nodes);
+            setEdges(layouted.edges);
+          } else {
+            setNodes(rawNodes);
+            setEdges(report.graph_data.edges || []);
+          }
+        }
+      } else {
+        alert('자동 개선 실패: ' + res.data.message);
+      }
+    } catch (error) {
+      console.error(error);
+      const detail = error.response?.data?.detail || error.message;
+      alert(`자동 개선 중 오류가 발생했습니다: ${detail}`);
+    } finally {
+      setIsAutoImproving(false);
     }
   };
 
@@ -788,6 +945,68 @@ function FlowContent() {
     }
   };
 
+  // 스냅샷에 저장된 노드는 onChange/onDelete 같은 콜백을 그대로 들고 있을 수도 있지만, 되돌리기
+  // 시점에는 항상 "지금" 유효한 콜백으로 다시 꽂아준다(handleSendChat이 AI 결과를 반영할 때와
+  // 동일한 방식) — stale 클로저를 참조할 위험을 아예 없앤다. 하이라이트 표시(isAIModified 등)는
+  // 과거 시점 것이라 의미가 없으므로 복원 시 지운다.
+  const applyHistorySnapshot = (snapshot) => {
+    const restoredNodes = (snapshot.nodes || []).map(n => ({
+      ...n,
+      data: {
+        ...n.data,
+        isAIModified: false,
+        aiChanges: null,
+        onChange: onNodeDataChange,
+        onDelete: deleteNode,
+        onExpandChange,
+        onClearAIHighlight: (nodeId) => {
+          setNodes(nds => nds.map(nd => String(nd.id) === String(nodeId) ? { ...nd, data: { ...nd.data, isAIModified: false } } : nd));
+        }
+      }
+    }));
+    setNodes(restoredNodes);
+    setEdges(snapshot.edges || []);
+  };
+
+  const handleUndoChat = () => {
+    if (chatHistoryIndex <= 0) return;
+    const targetIndex = chatHistoryIndex - 1;
+    applyHistorySnapshot(chatHistory[targetIndex]);
+    setChatHistoryIndex(targetIndex);
+    setSystemLogs(prev => [...prev, `> ↩ 이전 상태로 되돌렸습니다${chatHistory[targetIndex].label ? ` ("${chatHistory[targetIndex].label}" 이전)` : ''}`]);
+  };
+
+  const handleRedoChat = () => {
+    if (chatHistoryIndex < 0 || chatHistoryIndex >= chatHistory.length - 1) return;
+    const targetIndex = chatHistoryIndex + 1;
+    applyHistorySnapshot(chatHistory[targetIndex]);
+    setChatHistoryIndex(targetIndex);
+    setSystemLogs(prev => [...prev, `> ↪ 다시 실행했습니다${chatHistory[targetIndex].label ? ` ("${chatHistory[targetIndex].label}")` : ''}`]);
+  };
+
+  // Ctrl/Cmd+Z로 되돌리기, Ctrl/Cmd+Shift+Z(또는 Ctrl+Y)로 다시 실행. 입력창(input/textarea)에
+  // 포커스가 있을 때는 가로채지 않는다 — 안 그러면 채팅창이나 노드 텍스트 필드에서 브라우저
+  // 기본 텍스트 되돌리기가 안 먹히고 엉뚱하게 그래프가 되돌아가 버린다.
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+      const isUndoKey = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z';
+      const isRedoKey = (e.ctrlKey || e.metaKey) && (
+        (e.shiftKey && e.key.toLowerCase() === 'z') || e.key.toLowerCase() === 'y'
+      );
+      if (isUndoKey) {
+        e.preventDefault();
+        handleUndoChat();
+      } else if (isRedoKey) {
+        e.preventDefault();
+        handleRedoChat();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [chatHistory, chatHistoryIndex, isChatLoading]);
+
   const handleSendChat = async () => {
     if (!chatInput.trim()) return;
 
@@ -795,6 +1014,25 @@ function FlowContent() {
     setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatInput('');
     setIsChatLoading(true);
+    setChatStage('유저의 의도를 파악하고 있어요');
+
+    const stageSteps = [
+      '유저의 의도를 파악하고 있어요',
+      '워크플로우 구조를 검토하고 있어요',
+      'AI 검증을 지나고 있어요',
+      '수정안을 반영하고 있어요',
+      '결과를 정리하고 있어요',
+    ];
+    let stageIndex = 0;
+    const stageTimer = setInterval(() => {
+      stageIndex = Math.min(stageIndex + 1, stageSteps.length - 1);
+      setChatStage(stageSteps[stageIndex]);
+    }, 2500);
+
+    // 되돌리기 스택의 베이스라인 후보 — 이번 챗봇 턴이 그래프를 실제로 바꾸면, 지금(바뀌기
+    // 직전) 상태를 히스토리 0번으로 삼아야 "되돌리기"가 챗봇이 손대기 이전으로 돌아갈 수 있다.
+    const preEditNodes = getNodes();
+    const preEditEdges = getEdges();
 
     // Clear existing AI modifications and highlights when starting a new AI request
     setNodes(nds => nds.map(nd => ({
@@ -804,7 +1042,7 @@ function FlowContent() {
 
     try {
       const payload = {
-        project_id: String(currentId || projectId || 'draft'),
+        project_id: String(currentId || projectId || draftSessionId || 'draft'),
         message: userMessage,
         graph_data: getCurrentFlowData(),
         complexity_level: complexityLevel,
@@ -884,13 +1122,76 @@ function FlowContent() {
             },
           };
         });
-        setNodes(loadedNodes);
-        setEdges(graph_data.edges || []);
+        let finalNodes = loadedNodes;
+        let finalEdges = graph_data.edges || [];
+        if (looksLikeUnlaidOutRow(loadedNodes)) {
+          const layouted = getLayoutedElements(loadedNodes, graph_data.edges || [], 'LR');
+          finalNodes = layouted.nodes;
+          finalEdges = layouted.edges;
+        }
+        setNodes(finalNodes);
+        setEdges(finalEdges);
+
+        // 되돌리기/다시 실행 스택에 이번 턴을 쌓는다. 이미 되돌린 상태에서 챗봇이 새로 작업하면
+        // 그 뒤에 남아있던 "다시 실행" 구간은 더 이상 의미가 없으므로 버리고 새 분기를 시작한다
+        // (표준 undo/redo 스택 동작). 콜백 함수는 굳이 들고 있지 않고 복원 시 다시 꽂아준다.
+        const stripUIPropsForHistory = (dataObj) => {
+          const clean = { ...(dataObj || {}) };
+          delete clean.onChange;
+          delete clean.onDelete;
+          delete clean.onExpandChange;
+          delete clean.onClearAIHighlight;
+          return clean;
+        };
+        setChatHistory(prevHistory => {
+          const base = prevHistory.length === 0
+            ? [{ nodes: preEditNodes.map(n => ({ ...n, data: stripUIPropsForHistory(n.data) })), edges: preEditEdges, label: null }]
+            : prevHistory.slice(0, chatHistoryIndex + 1);
+          const nextEntry = {
+            nodes: finalNodes.map(n => ({ ...n, data: stripUIPropsForHistory(n.data) })),
+            edges: finalEdges,
+            label: userMessage,
+          };
+          const nextHistory = [...base, nextEntry];
+          setChatHistoryIndex(nextHistory.length - 1);
+          return nextHistory;
+        });
 
         if (newLogs.length > 1) {
           setSystemLogs(prev => [...prev, ...newLogs]);
           setIsExecutionPanelOpen(true);
           setExecutionPanelTab('logs');
+        }
+
+        // 아직 한 번도 저장된 적 없는(currentId가 없는) 새 세션에서 AI가 처음으로 실제 노드를
+        // 만들어낸 순간 자동으로 한 번 저장한다 — 저장 버튼을 누르기 전에 새로고침/이탈하면
+        // 애써 생성한 워크플로우가 그냥 날아가는 문제를 막기 위함. handleSave 자체가 currentId
+        // 유무로 생성/수정을 알아서 나누므로, 이후 저장은 여전히 사용자가 명시적으로 눌러야 한다
+        // (이건 "처음 한 번"만을 위한 안전장치다).
+        // setNodes/setEdges 직후라 React Flow 내부 상태가 아직 안 바뀌었을 수 있어서(실제로
+        // getCurrentFlowData()가 방금 만든 노드를 못 읽어 빈 그래프가 저장되는 버그를 겪었다),
+        // handleSave의 기본 경로 대신 방금 계산한 finalNodes/finalEdges를 직접 넘긴다.
+        if (!currentId && !projectId && finalNodes.length > 0) {
+          const stripUIPropsForSave = (dataObj) => {
+            const clean = { ...(dataObj || {}) };
+            delete clean.onChange;
+            delete clean.onDelete;
+            delete clean.onExpandChange;
+            delete clean.onClearAIHighlight;
+            delete clean.isAIModified;
+            delete clean.aiChanges;
+            return clean;
+          };
+          const overrideFlowData = {
+            title: projectTitle !== 'Untitled Project' ? projectTitle : (graph_data.title || ''),
+            description: projectDescription || graph_data.description || '',
+            nodes: finalNodes.map(n => ({ id: n.id, type: n.type, position: n.position, data: stripUIPropsForSave(n.data) })),
+            edges: finalEdges,
+          };
+          const savedId = await handleSave(null, overrideFlowData);
+          if (savedId) {
+            setSystemLogs(prev => [...prev, `> ✓ 워크플로우가 자동으로 저장되었습니다 (프로젝트 #${savedId})`]);
+          }
         }
       }
     } catch (error) {
@@ -907,6 +1208,8 @@ function FlowContent() {
         { role: 'assistant', content: `에러가 발생했습니다: ${error.response?.data?.detail || error.message}` }
       ]);
     } finally {
+      clearInterval(stageTimer);
+      setChatStage('완료');
       setIsChatLoading(false);
     }
   };
@@ -937,11 +1240,12 @@ function FlowContent() {
           tokenDisplayMode,
           costCurrency,
           isExecuting: isLoading,
-          executionStatus: log ? log.status : null
+          executionStatus: log ? log.status : null,
+          expandAllCommand
         }
       };
     });
-  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage, tokenDisplayMode, costCurrency, isLoading, executionLogs]);
+  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage, tokenDisplayMode, costCurrency, isLoading, executionLogs, expandAllCommand]);
 
   return (
     <div className="app-container">
@@ -1090,12 +1394,34 @@ function FlowContent() {
                 {isLive ? "라이브 중지" : "라이브 시작"}
               </button>
             )}
+            <button
+              className="btn-secondary"
+              onClick={handleUndoChat}
+              disabled={chatHistoryIndex <= 0 || isChatLoading}
+              title={chatHistoryIndex > 0 ? `되돌리기 ("${chatHistory[chatHistoryIndex]?.label || ''}" 이전으로)` : '되돌릴 챗봇 작업이 없습니다'}
+            >
+              <Undo2 size={16} />
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={handleRedoChat}
+              disabled={chatHistoryIndex < 0 || chatHistoryIndex >= chatHistory.length - 1 || isChatLoading}
+              title={chatHistoryIndex >= 0 && chatHistoryIndex < chatHistory.length - 1 ? `다시 실행 ("${chatHistory[chatHistoryIndex + 1]?.label || ''}")` : '다시 실행할 작업이 없습니다'}
+            >
+              <Redo2 size={16} />
+            </button>
             <button className="btn-secondary" onClick={() => {
               const layouted = getLayoutedElements(getNodes(), getEdges(), 'LR');
               setNodes([...layouted.nodes]);
               setEdges([...layouted.edges]);
             }} title="자동 정렬 (Beautify)" style={{ color: '#14b8a6', borderColor: '#14b8a6' }}>
               <Network size={16} /> 정렬
+            </button>
+            <button className="btn-secondary" onClick={() => setExpandAllCommand({ action: 'expand', token: Date.now() })} title="모든 노드 펼치기">
+              <ChevronsDown size={16} />
+            </button>
+            <button className="btn-secondary" onClick={() => setExpandAllCommand({ action: 'collapse', token: Date.now() })} title="모든 노드 접기">
+              <ChevronsUp size={16} />
             </button>
             <button className="btn-secondary" onClick={() => setIsTemplateModalOpen(true)} title="템플릿 불러오기">
               <Folder size={16} />
@@ -1151,11 +1477,17 @@ function FlowContent() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.5rem' }}>
             {/* Evaluation Action */}
-            <button className="btn-secondary" onClick={evaluateFlow} disabled={isEvaluating || isLoading} style={{ color: '#10b981', borderColor: '#10b981' }}>
-              <TestTube size={18} />
-              {isEvaluating ? '평가 중...' : '평가'}
-            </button>
-            
+            <div data-tutorial="quality-gate-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button className="btn-secondary" onClick={evaluateFlow} disabled={isEvaluating || isLoading || isAutoImproving} style={{ color: '#10b981', borderColor: '#10b981' }}>
+                <TestTube size={18} />
+                {isEvaluating ? '평가 중...' : '평가'}
+              </button>
+              <button className="btn-secondary" onClick={autoImproveFlow} disabled={isEvaluating || isLoading || isAutoImproving} title="평가 점수가 기준 미달이면 개선 제안을 자동 반영합니다" style={{ color: '#8b5cf6', borderColor: '#8b5cf6' }}>
+                <Sparkles size={18} />
+                {isAutoImproving ? '자동 개선 중...' : '자동 개선'}
+              </button>
+            </div>
+
             {/* Primary Action */}
             <button className="btn-run" onClick={runFlow} disabled={isLoading || isEvaluating}>
               <Play size={18} />
@@ -1249,6 +1581,7 @@ function FlowContent() {
 
       {/* LLM Assistant Floating Button */}
       <button
+        data-tutorial="ai-assistant-btn"
         onClick={() => setIsAssistantOpen(!isAssistantOpen)}
         style={{
           position: 'fixed',
@@ -1350,38 +1683,28 @@ function FlowContent() {
           ))}
           {isChatLoading && (
             <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              gap: '8px'
+              width: '100%',
+              maxWidth: '520px',
+              padding: '1rem 1.05rem',
+              borderRadius: '18px',
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
+              border: '1px solid rgba(255,255,255,0.12)',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.18)',
+              position: 'relative',
+              overflow: 'hidden'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '28px', height: '28px', borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #c084fc, #9333ea)',
-                  display: 'flex', justifyContent: 'center', alignItems: 'center',
-                  color: '#fff',
-                  boxShadow: '0 2px 4px rgba(147, 51, 234, 0.3)'
-                }}>
-                  <Bot size={16} />
-                </div>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>AI가 워크플로우를 그리고 있습니다...</span>
-              </div>
-              <div className="chat-bubble-generating" style={{
-                maxWidth: '85%',
-                padding: '0.75rem 1rem',
-                borderRadius: '12px',
-                background: 'var(--btn-active-bg)',
-                color: 'var(--text-color)',
-                fontSize: '0.9rem',
-                lineHeight: '1.4',
-                border: '1px solid #8b5cf6',
-                borderBottomLeftRadius: '4px'
-              }}>
-                <div className="typing-indicator" style={{ border: 'none', background: 'transparent', padding: 0, boxShadow: 'none', marginTop: 0 }}>
-                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
-                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
-                  <div className="typing-dot" style={{ background: '#8b5cf6' }}></div>
+              <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at top left, rgba(255,255,255,0.09), transparent 42%)', pointerEvents: 'none' }} />
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+                <div style={{ width: '12px', height: '12px', borderRadius: '999px', background: '#7dd3fc', boxShadow: '0 0 0 0 rgba(125,211,252,0.45)', animation: 'pulse 1.8s infinite', marginTop: '0.25rem' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.78rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#cbd5e1' }}>Generating</span>
+                    <span style={{ fontSize: '0.74rem', color: '#94a3b8' }}>Claude · Gemini style</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fff', fontSize: '0.95rem', fontWeight: 600, lineHeight: 1.35 }}>
+                    <Sparkles size={14} />
+                    <span>{chatStage}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1647,7 +1970,7 @@ function FlowContent() {
                       <div>
                         <p style={{ color: 'var(--text-color)' }}>File generated successfully:</p>
                         <a
-                          href={`http://localhost:8000/${response.replace(/\\/g, '/')}`}
+                          href={`/${response.replace(/\\/g, '/')}`}
                           target="_blank" rel="noreferrer"
                           style={{ display: 'inline-block', padding: '8px 16px', background: '#3b82f6', color: '#fff', textDecoration: 'none', borderRadius: '6px', marginTop: '10px', fontWeight: 500 }}
                         >
@@ -1679,7 +2002,13 @@ function FlowContent() {
             
             {executionPanelTab === 'evaluation' && (
                 <div style={{ padding: '1.5rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto' }}>
-                  {isEvaluating ? (
+                  {isAutoImproving ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div className="spinner" style={{ width: '50px', height: '50px', border: '4px solid rgba(139, 92, 246, 0.2)', borderTopColor: '#8b5cf6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                      <span style={{ color: 'var(--text-color)', fontSize: '0.95rem' }}>평가와 자동 수정을 반복하고 있습니다...</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>기준 점수를 넘기거나 최대 시도 횟수에 도달하면 종료됩니다</span>
+                    </div>
+                  ) : isEvaluating ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '2rem' }}>
                       <div className="spinner" style={{ width: '50px', height: '50px', border: '4px solid rgba(16, 185, 129, 0.2)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
                       
@@ -1726,6 +2055,18 @@ function FlowContent() {
                     </div>
                   ) : evaluationReport ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {evaluationReport.attempts?.length > 1 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid #8b5cf6', borderRadius: '8px', padding: '0.8rem 1rem' }}>
+                          <Sparkles size={16} color="#8b5cf6" />
+                          <span style={{ color: 'var(--text-color)', fontSize: '0.85rem' }}>자동 개선 시도:</span>
+                          {evaluationReport.attempts.map((a, idx) => (
+                            <span key={idx} style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                              {idx > 0 && ' → '}
+                              <span style={{ fontWeight: 600, color: a.score >= 70 ? '#10b981' : '#f59e0b' }}>{a.score}점</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', background: 'var(--card-bg)', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100px', height: '100px', borderRadius: '50%', border: `8px solid ${evaluationReport.score >= 80 ? '#10b981' : evaluationReport.score >= 50 ? '#f59e0b' : '#ef4444'}` }}>
                           <span style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-color)' }}>{evaluationReport.score}</span>
@@ -1822,6 +2163,7 @@ function FlowContent() {
         </button>
       )}
 
+      <TutorialOverlay steps={EDITOR_TUTORIAL_STEPS} storageKey="tutorial_editor_seen_v1" />
     </div>
   );
 }
