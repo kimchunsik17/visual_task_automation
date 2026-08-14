@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import MainSidebar from '../MainSidebar';
@@ -64,7 +64,7 @@ function StatisticsPage() {
       <div className="main-page-layout">
         <MainSidebar />
         <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
             <h2>로그인이 필요합니다</h2>
             <p>통계를 보려면 먼저 로그인해주세요.</p>
           </div>
@@ -85,7 +85,7 @@ function StatisticsPage() {
     <div className="main-page-layout">
       <MainSidebar />
       <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-        <div className="content-area" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+        <div className="content-area" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
           <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h1 className="page-title"><BarChart className="title-icon" /> 사용 통계</h1>

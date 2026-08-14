@@ -6,7 +6,7 @@
   display: flex;
   flex-direction: column;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  height: 100vh;
+  height: 100dvh;
   cursor: pointer;
 }
 
@@ -151,4 +151,35 @@
 .btn-go-project:hover {
   color: #10b981;
   background: rgba(16, 185, 129, 0.1);
+}
+
+@media (max-width: 768px) {
+  .chat-sidebar-container {
+    width: 100% !important;
+    height: auto !important;
+    flex: 1;
+    position: relative !important;
+    transform: none !important;
+    border-right: none !important;
+  }
+
+  .chat-sidebar-header > div:first-child {
+    display: none !important;
+  }
+
+  .chat-sidebar-header {
+    padding: 0.5rem 1rem !important;
+    justify-content: flex-end !important;
+    border-bottom: none !important;
+  }
+
+  /* ensure contents are visible regardless of .open on mobile */
+  .chat-sidebar-container:not(.open) .chat-sidebar-header h2,
+  .chat-sidebar-container:not(.open) .btn-refresh,
+  .chat-sidebar-container:not(.open) .chat-sidebar-content {
+    opacity: 1 !important;
+    width: auto !important;
+    height: auto !important;
+    pointer-events: auto !important;
+  }
 }

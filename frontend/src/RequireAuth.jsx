@@ -29,7 +29,7 @@ const RequireAuth = ({ children }) => {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      height: '100vh',
+      height: '100dvh',
       width: '100vw',
       background: 'var(--bg-color)',
       padding: '2rem',

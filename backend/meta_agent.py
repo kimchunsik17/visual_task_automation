@@ -25,10 +25,21 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
+import uuid
 from typing import Literal, List, Dict, Any, Optional, Tuple, Callable
 from collections import defaultdict, deque
 from pydantic import BaseModel, Field
 from rag_utils import retrieve_chat_context
+from llm.task_spec import (
+    TaskSpec,
+    build_task_spec_context,
+    normalize_task_spec,
+    should_normalize_task_spec,
+    task_coverage_issues,
+)
+from flow_validation import ValidationIssue, issue_signature, validation_issues
+from generation_trace import build_generation_trace
 
 
 # httpRequestNode/webCrawlerNode의 url을 실제로 모를 때 쓰는 채움 표시자. validate_flow는
@@ -510,39 +521,55 @@ class FlowGraph(BaseModel):
     edges: List[FlowEdge]
 
 
+class FlowNodePatch(BaseModel):
+    id: str
+    type: Optional[NodeType] = None
+    data: Optional[Dict[str, Any]] = None
+
+
+class FlowRepairPlan(BaseModel):
+    reason: str = ""
+    update_nodes: List[FlowNodePatch] = Field(default_factory=list)
+    add_nodes: List[FlowNode] = Field(default_factory=list)
+    remove_node_ids: List[str] = Field(default_factory=list)
+    add_edges: List[FlowEdge] = Field(default_factory=list)
+    remove_edge_ids: List[str] = Field(default_factory=list)
+
+
+FLOW_REPAIR_PROMPT_VERSION = "flow-repair-v1"
+
+
 import os
 has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))
 if has_langfuse:
     from langfuse.langchain import CallbackHandler
 
 # ── LLM 준비 (제공자 교체 지점) ──────────────────────────────────────────
-def get_llm(session_id=None, tags=None, complexity_level="low", langfuse_handler=None):
-    """메타 agent가 쓸 LLM. 현재 OpenAI. 제공자 교체는 여기만 바꾸면 된다.
-    gpt-5 계열 reasoning 모델은 temperature 파라미터를 거부/무시하므로 넘기지 않는다."""
-    from langchain_openai import ChatOpenAI
-    
-    if complexity_level == "high":
-        model_name = "gpt-5.3-chat-latest"
-    elif complexity_level == "medium":
-        model_name = "gpt-5.4-mini"
-    else:
-        model_name = "gpt-4o-mini"
-        
-    if "gpt-5" in model_name:
-        llm = ChatOpenAI(model=model_name)
-    else:
-        llm = ChatOpenAI(model=model_name, temperature=0)
+def get_llm(
+    session_id=None,
+    tags=None,
+    complexity_level="low",
+    langfuse_handler=None,
+    generation_trace_id=None,
+):
+    """메타 agent용 모델을 공통 provider 설정에서 생성한다."""
+    from llm.providers import create_chat_model
+
+    llm = create_chat_model(
+        profile=complexity_level,
+        temperature=0,
+        required_capabilities={"structured_output", "tool_calling"},
+    )
     if has_langfuse and langfuse_handler:
         if tags is None:
             tags = ["agent_generation"]
         metadata = {}
         if session_id:
             metadata["langfuse_session_id"] = f"generation-{session_id}"
+        if generation_trace_id:
+            metadata["generation_trace_id"] = generation_trace_id
         llm = llm.with_config(callbacks=[langfuse_handler], metadata=metadata, tags=tags)
     return llm
-    # Gemini로 되돌리려면 위 두 줄 대신:
-    # from langchain_google_genai import ChatGoogleGenerativeAI
-    # return ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0)
 
 
 SYSTEM = (
@@ -1523,7 +1550,7 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
 
     reported_diamonds: set = set()
     for n in g.nodes:
-        if n.type == "conditionNode":
+        if n.type in ("conditionNode", "loopNode"):
             continue
         children = forward.get(n.id, [])
         if len(children) < 2:
@@ -1610,7 +1637,11 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
             )
 
     # 3) 순환(cycle)
-    has_cycle, stuck = _has_cycle(ids, g.edges)
+    # loopNode로 돌아오는 엣지는 반복 제어의 정상적인 back-edge다. 컴파일러가
+    # maxIterations로 종료를 보장하므로 일반 DAG 순환 검사에서는 제외한다.
+    loop_ids = {node.id for node in g.nodes if node.type == "loopNode"}
+    cycle_edges = [edge for edge in g.edges if edge.target not in loop_ids]
+    has_cycle, stuck = _has_cycle(ids, cycle_edges)
     if has_cycle:
         errors.append(f"순환(cycle)이 있다 — 관련 노드: {', '.join(stuck)} (노드는 앞으로만 연결해야 한다)")
 
@@ -1674,6 +1705,659 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
                 break
 
     return (len(errors) == 0, errors)
+
+
+def validate_flow_detailed(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, List[ValidationIssue]]:
+    ok, messages = validate_flow(g, require_complete=require_complete)
+    return ok, validation_issues(messages)
+
+
+def repair_disconnected_flow(g: FlowGraph) -> Tuple[FlowGraph, List[str]]:
+    """Remove only graph elements that cannot be reached or executed.
+
+    This repair is deliberately conservative. It does not invent nodes, fields, or
+    business logic; semantic repair remains the model's job.
+    """
+    repaired = g.model_copy(deep=True)
+    repairs: List[str] = []
+    node_ids = {node.id for node in repaired.nodes}
+
+    def next_unique_id(prefix: str, existing: set[str]) -> str:
+        index = 1
+        while f"{prefix}{index}" in existing:
+            index += 1
+        value = f"{prefix}{index}"
+        existing.add(value)
+        return value
+
+    valid_edges = []
+    seen_connections = set()
+    for edge in repaired.edges:
+        if edge.source not in node_ids or edge.target not in node_ids:
+            repairs.append(f"고아 엣지 {edge.id} 제거")
+            continue
+        connection = (edge.source, edge.target, edge.sourceHandle, edge.targetHandle)
+        if connection in seen_connections:
+            repairs.append(f"중복 연결 엣지 {edge.id} 제거")
+            continue
+        seen_connections.add(connection)
+        valid_edges.append(edge)
+    repaired.edges = valid_edges
+
+    output_ids = {node.id for node in repaired.nodes if node.type == "outputNode"}
+    without_dead_edges = []
+    for edge in repaired.edges:
+        if edge.source in output_ids:
+            repairs.append(f"outputNode 뒤의 죽은 엣지 {edge.id} 제거")
+            continue
+        without_dead_edges.append(edge)
+    repaired.edges = without_dead_edges
+
+    edge_ids = {edge.id for edge in repaired.edges}
+    start_types = {"startNode", "scheduleNode", "webhookNode", "discordTriggerNode", "telegramTriggerNode"}
+    if repaired.nodes and not any(node.type in start_types for node in repaired.nodes):
+        incoming_ids = {
+            edge.target for edge in repaired.edges if edge.targetHandle not in ("tools", "template")
+        }
+        roots = [node for node in repaired.nodes if node.id not in incoming_ids]
+        if roots:
+            if len(roots) > 1:
+                existing_forward: Dict[str, List[str]] = defaultdict(list)
+                for edge in repaired.edges:
+                    if edge.targetHandle not in ("tools", "template"):
+                        existing_forward[edge.source].append(edge.target)
+
+                def distances_from(root_id: str) -> Dict[str, int]:
+                    distances = {root_id: 0}
+                    queue = [root_id]
+                    while queue:
+                        current = queue.pop(0)
+                        for target in existing_forward.get(current, []):
+                            if target not in distances:
+                                distances[target] = distances[current] + 1
+                                queue.append(target)
+                    return distances
+
+                root_distances = [distances_from(root.id) for root in roots]
+                common = set.intersection(*(set(values) for values in root_distances))
+                if common:
+                    convergence_id = min(
+                        common,
+                        key=lambda node_id: (max(values[node_id] for values in root_distances), node_id),
+                    )
+                    convergence = next(node for node in repaired.nodes if node.id == convergence_id)
+                    if convergence.type != "mergeNode":
+                        merge_id = next_unique_id("n", node_ids)
+                        repaired.nodes.append(FlowNode(
+                            id=merge_id, type="mergeNode", data={"mergeStrategy": "join_newline"},
+                        ))
+                        branch_nodes = set().union(*(set(values) for values in root_distances))
+                        for edge in repaired.edges:
+                            if edge.target == convergence_id and edge.source in branch_nodes:
+                                edge.target = merge_id
+                        repaired.edges.append(FlowEdge(
+                            id=next_unique_id("e", edge_ids), source=merge_id, target=convergence_id,
+                        ))
+                        repairs.append(f"다중 입력 합류 노드 {merge_id} 추가")
+            start_id = next_unique_id("n", node_ids)
+            repaired.nodes.append(FlowNode(id=start_id, type="startNode", data={}))
+            for root in roots:
+                repaired.edges.append(FlowEdge(
+                    id=next_unique_id("e", edge_ids), source=start_id, target=root.id,
+                ))
+            repairs.append(f"누락된 시작 노드 {start_id} 추가")
+
+    real_sources = {
+        edge.source for edge in repaired.edges if edge.targetHandle not in ("tools", "template")
+    }
+    has_output = any(node.type == "outputNode" for node in repaired.nodes)
+    has_terminal_action = any(
+        node.id not in real_sources and (
+            node.type in TERMINAL_ACTION_NODE_TYPES
+            or (node.type in MODE_AWARE_TERMINAL_NODE_TYPES
+                and (node.data or {}).get("mode") in MODE_AWARE_TERMINAL_NODE_TYPES[node.type])
+        )
+        for node in repaired.nodes
+    )
+    if repaired.nodes and not has_output and not has_terminal_action:
+        leaves = [
+            node for node in repaired.nodes
+            if node.id not in real_sources and node.type not in start_types
+        ]
+        if leaves:
+            output_id = next_unique_id("n", node_ids)
+            repaired.nodes.append(FlowNode(id=output_id, type="outputNode", data={}))
+            if len(leaves) == 1:
+                terminal_source = leaves[0].id
+            else:
+                merge_id = next_unique_id("n", node_ids)
+                repaired.nodes.append(FlowNode(
+                    id=merge_id, type="mergeNode", data={"mergeStrategy": "join_newline"},
+                ))
+                for leaf in leaves:
+                    repaired.edges.append(FlowEdge(
+                        id=next_unique_id("e", edge_ids), source=leaf.id, target=merge_id,
+                    ))
+                terminal_source = merge_id
+            repaired.edges.append(FlowEdge(
+                id=next_unique_id("e", edge_ids), source=terminal_source, target=output_id,
+            ))
+            repairs.append(f"누락된 종료 노드 {output_id} 추가")
+
+    # distributor 본문에서 output으로 가면 첫 항목에서 전체 실행이 끝난다. 해당 연결은
+    # 끊고 같은 output을 done 경로에서 한 번만 실행하도록 옮긴다.
+    forward: Dict[str, List[str]] = defaultdict(list)
+    for edge in repaired.edges:
+        if edge.targetHandle not in ("tools", "template"):
+            forward[edge.source].append(edge.target)
+    output_ids = {node.id for node in repaired.nodes if node.type == "outputNode"}
+    for distributor in [node for node in repaired.nodes if node.type == "distributorNode"]:
+        body_starts = [
+            edge.target for edge in repaired.edges
+            if edge.source == distributor.id and edge.sourceHandle != "done"
+        ]
+        body_reachable = set()
+        stack = list(body_starts)
+        while stack:
+            current = stack.pop()
+            if current in body_reachable:
+                continue
+            body_reachable.add(current)
+            stack.extend(forward.get(current, []))
+        reached_outputs = body_reachable & output_ids
+        for output_id in reached_outputs:
+            removed = [
+                edge for edge in repaired.edges
+                if edge.target == output_id and edge.source in body_reachable
+            ]
+            if not removed:
+                continue
+            repaired.edges = [edge for edge in repaired.edges if edge not in removed]
+            done_edges = [
+                edge for edge in repaired.edges
+                if edge.source == distributor.id and edge.sourceHandle == "done"
+            ]
+            if done_edges:
+                done_edges[0].target = output_id
+                repaired.edges = [edge for edge in repaired.edges if edge not in done_edges[1:]]
+            else:
+                repaired.edges.append(FlowEdge(
+                    id=next_unique_id("e", edge_ids),
+                    source=distributor.id,
+                    target=output_id,
+                    sourceHandle="done",
+                ))
+            repairs.append(f"{distributor.id} 반복 출력을 done 경로로 이동")
+
+    roots = [node.id for node in repaired.nodes if node.type in start_types]
+    forward = defaultdict(list)
+    for edge in repaired.edges:
+        if edge.targetHandle not in ("tools", "template"):
+            forward[edge.source].append(edge.target)
+
+    reachable = set()
+    stack = list(roots)
+    while stack:
+        current = stack.pop()
+        if current in reachable:
+            continue
+        reachable.add(current)
+        stack.extend(forward.get(current, []))
+
+    # Tool and template source nodes are executable wiring even though control flow
+    # intentionally does not reach them.
+    wired_sources = {
+        edge.source for edge in repaired.edges
+        if edge.targetHandle in ("tools", "template") and edge.target in reachable
+    }
+    keep_ids = reachable | wired_sources
+    if roots and keep_ids:
+        removed_ids = [node.id for node in repaired.nodes if node.id not in keep_ids]
+        if removed_ids:
+            repairs.append(f"시작점에서 도달 불가능한 노드 제거: {', '.join(removed_ids)}")
+            repaired.nodes = [node for node in repaired.nodes if node.id in keep_ids]
+            repaired.edges = [
+                edge for edge in repaired.edges if edge.source in keep_ids and edge.target in keep_ids
+            ]
+
+    return repaired, repairs
+
+
+def apply_flow_repair_plan(g: FlowGraph, plan: FlowRepairPlan) -> Tuple[FlowGraph, List[str]]:
+    operation_count = (
+        len(plan.update_nodes) + len(plan.add_nodes) + len(plan.remove_node_ids)
+        + len(plan.add_edges) + len(plan.remove_edge_ids)
+    )
+    max_operations = int(os.getenv("LLM_REPAIR_MAX_OPERATIONS", "12"))
+    if operation_count == 0:
+        raise ValueError("repair plan에 적용할 작업이 없습니다.")
+    if operation_count > max_operations:
+        raise ValueError(f"repair plan 작업 수가 제한을 초과했습니다: {operation_count}/{max_operations}")
+
+    repaired = g.model_copy(deep=True)
+    notes: List[str] = []
+    remove_nodes = set(plan.remove_node_ids)
+    remove_edges = set(plan.remove_edge_ids)
+
+    if remove_nodes:
+        known = {node.id for node in repaired.nodes}
+        unknown = remove_nodes - known
+        if unknown:
+            raise ValueError(f"존재하지 않는 노드 제거 요청: {', '.join(sorted(unknown))}")
+        repaired.nodes = [node for node in repaired.nodes if node.id not in remove_nodes]
+        repaired.edges = [
+            edge for edge in repaired.edges
+            if edge.source not in remove_nodes and edge.target not in remove_nodes
+        ]
+        notes.append(f"노드 제거: {', '.join(sorted(remove_nodes))}")
+
+    if remove_edges:
+        known = {edge.id for edge in repaired.edges}
+        unknown = remove_edges - known
+        if unknown:
+            raise ValueError(f"존재하지 않는 엣지 제거 요청: {', '.join(sorted(unknown))}")
+        repaired.edges = [edge for edge in repaired.edges if edge.id not in remove_edges]
+        notes.append(f"엣지 제거: {', '.join(sorted(remove_edges))}")
+
+    nodes_by_id = {node.id: node for node in repaired.nodes}
+    for patch in plan.update_nodes:
+        node = nodes_by_id.get(patch.id)
+        if node is None:
+            raise ValueError(f"존재하지 않는 노드 수정 요청: {patch.id}")
+        if patch.type is not None:
+            node.type = patch.type
+        if patch.data is not None:
+            node.data = {**(node.data or {}), **patch.data}
+        notes.append(f"노드 수정: {patch.id}")
+
+    for node in plan.add_nodes:
+        if node.id in nodes_by_id:
+            raise ValueError(f"이미 존재하는 노드 추가 요청: {node.id}")
+        repaired.nodes.append(node)
+        nodes_by_id[node.id] = node
+        notes.append(f"노드 추가: {node.id}")
+
+    edges_by_id = {edge.id: edge for edge in repaired.edges}
+    for edge in plan.add_edges:
+        if edge.id in edges_by_id:
+            raise ValueError(f"이미 존재하는 엣지 추가 요청: {edge.id}")
+        if edge.source not in nodes_by_id or edge.target not in nodes_by_id:
+            raise ValueError(f"새 엣지 {edge.id}의 source/target 노드가 존재하지 않습니다.")
+        repaired.edges.append(edge)
+        edges_by_id[edge.id] = edge
+        notes.append(f"엣지 추가: {edge.id}")
+
+    return repaired, notes
+
+
+def repair_flow_partially(
+    g: FlowGraph,
+    user_request: str,
+    issues: List[ValidationIssue],
+    complexity_level: str = "low",
+) -> Tuple[FlowGraph, FlowRepairPlan, List[str]]:
+    llm = get_llm(complexity_level=complexity_level).with_structured_output(
+        FlowRepairPlan, method="function_calling",
+    )
+    repairable_ids = sorted({issue.node_id for issue in issues if issue.node_id})
+    repairable_edge_ids = sorted({issue.edge_id for issue in issues if issue.edge_id})
+    messages = [
+        ("system", (
+            "너는 워크플로우 그래프의 부분 수정기다. 전체 그래프를 새로 만들지 말고 validator issue를 "
+            "해결하는 최소 작업만 FlowRepairPlan으로 반환한다. 요청에 없던 기능을 추가하지 않는다. "
+            "update_nodes.data는 기존 data와 병합되므로 바꿀 필드만 넣는다. add_nodes/add_edges에는 "
+            "기존과 겹치지 않는 id를 쓴다. 오류와 무관한 노드나 엣지는 절대 제거하거나 수정하지 않는다. "
+            "필수 설정값을 모르면 빈 문자열 대신 REPLACE_WITH_ACTUAL_URL, REPLACE_WITH_RECIPIENT_EMAIL처럼 "
+            "용도를 알 수 있는 placeholder를 넣는다. "
+            f"수정 대상으로 우선 고려할 node id: {repairable_ids or '(없음)'}, edge id: {repairable_edge_ids or '(없음)'}."
+        )),
+        ("user", (
+            f"원래 사용자 요청:\n{user_request}\n\n"
+            f"현재 그래프:\n{g.model_dump_json()}\n\n"
+            f"validator issues:\n{json.dumps([issue.model_dump() for issue in issues], ensure_ascii=False)}\n\n"
+            "이 issue들만 해결하는 최소 repair plan을 반환해라."
+        )),
+    ]
+    plan = llm.invoke(messages)
+    repaired, notes = apply_flow_repair_plan(g, plan)
+    return repaired, plan, notes
+
+
+def repair_task_coverage_deterministically(
+    g: FlowGraph,
+    spec: TaskSpec,
+    issues: List[ValidationIssue],
+) -> Tuple[FlowGraph, List[str]]:
+    repaired = g.model_copy(deep=True)
+    notes: List[str] = []
+    codes = {issue.code for issue in issues}
+
+    def next_id(prefix: str, existing: set[str]) -> str:
+        index = 1
+        while f"{prefix}{index}" in existing:
+            index += 1
+        return f"{prefix}{index}"
+
+    node_ids = {node.id for node in repaired.nodes}
+    edge_ids = {edge.id for edge in repaired.edges}
+
+    def insert_before(node_type: str, data: Dict[str, Any], target_types: set[str]) -> Optional[str]:
+        targets = [node for node in repaired.nodes if node.type in target_types]
+        if not targets:
+            return None
+        target = targets[0]
+        incoming = [
+            edge for edge in repaired.edges
+            if edge.target == target.id and edge.targetHandle not in ("tools", "template")
+        ]
+        if not incoming:
+            return None
+        inserted_id = next_id("n", node_ids)
+        for edge in incoming:
+            edge.target = inserted_id
+        final_edge_id = next_id("e", edge_ids)
+        repaired.nodes.append(FlowNode(id=inserted_id, type=node_type, data=data))
+        repaired.edges.append(FlowEdge(id=final_edge_id, source=inserted_id, target=target.id))
+        node_ids.add(inserted_id)
+        edge_ids.add(final_edge_id)
+        return inserted_id
+
+    def insert_after_approval(node_type: str, data: Dict[str, Any]) -> Optional[str]:
+        approvals = [node for node in repaired.nodes if node.type == "humanApprovalNode"]
+        if not approvals:
+            return None
+        outgoing = [
+            edge for edge in repaired.edges
+            if edge.source == approvals[0].id and edge.sourceHandle in ("approved", "approve")
+        ]
+        if not outgoing:
+            return None
+        original = outgoing[0]
+        inserted_id = next_id("n", node_ids)
+        bridge_id = next_id("e", edge_ids)
+        original.source = inserted_id
+        original.sourceHandle = None
+        repaired.nodes.append(FlowNode(id=inserted_id, type=node_type, data=data))
+        repaired.edges.append(FlowEdge(
+            id=bridge_id,
+            source=approvals[0].id,
+            target=inserted_id,
+            sourceHandle="approved",
+        ))
+        node_ids.add(inserted_id)
+        edge_ids.add(bridge_id)
+        return inserted_id
+
+    trigger_issues = [issue for issue in issues if issue.code == "INTENT_TRIGGER_MISSING"]
+    for issue in trigger_issues:
+        expected = set(issue.details.get("expected_node_types") or [])
+        starts = [node for node in repaired.nodes if node.type == "startNode"]
+        if len(starts) != 1:
+            continue
+        start = starts[0]
+        if "webhookNode" in expected:
+            start.type = "webhookNode"
+            start.data = {"method": "POST", "path": "/webhook"}
+            notes.append(f"TaskSpec webhook 트리거로 {start.id} 교체")
+        elif "scheduleNode" in expected:
+            trigger_text = spec.trigger or spec.goal
+            minute_match = re.search(r"(\d+)\s*분마다", trigger_text)
+            hour_match = re.search(r"(?:매일\s*)?(\d{1,2})\s*시", trigger_text)
+            cron = (
+                f"*/{minute_match.group(1)} * * * *" if minute_match
+                else f"0 {hour_match.group(1)} * * *" if hour_match
+                else "0 9 * * *"
+            )
+            start.type = "scheduleNode"
+            start.data = {"cronExpression": cron}
+            notes.append(f"TaskSpec 정기 트리거로 {start.id} 교체")
+
+    if "INTENT_RUNTIME_INPUT_MISSING" in codes:
+        starts = [node for node in repaired.nodes if node.type == "startNode"]
+        if len(starts) == 1:
+            start = starts[0]
+            input_id = next_id("n", node_ids)
+            labels = spec.inputs or [
+                item.description for item in spec.missing_information if item.category == "runtime_input"
+            ]
+            input_node = FlowNode(
+                id=input_id,
+                type="dynamicInputNode",
+                data={"inputLabel": ", ".join(labels) or "실행 입력", "testValue": ""},
+            )
+            outgoing = [
+                edge for edge in repaired.edges
+                if edge.source == start.id and edge.targetHandle not in ("tools", "template")
+            ]
+            for edge in outgoing:
+                edge.source = input_id
+            bridge_id = next_id("e", edge_ids)
+            repaired.nodes.append(input_node)
+            repaired.edges.append(FlowEdge(id=bridge_id, source=start.id, target=input_id))
+            node_ids.add(input_id)
+            edge_ids.add(bridge_id)
+            notes.append(f"TaskSpec 실행 입력 노드 {input_id} 삽입")
+
+    integration_issues = [issue for issue in issues if issue.code == "INTENT_INTEGRATION_MISSING"]
+    integration_defaults = {
+        "emailNode": {"toEmail": "REPLACE_WITH_RECIPIENT_EMAIL", "subject": "자동화 알림"},
+        "slackNode": {"channel": "REPLACE_WITH_SLACK_CHANNEL", "message": "자동화 결과"},
+        "discordNode": {"botToken": "", "channelId": ""},
+        "kakaoNode": {"accessToken": "{{API_CENTER:kakao_token}}", "receiver": ""},
+        "telegramNode": {"botToken": "", "chatId": ""},
+        "googleCalendarNode": {"mode": "create"},
+        "googleSheetsNode": {"mode": "append"},
+        "notionNode": {"mode": "create"},
+    }
+    existing_types = {node.type for node in repaired.nodes}
+    for issue in integration_issues:
+        expected = issue.details.get("expected_node_types") or []
+        node_type = next((value for value in expected if value not in existing_types), None)
+        outputs = [node for node in repaired.nodes if node.type == "outputNode"]
+        if not node_type or not outputs:
+            continue
+        output = outputs[0]
+        incoming = [edge for edge in repaired.edges if edge.target == output.id]
+        if not incoming:
+            continue
+        action_id = next_id("n", node_ids)
+        action = FlowNode(id=action_id, type=node_type, data=integration_defaults.get(node_type, {}))
+        for edge in incoming:
+            edge.target = action_id
+        final_edge_id = next_id("e", edge_ids)
+        repaired.nodes.append(action)
+        repaired.edges.append(FlowEdge(id=final_edge_id, source=action_id, target=output.id))
+        node_ids.add(action_id)
+        edge_ids.add(final_edge_id)
+        existing_types.add(node_type)
+        notes.append(f"TaskSpec 연동 노드 {action_id}({node_type}) 삽입")
+
+    semantic_insertions = {
+        "INTENT_HTTP_REQUEST_MISSING": (
+            "httpRequestNode", {"method": "POST", "url": "REPLACE_WITH_ACTUAL_URL"}, {"outputNode"},
+        ),
+        "INTENT_JSON_PARSER_MISSING": ("jsonParserNode", {"mode": "parse"}, {"outputNode"}),
+        "INTENT_TEMPLATE_ANALYZER_MISSING": (
+            "templateAnalyzerNode", {"template_path": "REPLACE_WITH_TEMPLATE_FILE"}, {"llmNode"},
+        ),
+        "INTENT_FILE_MODIFIER_MISSING": (
+            "fileModifierNode", {"template_path": "REPLACE_WITH_TEMPLATE_FILE"}, {"outputNode"},
+        ),
+        "INTENT_MERGE_MISSING": (
+            "mergeNode", {"mergeStrategy": "join_newline"}, {"outputNode"},
+        ),
+    }
+    existing_types = {node.type for node in repaired.nodes}
+    for issue in issues:
+        insertion = semantic_insertions.get(issue.code)
+        if not insertion:
+            continue
+        node_type, data, target_types = insertion
+        if node_type in existing_types:
+            continue
+        inserted_id = (
+            insert_after_approval(node_type, data)
+            if issue.code == "INTENT_HTTP_REQUEST_MISSING"
+            else None
+        )
+        inserted_id = inserted_id or insert_before(node_type, data, target_types)
+        if inserted_id:
+            existing_types.add(node_type)
+            notes.append(f"TaskSpec 의미 노드 {inserted_id}({node_type}) 삽입")
+
+    issue_codes = {issue.code for issue in issues}
+    document_pipeline_missing = (
+        "INTENT_TEMPLATE_ANALYZER_MISSING" in issue_codes
+        and "INTENT_ACTION_MISSING" in issue_codes
+        and "templateAnalyzerNode" not in existing_types
+        and "llmNode" not in existing_types
+    )
+    if document_pipeline_missing:
+        targets = [node for node in repaired.nodes if node.type == "fileModifierNode"]
+        if targets:
+            target = targets[0]
+            incoming = [
+                edge for edge in repaired.edges
+                if edge.target == target.id and edge.targetHandle not in ("tools", "template")
+            ]
+            if incoming:
+                analyzer_id = next_id("n", node_ids)
+                node_ids.add(analyzer_id)
+                prompt_id = next_id("n", node_ids)
+                node_ids.add(prompt_id)
+                llm_id = next_id("n", node_ids)
+                node_ids.add(llm_id)
+                for edge in incoming:
+                    edge.target = analyzer_id
+                repaired.nodes.extend([
+                    FlowNode(
+                        id=analyzer_id,
+                        type="templateAnalyzerNode",
+                        data={"template_path": "REPLACE_WITH_TEMPLATE_FILE"},
+                    ),
+                    FlowNode(
+                        id=prompt_id,
+                        type="promptNode",
+                        data={"userPrompt": "서식 필드에 맞춰 지원자 정보를 JSON 값으로 작성해줘"},
+                    ),
+                    FlowNode(
+                        id=llm_id,
+                        type="llmNode",
+                        data={
+                            "model": "gpt-4o-mini",
+                            "systemPrompt": "문서 서식의 필드를 채우는 JSON만 생성한다.",
+                            "useStructuredOutput": True,
+                            "jsonSchema": json.dumps({
+                                "title": "FilledTemplateFields",
+                                "type": "object",
+                                "additionalProperties": {"type": "string"},
+                            }),
+                        },
+                    ),
+                ])
+                for source, destination in (
+                    (analyzer_id, prompt_id),
+                    (prompt_id, llm_id),
+                    (llm_id, target.id),
+                ):
+                    repaired.edges.append(FlowEdge(
+                        id=next_id("e", edge_ids), source=source, target=destination,
+                    ))
+                    edge_ids.add(repaired.edges[-1].id)
+                notes.append(
+                    f"TaskSpec 문서 파이프라인 {analyzer_id}->{prompt_id}->{llm_id}->{target.id} 삽입"
+                )
+
+    return repaired, notes
+
+
+async def repair_flow_after_agent(
+    g: FlowGraph,
+    user_request: str,
+    complexity_level: str = "low",
+    task_spec: Optional[TaskSpec] = None,
+) -> Tuple[FlowGraph, List[str], List[ValidationIssue]]:
+    def combined_issues(graph: FlowGraph) -> Tuple[bool, List[ValidationIssue]]:
+        structural_ok, current_issues = validate_flow_detailed(graph)
+        if structural_ok and task_spec is not None:
+            current_issues.extend(task_coverage_issues(task_spec, graph.model_dump()))
+        return not current_issues, current_issues
+
+    candidate, notes = repair_disconnected_flow(g)
+    ok, issues = combined_issues(candidate)
+    if ok:
+        return candidate, notes, []
+
+    if task_spec is not None:
+        semantic_candidate, semantic_notes = repair_task_coverage_deterministically(candidate, task_spec, issues)
+        semantic_candidate, cleanup_notes = repair_disconnected_flow(semantic_candidate)
+        semantic_ok, semantic_issues = combined_issues(semantic_candidate)
+        if semantic_notes and (semantic_ok or len(semantic_issues) < len(issues)):
+            candidate, issues, ok = semantic_candidate, semantic_issues, semantic_ok
+            notes.extend(semantic_notes)
+            notes.extend(cleanup_notes)
+            if ok:
+                return candidate, notes, []
+
+    max_attempts = max(0, min(int(os.getenv("LLM_FINAL_REPAIR_MAX_ATTEMPTS", "2")), 2))
+    timeout_seconds = float(os.getenv("LLM_FINAL_REPAIR_TIMEOUT_SECONDS", "30"))
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    seen_signatures = set()
+
+    for _ in range(max_attempts):
+        signature = issue_signature(issues)
+        if signature in seen_signatures:
+            notes.append("최종 repair에서 동일 validator 오류가 반복되어 중단")
+            break
+        seen_signatures.add(signature)
+        if not any(issue.repairable for issue in issues):
+            break
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            notes.append(f"최종 repair 시간 제한({timeout_seconds:g}초) 도달")
+            break
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    repair_flow_partially, candidate, user_request, issues,
+                    complexity_level=complexity_level,
+                ),
+                timeout=remaining,
+            )
+        except asyncio.TimeoutError:
+            notes.append(f"최종 repair 시간 제한({timeout_seconds:g}초) 도달")
+            break
+        except Exception as exc:
+            notes.append(f"최종 부분 수정 실패: {exc}")
+            break
+
+        repaired, _plan, applied_notes = result
+        repaired, cleanup_notes = repair_disconnected_flow(repaired)
+        applied_notes.extend(cleanup_notes)
+        repaired_ok, repaired_issues = combined_issues(repaired)
+        if not repaired_ok and task_spec is not None:
+            semantic_repaired, semantic_notes = repair_task_coverage_deterministically(
+                repaired, task_spec, repaired_issues,
+            )
+            semantic_repaired, semantic_cleanup = repair_disconnected_flow(semantic_repaired)
+            semantic_ok, semantic_issues = combined_issues(semantic_repaired)
+            if semantic_notes and (semantic_ok or len(semantic_issues) < len(repaired_issues)):
+                repaired, repaired_ok, repaired_issues = semantic_repaired, semantic_ok, semantic_issues
+                applied_notes.extend(semantic_notes)
+                applied_notes.extend(semantic_cleanup)
+        notes.extend(applied_notes)
+        if repaired_ok:
+            return repaired, notes, []
+        if issue_signature(repaired_issues) == signature:
+            notes.append("최종 부분 수정 후 동일 validator 오류가 반복되어 중단")
+            break
+        if len(repaired_issues) <= len(issues):
+            candidate, issues = repaired, repaired_issues
+        else:
+            notes.append("최종 부분 수정이 오류를 늘려 후보를 폐기")
+            break
+
+    return candidate, notes, issues
 
 
 def _validate_node_data(n: FlowNode) -> List[str]:
@@ -2160,7 +2844,7 @@ def _verify_url(url: str) -> str:
         return f"접속 실패: {e} — 이 URL은 유효하지 않을 수 있으니 다른 후보를 확인해라."
 
 
-def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None) -> Tuple[List, Callable[[], FlowGraph], Callable[[], Optional[Dict[str, Any]]]]:
+def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None):
     """요청 하나(=대화 한 턴)마다 호출. (도구 리스트, 현재 그래프를 꺼내는 함수, 확인 질문을 꺼내는 함수) 튜플을 반환한다.
 
     두 번째 값 get_current_graph()가 필요한 이유: 도구들이 참조하는 그릇(state)은 클로저 안에
@@ -2182,7 +2866,14 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
     """
     from langchain_core.tools import tool
 
-    state: Dict[str, Any] = {"graph": initial_graph, "fail_streak": 0, "last_errors": [], "clarification": None}
+    initial_ok, _ = validate_flow(initial_graph)
+    state: Dict[str, Any] = {
+        "graph": initial_graph,
+        "last_valid_graph": initial_graph.model_copy(deep=True) if initial_ok else None,
+        "fail_streak": 0,
+        "last_errors": [],
+        "clarification": None,
+    }
 
     def _snapshot() -> FlowGraph:
         return state["graph"].model_copy(deep=True)
@@ -2217,6 +2908,9 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
             state["graph"] = before  # 자동 롤백
             state["last_errors"] = new_errs
             return _fail(f"실패(변경 취소됨 - 새 오류 발생): {'; '.join(new_errs)}")
+        complete_ok, _ = validate_flow(state["graph"])
+        if complete_ok:
+            state["last_valid_graph"] = state["graph"].model_copy(deep=True)
         return _succeed(success_msg)
 
     def _render_flow() -> str:
@@ -2327,6 +3021,24 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         "~봇 만들어줘"처럼 처음부터 새로 만드는 요청에만 쓴다.
         기존 flow에 노드를 붙이거나 일부만 고치는 요청에는 add_node/connect_nodes/update_node를 쓴다."""
 
+        generation_timeout = float(os.getenv("LLM_GENERATION_TIMEOUT_SECONDS", "75"))
+        generation_deadline = asyncio.get_running_loop().time() + generation_timeout
+        generation_timed_out = False
+
+        async def _call_generation(fn, *args, **kwargs):
+            nonlocal generation_timed_out
+            remaining = generation_deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                generation_timed_out = True
+                return None
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(fn, *args, **kwargs), timeout=remaining,
+                )
+            except asyncio.TimeoutError:
+                generation_timed_out = True
+                return None
+
         g = None
         template = None
         mode_label = "빠름 생성"
@@ -2339,7 +3051,7 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         # 재발할 수 있었다). asyncio.to_thread로 스레드에 넘겨서 이벤트 루프를 막지 않게 한다.
         if complexity_level == "high":
             # ── 정밀 모드: 템플릿 검색 없이, 요청을 더 꼼꼼히 해석해서 살을 붙여 생성 ──
-            g = await asyncio.to_thread(generate_flow_precise, request, complexity_level=complexity_level)
+            g = await _call_generation(generate_flow_precise, request, complexity_level=complexity_level)
             mode_label = "정밀 생성"
 
         elif complexity_level == "medium":
@@ -2361,36 +3073,89 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         # 확장 모드에서 템플릿을 못 찾았을 때
         if not g:
             if template:
-                g = await asyncio.to_thread(generate_flow_from_template, request, template, complexity_level=complexity_level)
+                g = await _call_generation(generate_flow_from_template, request, template, complexity_level=complexity_level)
             else:
                 if complexity_level == "medium":
                     # 템플릿 검색이 빗나가도 low few-shot으로 급락시키지 않고,
                     # 구조를 적극 활용하는 확장 생성 경로를 유지한다.
-                    g = await asyncio.to_thread(generate_flow_precise, request, complexity_level=complexity_level)
+                    g = await _call_generation(generate_flow_precise, request, complexity_level=complexity_level)
                     mode_label = "확장 생성"
                 else:
-                    g = await asyncio.to_thread(generate_flow, request, complexity_level=complexity_level)
+                    g = await _call_generation(generate_flow, request, complexity_level=complexity_level)
 
-        # ── Validation + 재시도 (최대 5회 시도 — LLM이 검증 에러 메시지를 보고도 매번
-        # 고치는 건 아니라서, 1회만으로는 실패율이 꽤 있었다) ──
-        MAX_ATTEMPTS = 5
-        ok, errs = validate_flow(g)
+        if generation_timed_out or g is None:
+            return _fail(f"생성 시간 제한({generation_timeout:g}초)을 초과했습니다. 기존 flow를 유지합니다.")
+
+        # 검증 실패 시 전체 재생성보다 오류가 난 노드/엣지만 먼저 고친다. 같은 오류 signature가
+        # 반복되면 즉시 중단하고, 부분 수정으로 다룰 수 없는 오류만 전체 재생성으로 폴백한다.
+        MAX_ATTEMPTS = max(1, min(int(os.getenv("LLM_GENERATION_MAX_ATTEMPTS", "3")), 3))
+        ok, issues = validate_flow_detailed(g)
         attempt = 1
-        while not ok and attempt < MAX_ATTEMPTS:
-            attempt += 1
-            retry = f'{request}\n\n(직전 생성이 아래 이유로 잘못됐다. 고쳐서 다시: {"; ".join(errs)})'
-            if mode_label == "정밀 생성":
-                g = await asyncio.to_thread(generate_flow_precise, retry, complexity_level=complexity_level)
-            elif template:
-                g = await asyncio.to_thread(generate_flow_from_template, retry, template, complexity_level=complexity_level)
-            elif mode_label == "확장 생성":
-                g = await asyncio.to_thread(generate_flow_precise, retry, complexity_level=complexity_level)
-            else:
-                g = await asyncio.to_thread(generate_flow, retry, complexity_level=complexity_level)
-            ok, errs = validate_flow(g)
+        partial_repair_count = 0
+        repair_notes: List[str] = []
+        seen_signatures = set()
 
         if not ok:
-            return _fail(f"생성 실패(기존 flow 유지, {attempt}회 시도): {errs}")
+            deterministic_graph, deterministic_notes = repair_disconnected_flow(g)
+            deterministic_ok, deterministic_issues = validate_flow_detailed(deterministic_graph)
+            if deterministic_ok or len(deterministic_issues) < len(issues):
+                g, issues = deterministic_graph, deterministic_issues
+                ok = deterministic_ok
+                repair_notes.extend(deterministic_notes)
+
+        while not ok and attempt < MAX_ATTEMPTS:
+            signature = issue_signature(issues)
+            if signature in seen_signatures:
+                repair_notes.append("동일 validator 오류 반복으로 수정 중단")
+                break
+            seen_signatures.add(signature)
+            attempt += 1
+
+            candidate_graph = None
+            if any(issue.repairable for issue in issues):
+                try:
+                    repair_result = await _call_generation(
+                        repair_flow_partially, g, request, issues, complexity_level=complexity_level,
+                    )
+                    if repair_result is not None:
+                        candidate_graph, _repair_plan, applied_notes = repair_result
+                        partial_repair_count += 1
+                        repair_notes.extend(applied_notes)
+                except Exception as exc:
+                    repair_notes.append(f"부분 수정 계획 적용 실패: {exc}")
+                    break
+            else:
+                issue_text = "; ".join(f"[{issue.code}] {issue.message}" for issue in issues)
+                retry = f"{request}\n\n직전 생성 오류를 고쳐 전체 그래프를 다시 생성해라: {issue_text}"
+                if mode_label == "정밀 생성":
+                    candidate_graph = await _call_generation(generate_flow_precise, retry, complexity_level=complexity_level)
+                elif template:
+                    candidate_graph = await _call_generation(generate_flow_from_template, retry, template, complexity_level=complexity_level)
+                elif mode_label == "확장 생성":
+                    candidate_graph = await _call_generation(generate_flow_precise, retry, complexity_level=complexity_level)
+                else:
+                    candidate_graph = await _call_generation(generate_flow, retry, complexity_level=complexity_level)
+
+            if candidate_graph is None:
+                break
+            candidate_ok, candidate_issues = validate_flow_detailed(candidate_graph)
+            candidate_signature = issue_signature(candidate_issues)
+            if candidate_ok:
+                g, issues, ok = candidate_graph, [], True
+                break
+            if candidate_signature == signature:
+                repair_notes.append("부분 수정 후 동일 validator 오류가 반복되어 중단")
+                break
+            if len(candidate_issues) <= len(issues):
+                g, issues = candidate_graph, candidate_issues
+            else:
+                repair_notes.append("부분 수정이 오류를 늘려 후보를 폐기")
+                break
+
+        if not ok:
+            timeout_note = f", {generation_timeout:g}초 시간 제한 도달" if generation_timed_out else ""
+            issue_text = "; ".join(f"[{issue.code}] {issue.message}" for issue in issues)
+            return _fail(f"생성 실패(기존 flow 유지, {attempt}회 시도{timeout_note}): {issue_text}")
 
         # ── 정밀 모드 전용 품질 게이트: 구조 검증을 통과해도 실제 품질이 낮을 수 있으므로,
         # 평가 기능(evaluator)으로 채점해서 기준 점수 미달이면 개선 제안을 반영해 재생성한다.
@@ -2426,9 +3191,11 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
                     + "\n".join(f"- {s}" for s in suggestions)
                 )
                 if template:
-                    candidate = await asyncio.to_thread(generate_flow_from_template, retry_request, template, complexity_level=complexity_level)
+                    candidate = await _call_generation(generate_flow_from_template, retry_request, template, complexity_level=complexity_level)
                 else:
-                    candidate = await asyncio.to_thread(generate_flow_precise, retry_request, complexity_level=complexity_level)
+                    candidate = await _call_generation(generate_flow_precise, retry_request, complexity_level=complexity_level)
+                if candidate is None:
+                    break
                 cand_ok, _ = validate_flow(candidate)
                 if cand_ok:
                     g = candidate
@@ -2437,7 +3204,10 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
                     break
 
         state["graph"] = g
+        state["last_valid_graph"] = g.model_copy(deep=True)
         msg = f"새 플로우 생성됨 ({mode_label}): 노드 {len(g.nodes)}개, 엣지 {len(g.edges)}개"
+        if partial_repair_count or repair_notes:
+            msg += f"\n부분 수정 {partial_repair_count}회: {'; '.join(repair_notes)}"
         if quality_score is not None:
             msg += f"\n자동 품질 평가: {quality_score}/100점 ({quality_attempts}회 시도)"
         notes = [n for n in (_dynamic_input_note(node) for node in g.nodes) if n]
@@ -2476,12 +3246,16 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         """컨테이너의 최신 그래프를 반환. Phase 3/4가 에이전트 실행 후 최종 결과를 읽을 때 쓴다."""
         return state["graph"]
 
+    def get_last_valid_graph() -> Optional[FlowGraph]:
+        graph = state.get("last_valid_graph")
+        return graph.model_copy(deep=True) if graph is not None else None
+
     def get_clarification() -> Optional[Dict[str, Any]]:
         """ask_clarification이 이번 턴에 호출됐으면 {question, options}를, 아니면 None을 반환한다."""
         return state["clarification"]
 
     tools = [show_flow, add_node, connect_nodes, update_node, delete_node, _generate_flow_tool, ask_clarification, web_search, verify_url]
-    return tools, get_current_graph, get_clarification
+    return tools, get_current_graph, get_clarification, get_last_valid_graph
 
 
 # ── ⑨ Phase 3: create_agent 조립 + 한 턴 실행 ───────────────────────────────
@@ -2597,11 +3371,21 @@ def _get_default_checkpointer():
     return _default_checkpointer
 
 
-def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None, thread_id: str = "", langfuse_handler=None, db=None):
+def build_agent(
+    graph_data: FlowGraph,
+    complexity_level: str = "low",
+    checkpointer=None,
+    thread_id: str = "",
+    langfuse_handler=None,
+    db=None,
+    generation_trace_id: Optional[str] = None,
+):
     """이번 요청 전용 에이전트 + get_current_graph 접근자를 만든다. (tools, agent 둘 다 요청마다 새로 만듦.)"""
     from langchain.agents import create_agent
 
-    tools, get_current_graph, get_clarification = make_tools(graph_data, complexity_level=complexity_level, db=db)
+    tools, get_current_graph, get_clarification, get_last_valid_graph = make_tools(
+        graph_data, complexity_level=complexity_level, db=db,
+    )
     
     prompt = AGENT_SYSTEM_PROMPT
     if complexity_level == "high":
@@ -2617,18 +3401,36 @@ def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpoint
         prompt += (
             '\n- ⚠️ [빠름 모드 주의] 사용자가 짧게 요청하면, 상상해서 살을 붙이지 말고 최대한 단순하고 직관적으로 '
             '요청된 필수 기능만 포함하여 `generate_flow`에 넘겨라. 복잡한 예외 처리나 알림 노드를 임의로 추가하지 마라.\n'
+            '- 사용자 메시지에 `[정규화된 TaskSpec]`과 `[결정론적 실행 정책]`이 있으면 그 정책을 최우선으로 '
+            '따른다. `즉시 생성`이면 URL, API key, channel ID, database ID, 이메일, 파일 경로, 실행 시 입력값이 '
+            '빠져 있어도 절대 되묻지 말고 placeholder 또는 dynamicInputNode를 사용해 generate_flow를 호출한다. '
+            '`질문 필요`일 때만 TaskSpec의 질문으로 ask_clarification을 한 번 호출한다.\n'
         )
 
     agent = create_agent(
-        get_llm(session_id=thread_id, complexity_level=complexity_level, langfuse_handler=langfuse_handler),
+        get_llm(
+            session_id=thread_id,
+            complexity_level=complexity_level,
+            langfuse_handler=langfuse_handler,
+            generation_trace_id=generation_trace_id,
+        ),
         tools=tools,
         system_prompt=prompt,
         checkpointer=checkpointer or _get_default_checkpointer(),
     )
-    return agent, get_current_graph, get_clarification
+    return agent, get_current_graph, get_clarification, get_last_valid_graph
 
 
-async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_level: str = "low", checkpointer=None, db=None) -> Tuple[str, dict, dict, Optional[Dict[str, Any]]]:
+async def run_agent_turn(
+    graph_data: dict,
+    message: str,
+    thread_id: str,
+    complexity_level: str = "low",
+    checkpointer=None,
+    db=None,
+    trace_id: Optional[str] = None,
+    training_consent: bool = False,
+) -> Tuple[str, dict, dict, Optional[Dict[str, Any]]]:
     """대화 한 턴을 실행한다. /api/chat은 이 함수를 그대로 감싸기만 하면 된다.
 
     흐름: graph_data(raw dict, 프론트가 보낸 것) → FlowGraph로 파싱 → 이번 요청 전용 에이전트 조립
@@ -2642,6 +3444,8 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     ask_clarification 도구가 이번 턴에 호출됐을 때만 {question, options}로 채워진다(그 외엔 None).
     API 응답 {reply, graph_data, token_usage, clarification}에 그대로 매핑된다.
     """
+    trace_started = time.perf_counter()
+    trace_id = trace_id or str(uuid.uuid4())
     g = FlowGraph(
         title=graph_data.get("title", ""),
         description=graph_data.get("description", ""),
@@ -2654,17 +3458,33 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     if has_langfuse:
         handler = CallbackHandler()
 
-    agent, get_current_graph, get_clarification = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id, langfuse_handler=handler, db=db)
-
     # 사용자 문서 기반 RAG 컨텍스트 주입 — retrieve_chat_context는 임베딩 API 호출을 포함한
     # 동기(blocking) 함수라, 대화할 때마다(생성 요청이 아니어도) 이벤트 루프를 막을 수 있었다.
     # generate_flow* 계열과 동일한 이유로 asyncio.to_thread로 넘긴다.
     project_id = thread_id.replace("project-", "") if thread_id.startswith("project-") else ""
-    context = await asyncio.to_thread(retrieve_chat_context, project_id, message) if project_id else ""
+    context_task = (
+        asyncio.to_thread(retrieve_chat_context, project_id, message) if project_id
+        else asyncio.sleep(0, result="")
+    )
+    task_spec_task = (
+        normalize_task_spec(message)
+        if should_normalize_task_spec(message, has_existing_graph=bool(g.nodes))
+        else asyncio.sleep(0, result=None)
+    )
+    context, task_spec_result = await asyncio.gather(context_task, task_spec_task)
+
+    agent, get_current_graph, get_clarification, get_last_valid_graph = build_agent(
+        g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id,
+        langfuse_handler=handler, db=db, generation_trace_id=trace_id,
+    )
     
     final_message = message
     if context:
         final_message = f"{message}\n\n{context}"
+    if task_spec_result and task_spec_result.spec:
+        final_message = f"{final_message}\n\n{build_task_spec_context(task_spec_result.spec)}"
+    elif task_spec_result and task_spec_result.error:
+        print(f"[task_spec] 정규화 실패, 기존 agent 판단으로 폴백: {task_spec_result.error}")
 
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": final_message}]},
@@ -2673,7 +3493,12 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     reply = result["messages"][-1].content
 
     # LangChain AIMessage 응답에서 토큰 사용량 추출
-    token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    task_spec_usage = task_spec_result.token_usage if task_spec_result else {}
+    token_usage = {
+        "input_tokens": int(task_spec_usage.get("input_tokens", 0) or 0),
+        "output_tokens": int(task_spec_usage.get("output_tokens", 0) or 0),
+        "total_tokens": int(task_spec_usage.get("total_tokens", 0) or 0),
+    }
     for msg in reversed(result["messages"]):
         usage = getattr(msg, "usage_metadata", None)
         if usage:
@@ -2681,26 +3506,180 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
             token_usage["output_tokens"] += usage.get("output_tokens", 0)
             token_usage["total_tokens"] += usage.get("total_tokens", 0)
             break  # 마지막 AI 메시지 한 번만 집계
+    if task_spec_result:
+        token_usage["task_spec"] = {
+            "prompt_version": task_spec_result.prompt_version,
+            "latency_ms": task_spec_result.latency_ms,
+            "error": task_spec_result.error,
+            **task_spec_usage,
+        }
 
     final_graph = get_current_graph()
     clarification = get_clarification()
+    active_task_spec = task_spec_result.spec if task_spec_result and task_spec_result.spec else None
+    fallback_notes: List[str] = []
 
-    # If the AI did not modify the graph in this turn, just return as is without warnings.
+    def attach_trace(
+        output_graph: dict,
+        *,
+        outcome: str,
+        status: str,
+        issues: Optional[List[Any]] = None,
+        notes: Optional[List[str]] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        issue_payload = []
+        for issue in issues or []:
+            if hasattr(issue, "model_dump"):
+                issue_payload.append(issue.model_dump())
+            elif isinstance(issue, dict):
+                issue_payload.append(issue)
+            else:
+                issue_payload.append({"code": "UNKNOWN", "message": str(issue)})
+        from dry_run import dry_run_workflow
+
+        dry_run = dry_run_workflow(output_graph).model_dump() if outcome == "graph" else None
+        trace = build_generation_trace(
+            trace_id=trace_id,
+            thread_id=thread_id,
+            message=message,
+            complexity_level=complexity_level,
+            graph_data=output_graph,
+            token_usage=token_usage,
+            task_spec=active_task_spec.model_dump() if active_task_spec else None,
+            validation_issues=issue_payload,
+            repair_notes=notes,
+            outcome=outcome,
+            status=status,
+            latency_ms=round((time.perf_counter() - trace_started) * 1000),
+            error_message=error_message,
+            repair_prompt_version=FLOW_REPAIR_PROMPT_VERSION,
+            dry_run_result=dry_run,
+            training_consent=training_consent,
+        )
+        token_usage["trace_id"] = trace_id
+        token_usage["_generation_trace"] = trace
+
+    # TaskSpec이 즉시 생성을 결정했는데 상위 agent가 도구 호출을 놓치거나 잘못 질문한 경우,
+    # 같은 결정을 다시 LLM 라우팅에 맡기지 않고 생성기를 한 번 직접 호출한다.
+    if initial_dump == final_graph.model_dump():
+        should_fallback_generate = (
+            not initial_dump.get("nodes")
+            and active_task_spec is not None
+            and active_task_spec.request_kind == "create"
+            and not active_task_spec.clarification_required
+        )
+        if should_fallback_generate:
+            fallback_timeout = float(os.getenv("LLM_GENERATION_FALLBACK_TIMEOUT_SECONDS", "75"))
+            fallback_request = f"{message}\n\n{build_task_spec_context(active_task_spec)}"
+            try:
+                generated = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        generate_flow, fallback_request, complexity_level=complexity_level,
+                    ),
+                    timeout=fallback_timeout,
+                )
+                final_graph, fallback_notes, fallback_issues = await repair_flow_after_agent(
+                    generated,
+                    message,
+                    complexity_level=complexity_level,
+                    task_spec=active_task_spec,
+                )
+                clarification = None
+                if not fallback_issues:
+                    reply = "워크플로우를 생성했습니다."
+                    if not fallback_notes:
+                        fallback_notes.append("TaskSpec에 따라 직접 생성")
+                else:
+                    reply += (
+                        "\n\n(자동 생성 폴백 후 남은 문제: "
+                        + "; ".join(issue.message for issue in fallback_issues)
+                        + ")"
+                    )
+            except asyncio.TimeoutError:
+                clarification = None
+                reply += f"\n\n(자동 생성 폴백이 {fallback_timeout:g}초 시간 제한에 도달했습니다.)"
+            except Exception as exc:
+                clarification = None
+                reply += f"\n\n(자동 생성 폴백 실패: {exc})"
+
+    # 대화이거나 폴백 생성도 그래프를 만들지 못했다면 원본을 유지한다.
     if initial_dump == final_graph.model_dump():
         if handler and hasattr(handler, 'flush'):
             handler.flush()
+        if clarification:
+            outcome, trace_status, trace_issues = "clarification", "completed", []
+        elif active_task_spec is not None and active_task_spec.request_kind == "create":
+            outcome, trace_status = "no_graph", "failed"
+            trace_issues = [{
+                "code": "NO_GRAPH",
+                "message": "생성 요청이 그래프를 반환하지 않았다.",
+                "repairable": True,
+            }]
+        else:
+            outcome, trace_status, trace_issues = "chat", "completed", []
+        attach_trace(
+            graph_data,
+            outcome=outcome,
+            status=trace_status,
+            issues=trace_issues,
+            notes=fallback_notes,
+        )
         return reply, graph_data, token_usage, clarification
 
-    ok, errs = validate_flow(final_graph, require_complete=False)  # 에디터 편집 중일 수 있으므로 완결성 검증은 완화
+    is_new_generation = not initial_dump.get("nodes") and bool(final_graph.nodes)
+    ok, errs = validate_flow(final_graph, require_complete=is_new_generation)
+    trace_issue_models: List[Any] = validation_issues(errs)
+    coverage_issues = (
+        task_coverage_issues(active_task_spec, final_graph.model_dump())
+        if ok and is_new_generation and active_task_spec is not None else []
+    )
+    if coverage_issues:
+        ok = False
+        errs = [issue.message for issue in coverage_issues]
+        trace_issue_models = coverage_issues
+
+    repair_notes = list(fallback_notes)
+    if not ok and is_new_generation:
+        repaired_graph, repair_notes, repaired_issues = await repair_flow_after_agent(
+            final_graph, message, complexity_level=complexity_level, task_spec=active_task_spec,
+        )
+        if not repaired_issues:
+            final_graph = repaired_graph
+            ok, errs = True, []
+            trace_issue_models = []
+        else:
+            final_graph = repaired_graph
+            trace_issue_models = repaired_issues
+            last_valid_graph = get_last_valid_graph()
+            has_intent_issues = any(issue.code.startswith("INTENT_") for issue in repaired_issues)
+            if last_valid_graph is not None and not has_intent_issues:
+                final_graph = last_valid_graph
+                ok, errs = True, []
+                trace_issue_models = []
+                repair_notes.append("마지막 검증 통과 그래프로 복원")
+            else:
+                errs = [issue.message for issue in repaired_issues]
     
     # 캔버스에는 항상 반영 (에러가 있어도 사용자가 눈으로 보고 수정할 수 있도록)
     response_graph_data = auto_layout(final_graph)
+
+    if repair_notes and ok:
+        reply += f"\n\n(자동 구조 수정: {'; '.join(repair_notes)})"
     
     if not ok:
         reply += f"\n\n(⚠️ 일부 구조적 문제가 있어 확인이 필요합니다: {'; '.join(errs)})"
 
     if handler and hasattr(handler, 'flush'):
         handler.flush()
+
+    attach_trace(
+        response_graph_data,
+        outcome="graph",
+        status="completed" if ok else "failed",
+        issues=[] if ok else trace_issue_models,
+        notes=repair_notes,
+    )
 
     return reply, response_graph_data, token_usage, clarification
 

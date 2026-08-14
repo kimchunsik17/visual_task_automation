@@ -180,6 +180,11 @@ export const DraggableTextarea = ({ id, fieldKey, value, onChange, placeholder, 
 
   if (isDetached) return null;
 
+  const handleInteraction = (e) => {
+    e.stopPropagation();
+    setIsEditing(true);
+  };
+
   return isEditing ? (
     <textarea
       className="nodrag"
@@ -188,12 +193,13 @@ export const DraggableTextarea = ({ id, fieldKey, value, onChange, placeholder, 
       onBlur={() => setIsEditing(false)}
       autoFocus
       placeholder={placeholder || "텍스트를 입력하세요..."}
-      style={{ minHeight: '80px', width: '100%' }}
+      style={{ minHeight: '80px', width: '100%', fontSize: window.innerWidth <= 768 ? '16px' : '0.85rem' }}
     />
   ) : (
     <div
       className="nodrag"
-      onDoubleClick={() => setIsEditing(true)}
+      onDoubleClick={window.innerWidth > 768 ? handleInteraction : undefined}
+      onClick={window.innerWidth <= 768 ? handleInteraction : undefined}
       draggable
       onDragStart={handleDragStart}
       style={{

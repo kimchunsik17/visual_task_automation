@@ -1,6 +1,6 @@
 .main-page-layout {
   display: flex;
-  min-height: 100vh;
+  min-height: 100dvh;
   background-color: var(--bg-color);
   color: var(--text-color);
 }
@@ -15,7 +15,7 @@
   flex-direction: column;
   justify-content: space-between;
   align-items: center;
-  height: 100vh;
+  height: 100dvh;
 }
 
 /* Chat LLM Layout */
@@ -414,4 +414,22 @@
 .card-actions button {
   flex: 1;
   justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .main-page-content {
+    padding: 3rem 1rem 1rem 1rem;
+  }
+  .workflows-grid {
+    grid-template-columns: 1fr;
+  }
+  .page-header h1 {
+    font-size: 1.5rem;
+  }
+  .page-header {
+    padding-left: 3rem;
+  }
+  .hints-container {
+    display: none !important;
+  }
 }

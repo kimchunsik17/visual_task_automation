@@ -71,7 +71,7 @@ def generate_prompt_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     if not active_llm_id:
         lines.append(f"{indent}# --- Fallback LLM for Prompt Node ({node_id}) ---")
         lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-        lines.append(f"{indent}llm_fb_{node_id} = ChatGoogleGenerativeAI(model=\"gemini-1.5-flash\", max_retries=0)")
+        lines.append(f"{indent}llm_fb_{node_id} = create_runtime_chat_model(model='gemini-1.5-flash', max_retries=0)")
         lines.append(f"{indent}sys_fb_{node_id} = \"You are a helpful assistant.\"")
         current_llm = f"fb_{node_id}"
         sys_var = f"sys_fb_{node_id}"

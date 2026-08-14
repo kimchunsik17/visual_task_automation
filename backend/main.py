@@ -24,7 +24,16 @@ from google.auth.transport import requests as google_requests
 from database import engine, Base, get_db
 import models
 from graph import compile_workflow, run_workflow
-from meta_agent import run_agent_turn
+from dry_run import dry_run_workflow
+from meta_agent import FLOW_REPAIR_PROMPT_VERSION, run_agent_turn
+from generation_trace import (
+    build_generation_trace,
+    persist_generation_trace,
+    record_trace_adoption,
+    trace_to_dict,
+)
+from llm.operations import summarize_generation_operations
+from llm.routing import probe_local_provider, routing_config_snapshot, routing_metrics
 import discord_bot
 import telegram_bot
 import scheduler
@@ -105,6 +114,7 @@ class ChatPayload(BaseModel):
     message: str
     graph_data: Dict[str, Any]
     complexity_level: str = "medium"
+    training_consent: bool = False
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -174,6 +184,36 @@ def get_current_user_required(user: models.User = Depends(get_current_user)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
 
+
+@app.delete("/api/training-data/me")
+def delete_my_training_data(
+    user: models.User = Depends(get_current_user_required),
+    db: Session = Depends(get_db),
+):
+    deleted = db.query(models.TrainingExample).filter(
+        models.TrainingExample.user_id == user.id,
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"status": "success", "deleted": deleted}
+
+
+@app.post("/api/dry-run")
+def dry_run_flow(
+    payload: FlowPayload,
+    user: models.User = Depends(get_current_user_required),
+):
+    return dry_run_workflow({"nodes": payload.nodes, "edges": payload.edges}).model_dump()
+
+def is_admin_user(user: models.User) -> bool:
+    admin_emails_str = os.getenv("ADMIN_EMAILS", "")
+    admin_emails = [e.strip().lower() for e in admin_emails_str.split(",") if e.strip()]
+    return user.email.lower() in admin_emails if user.email else False
+
+def get_current_admin_user(user: models.User = Depends(get_current_user_required)):
+    if not is_admin_user(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized (Admin only)")
+    return user
+
 class AuthPayload(BaseModel):
     token: str
 
@@ -226,12 +266,90 @@ def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
             JWT_SECRET,
             algorithm=JWT_ALGORITHM
         )
-        return {"access_token": access_token, "user": {"id": user.id, "name": user.name, "email": user.email, "picture": user.picture}}
+        return {"access_token": access_token, "user": {"id": user.id, "name": user.name, "email": user.email, "picture": user.picture, "is_admin": is_admin_user(user)}}
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid Google token: {str(e)}")
 
+
+@app.get("/api/admin/users")
+def get_admin_users(user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    users = db.query(models.User).all()
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "name": u.name,
+            "picture": u.picture,
+            "token_balance": u.token_balance,
+            "is_admin": is_admin_user(u)
+        }
+        for u in users
+    ]
+
+@app.get("/api/admin/statistics")
+def get_admin_statistics(user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    total_users = db.query(models.User).count()
+    total_projects = db.query(models.Project).count()
+    total_executions = db.query(models.FlowExecutionLog).count()
+    return {
+        "total_users": total_users,
+        "total_projects": total_projects,
+        "total_executions": total_executions
+    }
+
+
+@app.get("/api/admin/llm-operations")
+def get_admin_llm_operations(
+    user: models.User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    traces = db.query(models.GenerationTrace).order_by(
+        models.GenerationTrace.created_at.desc()
+    ).limit(1000).all()
+    persistent = summarize_generation_operations(
+        traces,
+        training_example_count=db.query(models.TrainingExample).count(),
+    )
+    return {
+        "persistent": persistent,
+        "runtime_routing": routing_metrics.snapshot(),
+        "routing_config": routing_config_snapshot(),
+    }
+
+
+@app.get("/api/admin/llm-health")
+def get_admin_llm_health(user: models.User = Depends(get_current_admin_user)):
+    return probe_local_provider()
+
+@app.get("/api/admin/feedbacks")
+def get_admin_feedbacks(user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    feedbacks = db.query(models.SiteFeedback).order_by(models.SiteFeedback.created_at.desc()).all()
+    return [
+        {
+            "id": f.id,
+            "user_name": f.user.name if f.user else "Anonymous",
+            "user_email": f.user.email if f.user else "N/A",
+            "scores": f.scores,
+            "comment": f.comment,
+            "created_at": f.created_at.isoformat() if f.created_at else None
+        }
+        for f in feedbacks
+    ]
+
+class TokenUpdatePayload(BaseModel):
+    token_balance: int
+
+@app.put("/api/admin/users/{target_user_id}/token")
+def update_user_token(target_user_id: int, payload: TokenUpdatePayload, admin: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    target_user = db.query(models.User).filter(models.User.id == target_user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    target_user.token_balance = payload.token_balance
+    db.commit()
+    db.refresh(target_user)
+    return {"status": "success", "token_balance": target_user.token_balance}
 
 class SudoAuthPayload(BaseModel):
     token: str
@@ -326,6 +444,13 @@ def delete_api_key(provider: str, user: models.User = Depends(get_sudo_user), db
 async def delete_user_account(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     # 1. Anonymize execution logs
     db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.user_id == user.id).update({models.FlowExecutionLog.user_id: None})
+    # Opt-in training candidates and generation prompts must not outlive account deletion.
+    db.query(models.TrainingExample).filter(
+        models.TrainingExample.user_id == user.id,
+    ).delete(synchronize_session=False)
+    db.query(models.GenerationTrace).filter(
+        models.GenerationTrace.user_id == user.id,
+    ).delete(synchronize_session=False)
     
     # 2. Delete bot logs and stop bots for their projects
     projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
@@ -350,6 +475,24 @@ class ProjectCreate(BaseModel):
     graph_data: Dict[str, Any]
     visibility: str = "private"
     draft_session_id: Optional[str] = None
+    generation_trace_id: Optional[str] = None
+
+
+def _record_project_trace_adoption(db: Session, payload: ProjectCreate, user_id: int, project_id: int):
+    if not payload.generation_trace_id:
+        return None
+    try:
+        return record_trace_adoption(
+            db,
+            trace_id=payload.generation_trace_id,
+            user_id=user_id,
+            project_id=project_id,
+            saved_graph_data=payload.graph_data or {},
+        )
+    except Exception as exc:
+        db.rollback()
+        print(f"Failed to record trace adoption {payload.generation_trace_id}: {exc}")
+        return None
 
 @app.get("/api/projects/public")
 def get_public_projects(db: Session = Depends(get_db)):
@@ -387,7 +530,8 @@ def create_project(payload: ProjectCreate, user: models.User = Depends(get_curre
             draft_session.project_id = str(project.id)
             db.commit()
 
-    return {"status": "success", "id": project.id}
+    adoption = _record_project_trace_adoption(db, payload, user.id, project.id)
+    return {"status": "success", "id": project.id, "trace_adoption": adoption}
 
 @app.get("/api/projects/{project_id}")
 def get_project(project_id: int, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -545,6 +689,7 @@ async def update_project(project_id: int, payload: ProjectCreate, user: models.U
     project.visibility = payload.visibility
 
     db.commit()
+    adoption = _record_project_trace_adoption(db, payload, user.id, project_id)
     
     try:
         if isinstance(new_graph_data, dict) and new_graph_data.get("is_live") is True:
@@ -586,7 +731,7 @@ async def update_project(project_id: int, payload: ProjectCreate, user: models.U
     except Exception as e:
         print(f"Failed to sync telegram bot: {e}")
 
-    return {"status": "success"}
+    return {"status": "success", "trace_adoption": adoption}
 
 @app.post("/api/projects/{project_id}/live")
 async def toggle_project_live(project_id: int, payload: dict, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -935,13 +1080,20 @@ async def evaluate_project_with_autofix(payload: EvaluateAutofixPayload, user: m
 @app.get("/api/evaluate/cases")
 def get_eval_cases():
     import evaluation
-    return evaluation.get_test_cases()
+    return evaluation.get_evaluation_catalog()
 
 @app.get("/api/evaluate/run")
-def run_eval(ids: str = None):
+async def run_eval(ids: str = None, profile: str = None, refresh: bool = False):
     import evaluation
     selected = ids.split(",") if ids else None
-    return StreamingResponse(evaluation.run_evaluation_suite(selected), media_type="text/event-stream")
+    return StreamingResponse(
+        evaluation.run_evaluation_suite(
+            selected,
+            profile=profile,
+            use_cache=not refresh,
+        ),
+        media_type="text/event-stream",
+    )
 
 # ── 사이트(제품) 사용자 평가 ─────────────────────────────────────────────
 # 워크플로우 하나를 채점하는 /api/evaluate와는 별개로, 서비스 자체에 대한 사용자 만족도
@@ -967,22 +1119,13 @@ class SiteFeedbackPayload(BaseModel):
     comment: Optional[str] = None
 
 @app.get("/api/site-feedback/me")
-def get_my_site_feedback(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
-    """현재 로그인한 사용자가 이미 웹사이트 평가를 제출했는지 확인 — 프론트가 위젯을 다시
-    열어도 중복 제출 폼을 못 띄우게 미리 걸러내는 용도."""
-    existing = db.query(models.SiteFeedback).filter(models.SiteFeedback.user_id == user.id).first()
-    if not existing:
-        return {"submitted": False}
-    return {"submitted": True, "scores": existing.scores, "comment": existing.comment}
+def get_my_site_feedback(db: Session = Depends(get_db)):
+    """이제 완전히 익명으로 전환되었으므로, 서버단에서는 제출 여부를 추적하지 않습니다."""
+    return {"submitted": False}
 
 @app.post("/api/site-feedback")
-def submit_site_feedback(payload: SiteFeedbackPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
-    # 유저당 1회만 허용 — 클라이언트 체크를 우회해서 직접 API를 호출해도 여기서 막힌다
-    # (여러 번 제출해서 평균 점수를 마음대로 왜곡할 수 있던 버그).
-    existing = db.query(models.SiteFeedback).filter(models.SiteFeedback.user_id == user.id).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="이미 웹사이트 평가를 제출하셨습니다. 소중한 의견 감사합니다!")
-
+def submit_site_feedback(payload: SiteFeedbackPayload, db: Session = Depends(get_db)):
+    # 평가자의 정보를 받지 않고 완전히 익명으로 저장합니다.
     unknown_keys = set(payload.scores.keys()) - set(SITE_FEEDBACK_QUESTIONS.keys())
     if unknown_keys:
         raise HTTPException(status_code=400, detail=f"알 수 없는 문항: {sorted(unknown_keys)}")
@@ -991,7 +1134,7 @@ def submit_site_feedback(payload: SiteFeedbackPayload, user: models.User = Depen
             raise HTTPException(status_code=400, detail=f"{key}의 점수는 1~5 사이 정수여야 합니다")
 
     feedback = models.SiteFeedback(
-        user_id=user.id,
+        user_id=None,
         scores=payload.scores,
         comment=payload.comment,
     )
@@ -1070,6 +1213,26 @@ def get_project_evaluations(project_id: int, db: Session = Depends(get_db), user
         } for e in evals
     ]
 
+
+@app.get("/api/projects/{project_id}/generation-traces")
+def get_project_generation_traces(
+    project_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user_required),
+):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view generation traces")
+
+    safe_limit = max(1, min(limit, 100))
+    traces = db.query(models.GenerationTrace).filter(
+        models.GenerationTrace.project_id == project_id,
+    ).order_by(models.GenerationTrace.created_at.desc()).limit(safe_limit).all()
+    return [trace_to_dict(trace) for trace in traces]
+
 @app.get("/api/runs/{run_id}")
 def get_run_details(run_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
     run = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.id == run_id).first()
@@ -1132,6 +1295,25 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
 
+    generation_trace_id = str(uuid.uuid4())
+    trace_started = time.perf_counter()
+    numeric_project_id = int(payload.project_id) if str(payload.project_id).isdigit() else None
+    trace_saved = False
+
+    def save_trace(trace_payload: dict) -> None:
+        nonlocal trace_saved
+        try:
+            persist_generation_trace(
+                db,
+                trace_payload,
+                user_id=user.id if user else None,
+                project_id=numeric_project_id,
+            )
+            trace_saved = True
+        except Exception as trace_error:
+            db.rollback()
+            print(f"Failed to save generation trace {generation_trace_id}: {trace_error}")
+
     try:
         reply, graph_data, token_usage, clarification = await run_agent_turn(
             payload.graph_data,
@@ -1139,7 +1321,11 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
             thread_id=f"project-{payload.project_id}",
             complexity_level=payload.complexity_level,
             db=db,
+            trace_id=generation_trace_id,
+            training_consent=payload.training_consent,
         )
+        trace_payload = token_usage.pop("_generation_trace", None)
+        generation_outcome = trace_payload.get("outcome") if trace_payload else None
         
         # 에이전트 토큰 차감 + DB 기록
         total_tokens = token_usage.get("total_tokens", 0)
@@ -1148,7 +1334,7 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
             try:
                 db_log = models.FlowExecutionLog(
                     user_id=user.id,
-                    project_id=int(payload.project_id) if str(payload.project_id).isdigit() else None,
+                    project_id=numeric_project_id,
                     payload=f"Agent Chat: {payload.message[:200]}",
                     result=reply[:500] if reply else "",
                     total_tokens=total_tokens,
@@ -1160,6 +1346,9 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
             except Exception as e:
                 db.rollback()
                 print(f"Failed to save agent token log: {e}")
+
+        if trace_payload:
+            save_trace(trace_payload)
         
         # ChatSession 저장 로직
         if user:
@@ -1171,9 +1360,9 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
                 
                 if not session:
                     try:
-                        from langchain_openai import ChatOpenAI
+                        from llm.providers import create_chat_model
                         from langchain_core.messages import SystemMessage, HumanMessage
-                        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+                        llm = create_chat_model(profile="title", temperature=0)
                         res = llm.invoke([
                             SystemMessage(content="주어진 사용자의 요청을 바탕으로 워크플로우 대화 기록의 제목을 15자 내외로 매우 짧게 요약해줘. 따옴표 없이 결과만 출력해. (예: 해커뉴스 요약 봇, 날씨 알리미 등)"),
                             HumanMessage(content=payload.message)
@@ -1200,14 +1389,54 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
                 
             await run_in_threadpool(save_session)
 
-        return {"status": "success", "reply": reply, "graph_data": graph_data, "token_usage": token_usage, "clarification": clarification}
+        return {
+            "status": "success",
+            "reply": reply,
+            "graph_data": graph_data,
+            "token_usage": token_usage,
+            "clarification": clarification,
+            "trace_id": generation_trace_id,
+            "generation_outcome": generation_outcome,
+        }
     except asyncio.CancelledError:
+        if not trace_saved:
+            save_trace(build_generation_trace(
+                trace_id=generation_trace_id,
+                thread_id=f"project-{payload.project_id}",
+                message=payload.message,
+                complexity_level=payload.complexity_level,
+                graph_data=payload.graph_data,
+                outcome="cancelled",
+                status="cancelled",
+                latency_ms=round((time.perf_counter() - trace_started) * 1000),
+                repair_prompt_version=FLOW_REPAIR_PROMPT_VERSION,
+            ))
         print(f"Chat generation cancelled by client for project {payload.project_id}")
-        return {"status": "cancelled", "message": "Client disconnected or cancelled"}
+        return {
+            "status": "cancelled",
+            "message": "Client disconnected or cancelled",
+            "trace_id": generation_trace_id,
+        }
     except Exception as e:
+        if not trace_saved:
+            save_trace(build_generation_trace(
+                trace_id=generation_trace_id,
+                thread_id=f"project-{payload.project_id}",
+                message=payload.message,
+                complexity_level=payload.complexity_level,
+                graph_data=payload.graph_data,
+                outcome="error",
+                status="failed",
+                latency_ms=round((time.perf_counter() - trace_started) * 1000),
+                error_message=str(e),
+                repair_prompt_version=FLOW_REPAIR_PROMPT_VERSION,
+            ))
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"챗봇 처리 중 오류: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"챗봇 처리 중 오류: {str(e)} (trace_id={generation_trace_id})",
+        )
 
 @app.get("/api/chat/sessions")
 def get_chat_sessions(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):

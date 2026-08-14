@@ -18,6 +18,15 @@ import PatchNotesPage from './pages/PatchNotesPage';
 import CustomAlert from './CustomAlert';
 import CustomConfirm from './CustomConfirm';
 import RequireAuth from './RequireAuth';
+import AdminRoute from './AdminRoute';
+import AdminPage from './pages/AdminPage';
+import IntroPage from './pages/IntroPage';
+import { useAuth } from './AuthContext';
+
+function RootRoute() {
+  const { user } = useAuth();
+  return user ? <MainPage /> : <IntroPage />;
+}
 
 function App() {
   useEffect(() => {
@@ -37,10 +46,12 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<RequireAuth><MainPage /></RequireAuth>} />
+        <Route path="/" element={<RootRoute />} />
+        <Route path="/intro" element={<IntroPage />} />
         <Route path="/workflows" element={<RequireAuth><WorkflowsPage /></RequireAuth>} />
         <Route path="/templates" element={<RequireAuth><TemplatesPage /></RequireAuth>} />
         <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+        <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
         <Route path="/patch-notes" element={<RequireAuth><PatchNotesPage /></RequireAuth>} />
         <Route path="/editor/:projectId?" element={<RequireAuth><EditorPage /></RequireAuth>} />
         <Route path="/project/:projectId/runs" element={<RequireAuth><ProjectRunsPage /></RequireAuth>} />

@@ -4,7 +4,7 @@
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100dvh;
   position: sticky;
   top: 0;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -224,4 +224,140 @@
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.mobile-sidebar-toggle {
+  display: none;
+}
+
+.mobile-sidebar-overlay {
+  display: none;
+}
+
+.mobile-close-btn {
+  display: none;
+}
+
+.mobile-sidebar-wrapper {
+  display: contents;
+}
+.mobile-sidebar-tabs {
+  display: none;
+}
+.mobile-tab-content {
+  display: contents;
+}
+
+@media (max-width: 1024px) {
+  .mobile-sidebar-toggle {
+    display: flex;
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 40;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    padding: 0.5rem;
+    border-radius: 8px;
+    color: var(--text-color);
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+  }
+
+  .mobile-sidebar-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 280px;
+    height: 100dvh;
+    background: var(--card-bg);
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border-color);
+  }
+
+  .mobile-sidebar-wrapper.mobile-open {
+    transform: translateX(0);
+  }
+
+  .mobile-sidebar-tabs {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--card-bg);
+    padding: 0.5rem 0.5rem 0 0.5rem;
+  }
+
+  .mobile-tab-btn {
+    padding: 0.75rem 1rem;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .mobile-tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+  }
+
+  .mobile-tab-content {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .mobile-tab-content.active {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Override internal sidebar properties on mobile */
+  .main-sidebar {
+    width: 100% !important;
+    height: auto;
+    flex: 1;
+    position: relative;
+    transform: none !important;
+    transition: none !important;
+    border-right: none !important;
+  }
+
+  .mobile-sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(2px);
+    z-index: 45;
+  }
+
+  .mobile-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+  }
+
+  /* Reset chat sidebar to take full width of mobile wrapper */
+  .chat-sidebar-container {
+    width: 100% !important;
+    height: auto !important;
+    flex: 1;
+    position: relative !important;
+    transform: none !important;
+    border-right: none !important;
+  }
 }

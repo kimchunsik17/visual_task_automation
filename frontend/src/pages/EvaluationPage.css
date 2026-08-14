@@ -1,5 +1,5 @@
 .eval-container {
-  min-height: 100vh;
+  min-height: 100dvh;
   background-color: var(--bg-color);
   color: var(--text-color);
   display: flex;
@@ -165,6 +165,29 @@
   color: #e2e8f0;
 }
 
+.evaluation-mode {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.evaluation-mode button {
+  border: 0;
+  border-radius: 4px;
+  padding: 0.4rem 0.75rem;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.evaluation-mode button.active {
+  background: #2563eb;
+  color: #fff;
+}
+
 .case-actions button {
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.1);
@@ -226,6 +249,11 @@
   height: 16px;
   accent-color: #8b5cf6;
   cursor: pointer;
+}
+
+.case-option input[type="checkbox"]:disabled {
+  cursor: default;
+  opacity: 0.65;
 }
 
 .case-category {

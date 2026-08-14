@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
-import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock, Globe, Key, User, ScrollText } from 'lucide-react';
+import { Wand2, Home, LayoutGrid, LibraryBig, Settings, Bot, BarChart, Clock, Globe, Key, User, ScrollText, Shield, Info, Menu, X } from 'lucide-react';
 import ChatSidebar from './ChatSidebar';
 import logoImg from './logo.png';
 import './MainSidebar.css';
@@ -14,6 +14,8 @@ const MainSidebar = ({ onSelectSession }) => {
   const { user, login, logout, token } = useAuth();
   const [pendingCount, setPendingCount] = useState(0);
   const [activeSidebar, setActiveSidebar] = useState('main'); // 'main' or 'chat'
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState('menu'); // 'menu' or 'chat'
 
   useEffect(() => {
     if (!token) return;
@@ -42,21 +44,44 @@ const MainSidebar = ({ onSelectSession }) => {
 
   return (
     <>
-      <aside
-        className={`main-sidebar ${activeSidebar === 'chat' ? 'collapsed' : ''}`}
-        onClick={(e) => {
-          if (activeSidebar === 'chat') {
-            setActiveSidebar('main');
-          }
-        }}
+      <button
+        className="mobile-sidebar-toggle"
+        onClick={() => setIsMobileOpen(true)}
       >
-        <div className="main-sidebar-header">
-          <img src={logoImg} alt="Auto Flow Logo" className="brand-logo" />
-          <span className="brand-name logo-container">
-            <span className="text-workflow">WorkFlow</span>
-            <span className="text-ai">&nbsp;Ai</span>
-          </span>
+        <Menu size={24} />
+      </button>
+
+      {isMobileOpen && (
+        <div className="mobile-sidebar-overlay" onClick={() => setIsMobileOpen(false)}></div>
+      )}
+
+      <div className={`mobile-sidebar-wrapper ${isMobileOpen ? 'mobile-open' : ''}`}>
+        <div className="mobile-sidebar-tabs">
+          <button className={`mobile-tab-btn ${mobileTab === 'menu' ? 'active' : ''}`} onClick={() => setMobileTab('menu')}>메뉴</button>
+          <button className={`mobile-tab-btn ${mobileTab === 'chat' ? 'active' : ''}`} onClick={() => setMobileTab('chat')}>대화 기록</button>
+          <button className="mobile-close-btn" onClick={() => setIsMobileOpen(false)} style={{ marginLeft: 'auto', padding: '0.5rem' }}>
+            <X size={20} />
+          </button>
         </div>
+
+        <div className={`mobile-tab-content ${mobileTab === 'menu' ? 'active' : ''} menu-content`}>
+          <aside
+            className={`main-sidebar ${activeSidebar === 'chat' ? 'collapsed' : ''}`}
+            onClick={(e) => {
+              if (activeSidebar === 'chat') {
+                setActiveSidebar('main');
+              }
+            }}
+          >
+            <div className="main-sidebar-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                <img src={logoImg} alt="Auto Flow Logo" className="brand-logo" />
+                <span className="brand-name logo-container">
+                  <span className="text-workflow">WorkFlow</span>
+                  <span className="text-ai">&nbsp;Ai</span>
+                </span>
+              </div>
+            </div>
 
         <nav className="main-nav">
           <button className={`nav-item ${location.pathname === '/' ? 'active' : ''}`} onClick={() => navigate('/')}>
@@ -110,6 +135,14 @@ const MainSidebar = ({ onSelectSession }) => {
           <button className={`nav-item ${location.pathname === '/patch-notes' ? 'active' : ''}`} onClick={() => navigate('/patch-notes')}>
             <ScrollText size={18} /> <span>패치 노트</span>
           </button>
+          <button className={`nav-item ${location.pathname === '/intro' ? 'active' : ''}`} onClick={() => navigate('/intro')}>
+            <Info size={18} /> <span>서비스 소개</span>
+          </button>
+          {user?.is_admin && (
+            <button className={`nav-item ${location.pathname === '/admin' ? 'active' : ''}`} onClick={() => navigate('/admin')} style={{ color: '#2ecc71' }}>
+              <Shield size={18} color="#2ecc71" /> <span>어드민 패널</span>
+            </button>
+          )}
         </nav>
 
         <div className="main-sidebar-footer">
@@ -140,15 +173,19 @@ const MainSidebar = ({ onSelectSession }) => {
           )}
         </div>
       </aside>
-      <ChatSidebar
-        isOpen={activeSidebar === 'chat'}
-        onExpand={() => setActiveSidebar('chat')}
-        onClose={() => setActiveSidebar('main')}
-        onSelectSession={onSelectSession}
-      />
+      </div>
+
+      <div className={`mobile-tab-content ${mobileTab === 'chat' ? 'active' : ''} chat-content`}>
+        <ChatSidebar
+          isOpen={activeSidebar === 'chat' || mobileTab === 'chat'}
+          onExpand={() => setActiveSidebar('chat')}
+          onClose={() => setActiveSidebar('main')}
+          onSelectSession={onSelectSession}
+        />
+      </div>
+      </div>
     </>
   );
 };
 
 export default MainSidebar;
-
