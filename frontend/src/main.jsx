@@ -5,7 +5,7 @@ window.addEventListener('unhandledrejection', function(event) {
   div.style.top = '0';
   div.style.left = '0';
   div.style.width = '100vw';
-  div.style.height = '100vh';
+  div.style.height = '100dvh';
   div.style.backgroundColor = 'darkred';
   div.style.color = 'white';
   div.style.zIndex = '999999';
@@ -23,7 +23,7 @@ window.addEventListener('error', function(event) {
   div.style.top = '0';
   div.style.left = '0';
   div.style.width = '100vw';
-  div.style.height = '100vh';
+  div.style.height = '100dvh';
   div.style.backgroundColor = 'darkred';
   div.style.color = 'white';
   div.style.zIndex = '999999';

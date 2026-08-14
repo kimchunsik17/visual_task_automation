@@ -5,7 +5,6 @@ import os
 import re
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
@@ -149,8 +148,13 @@ class EvaluationReport(BaseModel):
 # --- Evaluator Agents ---
 
 def get_eval_llm(project_id=None, langfuse_handler=None):
-    # Use gpt-4o-mini for cost-efficiency but decent logic
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    from llm.providers import create_chat_model
+
+    llm = create_chat_model(
+        profile="evaluation",
+        temperature=0.2,
+        required_capabilities={"structured_output"},
+    )
     if has_langfuse and langfuse_handler:
         tags = ["evaluation"]
         metadata = {}

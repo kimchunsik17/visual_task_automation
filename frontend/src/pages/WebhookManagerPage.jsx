@@ -118,7 +118,7 @@ export default function WebhookManagerPage() {
       <div className="main-page-layout">
         <MainSidebar />
         <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
             <h2>로그인이 필요합니다</h2>
             <p>웹훅을 관리하려면 먼저 로그인해주세요.</p>
           </div>
@@ -131,7 +131,7 @@ export default function WebhookManagerPage() {
     <div className="main-page-layout">
       <MainSidebar />
       <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-        <div className="content-area" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+        <div className="content-area" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
           <div className="page-header">
             <div>
               <h1 className="page-title"><Globe className="title-icon" /> 웹훅 관리</h1>

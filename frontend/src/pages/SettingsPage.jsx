@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Settings, User, Bell, Palette, DollarSign, AlertTriangle, Users, UserPlus, UserMinus, UserCheck, UserX, Clock, PlayCircle } from 'lucide-react';
+import { Settings, User, Palette, DollarSign, AlertTriangle, Users, UserPlus, UserMinus, UserCheck, UserX, Clock, PlayCircle, ShieldCheck } from 'lucide-react';
 import MainSidebar from '../MainSidebar';
 import { useAuth } from '../AuthContext';
 import { customConfirm } from '../CustomConfirm';
@@ -14,6 +14,7 @@ function SettingsPage() {
   const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme') || 'dark');
   const [tokenDisplayMode, setTokenDisplayMode] = useState(localStorage.getItem('tokenDisplayMode') || 'tokens');
   const [costCurrency, setCostCurrency] = useState(localStorage.getItem('costCurrency') || 'USD');
+  const [trainingConsent, setTrainingConsent] = useState(localStorage.getItem('llmTrainingConsent') === 'true');
   const [friends, setFriends] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
   const [newFriendEmail, setNewFriendEmail] = useState('');
@@ -79,6 +80,21 @@ function SettingsPage() {
     localStorage.setItem('costCurrency', currency);
   };
 
+  const handleTrainingConsentChange = async (enabled) => {
+    setTrainingConsent(enabled);
+    localStorage.setItem('llmTrainingConsent', String(enabled));
+    if (!enabled && token) {
+      try {
+        await axios.delete('/api/training-data/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch (error) {
+        console.error('Failed to delete training data:', error);
+        alert('기존 학습 데이터를 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.');
+      }
+    }
+  };
+
   const handleReplayTutorial = (page) => {
     if (page === 'main') {
       localStorage.removeItem('tutorial_main_seen_v1');
@@ -107,6 +123,7 @@ function SettingsPage() {
     { id: 'friends', label: '친구', icon: <Users size={16} />, badge: friendRequests.length },
     { id: 'appearance', label: '화면', icon: <Palette size={16} /> },
     { id: 'tokens', label: '토큰', icon: <DollarSign size={16} /> },
+    { id: 'privacy', label: '데이터', icon: <ShieldCheck size={16} /> },
   ];
 
   const card = { background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', boxShadow: 'var(--card-shadow)' };
@@ -351,6 +368,31 @@ function SettingsPage() {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {activeTab === 'privacy' && (
+                <div style={card}>
+                  <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 0, color: 'var(--text-color)' }}>
+                    <ShieldCheck size={18} color="#10b981" /> AI 학습 데이터
+                  </h4>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', marginTop: '1rem', cursor: 'pointer' }}>
+                    <span>
+                      <strong style={{ display: 'block', color: 'var(--text-color)', marginBottom: '0.35rem' }}>품질 개선 데이터 제공</strong>
+                      <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.55 }}>
+                        동의 이후 생성한 요청과 채택된 워크플로우만 수집 대상이 됩니다. API 키, 토큰, 이메일과 UI 상태는 저장 전에 제거됩니다.
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={trainingConsent}
+                      onChange={(event) => handleTrainingConsentChange(event.target.checked)}
+                      style={{ width: '20px', height: '20px', marginTop: '0.15rem', accentColor: '#10b981', flexShrink: 0 }}
+                    />
+                  </label>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: '1rem 0 0 0', lineHeight: 1.5 }}>
+                    이 설정을 끄면 이후 수집이 중단되고 기존 학습 후보도 서버에서 삭제됩니다. 제품 기능에는 영향이 없습니다.
+                  </p>
                 </div>
               )}
 

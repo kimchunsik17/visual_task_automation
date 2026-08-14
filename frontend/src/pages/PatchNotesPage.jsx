@@ -17,7 +17,7 @@ export default function PatchNotesPage() {
     <div className="main-page-layout">
       <MainSidebar />
       <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-        <div className="content-area" style={{ width: '100%', maxWidth: '900px', margin: '0 auto', padding: '2rem' }}>
+        <div className="content-area" style={{ width: '100%', maxWidth: '900px', margin: '0 auto' }}>
           <div className="page-header">
             <div>
               <h1 className="page-title"><ScrollText className="title-icon" /> 패치 노트</h1>

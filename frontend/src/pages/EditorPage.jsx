@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square, Network, TestTube, ChevronsDown, ChevronsUp, Undo2, Redo2 } from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, Send, Bot, BrainCircuit, History, TerminalSquare, X, Square, Network, TestTube, ChevronsDown, ChevronsUp, Undo2, Redo2, Plus, MoreVertical } from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
@@ -198,6 +198,8 @@ function FlowContent() {
   const [estimatedTokens, setEstimatedTokens] = useState(null);
   const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
   const [systemLogs, setSystemLogs] = useState([]);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [isMobileToolsDrawerOpen, setIsMobileToolsDrawerOpen] = useState(false);
   const [isExecutionPanelOpen, setIsExecutionPanelOpen] = useState(false);
   const [executionPanelTab, setExecutionPanelTab] = useState('result'); // 'result' or 'logs' or 'evaluation'
   const [executionPanelHeight, setExecutionPanelHeight] = useState(300); // initial height in px
@@ -259,6 +261,7 @@ function FlowContent() {
   const [isOwner, setIsOwner] = useState(true); // Default true for new projects
   const [currentId, setCurrentId] = useState(projectId);
   const [draftSessionId, setDraftSessionId] = useState(null);
+  const [latestGenerationTraceId, setLatestGenerationTraceId] = useState(location.state?.traceId || null);
 
   // Configure Axios auth header
   const getAuthHeaders = () => token ? { headers: { Authorization: `Bearer ${token}` } } : {};
@@ -351,7 +354,7 @@ function FlowContent() {
     }
   };
 
-  const handleSave = async (overrideVisibility = null, overrideFlowData = null) => {
+  const handleSave = async (overrideVisibility = null, overrideFlowData = null, overrideTraceId = null) => {
     if (!user) {
       alert("프로젝트를 저장하려면 로그인이 필요합니다. 왼쪽 메뉴에서 구글 계정으로 로그인해주세요.");
       return null;
@@ -365,7 +368,8 @@ function FlowContent() {
         title: projectTitle,
         description: projectDescription,
         graph_data: overrideFlowData || getCurrentFlowData(),
-        visibility: overrideVisibility !== null ? overrideVisibility : visibility
+        visibility: overrideVisibility !== null ? overrideVisibility : visibility,
+        generation_trace_id: overrideTraceId || latestGenerationTraceId,
       };
 
       if (currentId) {
@@ -664,8 +668,27 @@ function FlowContent() {
         return nds.concat(newNode);
       });
     },
-    [screenToFlowPosition, setNodes, onNodeDataChange, deleteNode],
+    [screenToFlowPosition, setNodes, onNodeDataChange, deleteNode, onExpandChange],
   );
+
+  const handleNodeTap = useCallback((type, label) => {
+    // Determine screen center for the node spawn point on mobile
+    const position = screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    });
+
+    const newNode = {
+      id: getId(),
+      type,
+      position,
+      data: { label: `${type} node`, onChange: onNodeDataChange, onDelete: deleteNode, onExpandChange },
+      zIndex: type === 'loopNode' ? -1 : 1,
+    };
+
+    setNodes((nds) => nds.concat(newNode));
+    setIsPaletteOpen(false); // Close palette after adding
+  }, [screenToFlowPosition, setNodes, onNodeDataChange, deleteNode, onExpandChange]);
 
   const { getIntersectingNodes } = useReactFlow();
 
@@ -1046,6 +1069,7 @@ function FlowContent() {
         message: userMessage,
         graph_data: getCurrentFlowData(),
         complexity_level: complexityLevel,
+        training_consent: localStorage.getItem('llmTrainingConsent') === 'true',
       };
       
       abortControllerRef.current = new AbortController();
@@ -1053,7 +1077,11 @@ function FlowContent() {
         ...getAuthHeaders(),
         signal: abortControllerRef.current.signal
       });
-      const { reply, graph_data } = res.data;
+      const { reply, graph_data, trace_id, generation_outcome } = res.data;
+
+      if (trace_id && generation_outcome === 'graph') {
+        setLatestGenerationTraceId(trace_id);
+      }
 
       if (reply) {
         setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
@@ -1188,7 +1216,11 @@ function FlowContent() {
             nodes: finalNodes.map(n => ({ id: n.id, type: n.type, position: n.position, data: stripUIPropsForSave(n.data) })),
             edges: finalEdges,
           };
-          const savedId = await handleSave(null, overrideFlowData);
+          const savedId = await handleSave(
+            null,
+            overrideFlowData,
+            generation_outcome === 'graph' ? trace_id : null,
+          );
           if (savedId) {
             setSystemLogs(prev => [...prev, `> ✓ 워크플로우가 자동으로 저장되었습니다 (프로젝트 #${savedId})`]);
           }
@@ -1264,46 +1296,7 @@ function FlowContent() {
               <span style={{ fontWeight: 600, color: 'var(--text-color)', fontSize: '1.1rem' }}>{projectTitle || 'Untitled Project'}</span>
               <Settings size={14} color="var(--text-muted)" />
             </button>
-            <button
-              onClick={() => setIsTokenDrawerOpen(!isTokenDrawerOpen)}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: isTokenTrackingMode ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                border: '1px solid',
-                borderColor: isTokenTrackingMode ? '#3b82f6' : 'var(--border-color)',
-                color: isTokenTrackingMode ? '#60a5fa' : 'var(--text-muted)',
-                cursor: 'pointer', padding: '0.2rem 0.5rem', borderRadius: '6px',
-                fontSize: '0.8rem', gap: '4px'
-              }}
-              title="토큰 통계 보기"
-            >
-              <BrainCircuit size={14} /> 통계
-            </button>
 
-            {isTokenDrawerOpen && (
-              <div style={{
-                position: 'absolute', top: '100%', left: '100%', marginTop: '0.5rem', marginLeft: '1rem',
-                background: 'var(--card-bg)', border: '1px solid var(--border-color)',
-                borderRadius: '8px', padding: '1.5rem', width: '320px',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 100
-              }}>
-                <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#60a5fa', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>워크플로우 토큰 통계</h3>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>1회 실행 예상 (Min ~ Max)</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-color)' }}>
-                    {estimatedTokens ? `${formatTokenDisplay(estimatedTokens.total_estimated_tokens)} ~ ${formatTokenDisplay(estimatedTokens.total_max_tokens)}` : '-'}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>마지막 실행 실제 소모량</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#10b981' }}>
-                    {tokenUsage ? formatTokenDisplay(tokenUsage.total_tokens) : '-'}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {isDrawerOpen && (
               <div style={{
@@ -1346,7 +1339,7 @@ function FlowContent() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+        <div className={`tools-container ${isMobileToolsDrawerOpen ? 'mobile-open' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
 
           {/* Project Management Group */}
           {isOwner && (
@@ -1367,7 +1360,7 @@ function FlowContent() {
                   <option value="public" style={{ background: 'var(--bg-color)', color: 'var(--text-color)' }}>공개</option>
                 </select>
               </div>
-              <button className="btn-secondary" onClick={() => { handleSave().then(s => s && alert("저장되었습니다.")); }} title="저장">
+              <button className="btn-secondary desktop-only-tool" onClick={() => { handleSave().then(s => s && alert("저장되었습니다.")); }} title="저장">
                 <Save size={16} />
               </button>
             </div>
@@ -1395,7 +1388,7 @@ function FlowContent() {
               </button>
             )}
             <button
-              className="btn-secondary"
+              className="btn-secondary desktop-only-tool"
               onClick={handleUndoChat}
               disabled={chatHistoryIndex <= 0 || isChatLoading}
               title={chatHistoryIndex > 0 ? `되돌리기 ("${chatHistory[chatHistoryIndex]?.label || ''}" 이전으로)` : '되돌릴 챗봇 작업이 없습니다'}
@@ -1403,7 +1396,7 @@ function FlowContent() {
               <Undo2 size={16} />
             </button>
             <button
-              className="btn-secondary"
+              className="btn-secondary desktop-only-tool"
               onClick={handleRedoChat}
               disabled={chatHistoryIndex < 0 || chatHistoryIndex >= chatHistory.length - 1 || isChatLoading}
               title={chatHistoryIndex >= 0 && chatHistoryIndex < chatHistory.length - 1 ? `다시 실행 ("${chatHistory[chatHistoryIndex + 1]?.label || ''}")` : '다시 실행할 작업이 없습니다'}
@@ -1415,25 +1408,25 @@ function FlowContent() {
               setNodes([...layouted.nodes]);
               setEdges([...layouted.edges]);
             }} title="자동 정렬 (Beautify)" style={{ color: '#14b8a6', borderColor: '#14b8a6' }}>
-              <Network size={16} /> 정렬
+              <Network size={16} /><span className="mobile-tool-label" style={{ color: '#14b8a6' }}>정렬</span>
             </button>
             <button className="btn-secondary" onClick={() => setExpandAllCommand({ action: 'expand', token: Date.now() })} title="모든 노드 펼치기">
-              <ChevronsDown size={16} />
+              <ChevronsDown size={16} /><span className="mobile-tool-label">노드 펼치기</span>
             </button>
             <button className="btn-secondary" onClick={() => setExpandAllCommand({ action: 'collapse', token: Date.now() })} title="모든 노드 접기">
-              <ChevronsUp size={16} />
+              <ChevronsUp size={16} /><span className="mobile-tool-label">노드 접기</span>
             </button>
             <button className="btn-secondary" onClick={() => setIsTemplateModalOpen(true)} title="템플릿 불러오기">
-              <Folder size={16} />
+              <Folder size={16} /><span className="mobile-tool-label">템플릿</span>
             </button>
             {currentId && (
               <button className="btn-secondary" onClick={() => navigate(`/project/${currentId}/runs`, { state: { fromEditor: true } })} style={{ color: '#10b981', borderColor: '#10b981' }} title="실행 기록">
-                <History size={16} />
+                <History size={16} /><span className="mobile-tool-label" style={{ color: '#10b981' }}>실행 기록</span>
               </button>
             )}
             {isOwner && currentId && (
               <button className="btn-secondary" onClick={handleOpenDeployModal} style={{ color: '#8b5cf6', borderColor: '#8b5cf6' }} title="배포">
-                <Wand2 size={16} />
+                <Wand2 size={16} /><span className="mobile-tool-label" style={{ color: '#8b5cf6' }}>배포</span>
               </button>
             )}
           </div>
@@ -1473,6 +1466,43 @@ function FlowContent() {
             >
               추적 {isTokenTrackingMode ? 'ON' : 'OFF'}
             </button>
+            <div style={{ position: 'relative' }}>
+              <button
+                className="btn-secondary"
+                onClick={() => setIsTokenDrawerOpen(!isTokenDrawerOpen)}
+                style={{
+                  background: isTokenTrackingMode ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                  borderColor: isTokenTrackingMode ? '#3b82f6' : 'var(--border-color)',
+                  color: isTokenTrackingMode ? '#60a5fa' : 'var(--text-muted)',
+                }}
+                title="토큰 통계 보기"
+              >
+                <BrainCircuit size={16} /> 통계
+              </button>
+
+              {isTokenDrawerOpen && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', marginTop: '0.5rem',
+                  background: 'var(--card-bg)', border: '1px solid var(--border-color)',
+                  borderRadius: '8px', padding: '1.5rem', width: '300px',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 100
+                }}>
+                  <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#60a5fa', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>워크플로우 토큰 통계</h3>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>1회 실행 예상 (Min ~ Max)</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-color)' }}>
+                      {estimatedTokens ? `${formatTokenDisplay(estimatedTokens.total_estimated_tokens)} ~ ${formatTokenDisplay(estimatedTokens.total_max_tokens)}` : '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>마지막 실행 실제 소모량</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#10b981' }}>
+                      {tokenUsage ? formatTokenDisplay(tokenUsage.total_tokens) : '-'}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.5rem' }}>
@@ -1487,19 +1517,40 @@ function FlowContent() {
                 {isAutoImproving ? '자동 개선 중...' : '자동 개선'}
               </button>
             </div>
-
-            {/* Primary Action */}
-            <button className="btn-run" onClick={runFlow} disabled={isLoading || isEvaluating}>
-              <Play size={18} />
-              {isLoading ? '실행 중...' : '실행'}
-            </button>
           </div>
+        </div>
+
+        {/* Primary Action and Mobile Toggle */}
+        <div className="primary-action-container" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {isOwner && (
+            <button className="btn-secondary mobile-only-tool" onClick={() => { handleSave().then(s => s && alert("저장되었습니다.")); }} title="저장">
+              <Save size={18} />
+            </button>
+          )}
+          <button className="btn-secondary mobile-only-tool" onClick={handleUndoChat} disabled={chatHistoryIndex <= 0 || isChatLoading} title="되돌리기">
+            <Undo2 size={18} />
+          </button>
+          <button className="btn-secondary mobile-only-tool" onClick={handleRedoChat} disabled={chatHistoryIndex < 0 || chatHistoryIndex >= chatHistory.length - 1 || isChatLoading} title="다시 실행">
+            <Redo2 size={18} />
+          </button>
+          <button className="btn-run" onClick={runFlow} disabled={isLoading || isEvaluating}>
+            <Play size={18} />
+            <span className="run-text">{isLoading ? '실행 중...' : '실행'}</span>
+          </button>
+          <button className="mobile-tools-toggle-btn" onClick={() => setIsMobileToolsDrawerOpen(true)}>
+            <MoreVertical size={20} />
+          </button>
         </div>
       </header>
 
+      {isMobileToolsDrawerOpen && <div className="mobile-tools-overlay" onClick={() => setIsMobileToolsDrawerOpen(false)}></div>}
+
       <main className="main-content">
-        <Sidebar />
+        <Sidebar isMobileOpen={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} onNodeTap={handleNodeTap} />
         <div className="flow-wrapper" ref={reactFlowWrapper}>
+          <button className="mobile-palette-toggle" onClick={() => setIsPaletteOpen(true)} title="노드 팔레트 열기">
+            <Plus size={24} />
+          </button>
           <ReactFlow
             nodes={enrichedNodes}
             edges={edges.map(e => ({
@@ -1511,6 +1562,12 @@ function FlowContent() {
             onEdgesChange={onEdgesChange}
             onEdgesDelete={onEdgesDelete}
             onNodesDelete={onNodesDelete}
+            onEdgeContextMenu={(e, edge) => {
+              e.preventDefault();
+              customConfirm('이 연결선을 삭제하시겠습니까?', () => {
+                setEdges((eds) => eds.filter((edg) => edg.id !== edge.id));
+              });
+            }}
             onConnect={onConnect}
             onDrop={onDrop}
             onDragOver={onDragOver}
@@ -1524,36 +1581,39 @@ function FlowContent() {
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
             colorMode={appTheme}
-            panOnDrag={[1, 2]}
-            selectionOnDrag={true}
+            panOnDrag={window.innerWidth <= 768 ? true : [1, 2]}
+            selectionOnDrag={window.innerWidth > 768}
             selectionMode="partial"
-            panOnScroll={true}
+            panOnScroll={window.innerWidth > 768}
+            zoomOnScroll={true}
             onContextMenu={(e) => e.preventDefault()}
           >
-            <Controls />
-            <MiniMap
-              nodeColor={(node) => {
-                switch (node.type) {
-                  case 'startNode': return '#22c55e';
-                  case 'promptNode': return '#10b981';
-                  case 'llmNode': return '#8b5cf6';
-                  case 'outputNode': return '#f59e0b';
-                  case 'loopNode': return '#eab308';
-                  case 'breakNode': return '#ef4444';
-                  case 'pythonNode': return '#3b82f6';
-                  case 'tokenizerNode': return '#10b981';
-                  case 'distributorNode': return '#8b5cf6';
-                  case 'fileModifierNode': return '#f97316';
-                  case 'delayNode': return '#3b82f6';
-                  case 'jsonParserNode': return '#eab308';
-                  case 'mergeNode': return '#ec4899';
-                  case 'httpRequestNode': return '#0ea5e9';
-                  case 'databaseNode': return '#059669';
-                  case 'humanApprovalNode': return '#f43f5e';
-                  default: return '#eee';
-                }
-              }}
-            />
+            {window.innerWidth > 768 && <Controls />}
+            {window.innerWidth > 768 && (
+              <MiniMap
+                nodeColor={(node) => {
+                  switch (node.type) {
+                    case 'startNode': return '#22c55e';
+                    case 'promptNode': return '#10b981';
+                    case 'llmNode': return '#8b5cf6';
+                    case 'outputNode': return '#f59e0b';
+                    case 'loopNode': return '#eab308';
+                    case 'breakNode': return '#ef4444';
+                    case 'pythonNode': return '#3b82f6';
+                    case 'tokenizerNode': return '#10b981';
+                    case 'distributorNode': return '#8b5cf6';
+                    case 'fileModifierNode': return '#f97316';
+                    case 'delayNode': return '#3b82f6';
+                    case 'jsonParserNode': return '#eab308';
+                    case 'mergeNode': return '#ec4899';
+                    case 'httpRequestNode': return '#0ea5e9';
+                    case 'databaseNode': return '#059669';
+                    case 'humanApprovalNode': return '#f43f5e';
+                    default: return '#eee';
+                  }
+                }}
+              />
+            )}
             <Background variant="dots" gap={24} size={2} color={appTheme === 'dark' ? '#64748b' : '#94a3b8'} />
           </ReactFlow>
         </div>
@@ -1581,26 +1641,14 @@ function FlowContent() {
 
       {/* LLM Assistant Floating Button */}
       <button
+        className="chatbot-toggle-btn"
         data-tutorial="ai-assistant-btn"
         onClick={() => setIsAssistantOpen(!isAssistantOpen)}
         style={{
-          position: 'fixed',
-          bottom: '2rem',
-          right: '2rem',
-          width: '56px',
-          height: '56px',
-          borderRadius: '50%',
-          background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
-          border: 'none',
-          boxShadow: '0 4px 14px rgba(139, 92, 246, 0.4)',
-          color: 'var(--text-color)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          zIndex: 1000,
-          transition: 'transform 0.2s',
-          transform: isAssistantOpen ? 'scale(0.9)' : 'scale(1)'
+          transform: isAssistantOpen ? 'scale(0.9)' : 'scale(1)',
+          opacity: isAssistantOpen ? 0 : 1,
+          pointerEvents: isAssistantOpen ? 'none' : 'auto',
+          transition: 'all 0.2s'
         }}
       >
         <Sparkles size={24} />
@@ -1639,7 +1687,10 @@ function FlowContent() {
           borderTopRightRadius: '16px'
         }}>
           <Bot size={20} color="#a78bfa" />
-          <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-color)', fontWeight: 600 }}>AI 워크플로우 어시스턴트</h3>
+          <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-color)', fontWeight: 600, flex: 1 }}>AI 워크플로우 어시스턴트</h3>
+          <button onClick={() => setIsAssistantOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem', display: 'flex', alignItems: 'center' }}>
+            <X size={18} />
+          </button>
         </div>
 
         {/* Chat Messages */}
@@ -2177,5 +2228,3 @@ function EditorPage() {
 }
 
 export default EditorPage;
-
-

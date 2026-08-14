@@ -135,13 +135,17 @@ function MainPage() {
         message: userMessage,
         graph_data: { nodes: [], edges: [] },
         complexity_level: complexityLevel,
+        training_consent: localStorage.getItem('llmTrainingConsent') === 'true',
       };
       const authHeaders = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
       const res = await axios.post('/api/chat', payload, authHeaders);
-      const { reply, graph_data, clarification } = res.data;
+      const { reply, graph_data, clarification, trace_id, generation_outcome } = res.data;
 
       if (reply) {
-        setMessages(prev => [...prev, { role: 'ai', content: reply, graph_data, clarification, prompt: userMessage }]);
+        setMessages(prev => [...prev, {
+          role: 'ai', content: reply, graph_data, clarification, prompt: userMessage,
+          trace_id, generation_outcome
+        }]);
       }
     } catch (error) {
       console.error(error);
@@ -346,7 +350,7 @@ function MainPage() {
   );
 
   return (
-    <div className="main-page-layout" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div className="main-page-layout" style={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
       <MainSidebar
         isCollapsed={false}
         onSelectSession={handleSelectSession}
@@ -358,19 +362,16 @@ function MainPage() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100%', padding: '2rem' }}>
             <div style={{ width: '100%', maxWidth: '768px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
-              <div style={{ marginBottom: '2.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <h1 style={{ fontFamily: "'Noto Sans KR', sans-serif", display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '2.5rem', fontWeight: 500, color: 'var(--text-color)', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
-                  <img src={logoImg} alt="Logo" style={{ width: '65px', height: '65px', objectFit: 'contain' }} />
-                  쉽고 빠른 업무 자동화 시작하기
+              <div style={{ marginBottom: '2.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                <img src={logoImg} alt="Logo" className="hero-logo" style={{ width: '80px', height: '80px', objectFit: 'contain' }} />
+                <h1 style={{ fontFamily: "'Noto Sans KR', sans-serif", fontSize: '2.5rem', fontWeight: 500, color: 'var(--text-color)', marginBottom: '0', letterSpacing: '-0.02em', textAlign: 'center' }}>
+                  쉽고 빠른 업무 자동화
                 </h1>
-                <p style={{ fontFamily: "'Noto Sans KR', sans-serif", color: 'var(--text-muted)', fontSize: '1.1rem' }}>
-                  {user ? `${user.name.split(' ')[0]}님, ` : ''}오늘은 어떤 Workflow를 자동화해볼까요?
-                </p>
               </div>
 
               {renderInputBox()}
 
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center', marginTop: '0.5rem' }}>
+              <div className="hints-container" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center', marginTop: '0.5rem' }}>
 
                 {hints.map((hint, i) => (
                   <button key={`hint-${i}`} onClick={() => setAutoPrompt(hint)} style={{
@@ -403,7 +404,12 @@ function MainPage() {
                         {msg.graph_data?.nodes?.length > 0 && (
                           <div style={{ marginTop: '1rem' }}>
                             <button
-                              onClick={() => navigate('/editor', { state: { initialGraph: msg.graph_data, prompt: msg.prompt || '', draftId: draftIdRef.current } })}
+                              onClick={() => navigate('/editor', { state: {
+                                initialGraph: msg.graph_data,
+                                prompt: msg.prompt || '',
+                                draftId: draftIdRef.current,
+                                traceId: msg.generation_outcome === 'graph' ? msg.trace_id : null,
+                              } })}
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',

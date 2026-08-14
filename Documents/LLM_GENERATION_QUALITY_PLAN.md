@@ -367,4 +367,163 @@ SFT로 해결하지 않을 대상:
 
 ## 11. 다음 작업
 
-첫 구현 단위는 Phase 0과 Phase 1이다. 먼저 평가 결과를 신뢰할 수 있게 만들고, 모든 모델 호출을 provider adapter 뒤로 모은다. 이 두 단계가 끝나야 이후 프롬프트 변경, 로컬 모델 비교, 파인튜닝의 개선 효과를 같은 기준으로 판단할 수 있다.
+Phase 2의 구조 및 의미 repair를 안정화한 뒤 Phase 3의 `GenerationTrace` 저장으로 이동한다. 일상 개발에서는 Mock 회귀 테스트와 영향 사례 targeted 평가만 사용하고, 30개 전체 평가는 주요 마일스톤에서 명시적으로 실행한다.
+
+## 12. 구현 진행 상황
+
+### 2026-08-14: Phase 0 및 Phase 1
+
+- [x] `run_agent_turn()`의 비동기 호출과 4개 반환값 계약 반영
+- [x] 대표 시나리오 5개를 30개로 확장
+- [x] 스키마, 필수 노드, 경로, 필수 데이터, 분기 핸들, validator, 생성 코드 컴파일 평가 추가
+- [x] SSE 형식 수정 및 실행 결과 JSON 저장
+- [x] hosted OpenAI, OpenAI-compatible local, Google, Anthropic, mock provider adapter 추가
+- [x] 생성, 실행, 평가, 제목 생성의 직접 SDK 호출을 provider 모듈 뒤로 이동
+- [x] 모델 profile과 provider capability 환경 설정 추가
+
+첫 전체 기준선(`generation-baseline-v2`, run `20260814T082436Z-f428d63b`):
+
+| 지표 | 결과 |
+| --- | ---: |
+| 전체 통과 | 6 / 30 |
+| 평균 점수 | 48.2 |
+| Schema pass rate | 100.0% |
+| Structural pass rate | 33.3% |
+| Compile pass rate | 40.0% |
+| Intent coverage | 53.2% |
+| 평균 지연시간 | 7.04초 |
+| 총 토큰 | 424,839 |
+
+런타임 예외는 없었으며, 18개 실패는 메타 에이전트가 필수 정보를 되묻고 그래프를 생성하지 않은 경우였다. 따라서 Phase 2의 첫 작업은 질문이 필요한 요청과 placeholder 및 합리적 기본값으로 즉시 생성할 요청을 구조적으로 구분하는 `TaskSpec` 도입이다.
+
+### 2026-08-14: Phase 2 첫 구현
+
+- [x] `TaskSpec` 구조화 단계와 `task-spec-v1` prompt 추가
+- [x] 설정값, 자격증명, 실행 시 입력값은 placeholder/dynamic input으로 처리하는 clarification 정책 추가
+- [x] 실제 routing 선택 및 위험 결정만 구조화된 확인 질문 허용
+- [x] RAG 검색과 TaskSpec 정규화를 병렬 실행하고 사용량 및 지연시간 기록
+- [x] 새 그래프의 최종 완전성 검증과 도달 불가능 노드/죽은 엣지의 결정론적 repair 추가
+- [x] 상위 에이전트의 후속 편집이 그래프를 망가뜨릴 때 마지막 검증 통과 그래프로 복원
+- [x] 생성 재시도 최대 3회 및 생성 도구 전체 75초 timeout 추가
+- [x] 평가 요청의 일시적 429 rate limit 재시도 추가
+- [x] 모호한 요청의 구조화된 clarification을 올바른 평가 결과로 분리
+
+동일 30개 사례의 첫 `task-spec-v1` 비교 실행(run `20260814T083927Z-75553f55`) 결과:
+
+| 지표 | Phase 0 기준선 | TaskSpec 첫 실행 |
+| --- | ---: | ---: |
+| 전체 통과 | 6 / 30 | 17 / 30 |
+| 평균 점수 | 48.2 | 76.2 |
+| Structural pass rate | 33.3% | 69.0% |
+| Compile pass rate | 40.0% | 79.3% |
+| Intent coverage | 53.2% | 76.8% |
+
+이 실행에서는 3건이 API TPM rate limit으로 실패했다. 재시도 정책 추가 후 해당 유형을 포함한 실패 대표 사례 8건을 다시 실행한 결과 런타임 오류 없이 평균 85.0점, 구조화 출력 100%, 컴파일 100%를 기록했다. 남은 작업은 validator 오류 코드 표준화와 일반화 가능한 의미 repair 확장이다.
+
+### 2026-08-14: Phase 2 repair 및 평가 비용 제어
+
+- [x] validator 메시지를 안정적인 오류 코드와 구조화된 `ValidationIssue`로 변환
+- [x] 전체 재생성 대신 제한된 `FlowRepairPlan` 부분 수정 적용
+- [x] 동일 오류 반복 중단, 부분 수정 횟수 및 시간 제한 적용
+- [x] webhook, API, JSON, 문서 서식, 반복, 분배, 조건 병합의 TaskSpec 의미 커버리지 검사 추가
+- [x] 실행 입력, 연동 노드, 트리거, 문서 파이프라인의 결정론적 최소 repair 추가
+- [x] bounded loop back-edge와 distributor done 경로를 실제 실행 계약에 맞게 검증
+- [x] 상위 agent가 즉시 생성 결정을 놓친 경우 직접 생성 fallback 추가
+
+첫 전체 `generation-repair-v1` 실행은 22/30 통과, 평균 90.4점, 의미 커버리지 90.2%를 기록했지만 총 465,190토큰을 사용했다. 이후 수정 과정에서 전체 평가 반복 비용이 지나치게 커지는 문제가 확인되어 다음 비용 정책을 코드로 강제했다.
+
+| 평가 방식 | 기본 범위 | API 토큰 정책 |
+| --- | ---: | --- |
+| 로컬 회귀 | Mock 기반 전체 단위 테스트 | API 토큰 0 |
+| smoke | 대표 사례 1, 6, 28 | 기본 평가 프로필 |
+| targeted | 변경 영향 사례 | 한 번에 최대 5개 |
+| full | 전체 30개 | `profile=full`을 명시한 경우만 허용 |
+
+- 기본 평가 토큰 예산은 60,000이며 다음 사례의 예상 사용량을 더하면 초과할 때 자동 중단한다.
+- 전체 평가도 기본 500,000토큰 상한을 갖는다.
+- 같은 평가 버전, 소스 지문, provider, model, prompt의 통과 결과는 캐시하며 재사용 시 API 토큰을 집계하지 않는다.
+- 실패 결과는 캐시하지 않아 수정 후 다시 평가할 수 있다.
+- 평가 화면은 대표 3개만 기본 선택하며, 전체 평가는 별도 모드와 확인 절차를 요구한다.
+- 전체 30개 실행은 릴리스 후보, 모델 변경, prompt/schema 버전 변경 같은 주요 마일스톤에서만 수행한다.
+
+### 2026-08-14: Phase 3 GenerationTrace 최소 구현
+
+- [x] 요청마다 UUID `trace_id`를 생성하고 API 응답에 포함
+- [x] provider, model profile/name, TaskSpec/repair prompt 버전 기록
+- [x] outcome, validator issue code, repair note, 토큰, 지연시간 기록
+- [x] 최종 그래프는 노드 데이터 없이 노드 타입별 개수와 엣지 개수만 저장
+- [x] 성공, 설명 가능한 실패, 예외, 사용자 취소를 같은 trace 스키마로 저장
+- [x] Langfuse 호출 metadata에 내부 `generation_trace_id` 연결
+- [x] 프로젝트 소유자용 `GET /api/projects/{project_id}/generation-traces` 조회 API 추가
+- [x] `generation-trace-v1` 스키마와 로컬 DB 저장 테스트 추가
+
+민감 정보 정책:
+
+- 기본값 `GENERATION_TRACE_STORE_CONTENT=false`에서는 프롬프트 원문과 TaskSpec 내용을 저장하지 않는다.
+- 대신 요청 SHA-256, 글자 수, 그래프 구조 요약을 저장한다.
+- 원문 저장을 명시적으로 켜도 API key, bearer token, password, email을 마스킹하고 길이를 제한한다.
+- 노드 `data`와 credential 값은 trace에 저장하지 않는다.
+
+### 2026-08-14: Phase 3 채택 및 수정량 추적
+
+- [x] 생성 그래프의 노드 데이터는 저장하지 않고 HMAC 지문과 내부 비교 서명만 저장
+- [x] 위치와 UI 상태를 제외해 자동 정렬을 사용자 수정으로 잘못 집계하지 않도록 처리
+- [x] 프로젝트 생성 및 저장 요청에 `generation_trace_id` 연결
+- [x] 저장 그래프와 생성 그래프를 `accepted`, `partially_modified`, `discarded`로 분류
+- [x] 추가, 삭제, 수정된 노드와 추가, 삭제된 엣지 수 및 수정 비율 기록
+- [x] 일반 대화 trace가 생성 채택으로 집계되지 않도록 `graph` outcome만 연결
+- [x] 조회 API에서는 비교용 내부 서명을 제거하고 채택 상태와 수정 지표만 반환
+
+`GENERATION_TRACE_HASH_SALT`는 운영 환경에서 별도의 긴 난수로 설정한다. 지표가 없는 trace는 사용자가 아직 저장하지 않았거나 생성 결과가 아닌 경우이며, 이를 폐기로 추정하지 않는다. 이 데이터는 Phase 5에서 그대로 채택되었거나 적은 수정으로 채택된 결과를 우선 선별하는 품질 신호로 사용한다.
+
+다음 구현 단위는 dry-run sandbox다. 컴파일 성공만으로 잡히지 않는 노드 실행 오류를 외부 부작용 없이 검출하고, 실패 노드와 오류 코드를 GenerationTrace 및 평가 결과에 연결한다.
+
+### 2026-08-14: Phase 2 dry-run sandbox
+
+- [x] validator와 생성 Python의 AST 및 bytecode 컴파일을 함께 검사
+- [x] 시작 노드부터 도달 가능한 모든 실행 경로와 등록되지 않은 노드 검사
+- [x] 네트워크, 메시지 발송, 데이터 저장, 파일 쓰기, 사용자 Python 실행 차단
+- [x] 차단된 부작용과 고위험 노드를 실패가 아닌 별도 실행 단계로 기록
+- [x] GenerationTrace에 `dry-run-v1` 결과 연결
+- [x] 평가 결과와 요약에 `dry_run_passed`, `dry_run_pass_rate` 추가
+- [x] 인증 사용자용 `POST /api/dry-run` 추가
+
+### 2026-08-14: Phase 4 로컬 PoC 실행 기반
+
+- [x] OpenAI-compatible 로컬 `/models` health check 및 모델 노출 확인
+- [x] 로컬 전용 모델 profile과 endpoint 설정 분리
+- [x] tool calling 및 structured output 래핑 이후에도 동작하는 local-first fallback 라우터
+- [x] 요청 문자열 해시 기반의 안정적인 로컬 트래픽 비율 적용
+- [x] 고위험 요청 hosted 강제 정책과 fallback 지표 수집
+- [x] 동일 평가 세트로 여러 로컬 모델을 비교하는 `local_benchmark.py` 추가
+- [ ] RTX 5070 Ti에서 실제 7~8B 및 12~14B 후보 실행과 결과 기록
+
+실제 GPU 벤치마크는 메인 PC의 로컬 endpoint와 모델 파일이 필요하다. 코드 구현 완료와 모델 품질 기준 충족을 구분하며, 실행 전까지 Phase 4의 하드웨어 완료 조건은 미충족으로 둔다.
+
+### 2026-08-14: Phase 5 QLoRA 파이프라인
+
+- [x] 서버 수집 switch와 사용자별 명시적 동의의 이중 gate
+- [x] 자격증명, 토큰, 이메일, UI 상태를 제거한 학습 후보 저장
+- [x] 실제 저장 그래프와 채택·수정량을 학습 후보에 연결
+- [x] 큰 수정 사례 제외 및 프로젝트 단위 train/validation/hidden test 분리
+- [x] 생성 SFT와 부분 repair JSONL 데이터셋 exporter
+- [x] 4-bit NF4, gradient checkpointing, batch 1 기반 7B/14B QLoRA 설정
+- [x] adapter, prompt, schema, dataset 버전 재현 metadata 저장
+- [x] 외부 API 없이 재현 가능한 `synthetic-v1` 500개 생성기 추가
+- [x] 생성 300개와 repair 150개 최종 그래프의 validator 및 dry-run 전수 통과
+- [x] clarification 50개, 도메인 그룹 split, 평가 문장 누수·중복·민감정보 검사
+- [x] 합성 데이터 혼합 학습용 7B/14B QLoRA 설정과 생성 회귀 테스트
+- [ ] 충분한 동의·채택 데이터 확보 후 실제 학습 및 hidden test 비교
+
+### 2026-08-14: Phase 6 점진적 운영 전환 기반
+
+- [x] `provider`, `local`, `hybrid` 라우팅 모드
+- [x] 환경변수 기반 0~100% 로컬 rollout
+- [x] 로컬 실패 시 hosted fallback과 이중 실패 전파
+- [x] 고위험 요청 hosted 우선 정책
+- [x] fallback rate, 성공률, P50/P95 지연시간 runtime 집계
+- [x] trace 기반 채택률, dry-run 성공률, 오류 코드, 학습 후보 수 집계
+- [x] 어드민 LLM 운영 대시보드와 health endpoint
+- [ ] 실제 메인 PC 로컬 서버에서 10% → 25% → 50% → 100% 운영 검증
+
+메인 PC 실행 절차와 명령은 `Documents/LOCAL_LLM_RUNBOOK.md`에 정리했다. 현재 서버에서 외부 API를 호출하는 전체 평가는 실행하지 않으며, Mock 회귀 테스트로 코드 계약을 검증한다.

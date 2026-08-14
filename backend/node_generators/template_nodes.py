@@ -90,8 +90,7 @@ def generate_template_analyzer_node(node_id, node, indent, active_llm_id, prev_r
         lines.append(f"{indent}        _tmpl_fields_{node_id} = {fields_literal}")
     else:
         lines.append(f"{indent}        try:")
-        lines.append(f"{indent}            from langchain_openai import ChatOpenAI")
-        lines.append(f"{indent}            _tmpl_llm_{node_id} = ChatOpenAI(model='gpt-4o-mini', max_retries=0)")
+        lines.append(f"{indent}            _tmpl_llm_{node_id} = create_runtime_chat_model(model='gpt-4o-mini', max_retries=0)")
         lines.append(f"{indent}            _tmpl_prompt_{node_id} = \"다음 파일명으로 미루어 짐작되는 문서 종류에 맞는 서식 빈칸 필드 이름들을 만들어라: '\" + \"{template_file}\" + \"'. 영어 소문자 camelCase 키 이름으로 최대 8개, 콤마로만 구분해서 다른 설명 없이 한 줄로 출력해라. 예: candidateName,summary,motivation\"")
         lines.append(f"{indent}            _tmpl_resp_{node_id} = _tmpl_llm_{node_id}.invoke(_tmpl_prompt_{node_id})")
         lines.append(f"{indent}            _tmpl_text_{node_id} = _tmpl_resp_{node_id}.content if hasattr(_tmpl_resp_{node_id}, 'content') else str(_tmpl_resp_{node_id})")

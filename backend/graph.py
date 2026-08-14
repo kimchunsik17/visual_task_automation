@@ -3,7 +3,6 @@ import json
 import os
 from typing import TypedDict, Annotated, List, Dict, Any
 from langgraph.graph import StateGraph, START, END
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 
@@ -91,16 +90,6 @@ def compile_workflow(nodes: list, edges: list, project_id=None) -> str:
         if connected_roots:
             roots = connected_roots
     
-    # Collect used models to generate correct imports
-    used_models = set()
-    for node in nodes:
-        if node['type'] == 'llmNode':
-            used_models.add(node.get('data', {}).get('model', 'gemini-1.5-flash'))
-    
-    needs_gemini = any('gemini' in m for m in used_models)
-    needs_openai = any('gpt' in m for m in used_models)
-    needs_anthropic = any('claude' in m for m in used_models)
-
     lines = []
     lines.append("import os")
     lines.append("has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))")
@@ -112,11 +101,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None) -> str:
         lines.append("    langfuse_handler = CallbackHandler()")
     lines.append("else:")
     lines.append("    langfuse_handler = None")
-    lines.append("from langchain_google_genai import ChatGoogleGenerativeAI")
-    if needs_openai:
-        lines.append("from langchain_openai import ChatOpenAI")
-    if needs_anthropic:
-        lines.append("from langchain_anthropic import ChatAnthropic")
+    lines.append("from llm.providers import create_runtime_chat_model")
     lines.append("from langchain_core.prompts import ChatPromptTemplate")
     lines.append("from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, messages_from_dict, messages_to_dict")
     lines.append("import requests")
@@ -215,15 +200,10 @@ def compile_workflow(nodes: list, edges: list, project_id=None) -> str:
             sys_prompt = node.get('data', {}).get('systemPrompt', 'You are a helpful assistant.').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"    # --- LLM Node ({node_id}) ---")
             
-            if model == "gpt-4o" or model == "gpt-4o-mini":
-                api_key_arg = f', api_key="{api_key}"' if api_key else ''
-                lines.append(f"    llm_{node_id} = ChatOpenAI(model=\"{model}\", max_retries=0{api_key_arg})")
-            elif "claude" in model:
-                api_key_arg = f', api_key="{api_key}"' if api_key else ''
-                lines.append(f"    llm_{node_id} = ChatAnthropic(model_name=\"{model}\", max_retries=0{api_key_arg})")
-            else:
-                api_key_arg = f', google_api_key="{api_key}"' if api_key else ''
-                lines.append(f"    llm_{node_id} = ChatGoogleGenerativeAI(model=\"{model}\", max_retries=0{api_key_arg})")
+            lines.append(
+                f"    llm_{node_id} = create_runtime_chat_model("
+                f"model={model!r}, api_key={api_key or None!r}, max_retries=0)"
+            )
                 
             lines.append(f"    if langfuse_handler:")
             if project_id:

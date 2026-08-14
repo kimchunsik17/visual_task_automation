@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, Puzzle, CreditCard, Send, StickyNote } from 'lucide-react';
+import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, Puzzle, CreditCard, Send, StickyNote, X } from 'lucide-react';
 import { NodeRegistry } from './nodeRegistry';
 
-const Sidebar = () => {
+const Sidebar = ({ isMobileOpen, onClose, onNodeTap }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCategories, setExpandedCategories] = useState({
     core: true,
@@ -94,6 +94,7 @@ const Sidebar = () => {
       className="dnd-node"
       onDragStart={(event) => onDragStart(event, node.type, node.label)}
       draggable
+      onClick={() => onNodeTap && onNodeTap(node.type, node.label)}
     >
       <div className="dnd-node-icon" style={{ backgroundColor: `${node.color}20`, color: node.color }}>
         {node.icon}
@@ -103,10 +104,15 @@ const Sidebar = () => {
   );
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-header">
-        <h2 className="sidebar-title">노드 목록</h2>
-      </div>
+    <>
+      {isMobileOpen && <div className="mobile-palette-overlay" onClick={onClose}></div>}
+      <aside className={`sidebar ${isMobileOpen ? 'mobile-open' : ''}`}>
+        <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 className="sidebar-title">노드 목록</h2>
+          <button className="mobile-palette-close-btn" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </div>
       
       <div className="sidebar-search">
         <Search size={14} color="#64748b" />
@@ -152,7 +158,8 @@ const Sidebar = () => {
           })
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 };
 

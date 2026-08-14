@@ -155,6 +155,71 @@ class EvaluationLog(Base):
     user = relationship("User", foreign_keys=[user_id], backref="evaluation_logs")
 
 
+class GenerationTrace(Base):
+    __tablename__ = "generation_traces"
+
+    id = Column(Integer, primary_key=True, index=True)
+    trace_id = Column(String, unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    project_id = Column(Integer, nullable=True, index=True)
+    thread_id = Column(String, nullable=True, index=True)
+    status = Column(String, nullable=False, default="completed", index=True)
+    outcome = Column(String, nullable=True, index=True)
+    request_kind = Column(String, nullable=True)
+    provider = Column(String, nullable=True)
+    model_profile = Column(String, nullable=True)
+    model_name = Column(String, nullable=True)
+    task_spec_prompt_version = Column(String, nullable=True)
+    repair_prompt_version = Column(String, nullable=True)
+    request_hash = Column(String, nullable=False)
+    request_length = Column(Integer, default=0)
+    request_preview = Column(String, nullable=True)
+    task_spec = Column(JSON, nullable=True)
+    graph_summary = Column(JSON, default=dict)
+    validation_issues = Column(JSON, default=list)
+    repair_notes = Column(JSON, default=list)
+    token_usage = Column(JSON, default=dict)
+    latency_ms = Column(Integer, default=0)
+    langfuse_trace_id = Column(String, nullable=True, index=True)
+    error_message = Column(String, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        index=True,
+    )
+
+    user = relationship("User", foreign_keys=[user_id], backref="generation_traces")
+
+
+class TrainingExample(Base):
+    __tablename__ = "training_examples"
+
+    id = Column(Integer, primary_key=True, index=True)
+    trace_id = Column(String, unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    project_id = Column(Integer, nullable=True, index=True)
+    request_hash = Column(String, nullable=False, index=True)
+    request_text = Column(String, nullable=False)
+    task_spec = Column(JSON, nullable=True)
+    generated_graph = Column(JSON, nullable=False)
+    final_graph = Column(JSON, nullable=True)
+    validation_issues = Column(JSON, default=list)
+    acceptance_status = Column(String, nullable=True, index=True)
+    edit_metrics = Column(JSON, default=dict)
+    provider = Column(String, nullable=True)
+    model_name = Column(String, nullable=True)
+    prompt_versions = Column(JSON, default=dict)
+    consent_policy_version = Column(String, nullable=False, default="training-consent-v1")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        onupdate=lambda: datetime.datetime.now(datetime.timezone.utc),
+    )
+
+    user = relationship("User", foreign_keys=[user_id], backref="training_examples")
+
+
 class SiteFeedback(Base):
     __tablename__ = "site_feedback"
 
@@ -166,4 +231,3 @@ class SiteFeedback(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     user = relationship("User", foreign_keys=[user_id], backref="site_feedback")
-

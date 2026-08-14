@@ -200,7 +200,7 @@ export default function ApiCenterPage() {
       <div className="main-page-layout">
         <MainSidebar />
         <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
             <h2>로그인이 필요합니다</h2>
             <p>API 센터를 이용하려면 먼저 로그인해주세요.</p>
           </div>
@@ -213,7 +213,7 @@ export default function ApiCenterPage() {
     <div className="main-page-layout">
       <MainSidebar />
       <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-        <div className="content-area" style={{ width: '100%', maxWidth: '1000px', margin: '0 auto', padding: '2rem' }}>
+        <div className="content-area" style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
           
           <div className="page-header">
             <div>

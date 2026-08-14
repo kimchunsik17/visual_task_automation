@@ -53,7 +53,7 @@ button, input, textarea {
 .app-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100dvh;
   width: 100vw;
 }
 
@@ -192,8 +192,175 @@ button, input, textarea {
   flex-direction: column;
 }
 
+.mobile-palette-toggle {
+  display: none;
+}
+.mobile-palette-overlay {
+  display: none;
+}
+.mobile-palette-close-btn {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100dvh;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  .mobile-palette-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    bottom: 2rem;
+    right: 1.5rem;
+    z-index: 40;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 56px;
+    height: 56px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .mobile-palette-toggle:active {
+    transform: scale(0.95);
+  }
+  .mobile-palette-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh;
+    background: rgba(0,0,0,0.7);
+    z-index: 55;
+  }
+  .mobile-palette-close-btn {
+    display: flex;
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+  }
+}
+
 .sidebar-header {
   padding: 1.5rem 1.5rem 0.5rem 1.5rem;
+}
+
+/* --- Editor Mobile Tools Drawer --- */
+.mobile-tools-toggle-btn {
+  display: none;
+}
+.mobile-tools-overlay {
+  display: none;
+}
+.run-text {
+  display: inline;
+}
+
+@media (max-width: 1024px) {
+  .header {
+    padding: 0.5rem 1rem !important;
+    flex-wrap: nowrap !important;
+    gap: 0.5rem !important;
+  }
+
+  .project-title-btn span {
+    display: none !important;
+  }
+
+  .run-text {
+    display: none;
+  }
+
+  /* Make handles much larger for mobile tap and drag */
+  .react-flow__handle {
+    width: 20px !important;
+    height: 20px !important;
+    border-radius: 50% !important;
+    background-color: var(--primary-color) !important;
+    border: 2px solid white !important;
+    z-index: 1000 !important; /* Ensure they are above other elements */
+  }
+
+  /* Prevent iOS input zoom and make them easier to tap */
+  .custom-node input,
+  .custom-node textarea,
+  .custom-node select {
+    font-size: 16px !important;
+    padding: 10px !important;
+  }
+
+  .tools-container {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    background: var(--card-bg) !important;
+    border-top: 1px solid var(--border-color) !important;
+    padding: 1.5rem !important;
+    z-index: 100 !important;
+    flex-direction: column !important;
+    gap: 1rem !important;
+    align-items: stretch !important;
+    transform: translateY(100%) !important;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 0 -10px 25px rgba(0,0,0,0.2) !important;
+    border-radius: 20px 20px 0 0 !important;
+  }
+
+  .desktop-only-tool {
+    display: none !important;
+  }
+
+  .tools-container.mobile-open {
+    transform: translateY(0) !important;
+  }
+
+  .tools-container > div[style*="width: 1px"] {
+    display: none !important;
+  }
+
+  .tools-container > div {
+    flex-wrap: wrap !important;
+    justify-content: flex-start !important;
+    margin: 0 !important;
+  }
+
+  .mobile-tools-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 0.4rem;
+    border-radius: 4px;
+  }
+
+  .mobile-tools-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh;
+    background: rgba(0,0,0,0.7);
+    z-index: 40;
+  }
 }
 
 .sidebar-title {
@@ -653,3 +820,50 @@ button, input, textarea {
 @keyframes blink { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
 
 @keyframes blink { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+/* Chatbot toggle button */
+.chatbot-toggle-btn {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+  border: none;
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.4);
+  color: var(--text-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1000;
+  transition: transform 0.2s;
+}
+
+@media (max-width: 1024px) {
+  .chatbot-toggle-btn {
+    bottom: 6rem;
+    right: 1.5rem;
+  }
+}
+
+@media (min-width: 1025px) {
+  .mobile-only-tool {
+  }
+  .mobile-tool-label {
+  }
+}
+@media (max-width: 1024px) {
+  .mobile-tool-label {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 0.9rem;
+  }
+}
+
+
+.react-flow__edge {
+  pointer-events: auto;
+}
+.react-flow__edge-path {
+}
