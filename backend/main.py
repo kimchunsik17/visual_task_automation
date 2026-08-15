@@ -25,6 +25,7 @@ from database import engine, Base, get_db
 import models
 from graph import compile_workflow, run_workflow
 from meta_agent import run_agent_turn
+import ui_generator
 import discord_bot
 import telegram_bot
 import scheduler
@@ -648,6 +649,37 @@ def deploy_project(project_id: int, user: models.User = Depends(get_current_user
         project.share_token = str(uuid.uuid4())
         db.commit()
     return {"status": "success", "share_token": project.share_token}
+
+@app.get("/api/apps/custom")
+def get_custom_apps(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    apps = db.query(models.CustomApp).filter(models.CustomApp.owner_id == user.id).order_by(models.CustomApp.created_at.desc()).all()
+    return [{
+        "id": a.id,
+        "title": a.title,
+        "created_at": a.created_at
+    } for a in apps]
+
+@app.get("/api/apps/custom/{app_id}")
+def get_custom_app(app_id: str, db: Session = Depends(get_db)):
+    custom_app = db.query(models.CustomApp).filter(models.CustomApp.id == app_id).first()
+    if not custom_app:
+        raise HTTPException(status_code=404, detail="Custom app not found")
+        
+    combined = custom_app.ui_graph_data or {}
+    ui_data = combined.get("ui") if "ui" in combined else combined
+    logic_data = combined.get("logic") if "logic" in combined else None
+        
+    return {
+        "id": custom_app.id,
+        "title": custom_app.title,
+        "ui_graph_data": ui_data,
+        "logic_graph": logic_data,
+        "workflow_mappings": custom_app.workflow_mappings,
+        "owner_id": custom_app.owner_id
+    }
 
 @app.get("/api/apps/{share_token}")
 def get_app_info(share_token: str, db: Session = Depends(get_db)):
@@ -2169,3 +2201,132 @@ def delete_chat_session(session_id: int, user: models.User = Depends(get_current
     db.delete(session)
     db.commit()
     return {"status": "success"}
+
+# --- App Builder Endpoints ---
+
+class BuilderGenerateRequest(BaseModel):
+    prompt: str
+    provider: Optional[str] = "openai"
+
+@app.post("/api/builder/generate")
+async def builder_generate_ui(req: BuilderGenerateRequest, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Get user API key
+    api_key_record = db.query(models.UserApiKey).filter(
+        models.UserApiKey.user_id == user.id,
+        models.UserApiKey.provider == req.provider
+    ).first()
+    
+    api_key = api_key_record.api_key if api_key_record else None
+    
+    # If no key, fallback to system key (for MVP/demo purposes)
+    if not api_key:
+        api_key = os.environ.get("OPENAI_API_KEY") if req.provider == "openai" else os.environ.get("GEMINI_API_KEY")
+        
+    try:
+        html_code = await ui_generator.generate_custom_ui(req.prompt, api_key, req.provider)
+        return {"html": html_code}
+    except Exception as e:
+        print(f"UI Generation Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class BuilderSaveRequest(BaseModel):
+    app_id: Optional[str] = None
+    app_name: str
+    ui_graph_data: dict
+    logic_graph: dict
+    workflow_mappings: dict
+
+@app.post("/api/builder/save")
+def builder_save_app(req: BuilderSaveRequest, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    combined_data = {
+        "ui": req.ui_graph_data,
+        "logic": req.logic_graph
+    }
+    
+    if req.app_id:
+        existing_app = db.query(models.CustomApp).filter(models.CustomApp.id == req.app_id, models.CustomApp.owner_id == user.id).first()
+        if existing_app:
+            existing_app.title = req.app_name
+            existing_app.ui_graph_data = combined_data
+            existing_app.workflow_mappings = req.workflow_mappings
+            db.commit()
+            return {"status": "success", "id": existing_app.id}
+            
+    app_id = str(uuid.uuid4())
+    new_app = models.CustomApp(
+        id=app_id,
+        title=req.app_name,
+        ui_graph_data=combined_data,
+        workflow_mappings=req.workflow_mappings,
+        owner_id=user.id
+    )
+    db.add(new_app)
+    db.commit()
+    
+    return {"status": "success", "id": app_id}
+
+from app_agent import generate_app
+import meta_agent
+
+class BuilderGenerateAppRequest(BaseModel):
+    app_id: Optional[str] = None
+    prompt: str
+    current_state: dict
+
+@app.post("/api/builder/generate_app")
+async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    # 1. Call app_agent
+    result = await generate_app(req.prompt, req.current_state, provider="openai")
+    
+    workflow_mappings = result.workflow_mappings.copy()
+    
+    # 2. If it requires backend workflow, use meta_agent to generate a project
+    if result.requires_backend_workflow and result.backend_workflow_prompt:
+        try:
+            import asyncio
+            flow_data = await asyncio.to_thread(meta_agent.generate_flow, result.backend_workflow_prompt)
+            
+            project = models.Project(
+                user_id=user.id,
+                title=f"Backend for {result.new_title}",
+                description=f"Auto-generated backend workflow for {result.new_title}",
+                graph_data=flow_data,
+                visibility="private"
+            )
+            db.add(project)
+            db.commit()
+            db.refresh(project)
+            
+            # 3. Replace 'NEW_WORKFLOW_ID' with actual project.id in mappings and logic nodes
+            actual_project_id = str(project.id)
+            for k, v in workflow_mappings.items():
+                if v == "NEW_WORKFLOW_ID":
+                    workflow_mappings[k] = actual_project_id
+                    
+            for node in result.logic_nodes:
+                if node.type == "workflowNode" and node.data.projectId == "NEW_WORKFLOW_ID":
+                    node.data.projectId = actual_project_id
+        except Exception as e:
+            print(f"Error generating backend workflow: {e}")
+            result.reply += "\n\n(참고: 백엔드 워크플로우 생성 중 오류가 발생했습니다. 일부 기능이 동작하지 않을 수 있습니다.)"
+
+    return {
+        "reply": result.reply,
+        "new_title": result.new_title,
+        "ui_graph_data": {
+            "components": [c.model_dump() for c in result.ui_components],
+            "rootStyle": result.root_style,
+            "globalCss": result.global_css
+        },
+        "logic_graph": {
+            "nodes": [n.model_dump() for n in result.logic_nodes],
+            "edges": [e.model_dump() for e in result.logic_edges]
+        },
+        "workflow_mappings": workflow_mappings
+    }

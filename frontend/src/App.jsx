@@ -18,6 +18,9 @@ import PatchNotesPage from './pages/PatchNotesPage';
 import CustomAlert from './CustomAlert';
 import CustomConfirm from './CustomConfirm';
 import RequireAuth from './RequireAuth';
+import AppBuilderPage from './pages/AppBuilderPage';
+import CustomAppViewerPage from './pages/CustomAppViewerPage';
+import CustomAppsDashboardPage from './pages/CustomAppsDashboardPage';
 
 function App() {
   useEffect(() => {
@@ -52,6 +55,9 @@ function App() {
         <Route path="/bots" element={<RequireAuth><BotManagerPage /></RequireAuth>} />
         <Route path="/scheduler" element={<RequireAuth><SchedulerPage /></RequireAuth>} />
         <Route path="/statistics" element={<RequireAuth><StatisticsPage /></RequireAuth>} />
+        <Route path="/custom-apps" element={<RequireAuth><CustomAppsDashboardPage /></RequireAuth>} />
+        <Route path="/app-builder/:appId?" element={<RequireAuth><AppBuilderPage /></RequireAuth>} />
+        <Route path="/custom-app/:appId" element={<CustomAppViewerPage />} />
       </Routes>
       <CustomAlert />
       <CustomConfirm />

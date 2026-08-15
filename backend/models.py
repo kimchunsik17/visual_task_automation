@@ -167,3 +167,16 @@ class SiteFeedback(Base):
 
     user = relationship("User", foreign_keys=[user_id], backref="site_feedback")
 
+
+class CustomApp(Base):
+    __tablename__ = "custom_apps"
+
+    id = Column(String, primary_key=True, index=True) # UUID or generated ID
+    title = Column(String, default="Untitled Custom App")
+    ui_graph_data = Column(JSON, default=lambda: {"nodes": [], "edges": []})
+    workflow_mappings = Column(JSON, default=dict) # Mappings of UI element IDs to Project IDs or Node IDs
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    owner = relationship("User", foreign_keys=[owner_id], backref="custom_apps")
