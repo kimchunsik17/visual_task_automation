@@ -1,13 +1,19 @@
-﻿import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    return savedUser ? JSON.parse(savedUser) : {
+      id: 9999,
+      name: 'Developer (Dev Mode)',
+      email: 'dev@local.host',
+      picture: 'https://ui-avatars.com/api/?name=Dev+Mode&background=0D8ABC&color=fff',
+      token_balance: 999999
+    };
   });
-  const [token, setToken] = useState(localStorage.getItem('token') || null);
+  const [token, setToken] = useState(localStorage.getItem('token') || 'dev-mock-token');
 
   useEffect(() => {
     if (token) {
