@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import shutil
 import jwt
@@ -164,12 +164,31 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     if not credentials:
         return None
     token = credentials.credentials
+    
+    # 테스트 빌드: 프론트엔드에서 dev-mock-token을 보내면 바로 더미 유저 반환
+    if token == "dev-mock-token":
+        user_id = 9999
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            user = models.User(id=user_id, email="dev@local.host", name="Developer (Dev Mode)")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
+
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("user_id")
         if user_id is None:
             return None
-        return db.query(models.User).filter(models.User.id == user_id).first()
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            # For local testing, if user doesn't exist, create a dummy one with this ID
+            user = models.User(id=user_id, email=f"dummy_{user_id}@test.com", name="Test User")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
     except jwt.PyJWTError:
         return None
 
@@ -2503,11 +2522,13 @@ class BuilderGenerateAppRequest(BaseModel):
     app_id: Optional[str] = None
     prompt: str
     current_state: dict
+    generate_mode: str = "code"
 
 @app.post("/api/builder/generate_app")
 async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     # 1. Call app_agent
-    result = await generate_app(req.prompt, req.current_state, provider="openai")
+    from app_agent import generate_app_safely
+    result = await generate_app_safely(req.prompt, req.current_state, provider="openai", generate_mode=req.generate_mode)
     
     workflow_mappings = result.workflow_mappings.copy()
     
@@ -2516,12 +2537,16 @@ async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: mo
         try:
             import asyncio
             flow_data = await asyncio.to_thread(meta_agent.generate_flow, result.backend_workflow_prompt)
-            
+            if hasattr(flow_data, "model_dump"):
+                flow_data_dict = flow_data.model_dump()
+            else:
+                flow_data_dict = flow_data
+                
             project = models.Project(
                 user_id=user.id,
                 title=f"Backend for {result.new_title}",
                 description=f"Auto-generated backend workflow for {result.new_title}",
-                graph_data=flow_data,
+                graph_data=flow_data_dict,
                 visibility="private"
             )
             db.add(project)
@@ -2541,13 +2566,43 @@ async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: mo
             print(f"Error generating backend workflow: {e}")
             result.reply += "\n\n(참고: 백엔드 워크플로우 생성 중 오류가 발생했습니다. 일부 기능이 동작하지 않을 수 있습니다.)"
 
+    def flatten_and_clean(comps):
+        """
+        Flatten nested component trees into a single-level list and strip
+        all position/sizing data. The frontend will handle layout via flexbox.
+        This eliminates the fundamental conflict between absolute positioning
+        and AI-generated flex layout instructions.
+        """
+        flat = []
+        for c in comps:
+            if not hasattr(c, 'props'):
+                c.props = {}
+            # Remove position — frontend flow layout handles placement
+            if 'position' in c.props:
+                del c.props['position']
+            # Clean up style — remove any absolute positioning artifacts
+            if 'style' in c.props:
+                for key in ['position', 'left', 'top', 'right', 'bottom']:
+                    c.props['style'].pop(key, None)
+            
+            if c.type == 'container' and hasattr(c, 'children') and c.children:
+                # Flatten: pull children out of containers, discard the container shell
+                flat.extend(flatten_and_clean(c.children))
+            else:
+                c.children = None  # no nesting
+                flat.append(c)
+        return flat
+
+    result.ui_components = flatten_and_clean(result.ui_components)
+
     return {
         "reply": result.reply,
         "new_title": result.new_title,
         "ui_graph_data": {
             "components": [c.model_dump() for c in result.ui_components],
             "rootStyle": result.root_style,
-            "globalCss": result.global_css
+            "globalCss": result.global_css,
+            "globalJs": result.global_js
         },
         "logic_graph": {
             "nodes": [n.model_dump() for n in result.logic_nodes],

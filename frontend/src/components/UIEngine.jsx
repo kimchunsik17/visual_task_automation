@@ -5,18 +5,54 @@ import { Rnd } from 'react-rnd';
 export default function UIEngine({ 
   components = [], 
   logicGraph = null,
+  globalJs = '',
   isPreview = false, 
   onSelectComponent = null,
   onDropComponent = null,
   onUpdateTransform = null,
   selectedIds = [],
   canvasWidth = 800,
-  canvasHeight = 800
+  canvasHeight = 800,
+  rootStyle = {}
 }) {
   const [inputValues, setInputValues] = useState({});
   const [loadingAction, setLoadingAction] = useState(null);
   const [componentStates, setComponentStates] = useState({});
   const appStateRef = React.useRef({});
+  const inputsRef = React.useRef({});
+  const handlersRef = React.useRef({});
+
+  React.useEffect(() => {
+    inputsRef.current = inputValues;
+    appStateRef.current = componentStates;
+  }, [inputValues, componentStates]);
+
+  React.useEffect(() => {
+    if (!globalJs) {
+      handlersRef.current = {};
+      return;
+    }
+    let jsCode = globalJs.trim();
+    if (jsCode.startsWith('```')) {
+      jsCode = jsCode.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '');
+    }
+    
+    const inputsProxy = new Proxy({}, {
+      get: (target, prop) => inputsRef.current[prop]
+    });
+    const appStateProxy = new Proxy({}, {
+      get: (target, prop) => appStateRef.current[prop]
+    });
+
+    try {
+      const fn = new Function('inputs', 'appState', 'setAppState', 'runWorkflow', jsCode);
+      const res = fn(inputsProxy, appStateProxy, setAppState, runWorkflow);
+      handlersRef.current = typeof res === 'object' && res !== null ? res : {};
+    } catch (err) {
+      console.error("Global JS Evaluation Error:", err);
+      handlersRef.current = {};
+    }
+  }, [globalJs]);
 
   React.useEffect(() => {
     if (isPreview) {
@@ -167,8 +203,43 @@ export default function UIEngine({
   };
   const [actionResult, setActionResult] = useState(null);
 
-  const handleInputChange = (key, value) => {
-    setInputValues(prev => ({ ...prev, [key]: value }));
+  const runWorkflow = async (projectId, payload) => {
+    const res = await axios.post(`/api/deploy/${projectId}/execute`, {
+      inputs: payload
+    }, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    });
+    return res.data.result;
+  };
+
+  const setAppState = (id, key, value) => {
+    setComponentStates(prev => ({
+      ...prev,
+      [id]: {
+        ...(prev[id] || {}),
+        [key]: value
+      }
+    }));
+  };
+
+  // Removed getHandlers() - handled by useEffect now
+
+  const handleInputChange = async (comp, value) => {
+    const key = comp.props.inputKey;
+    if (key) {
+      setInputValues(prev => ({ ...prev, [key]: value }));
+    }
+    
+    if (isPreview && comp.props.onChangeHandler) {
+      const handlers = handlersRef.current;
+      if (typeof handlers[comp.props.onChangeHandler] === 'function') {
+        try {
+          await handlers[comp.props.onChangeHandler](value);
+        } catch (err) {
+          console.error("onChangeHandler Error:", err);
+        }
+      }
+    }
   };
 
   const handleActionClick = async (e, comp) => {
@@ -179,6 +250,22 @@ export default function UIEngine({
         onSelectComponent(comp);
       }
       return;
+    }
+
+    if (isPreview && comp.props.onClickHandler) {
+      const handlers = handlersRef.current;
+      if (typeof handlers[comp.props.onClickHandler] === 'function') {
+        setLoadingAction(comp.id);
+        try {
+          await handlers[comp.props.onClickHandler]();
+        } catch (err) {
+          console.error("onClickHandler Error:", err);
+          alert('코드 실행 중 오류 발생: ' + err.message);
+        } finally {
+          setLoadingAction(null);
+        }
+        return;
+      }
     }
 
     if (isPreview && logicGraph && logicGraph.nodes && logicGraph.edges.length > 0) {
@@ -222,28 +309,43 @@ export default function UIEngine({
     // Merge base props with dynamic componentStates if in preview
     const dynamicProps = isPreview ? { ...comp.props, ...(componentStates[comp.id] || {}) } : comp.props;
     
-    const style = dynamicProps.style || {};
-    const pos = dynamicProps.position || { x: 0, y: 0 };
+    const style = { ...(dynamicProps.style || {}) };
+    // STRIP flex properties from AI-generated styles because they break absolute positioning origin
+    ['display', 'flexDirection', 'justifyContent', 'alignItems', 'gap'].forEach(k => delete style[k]);
+
+    const pos = dynamicProps.position;
+    const isAbsolute = pos !== undefined;
+
     const size = { 
-      width: style.width || (comp.type === 'image' ? '150px' : 'auto'), 
+      width: style.width || (['input', 'textarea', 'dropdown', 'button'].includes(comp.type) ? '100%' : (comp.type === 'image' ? '150px' : 'auto')), 
       height: style.height || (comp.type === 'image' ? '150px' : 'auto') 
     };
-    
-    if (dynamicProps.visible === false || dynamicProps.visible === 'false') {
-      return null;
-    }
-    
+
     const baseStyle = {
       ...style,
+      // In editor mode: DO NOT set position/left/top — Rnd handles positioning.
+      // In preview mode with position: use absolute positioning.
+      // In preview mode without position: use relative (flow layout).
+      ...(isPreview 
+        ? (isAbsolute 
+            ? { position: 'absolute', left: `${pos.x}px`, top: `${pos.y}px` }
+            : { position: 'relative' })
+        : { position: 'relative' }  // editor mode: Rnd handles position
+      ),
+      width: size.width,
+      height: size.height,
+      zIndex: 1,
       boxSizing: 'border-box',
-      width: '100%',
-      height: '100%',
-      margin: 0, // margin is handled by absolute position now
+      margin: 0,
       outline: isSelected && !isPreview ? '2px solid #3b82f6' : 'none',
       outlineOffset: '-2px',
       cursor: !isPreview ? 'move' : (comp.type === 'button' ? 'pointer' : 'default'),
       transition: isPreview ? 'none' : 'outline 0.1s ease',
     };
+
+    if (dynamicProps.visible === false || dynamicProps.visible === 'false') {
+      return null;
+    }
 
     let innerContent = null;
 
@@ -298,6 +400,7 @@ export default function UIEngine({
               padding: style.padding || '0',
               display: 'flex',
               alignItems: 'center',
+              whiteSpace: 'nowrap',
               ...baseStyle
             }}
             className={dynamicProps.className}
@@ -319,7 +422,7 @@ export default function UIEngine({
               type="text"
               placeholder={dynamicProps.placeholder || ''}
               value={isPreview ? (inputValues[dynamicProps.inputKey] || '') : ''}
-              onChange={(e) => isPreview && handleInputChange(dynamicProps.inputKey, e.target.value)}
+              onChange={(e) => isPreview && handleInputChange(comp, e.target.value)}
               readOnly={!isPreview}
               style={{
                 padding: style.padding || '0.75rem',
@@ -352,6 +455,7 @@ export default function UIEngine({
               fontSize: style.fontSize || '1rem',
               fontWeight: style.fontWeight || '600',
               opacity: loadingAction === comp.id ? 0.7 : 1,
+              whiteSpace: 'nowrap',
               ...baseStyle
             }}
             className={dynamicProps.className}
@@ -389,7 +493,7 @@ export default function UIEngine({
             <textarea
               placeholder={dynamicProps.placeholder || ''}
               value={isPreview ? (inputValues[dynamicProps.inputKey] || '') : ''}
-              onChange={(e) => isPreview && handleInputChange(dynamicProps.inputKey, e.target.value)}
+              onChange={(e) => isPreview && handleInputChange(comp, e.target.value)}
               readOnly={!isPreview}
               style={{
                 padding: style.padding || '0.75rem',
@@ -420,7 +524,7 @@ export default function UIEngine({
             {dynamicProps.label && <label style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 500 }}>{dynamicProps.label}</label>}
             <select
               value={isPreview ? (inputValues[dynamicProps.inputKey] || '') : ''}
-              onChange={(e) => isPreview && handleInputChange(dynamicProps.inputKey, e.target.value)}
+              onChange={(e) => isPreview && handleInputChange(comp, e.target.value)}
               disabled={!isPreview}
               style={{
                 padding: style.padding || '0.75rem',
@@ -452,7 +556,7 @@ export default function UIEngine({
             <input
               type="checkbox"
               checked={isPreview ? (inputValues[dynamicProps.inputKey] || false) : false}
-              onChange={(e) => isPreview && handleInputChange(dynamicProps.inputKey, e.target.checked)}
+              onChange={(e) => isPreview && handleInputChange(comp, e.target.checked)}
               disabled={!isPreview}
               style={{ cursor: isPreview ? 'pointer' : 'default' }}
             />
@@ -480,18 +584,18 @@ export default function UIEngine({
         return null;
     }
 
+    const safePos = pos || { x: 0, y: 0 };
+
     if (isPreview) {
-      return (
-        <div key={comp.id} style={{ position: 'absolute', left: pos.x, top: pos.y, width: size.width, height: size.height }}>
-          {innerContent}
-        </div>
-      );
+      // baseStyle already has the correct position/left/top for preview mode
+      // Just return innerContent with a key — no style overrides needed
+      return React.cloneElement(innerContent, { key: comp.id });
     }
 
     return (
       <Rnd
         key={comp.id}
-        position={{ x: pos.x, y: pos.y }}
+        position={{ x: safePos.x, y: safePos.y }}
         size={{ width: size.width, height: size.height }}
         onDragStart={(e) => handleComponentClick(e, comp)}
         onDrag={(e, d) => {
@@ -528,8 +632,12 @@ export default function UIEngine({
     );
   };
 
+  // Always strip layout properties from AI rootStyle — we handle layout ourselves
+  const safeRootStyle = { ...rootStyle };
+  ['display', 'flexDirection', 'justifyContent', 'alignItems', 'gap', 'position', 'padding'].forEach(k => delete safeRootStyle[k]);
+
   return (
-    <div style={{ position: 'relative', width: '100%', minHeight: '100%', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', ...safeRootStyle }}>
       {components.map(renderComponent)}
       
       {/* Result display area for deployed apps */}

@@ -22,10 +22,12 @@ export default function AppBuilderPage() {
   const [appTitle, setAppTitle] = useState('My Visual App');
   const [rootStyle, setRootStyle] = useState({ backgroundColor: '#f1f5f9', padding: '0px' });
   const [globalCss, setGlobalCss] = useState('');
+  const [globalJs, setGlobalJs] = useState('');
   const [showDeployModal, setShowDeployModal] = useState(false);
   const [deployedUrl, setDeployedUrl] = useState('');
   const [snapLines, setSnapLines] = useState([]);
   const [workflowMappings, setWorkflowMappings] = useState({});
+  const [generationMode, setGenerationMode] = useState('code'); // 'code' or 'blueprint'
   
   useEffect(() => {
     if (appId) {
@@ -40,6 +42,7 @@ export default function AppBuilderPage() {
             if (data.ui_graph_data.components) setComponents(data.ui_graph_data.components);
             if (data.ui_graph_data.rootStyle) setRootStyle(data.ui_graph_data.rootStyle);
             if (data.ui_graph_data.globalCss) setGlobalCss(data.ui_graph_data.globalCss);
+            if (data.ui_graph_data.globalJs) setGlobalJs(data.ui_graph_data.globalJs);
           }
           if (data.logic_graph) {
             if (data.logic_graph.nodes) setLogicNodes(data.logic_graph.nodes);
@@ -58,6 +61,7 @@ export default function AppBuilderPage() {
       if (init.components) setComponents(init.components);
       if (init.rootStyle) setRootStyle(init.rootStyle);
       if (init.globalCss) setGlobalCss(init.globalCss);
+      if (init.globalJs) setGlobalJs(init.globalJs);
       if (init.title) setAppTitle(init.title);
     }
   }, [appId, token, location.state]);
@@ -92,9 +96,10 @@ export default function AppBuilderPage() {
       const payload = {
         app_id: appId || undefined,
         prompt: userMessage,
+        generate_mode: generationMode,
         current_state: {
           title: appTitle,
-          ui_graph_data: { components, rootStyle, globalCss },
+          ui_graph_data: { components, rootStyle, globalCss, globalJs },
           logic_graph: { nodes: logicNodes, edges: logicEdges },
           workflow_mappings: workflowMappings
         }
@@ -109,9 +114,47 @@ export default function AppBuilderPage() {
       if (new_title) setAppTitle(new_title);
       
       if (ui_graph_data) {
-        if (ui_graph_data.components) setComponents(ui_graph_data.components);
+        if (ui_graph_data.components) {
+          const CANVAS_WIDTH = 1024;
+          let currentY = 30;
+
+          // Type-safe default dimensions — AI-provided widths can be '100%', 'auto', etc.
+          // which parseInt cannot handle. Use per-type safe pixel defaults instead.
+          const TYPE_W = { text: 300, button: 180, input: 300, textarea: 300, dropdown: 300, checkbox: 200, divider: 560, image: 150 };
+          const TYPE_H = { text: 36, button: 45, input: 45, textarea: 100, dropdown: 45, checkbox: 36, divider: 2, image: 150 };
+
+          const positioned = ui_graph_data.components.map(comp => {
+            if (!comp.props) comp.props = {};
+            if (!comp.props.style) comp.props.style = {};
+
+            const type = comp.type || 'text';
+
+            // Resolve width: only trust AI value if it's a plain px number
+            const aiW = parseInt(comp.props.style?.width);
+            const w = (!isNaN(aiW) && aiW > 0 && aiW < CANVAS_WIDTH) ? aiW : (TYPE_W[type] || 200);
+
+            // Resolve height: same logic
+            const aiH = parseInt(comp.props.style?.height);
+            const h = (!isNaN(aiH) && aiH > 0 && aiH < 2000) ? aiH : (TYPE_H[type] || 45);
+
+            // Force safe px values so Rnd and preview render identically
+            comp.props.style.width = `${w}px`;
+            comp.props.style.height = `${h}px`;
+
+            if (!comp.props.position) {
+              comp.props.position = {
+                x: Math.round((CANVAS_WIDTH - w) / 2),
+                y: currentY
+              };
+              currentY += h + 16;
+            }
+            return comp;
+          });
+          setComponents(positioned);
+        }
         if (ui_graph_data.rootStyle) setRootStyle(ui_graph_data.rootStyle);
         if (ui_graph_data.globalCss) setGlobalCss(ui_graph_data.globalCss);
+        if (ui_graph_data.globalJs) setGlobalJs(ui_graph_data.globalJs);
       }
       
       if (logic_graph) {
@@ -400,8 +443,11 @@ export default function AppBuilderPage() {
             y: newY !== null ? newY : (comp.props.position?.y || 0) 
           };
         }
-        if (transform.width !== undefined) comp.props.style.width = transform.width;
-        if (transform.height !== undefined) comp.props.style.height = transform.height;
+        if (transform.width !== undefined || transform.height !== undefined) {
+          comp.props.style = comp.props.style || {};
+          if (transform.width !== undefined) comp.props.style.width = transform.width;
+          if (transform.height !== undefined) comp.props.style.height = transform.height;
+        }
         return comp;
       });
 
@@ -420,6 +466,13 @@ export default function AppBuilderPage() {
       } else {
         comp.props[key] = value;
       }
+      return comp;
+    }));
+  };
+
+  const updateComponentProp = (id, propName, value) => {
+    setComponents(prev => updateComponent(prev, id, (comp) => {
+      comp.props = { ...comp.props, [propName]: value };
       return comp;
     }));
   };
@@ -485,9 +538,9 @@ export default function AppBuilderPage() {
       extractMappings(components);
 
       const payload = {
-        app_id: appId || undefined,
-        app_name: appTitle,
-        ui_graph_data: { components, rootStyle, globalCss },
+        app_id: appId,
+        title: appTitle,
+        ui_graph_data: { components, rootStyle, globalCss, globalJs },
         logic_graph: { nodes: logicNodes, edges: logicEdges },
         workflow_mappings: workflowMappings
       };
@@ -556,7 +609,28 @@ export default function AppBuilderPage() {
             value={appTitle}
             onChange={e => setAppTitle(e.target.value)}
             placeholder="앱 이름 입력..."
+            style={{ width: '150px' }}
           />
+          <div style={{ marginLeft: '1rem', display: 'flex', background: '#0f172a', padding: '4px', borderRadius: '6px' }}>
+            <button
+              onClick={() => {
+                setGenerationMode('code');
+                if (activeTab === 'logic') setActiveTab('code');
+              }}
+              style={{ fontSize: '0.8rem', padding: '4px 12px', borderRadius: '4px', border: 'none', background: generationMode === 'code' ? '#f59e0b' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: generationMode === 'code' ? 'bold' : 'normal' }}
+            >
+              Code Native
+            </button>
+            <button
+              onClick={() => {
+                setGenerationMode('blueprint');
+                if (activeTab === 'code') setActiveTab('logic');
+              }}
+              style={{ fontSize: '0.8rem', padding: '4px 12px', borderRadius: '4px', border: 'none', background: generationMode === 'blueprint' ? '#8b5cf6' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: generationMode === 'blueprint' ? 'bold' : 'normal' }}
+            >
+              Blueprint
+            </button>
+          </div>
         </div>
         
         <div style={{ display: 'flex', background: '#1e293b', padding: '4px', borderRadius: '8px', gap: '4px' }}>
@@ -566,12 +640,14 @@ export default function AppBuilderPage() {
           >
             Design
           </button>
-          <button 
-            onClick={() => setActiveTab('logic')}
-            style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', background: activeTab === 'logic' ? '#8b5cf6' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: activeTab === 'logic' ? 'bold' : 'normal' }}
-          >
-            Blueprint
-          </button>
+          {generationMode === 'blueprint' && (
+            <button 
+              onClick={() => setActiveTab('logic')}
+              style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', background: activeTab === 'logic' ? '#8b5cf6' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: activeTab === 'logic' ? 'bold' : 'normal' }}
+            >
+              Blueprint
+            </button>
+          )}
           <button 
             onClick={() => {
               setActiveTab('preview');
@@ -581,6 +657,14 @@ export default function AppBuilderPage() {
           >
             Preview
           </button>
+          {generationMode === 'code' && (
+            <button 
+              onClick={() => setActiveTab('code')}
+              style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', background: activeTab === 'code' ? '#ec4899' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: activeTab === 'code' ? 'bold' : 'normal' }}
+            >
+              Code
+            </button>
+          )}
           <button 
             onClick={() => setActiveTab('css')}
             style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', background: activeTab === 'css' ? '#f59e0b' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: activeTab === 'css' ? 'bold' : 'normal' }}
@@ -708,17 +792,23 @@ export default function AppBuilderPage() {
           style={activeTab === 'logic' || activeTab === 'preview' ? { padding: 0 } : {}}
         >
           {activeTab === 'design' ? (
-            <div 
-              className="canvas-area"
-              onDragOver={handleDragOver}
-              onDrop={handleDropOnCanvas}
-              onClick={() => handleSelect(null)}
-              style={{ 
-                backgroundColor: rootStyle.backgroundColor,
-                padding: rootStyle.padding,
-                position: 'relative'
-              }}
-            >
+            <div style={{ width: '100%', height: '100%', overflow: 'auto', padding: '20px', boxSizing: 'border-box', backgroundColor: '#f1f5f9' }}>
+              <div 
+                className="canvas-area"
+                onDragOver={handleDragOver}
+                onDrop={handleDropOnCanvas}
+                onClick={() => handleSelect(null)}
+                style={{ 
+                  position: 'relative',
+                  width: '1024px',
+                  height: '768px',
+                  minWidth: '1024px',
+                  minHeight: '768px',
+                  backgroundColor: 'white',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  margin: '0 auto',
+                }}
+              >
               {snapLines.map((line, idx) => (
                 <div 
                   key={idx}
@@ -740,6 +830,7 @@ export default function AppBuilderPage() {
               ) : (
                 <UIEngine 
                   components={components} 
+                  globalJs={globalJs}
                   isPreview={false}
                   onSelectComponent={handleSelect}
                   onDropComponent={handleDropOnContainer}
@@ -747,6 +838,7 @@ export default function AppBuilderPage() {
                   selectedIds={selectedIds}
                 />
               )}
+              </div>
             </div>
           ) : activeTab === 'logic' ? (
             <div style={{ width: '100%', height: '100%' }} onDragOver={(e) => e.preventDefault()} onDrop={handleDropOnLogicCanvas}>
@@ -773,20 +865,39 @@ export default function AppBuilderPage() {
                 style={{ width: '100%', height: 'calc(100% - 2rem)', backgroundColor: '#0f172a', color: '#10b981', border: '1px solid #475569', borderRadius: '6px', padding: '1rem', fontFamily: 'monospace', fontSize: '14px', resize: 'none' }}
               />
             </div>
-          ) : (
-            <div 
-              className="canvas-area"
-              style={{ 
-                backgroundColor: rootStyle.backgroundColor,
-                padding: rootStyle.padding,
-                position: 'relative'
-              }}
-            >
-              <UIEngine 
-                components={components} 
-                logicGraph={{ nodes: logicNodes, edges: logicEdges }}
-                isPreview={true} 
+          ) : activeTab === 'code' ? (
+            <div style={{ width: '100%', height: '100%', padding: '1rem', backgroundColor: '#1e293b', boxSizing: 'border-box' }}>
+              <div style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Global JS (Export an object with handler functions)</div>
+              <textarea 
+                value={globalJs}
+                onChange={(e) => setGlobalJs(e.target.value)}
+                placeholder="return {\n  onSave: async () => {\n    // logic\n  }\n};"
+                style={{ width: '100%', height: 'calc(100% - 2rem)', backgroundColor: '#0f172a', color: '#fcd34d', border: '1px solid #475569', borderRadius: '6px', padding: '1rem', fontFamily: 'monospace', fontSize: '14px', resize: 'none' }}
               />
+            </div>
+          ) : (
+            <div style={{ width: '100%', height: '100%', overflow: 'auto', padding: '20px', boxSizing: 'border-box', backgroundColor: '#f1f5f9' }}>
+              <div 
+                className="canvas-area"
+                style={{ 
+                  position: 'relative',
+                  width: '1024px',
+                  height: '768px',
+                  minWidth: '1024px',
+                  minHeight: '768px',
+                  backgroundColor: 'white',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  margin: '0 auto',
+                }}
+              >
+                <UIEngine 
+                  components={components} 
+                  logicGraph={{ nodes: logicNodes, edges: logicEdges }}
+                  globalJs={globalJs}
+                  rootStyle={rootStyle}
+                  isPreview={true} 
+                />
+              </div>
             </div>
           )}
         </main>
@@ -946,6 +1057,38 @@ export default function AppBuilderPage() {
                       onChange={(e) => updateSelectedData('workflowId', e.target.value)} 
                     />
                     <small style={{ color: 'var(--text-muted)' }}>* Button click will execute this workflow.</small>
+                  </div>
+                </>
+              )}
+              
+              {selectedComponent?.type === 'button' && (
+                <>
+                  <div className="sidebar-title" style={{ marginTop: '1.5rem', color: '#f59e0b' }}>Global JS Binding</div>
+                  <div className="prop-group">
+                    <label>onClickHandler (JS Function Name)</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. onSaveClick" 
+                      value={selectedComponent.props.onClickHandler || ''} 
+                      onChange={(e) => updateSelectedData('onClickHandler', e.target.value)} 
+                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {['input', 'textarea', 'dropdown', 'checkbox'].includes(selectedComponent?.type) && (
+                <>
+                  <div className="sidebar-title" style={{ marginTop: '1.5rem', color: '#f59e0b' }}>Global JS Binding</div>
+                  <div className="prop-group">
+                    <label>onChangeHandler (JS Function Name)</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. onNameChange" 
+                      value={selectedComponent.props.onChangeHandler || ''} 
+                      onChange={(e) => updateSelectedData('onChangeHandler', e.target.value)} 
+                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                    />
                   </div>
                 </>
               )}
