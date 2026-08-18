@@ -22,6 +22,9 @@ import AdminRoute from './AdminRoute';
 import AdminPage from './pages/AdminPage';
 import IntroPage from './pages/IntroPage';
 import { useAuth } from './AuthContext';
+import AppBuilderPage from './pages/AppBuilderPage';
+import CustomAppViewerPage from './pages/CustomAppViewerPage';
+import CustomAppsDashboardPage from './pages/CustomAppsDashboardPage';
 
 function RootRoute() {
   const { user } = useAuth();
@@ -63,6 +66,9 @@ function App() {
         <Route path="/bots" element={<RequireAuth><BotManagerPage /></RequireAuth>} />
         <Route path="/scheduler" element={<RequireAuth><SchedulerPage /></RequireAuth>} />
         <Route path="/statistics" element={<RequireAuth><StatisticsPage /></RequireAuth>} />
+        <Route path="/custom-apps" element={<RequireAuth><CustomAppsDashboardPage /></RequireAuth>} />
+        <Route path="/app-builder/:appId?" element={<RequireAuth><AppBuilderPage /></RequireAuth>} />
+        <Route path="/custom-app/:appId" element={<CustomAppViewerPage />} />
       </Routes>
       <CustomAlert />
       <CustomConfirm />

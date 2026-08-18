@@ -139,12 +139,22 @@ function MainPage() {
       };
       const authHeaders = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
       const res = await axios.post('/api/chat', payload, authHeaders);
-      const { reply, graph_data, clarification, trace_id, generation_outcome } = res.data;
+      const { reply, graph_data, clarification, type, app_id, app_title, app_data, workflow_id, trace_id, generation_outcome } = res.data;
 
       if (reply) {
-        setMessages(prev => [...prev, {
-          role: 'ai', content: reply, graph_data, clarification, prompt: userMessage,
-          trace_id, generation_outcome
+        setMessages(prev => [...prev, { 
+          role: 'ai', 
+          content: reply, 
+          graph_data, 
+          clarification, 
+          prompt: userMessage,
+          trace_id, 
+          generation_outcome,
+          type: type || (app_id ? 'app' : 'workflow'),
+          app_id,
+          app_title,
+          app_data,
+          workflow_id
         }]);
       }
     } catch (error) {
@@ -175,9 +185,10 @@ function MainPage() {
   };
 
   const hints = [
+    '직원 출퇴근 및 근태 기록 앱 만들기',
+    '고객 문의 접수 및 자동 알림 웹앱 만들기',
     '뉴스 요약 이메일 전송 루틴 만들기',
-    '네이버 스토어와 카카오톡 알림 연동 ',
-    '디스코드 챗봇에 llm 연결하기',
+    '네이버 스토어와 카카오톡 알림 연동',
   ];
 
   const renderInputBox = () => (
@@ -401,7 +412,71 @@ function MainPage() {
                       </div>
                       <div className="chat-bubble">
                         <ReactMarkdown>{msg.content}</ReactMarkdown>
-                        {msg.graph_data?.nodes?.length > 0 && (
+                        {msg.app_id ? (
+                          <div style={{ marginTop: '1rem', display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => navigate(`/app-builder/${msg.app_id}`, { state: { initialAppData: msg.app_data } })}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                padding: '0.6rem 1.2rem',
+                                background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                boxShadow: '0 4px 12px rgba(139,92,246,0.35)',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              🎨 앱 빌더에서 열기 <ArrowRight size={16} />
+                            </button>
+                            <button
+                              onClick={() => window.open(`/custom-app/${msg.app_id}`, '_blank')}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                padding: '0.6rem 1.2rem',
+                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                boxShadow: '0 4px 12px rgba(16,185,129,0.35)',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              🚀 앱 바로 실행하기 <ArrowRight size={16} />
+                            </button>
+                            {msg.workflow_id && (
+                              <button
+                                onClick={() => navigate(`/editor/${msg.workflow_id}`)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.5rem',
+                                  padding: '0.6rem 1.2rem',
+                                  background: 'var(--card-bg)',
+                                  color: 'var(--text-color)',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: '8px',
+                                  fontSize: '0.9rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 500,
+                                  transition: 'all 0.2s'
+                                }}
+                              >
+                                ⚙️ 연동 워크플로우 보기
+                              </button>
+                            )}
+                          </div>
+                        ) : msg.graph_data?.nodes?.length > 0 ? (
                           <div style={{ marginTop: '1rem' }}>
                             <button
                               onClick={() => navigate('/editor', { state: {
@@ -429,7 +504,7 @@ function MainPage() {
                               에디터로 이동하기 <ArrowRight size={16} />
                             </button>
                           </div>
-                        )}
+                        ) : null}
                         {msg.clarification?.options?.length > 0 && idx === messages.length - 1 && (
                           <div className="clarify-chips">
                             {msg.clarification.options.map((opt, optIdx) => (

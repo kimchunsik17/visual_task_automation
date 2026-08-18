@@ -9,7 +9,8 @@ import logoImg from './logo.png';
 const RequireAuth = ({ children }) => {
   const { user, login } = useAuth();
 
-  if (user) return children;
+  // 테스트 빌드 임시 해제: 항상 통과
+  return children;
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import shutil
 import jwt
@@ -26,6 +26,9 @@ import models
 from graph import compile_workflow, run_workflow
 from dry_run import dry_run_workflow
 from meta_agent import FLOW_REPAIR_PROMPT_VERSION, run_agent_turn
+import meta_agent
+import app_agent
+import ui_generator
 from generation_trace import (
     build_generation_trace,
     persist_generation_trace,
@@ -112,9 +115,10 @@ class ExecutePayload(BaseModel):
 class ChatPayload(BaseModel):
     project_id: str
     message: str
-    graph_data: Dict[str, Any]
+    graph_data: Dict[str, Any] = Field(default_factory=lambda: {"nodes": [], "edges": []})
     complexity_level: str = "medium"
     training_consent: bool = False
+    target_type: Optional[str] = "auto"
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -170,12 +174,31 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     if not credentials:
         return None
     token = credentials.credentials
+    
+    # 테스트 빌드: 프론트엔드에서 dev-mock-token을 보내면 바로 더미 유저 반환
+    if token == "dev-mock-token":
+        user_id = 9999
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            user = models.User(id=user_id, email="dev@local.host", name="Developer (Dev Mode)")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
+
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("user_id")
         if user_id is None:
             return None
-        return db.query(models.User).filter(models.User.id == user_id).first()
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            # For local testing, if user doesn't exist, create a dummy one with this ID
+            user = models.User(id=user_id, email=f"dummy_{user_id}@test.com", name="Test User")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
     except jwt.PyJWTError:
         return None
 
@@ -794,6 +817,37 @@ def deploy_project(project_id: int, user: models.User = Depends(get_current_user
         db.commit()
     return {"status": "success", "share_token": project.share_token}
 
+@app.get("/api/apps/custom")
+def get_custom_apps(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    apps = db.query(models.CustomApp).filter(models.CustomApp.owner_id == user.id).order_by(models.CustomApp.created_at.desc()).all()
+    return [{
+        "id": a.id,
+        "title": a.title,
+        "created_at": a.created_at
+    } for a in apps]
+
+@app.get("/api/apps/custom/{app_id}")
+def get_custom_app(app_id: str, db: Session = Depends(get_db)):
+    custom_app = db.query(models.CustomApp).filter(models.CustomApp.id == app_id).first()
+    if not custom_app:
+        raise HTTPException(status_code=404, detail="Custom app not found")
+        
+    combined = custom_app.ui_graph_data or {}
+    ui_data = combined.get("ui") if "ui" in combined else combined
+    logic_data = combined.get("logic") if "logic" in combined else None
+        
+    return {
+        "id": custom_app.id,
+        "title": custom_app.title,
+        "ui_graph_data": ui_data,
+        "logic_graph": logic_data,
+        "workflow_mappings": custom_app.workflow_mappings,
+        "owner_id": custom_app.owner_id
+    }
+
 @app.get("/api/apps/{share_token}")
 def get_app_info(share_token: str, db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.share_token == share_token).first()
@@ -874,6 +928,65 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
             db.add(node_log)
         db.commit()
         return {"status": "success", "result": result_text}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ProjectRunPayload(BaseModel):
+    input_text: Optional[str] = None
+    inputs: Optional[Dict[str, Any]] = None
+
+@app.post("/api/projects/{project_id}/run")
+def run_project_workflow(project_id: int, request: Request, payload: Optional[ProjectRunPayload] = None, db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    user = None
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(" ")[1]
+        try:
+            payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            user = db.query(models.User).filter(models.User.id == payload_jwt.get("user_id")).first()
+        except:
+            pass
+
+    owner = db.query(models.User).filter(models.User.id == project.user_id).first()
+    if owner and owner.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="프로젝트 소유자의 토큰이 모두 소진되었습니다.")
+
+    nodes = project.graph_data.get('nodes', [])
+    edges = project.graph_data.get('edges', [])
+    
+    kwargs = {}
+    if payload:
+        if payload.inputs:
+            kwargs.update(payload.inputs)
+        if payload.input_text:
+            kwargs['default_input'] = payload.input_text
+
+    try:
+        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='custom_app_run', project_id=project.id, **kwargs)
+        
+        total_tokens = tokens.get('total_tokens', 0) if tokens else 0
+        if owner and total_tokens > 0:
+            owner.token_balance -= total_tokens
+
+        db_log = models.FlowExecutionLog(
+            user_id=user.id if user else None,
+            project_id=project.id,
+            payload="Custom App Execution",
+            result=result_text,
+            total_tokens=total_tokens,
+            token_usage_details=tokens,
+            status="success"
+        )
+        db.add(db_log)
+        db.commit()
+        return {"status": "success", "result": result_text, "tokens": tokens, "logs": logs}
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1284,13 +1397,38 @@ def compile_flow(payload: FlowPayload):
 import asyncio
 from starlette.concurrency import run_in_threadpool
 
+def is_app_creation_intent(message: str, target_type: Optional[str] = "auto") -> bool:
+    if target_type == "app":
+        return True
+    if target_type == "workflow":
+        return False
+    
+    msg = message.lower().strip()
+    
+    app_keywords = [
+        "앱 만들어", "앱 생성", "앱 구축", "앱 개발", "앱 제작", "앱을 만들어",
+        "어플 만들어", "어플 생성", "어플 개발", "어플 제작", "어플을 만들어",
+        "웹앱", "웹 앱", "웹어플", "웹 어플", "대시보드 앱", "폼 앱", "입력 폼",
+        "설문조사 앱", "할 일 앱", "todo 앱", "출퇴근 앱", "근태 앱",
+        "등록 폼", "신청 폼", "접수 폼", "작성 폼", "입력 화면",
+        "ui 만들어", "ui 앱", "화면 만들어", "인터페이스 만들어",
+        "custom app", "web application", "create an app", "build an app"
+    ]
+    if any(k in msg for k in app_keywords):
+        return True
+        
+    import re
+    if re.search(r'([가-힣a-zA-Z0-9]+(앱|어플|웹앱|web\s*app))\s*(만들어|생성|제작|구축|개발|디자인)', msg):
+        return True
+        
+    return False
+
 @app.post("/api/chat")
 async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    자연어로 flow(graph_data)를 생성/수정하는 메타 에이전트 챗봇.
-    project_id를 LangGraph thread_id로 써서 같은 프로젝트 안에서는 대화 맥락이 이어진다.
-    graph_data는 여기서 저장하지 않는다 — 프론트가 매번 현재 캔버스 상태를 보내고,
-    돌아온 graph_data를 캔버스에 반영한 뒤 원할 때 /api/projects로 별도 저장한다.
+    자연어로 flow(graph_data) 또는 커스텀 앱(UI + Blueprint Logic + Backend Workflow)을 생성/수정하는 챗봇.
+    사용자의 요청이 '앱'을 구축하려는 의도인 경우 AI 앱 빌더 에이전트(app_agent)를 통해
+    UI 컴포넌트와 인터랙션 로직, 백엔드 워크플로우를 한 번에 생성합니다.
     """
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
@@ -1314,6 +1452,145 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
             db.rollback()
             print(f"Failed to save generation trace {generation_trace_id}: {trace_error}")
 
+    target_type = getattr(payload, 'target_type', 'auto') or 'auto'
+    
+    # ── 1. App Builder Generation (앱 제작 의도) ──
+    if is_app_creation_intent(payload.message, target_type):
+        try:
+            app_result = await app_agent.generate_app(
+                prompt=payload.message,
+                current_state={},
+                provider="openai",
+                complexity_level=payload.complexity_level
+            )
+            
+            workflow_mappings = app_result.workflow_mappings.copy() if app_result.workflow_mappings else {}
+            flow_data = {"nodes": [], "edges": []}
+            backend_project_id = None
+            
+            if app_result.requires_backend_workflow and app_result.backend_workflow_prompt:
+                try:
+                    flow_data = await asyncio.to_thread(meta_agent.generate_flow, app_result.backend_workflow_prompt)
+                    if user:
+                        project = models.Project(
+                            user_id=user.id,
+                            title=f"Backend for {app_result.new_title}",
+                            description=f"Auto-generated backend workflow for {app_result.new_title}",
+                            graph_data=flow_data,
+                            visibility="private"
+                        )
+                        db.add(project)
+                        db.commit()
+                        db.refresh(project)
+                        backend_project_id = str(project.id)
+                        
+                        for k, v in list(workflow_mappings.items()):
+                            if v == "NEW_WORKFLOW_ID":
+                                workflow_mappings[k] = backend_project_id
+                                
+                        for node in app_result.logic_nodes:
+                            if node.type == "workflowNode" and node.data.projectId == "NEW_WORKFLOW_ID":
+                                node.data.projectId = backend_project_id
+                except Exception as e:
+                    print(f"Error generating backend workflow for app: {e}")
+                    app_result.reply += "\n\n(참고: 백엔드 워크플로우 자동 생성 중 경고가 발생했습니다.)"
+
+            app_id = str(uuid.uuid4())
+            combined_data = {
+                "ui": {
+                    "components": [c.model_dump() for c in app_result.ui_components],
+                    "rootStyle": app_result.root_style,
+                    "globalCss": app_result.global_css
+                },
+                "logic": {
+                    "nodes": [n.model_dump() for n in app_result.logic_nodes],
+                    "edges": [e.model_dump() for e in app_result.logic_edges]
+                }
+            }
+            
+            new_app = models.CustomApp(
+                id=app_id,
+                title=app_result.new_title,
+                ui_graph_data=combined_data,
+                workflow_mappings=workflow_mappings,
+                owner_id=user.id if user else None
+            )
+            db.add(new_app)
+            db.commit()
+            
+            total_tokens = 3500
+            if user and total_tokens > 0:
+                user.token_balance -= total_tokens
+                try:
+                    db_log = models.FlowExecutionLog(
+                        user_id=user.id,
+                        project_id=int(backend_project_id) if backend_project_id and backend_project_id.isdigit() else None,
+                        payload=f"App Agent: {payload.message[:200]}",
+                        result=app_result.reply[:500] if app_result.reply else "",
+                        total_tokens=total_tokens,
+                        status="app_agent"
+                    )
+                    db.add(db_log)
+                    db.commit()
+                except Exception as e:
+                    db.rollback()
+                    print(f"Failed to save app agent token log: {e}")
+
+            if user:
+                def save_app_session():
+                    session = db.query(models.ChatSession).filter(
+                        models.ChatSession.user_id == user.id,
+                        models.ChatSession.project_id == str(payload.project_id)
+                    ).first()
+                    if not session:
+                        session = models.ChatSession(
+                            user_id=user.id,
+                            project_id=str(payload.project_id),
+                            title=app_result.new_title or (payload.message[:20] + "..."),
+                            messages=[]
+                        )
+                        db.add(session)
+                        db.commit()
+                        db.refresh(session)
+                    msgs = list(session.messages) if session.messages else []
+                    msgs.append({"role": "user", "content": payload.message})
+                    msgs.append({
+                        "role": "ai",
+                        "content": app_result.reply,
+                        "type": "app",
+                        "app_id": app_id,
+                        "app_title": app_result.new_title,
+                        "workflow_id": backend_project_id,
+                        "graph_data": flow_data
+                    })
+                    session.messages = msgs
+                    db.commit()
+                await run_in_threadpool(save_app_session)
+
+            return {
+                "status": "success",
+                "type": "app",
+                "reply": app_result.reply,
+                "app_id": app_id,
+                "app_title": app_result.new_title,
+                "app_data": combined_data["ui"],
+                "logic_graph": combined_data["logic"],
+                "workflow_mappings": workflow_mappings,
+                "workflow_id": backend_project_id,
+                "graph_data": flow_data,
+                "token_usage": {"total_tokens": total_tokens},
+                "clarification": None
+            }
+        except asyncio.CancelledError:
+            print(f"App generation cancelled by client for project {payload.project_id}")
+            return {"status": "cancelled", "message": "Client disconnected or cancelled"}
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"앱 생성 중 오류: {str(e)}")
+
+    # ── 2. Workflow Generation (일반 워크플로우 생성) ──
+>>>>>>> main
     try:
         reply, graph_data, token_usage, clarification = await run_agent_turn(
             payload.graph_data,
@@ -1383,7 +1660,7 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
                 # messages는 리스트인데, SQLAlchemy JSON 필드는 기본적으로 리스트를 반환할 수 있으나 할당 시 새 객체로 줘야 변경감지가 됨
                 msgs = list(session.messages) if session.messages else []
                 msgs.append({"role": "user", "content": payload.message})
-                msgs.append({"role": "ai", "content": reply})
+                msgs.append({"role": "ai", "content": reply, "type": "workflow", "graph_data": graph_data})
                 session.messages = msgs
                 db.commit()
                 
@@ -1391,6 +1668,7 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
 
         return {
             "status": "success",
+            "type": "workflow",
             "reply": reply,
             "graph_data": graph_data,
             "token_usage": token_usage,
@@ -2398,3 +2676,168 @@ def delete_chat_session(session_id: int, user: models.User = Depends(get_current
     db.delete(session)
     db.commit()
     return {"status": "success"}
+
+# --- App Builder Endpoints ---
+
+class BuilderGenerateRequest(BaseModel):
+    prompt: str
+    provider: Optional[str] = "openai"
+
+@app.post("/api/builder/generate")
+async def builder_generate_ui(req: BuilderGenerateRequest, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Get user API key
+    api_key_record = db.query(models.UserApiKey).filter(
+        models.UserApiKey.user_id == user.id,
+        models.UserApiKey.provider == req.provider
+    ).first()
+    
+    api_key = api_key_record.api_key if api_key_record else None
+    
+    # If no key, fallback to system key (for MVP/demo purposes)
+    if not api_key:
+        api_key = os.environ.get("OPENAI_API_KEY") if req.provider == "openai" else os.environ.get("GEMINI_API_KEY")
+        
+    try:
+        html_code = await ui_generator.generate_custom_ui(req.prompt, api_key, req.provider)
+        return {"html": html_code}
+    except Exception as e:
+        print(f"UI Generation Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class BuilderSaveRequest(BaseModel):
+    app_id: Optional[str] = None
+    app_name: str
+    ui_graph_data: dict
+    logic_graph: dict
+    workflow_mappings: dict
+
+@app.post("/api/builder/save")
+def builder_save_app(req: BuilderSaveRequest, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    combined_data = {
+        "ui": req.ui_graph_data,
+        "logic": req.logic_graph
+    }
+    
+    if req.app_id:
+        existing_app = db.query(models.CustomApp).filter(models.CustomApp.id == req.app_id, models.CustomApp.owner_id == user.id).first()
+        if existing_app:
+            existing_app.title = req.app_name
+            existing_app.ui_graph_data = combined_data
+            existing_app.workflow_mappings = req.workflow_mappings
+            db.commit()
+            return {"status": "success", "id": existing_app.id}
+            
+    app_id = str(uuid.uuid4())
+    new_app = models.CustomApp(
+        id=app_id,
+        title=req.app_name,
+        ui_graph_data=combined_data,
+        workflow_mappings=req.workflow_mappings,
+        owner_id=user.id
+    )
+    db.add(new_app)
+    db.commit()
+    
+    return {"status": "success", "id": app_id}
+
+from app_agent import generate_app
+import meta_agent
+
+class BuilderGenerateAppRequest(BaseModel):
+    app_id: Optional[str] = None
+    prompt: str
+    current_state: dict
+    generate_mode: str = "code"
+
+@app.post("/api/builder/generate_app")
+async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    # 1. Call app_agent
+    from app_agent import generate_app_safely
+    result = await generate_app_safely(req.prompt, req.current_state, provider="openai", generate_mode=req.generate_mode)
+    
+    workflow_mappings = result.workflow_mappings.copy()
+    
+    # 2. If it requires backend workflow, use meta_agent to generate a project
+    if result.requires_backend_workflow and result.backend_workflow_prompt:
+        try:
+            import asyncio
+            flow_data = await asyncio.to_thread(meta_agent.generate_flow, result.backend_workflow_prompt)
+            if hasattr(flow_data, "model_dump"):
+                flow_data_dict = flow_data.model_dump()
+            else:
+                flow_data_dict = flow_data
+                
+            project = models.Project(
+                user_id=user.id,
+                title=f"Backend for {result.new_title}",
+                description=f"Auto-generated backend workflow for {result.new_title}",
+                graph_data=flow_data_dict,
+                visibility="private"
+            )
+            db.add(project)
+            db.commit()
+            db.refresh(project)
+            
+            # 3. Replace 'NEW_WORKFLOW_ID' with actual project.id in mappings and logic nodes
+            actual_project_id = str(project.id)
+            for k, v in workflow_mappings.items():
+                if v == "NEW_WORKFLOW_ID":
+                    workflow_mappings[k] = actual_project_id
+                    
+            for node in result.logic_nodes:
+                if node.type == "workflowNode" and node.data.projectId == "NEW_WORKFLOW_ID":
+                    node.data.projectId = actual_project_id
+        except Exception as e:
+            print(f"Error generating backend workflow: {e}")
+            result.reply += "\n\n(참고: 백엔드 워크플로우 생성 중 오류가 발생했습니다. 일부 기능이 동작하지 않을 수 있습니다.)"
+
+    def flatten_and_clean(comps):
+        """
+        Flatten nested component trees into a single-level list and strip
+        all position/sizing data. The frontend will handle layout via flexbox.
+        This eliminates the fundamental conflict between absolute positioning
+        and AI-generated flex layout instructions.
+        """
+        flat = []
+        for c in comps:
+            if not hasattr(c, 'props'):
+                c.props = {}
+            # Remove position — frontend flow layout handles placement
+            if 'position' in c.props:
+                del c.props['position']
+            # Clean up style — remove any absolute positioning artifacts
+            if 'style' in c.props:
+                for key in ['position', 'left', 'top', 'right', 'bottom']:
+                    c.props['style'].pop(key, None)
+            
+            if c.type == 'container' and hasattr(c, 'children') and c.children:
+                # Flatten: pull children out of containers, discard the container shell
+                flat.extend(flatten_and_clean(c.children))
+            else:
+                c.children = None  # no nesting
+                flat.append(c)
+        return flat
+
+    result.ui_components = flatten_and_clean(result.ui_components)
+
+    return {
+        "reply": result.reply,
+        "new_title": result.new_title,
+        "ui_graph_data": {
+            "components": [c.model_dump() for c in result.ui_components],
+            "rootStyle": result.root_style,
+            "globalCss": result.global_css,
+            "globalJs": result.global_js
+        },
+        "logic_graph": {
+            "nodes": [n.model_dump() for n in result.logic_nodes],
+            "edges": [e.model_dump() for e in result.logic_edges]
+        },
+        "workflow_mappings": workflow_mappings
+    }

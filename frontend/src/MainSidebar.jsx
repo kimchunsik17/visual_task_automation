@@ -90,6 +90,9 @@ const MainSidebar = ({ onSelectSession }) => {
           <button className={`nav-item ${location.pathname === '/workflows' ? 'active' : ''}`} onClick={() => navigate('/workflows')}>
             <LayoutGrid size={18} /> <span>내 워크플로우</span>
           </button>
+          <button className={`nav-item ${location.pathname.startsWith('/custom-apps') || location.pathname.startsWith('/app-builder') ? 'active' : ''}`} onClick={() => navigate('/custom-apps')}>
+            <Wand2 size={18} /> <span>앱 빌더 (AI)</span>
+          </button>
           <button className={`nav-item ${location.pathname === '/templates' ? 'active' : ''}`} onClick={() => navigate('/templates')}>
             <LibraryBig size={18} /> <span>커뮤니티 템플릿</span>
           </button>
