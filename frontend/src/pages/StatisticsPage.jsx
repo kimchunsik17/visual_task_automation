@@ -3,18 +3,20 @@ import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import MainSidebar from '../MainSidebar';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, BarChart as RechartsBarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
-import { BarChart, Activity, Database, Clock, Cpu, Bot } from 'lucide-react';
+import { BarChart, Activity, Database, Clock, Cpu, Bot, LayoutTemplate } from 'lucide-react';
 import './MainPage.css';
 
 const TYPE_COLORS = {
   execution:  '#8b5cf6',
   agent:      '#3b82f6',
+  app_builder: '#ec4899',
   evaluation: '#10b981',
 };
 
 const TYPE_LABELS = {
   execution:  '워크플로우 실행',
   agent:      'AI 생성(챗봇)',
+  app_builder: 'App Builder 생성',
   evaluation: '평가',
 };
 
@@ -117,6 +119,7 @@ function StatisticsPage() {
                   { label: `잔여 ${tokenDisplayMode==='cost'?'잔액':'토큰'}`, value: stats.remaining, color: '#34d399', accent: '#10b981', icon: <Database size={16} color="#10b981" />, sub: '보유 잔여량', leftBorder: false },
                   { label: '워크플로우 실행', value: stats.usage_by_type?.execution||0, color: '#a78bfa', accent: '#8b5cf6', icon: <Cpu size={16} color="#8b5cf6" />, sub: '실행 노드 소모량', leftBorder: '#8b5cf6' },
                   { label: 'AI 생성 (챗봇)', value: stats.usage_by_type?.agent||0, color: '#60a5fa', accent: '#3b82f6', icon: <Bot size={16} color="#3b82f6" />, sub: '워크플로우 생성·수정', leftBorder: '#3b82f6' },
+                  { label: 'App Builder 생성', value: stats.usage_by_type?.app_builder||0, color: '#f472b6', accent: '#ec4899', icon: <LayoutTemplate size={16} color="#ec4899" />, sub: '앱 UI·로직 생성', leftBorder: '#ec4899' },
                   { label: '평가', value: stats.usage_by_type?.evaluation||0, color: '#34d399', accent: '#10b981', icon: <span style={{fontSize:'0.9rem'}}>🧪</span>, sub: '워크플로우 품질 평가', leftBorder: '#10b981' },
                 ].map((card, i) => (
                   <div key={i} style={{ background: 'var(--card-bg)', padding: '1.25rem 1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', borderLeft: card.leftBorder ? `3px solid ${card.leftBorder}` : undefined, boxShadow: 'var(--card-shadow)' }}>
@@ -154,13 +157,14 @@ function StatisticsPage() {
                         />
                         <Tooltip
                           contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-color)' }}
-                          formatter={(value, name) => [formatTokenDisplay(value), {execution:'워크플로우 실행',agent:'AI 생성',evaluation:'평가'}[name]||name]}
+                          formatter={(value, name) => [formatTokenDisplay(value), TYPE_LABELS[name] || name]}
                           labelFormatter={(label, payload) => payload?.[0]?.payload?.fullDate||label}
                           labelStyle={{ color: 'var(--text-color)', fontWeight: 'bold', marginBottom: '0.4rem' }}
                         />
-                        <Legend formatter={(v) => ({execution:'워크플로우 실행',agent:'AI 생성',evaluation:'평가'}[v]||v)} />
+                        <Legend formatter={(value) => TYPE_LABELS[value] || value} />
                         <Area type="monotone" dataKey="execution" stackId="1" stroke={TYPE_COLORS.execution} fill="url(#g_execution)" strokeWidth={2} />
                         <Area type="monotone" dataKey="agent" stackId="1" stroke={TYPE_COLORS.agent} fill="url(#g_agent)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="app_builder" stackId="1" stroke={TYPE_COLORS.app_builder} fill="url(#g_app_builder)" strokeWidth={2} />
                         <Area type="monotone" dataKey="evaluation" stackId="1" stroke={TYPE_COLORS.evaluation} fill="url(#g_evaluation)" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>

@@ -238,7 +238,7 @@ function FlowContent() {
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatStage, setChatStage] = useState('대기 중');
-  const [complexityLevel, setComplexityLevel] = useState('medium');
+  const [complexityLevel, setComplexityLevel] = useState('low');
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
 

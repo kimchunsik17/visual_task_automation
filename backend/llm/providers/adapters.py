@@ -89,6 +89,10 @@ class OpenAIProvider(BaseLangChainProvider):
             kwargs["temperature"] = temperature
         if max_retries is not None:
             kwargs["max_retries"] = max_retries
+
+        if "gpt-5" in model or "o1" in model or "o3" in model:
+            kwargs["model_kwargs"] = {"reasoning_effort": "none"}
+
         return ChatOpenAI(**kwargs)
 
 
@@ -119,10 +123,14 @@ class OpenAICompatibleProvider(OpenAIProvider):
             "timeout": self.settings.timeout_seconds,
         }
         temperature = kwargs.get("temperature")
-        if temperature is not None:
+        if temperature is not None and "gpt-5" not in params["model"]:
             params["temperature"] = temperature
         if kwargs.get("max_retries") is not None:
             params["max_retries"] = kwargs["max_retries"]
+
+        if "gpt-5" in params["model"] or "o1" in params["model"] or "o3" in params["model"]:
+            params["model_kwargs"] = {"reasoning_effort": "none"}
+
         return ChatOpenAI(**params)
 
 

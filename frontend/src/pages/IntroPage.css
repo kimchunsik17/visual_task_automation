@@ -233,6 +233,69 @@
   gap: 1rem;
 }
 
+.hero-video-frame {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: #000;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.hero-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+}
+
+.hero-video-poster {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: #000;
+  cursor: pointer;
+}
+
+.hero-video-poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hero-video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 76px;
+  height: 54px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: #ff0033;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%);
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.hero-video-poster:hover .hero-video-play,
+.hero-video-poster:focus-visible .hero-video-play {
+  background: #d9002b;
+  transform: translate(-50%, -50%) scale(1.06);
+}
+
+.hero-video-poster:focus-visible {
+  outline: 3px solid var(--primary-color);
+  outline-offset: -3px;
+}
+
 .hero-gif-sub-container {
   display: flex;
   gap: 1rem;
@@ -603,6 +666,15 @@
   align-items: center;
 }
 
+.major-feature-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
 .major-visual-placeholder {
   width: 100%;
   height: 400px;
@@ -633,27 +705,22 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 120%;
-  height: 120%;
-  opacity: 0.05;
+  width: min(1400px, 110%);
+  height: 82%;
+  opacity: 0.18;
   pointer-events: none;
   z-index: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
+  border-radius: 20px;
 }
 
-.bg-screen-placeholder {
+.how-it-works-bg img {
+  display: block;
   width: 100%;
   height: 100%;
-  background: repeating-linear-gradient(45deg, var(--border-color) 25%, transparent 25%, transparent 75%, var(--border-color) 75%, var(--border-color)), repeating-linear-gradient(45deg, var(--border-color) 25%, var(--bg-color) 25%, var(--bg-color) 75%, var(--border-color) 75%, var(--border-color));
-  background-position: 0 0, 10px 10px;
-  background-size: 20px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2rem;
-  font-weight: bold;
+  object-fit: cover;
+  object-position: center;
+  filter: brightness(1.45) saturate(0.7);
 }
 
 .intro-how-it-works .intro-section-header,

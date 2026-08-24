@@ -5,12 +5,48 @@ import '@xyflow/react/dist/style.css';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import UIEngine from '../components/UIEngine';
-import { Save, Layout, Box, Type, MousePointerClick, TextCursorInput, MousePointer2, Layers, Image as ImageIcon, Play, Database, ArrowRight, Sparkles, Code2, List, CheckSquare, Minus } from 'lucide-react';
+import {
+  COMPONENT_DEFAULT_SIZES,
+  DEFAULT_CANVAS,
+  applyWorkflowMappings,
+  inferButtonActionMode,
+  isValidLogicConnection,
+  makeGeneratedLayoutEditable,
+  normalizeCanvas,
+  normalizeComponents,
+  normalizeWorkflowMappings,
+  resolveCanvas,
+  scaleDescendantGeometry,
+} from '../appBuilderSchema';
+import { Save, Layout, Box, Type, MousePointerClick, TextCursorInput, MousePointer2, Layers, Image as ImageIcon, Play, Database, ArrowRight, ArrowLeft, Sparkles, Code2, List, CheckSquare, Minus, TerminalSquare, Trash2, X, CheckCircle2, Copy, ExternalLink, FileText, Coins, Workflow } from 'lucide-react';
 import { logicNodeTypes } from '../logicNodes';
 import './AppBuilderPage.css';
 
 let idCounter = 1;
 const getId = (type) => `${type}-${idCounter++}-${Date.now()}`;
+const EDITOR_LAYOUT_VERSION = 2;
+
+const PLAYGROUND_PRESETS = [
+  { id: 'desktop', label: 'Desktop (1024 x 768)', width: 1024, height: 768 },
+  { id: 'tablet', label: 'Tablet (768 x 1024)', width: 768, height: 1024 },
+  { id: 'mobile', label: 'Mobile (390 x 844)', width: 390, height: 844 },
+];
+
+const clampCanvasDimension = (value, minimum, maximum, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, Math.round(parsed)));
+};
+
+const numericPixelDimension = (value) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+(\.\d+)?px$/.test(value.trim())) return Number.parseFloat(value);
+  return null;
+};
+
+const componentContains = (component, componentId) => (
+  component?.children?.some((child) => child.id === componentId || componentContains(child, componentId)) || false
+);
 
 export default function AppBuilderPage() {
   const navigate = useNavigate();
@@ -20,6 +56,8 @@ export default function AppBuilderPage() {
   const [components, setComponents] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [appTitle, setAppTitle] = useState('My Visual App');
+  const [appDescription, setAppDescription] = useState('');
+  const [isAppDetailsOpen, setIsAppDetailsOpen] = useState(false);
   const [rootStyle, setRootStyle] = useState({ backgroundColor: '#f1f5f9', padding: '0px' });
   const [globalCss, setGlobalCss] = useState('');
   const [globalJs, setGlobalJs] = useState('');
@@ -27,7 +65,58 @@ export default function AppBuilderPage() {
   const [deployedUrl, setDeployedUrl] = useState('');
   const [snapLines, setSnapLines] = useState([]);
   const [workflowMappings, setWorkflowMappings] = useState({});
+  const [canvas, setCanvas] = useState(DEFAULT_CANVAS);
+  const [canvasDimensionDraft, setCanvasDimensionDraft] = useState({
+    width: String(DEFAULT_CANVAS.width),
+    height: String(DEFAULT_CANVAS.height),
+  });
+  const reactFlowInstanceRef = React.useRef(null);
   const [generationMode, setGenerationMode] = useState('code'); // 'code' or 'blueprint'
+  const [generationWorkflowMode, setGenerationWorkflowMode] = useState('auto');
+  const [generationWorkflowId, setGenerationWorkflowId] = useState('');
+  const [builderTokenUsage, setBuilderTokenUsage] = useState({
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    requests: 0,
+  });
+  const [userWorkflows, setUserWorkflows] = useState([]);
+  const [executionLogs, setExecutionLogs] = useState([]);
+  const [isExecutionPanelOpen, setIsExecutionPanelOpen] = useState(false);
+  const [executionPanelHeight, setExecutionPanelHeight] = useState(280);
+  const executionLogEndRef = React.useRef(null);
+  const resizeSnapshotRef = React.useRef(null);
+
+  const handleExecutionEvent = useCallback((event) => {
+    setExecutionLogs((logs) => [...logs, { id: `${Date.now()}-${logs.length}`, ...event }]);
+    setIsExecutionPanelOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (isExecutionPanelOpen) executionLogEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [executionLogs, isExecutionPanelOpen]);
+
+  useEffect(() => {
+    setCanvasDimensionDraft({
+      width: String(canvas.width),
+      height: String(canvas.height),
+    });
+  }, [canvas.width, canvas.height]);
+
+  useEffect(() => {
+    const fetchWorkflows = async () => {
+      try {
+        const authHeaders = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+        const res = await axios.get('/api/projects/my', authHeaders);
+        setUserWorkflows(res.data || []);
+      } catch (err) {
+        console.error('Failed to fetch user workflows', err);
+      }
+    };
+    if (token) {
+      fetchWorkflows();
+    }
+  }, [token]);
   
   useEffect(() => {
     if (appId) {
@@ -36,10 +125,23 @@ export default function AppBuilderPage() {
           const authHeaders = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
           const res = await axios.get(`/api/apps/custom/${appId}`, authHeaders);
           const data = res.data;
-          
+
           if (data.title) setAppTitle(data.title);
+          setAppDescription(data.description || data.ui_graph_data?.description || '');
           if (data.ui_graph_data) {
-            if (data.ui_graph_data.components) setComponents(data.ui_graph_data.components);
+            const loadedCanvas = normalizeCanvas(data.ui_graph_data.canvas);
+            const loadedMappings = normalizeWorkflowMappings(data.workflow_mappings);
+            if (data.ui_graph_data.components) {
+              const normalizedComponents = normalizeComponents(data.ui_graph_data.components, loadedCanvas);
+              const editableComponents = data.ui_graph_data.editorLayoutVersion === EDITOR_LAYOUT_VERSION
+                ? normalizedComponents
+                : makeGeneratedLayoutEditable(normalizedComponents);
+              setComponents(applyWorkflowMappings(
+                editableComponents,
+                loadedMappings
+              ));
+            }
+            setCanvas(loadedCanvas);
             if (data.ui_graph_data.rootStyle) setRootStyle(data.ui_graph_data.rootStyle);
             if (data.ui_graph_data.globalCss) setGlobalCss(data.ui_graph_data.globalCss);
             if (data.ui_graph_data.globalJs) setGlobalJs(data.ui_graph_data.globalJs);
@@ -48,9 +150,7 @@ export default function AppBuilderPage() {
             if (data.logic_graph.nodes) setLogicNodes(data.logic_graph.nodes);
             if (data.logic_graph.edges) setLogicEdges(data.logic_graph.edges);
           }
-          if (data.workflow_mappings) {
-            setWorkflowMappings(data.workflow_mappings);
-          }
+          setWorkflowMappings(normalizeWorkflowMappings(data.workflow_mappings));
         } catch (err) {
           console.error("Failed to load custom app", err);
         }
@@ -58,11 +158,22 @@ export default function AppBuilderPage() {
       loadApp();
     } else if (location.state?.initialAppData) {
       const init = location.state.initialAppData;
-      if (init.components) setComponents(init.components);
+      const initialCanvas = normalizeCanvas(init.canvas);
+      const initialMappings = normalizeWorkflowMappings(init.workflowMappings || init.workflow_mappings);
+      if (init.components) {
+        const normalizedComponents = normalizeComponents(init.components, initialCanvas);
+        const editableComponents = init.editorLayoutVersion === EDITOR_LAYOUT_VERSION
+          ? normalizedComponents
+          : makeGeneratedLayoutEditable(normalizedComponents);
+        setComponents(applyWorkflowMappings(editableComponents, initialMappings));
+      }
       if (init.rootStyle) setRootStyle(init.rootStyle);
       if (init.globalCss) setGlobalCss(init.globalCss);
       if (init.globalJs) setGlobalJs(init.globalJs);
       if (init.title) setAppTitle(init.title);
+      if (init.description) setAppDescription(init.description);
+      setCanvas(initialCanvas);
+      setWorkflowMappings(initialMappings);
     }
   }, [appId, token, location.state]);
 
@@ -86,6 +197,13 @@ export default function AppBuilderPage() {
 
   const handleSendChatMessage = async () => {
     if (!chatInput.trim() || isChatLoading) return;
+    if (generationWorkflowMode === 'existing' && !generationWorkflowId) {
+      setChatMessages((messages) => [
+        ...messages,
+        { role: 'assistant', content: '사용할 기존 Workflow를 먼저 선택해주세요.' },
+      ]);
+      return;
+    }
     const userMessage = chatInput.trim();
     setChatInput('');
     const newMessages = [...chatMessages, { role: 'user', content: userMessage }];
@@ -97,9 +215,17 @@ export default function AppBuilderPage() {
         app_id: appId || undefined,
         prompt: userMessage,
         generate_mode: generationMode,
+        workflow_mode: generationWorkflowMode,
+        existing_workflow_id: generationWorkflowMode === 'existing' ? Number(generationWorkflowId) : undefined,
         current_state: {
           title: appTitle,
-          ui_graph_data: { components, rootStyle, globalCss, globalJs },
+          description: appDescription,
+          ui_graph_data: { components, rootStyle, globalCss, globalJs, canvas, description: appDescription },
+          page_settings: { canvas: normalizeCanvas(canvas), rootStyle },
+          generation_options: {
+            workflow_mode: generationWorkflowMode,
+            existing_workflow_id: generationWorkflowMode === 'existing' ? generationWorkflowId : null,
+          },
           logic_graph: { nodes: logicNodes, edges: logicEdges },
           workflow_mappings: workflowMappings
         }
@@ -109,47 +235,32 @@ export default function AppBuilderPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      const { reply, ui_graph_data, logic_graph, workflow_mappings, new_title } = res.data;
-      
+      const { reply, ui_graph_data, logic_graph, workflow_mappings, new_title, token_usage } = res.data;
+      if (token_usage) {
+        setBuilderTokenUsage((current) => ({
+          input_tokens: current.input_tokens + Number(token_usage.input_tokens || 0),
+          output_tokens: current.output_tokens + Number(token_usage.output_tokens || 0),
+          total_tokens: current.total_tokens + Number(token_usage.total_tokens || 0),
+          requests: current.requests + 1,
+        }));
+      }
+      const nextMappings = normalizeWorkflowMappings({ ...workflowMappings, ...(workflow_mappings || {}) });
+
       if (new_title) setAppTitle(new_title);
-      
+
+      let finalComponents = components;
+      let finalCanvas = normalizeCanvas(canvas);
+
       if (ui_graph_data) {
+        const generatedCanvas = normalizeCanvas({ ...canvas, ...(ui_graph_data.canvas || {}) });
+        finalCanvas = generatedCanvas;
+        setCanvas(generatedCanvas);
         if (ui_graph_data.components) {
-          const CANVAS_WIDTH = 1024;
-          let currentY = 30;
-
-          // Type-safe default dimensions — AI-provided widths can be '100%', 'auto', etc.
-          // which parseInt cannot handle. Use per-type safe pixel defaults instead.
-          const TYPE_W = { text: 300, button: 180, input: 300, textarea: 300, dropdown: 300, checkbox: 200, divider: 560, image: 150 };
-          const TYPE_H = { text: 36, button: 45, input: 45, textarea: 100, dropdown: 45, checkbox: 36, divider: 2, image: 150 };
-
-          const positioned = ui_graph_data.components.map(comp => {
-            if (!comp.props) comp.props = {};
-            if (!comp.props.style) comp.props.style = {};
-
-            const type = comp.type || 'text';
-
-            // Resolve width: only trust AI value if it's a plain px number
-            const aiW = parseInt(comp.props.style?.width);
-            const w = (!isNaN(aiW) && aiW > 0 && aiW < CANVAS_WIDTH) ? aiW : (TYPE_W[type] || 200);
-
-            // Resolve height: same logic
-            const aiH = parseInt(comp.props.style?.height);
-            const h = (!isNaN(aiH) && aiH > 0 && aiH < 2000) ? aiH : (TYPE_H[type] || 45);
-
-            // Force safe px values so Rnd and preview render identically
-            comp.props.style.width = `${w}px`;
-            comp.props.style.height = `${h}px`;
-
-            if (!comp.props.position) {
-              comp.props.position = {
-                x: Math.round((CANVAS_WIDTH - w) / 2),
-                y: currentY
-              };
-              currentY += h + 16;
-            }
-            return comp;
-          });
+          const positioned = applyWorkflowMappings(
+            makeGeneratedLayoutEditable(normalizeComponents(ui_graph_data.components, generatedCanvas)),
+            nextMappings
+          );
+          finalComponents = positioned;
           setComponents(positioned);
         }
         if (ui_graph_data.rootStyle) setRootStyle(ui_graph_data.rootStyle);
@@ -162,20 +273,58 @@ export default function AppBuilderPage() {
         if (logic_graph.edges) setLogicEdges(logic_graph.edges);
       }
       
-      if (workflow_mappings) {
-        setWorkflowMappings(workflow_mappings);
+      setWorkflowMappings(nextMappings);
+
+      // Auto-save if this is a newly generated app (appId is undefined/null)
+      if (!appId) {
+        try {
+          const autoSavePayload = {
+            app_id: undefined,
+            app_name: new_title || appTitle || 'Untitled App',
+            ui_graph_data: {
+              components: finalComponents,
+              canvas: finalCanvas,
+              description: appDescription,
+              editorLayoutVersion: EDITOR_LAYOUT_VERSION,
+              rootStyle: ui_graph_data?.rootStyle || rootStyle,
+              globalCss: ui_graph_data?.globalCss || globalCss,
+              globalJs: ui_graph_data?.globalJs || globalJs
+            },
+            logic_graph: logic_graph || { nodes: logicNodes, edges: logicEdges },
+            workflow_mappings: nextMappings
+          };
+          const saveRes = await axios.post('/api/builder/save', autoSavePayload, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const newAppId = saveRes.data.id || saveRes.data.app_id;
+          if (newAppId) {
+            navigate(`/app-builder/${newAppId}`, { replace: true });
+          }
+        } catch (saveErr) {
+          console.error('Auto-save failed:', saveErr);
+        }
       }
 
       setChatMessages([...newMessages, { role: 'assistant', content: reply || '요청하신 내용을 반영하여 앱 구성을 업데이트했습니다.' }]);
     } catch (err) {
       console.error('Failed to generate app:', err);
-      setChatMessages([...newMessages, { role: 'assistant', content: '앱 생성 중 오류가 발생했습니다. 백엔드 에러 로그를 확인해주세요.' }]);
+      const errorDetail = err.response?.data?.detail || err.message || '알 수 없는 오류';
+      setChatMessages([...newMessages, {
+        role: 'assistant',
+        content: `앱 생성 중 오류가 발생했습니다: ${errorDetail}`
+      }]);
     } finally {
       setIsChatLoading(false);
     }
   };
 
-  const onLogicConnect = useCallback((params) => setLogicEdges((eds) => addEdge(params, eds)), [setLogicEdges]);
+  const onLogicConnect = useCallback((params) => {
+    if (!isValidLogicConnection(params)) {
+      alert('빨간 실행 포트끼리 또는 초록 데이터 포트끼리 연결해주세요.');
+      return;
+    }
+    setLogicEdges((edges) => addEdge(params, edges));
+  }, [setLogicEdges]);
 
   // Inject components and onChange into logic nodes data
   const processedLogicNodes = logicNodes.map(node => ({
@@ -242,18 +391,23 @@ export default function AppBuilderPage() {
     const type = e.dataTransfer.getData('application/reactflow');
     if (!type) return;
     
-    // Simplistic coordinate calculation for React Flow
-    const reactFlowBounds = e.currentTarget.getBoundingClientRect();
-    const position = {
-      x: e.clientX - reactFlowBounds.left,
-      y: e.clientY - reactFlowBounds.top,
-    };
+    const position = reactFlowInstanceRef.current
+      ? reactFlowInstanceRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
+      : { x: e.clientX, y: e.clientY };
 
+    const nodeId = `logic-${Date.now()}`;
+    const defaultData = {
+      triggerNode: { eventType: 'onClick' },
+      valueNode: { propertyType: 'value' },
+      actionNode: { actionType: 'setText' },
+      workflowNode: { projectId: '' },
+      codeNode: { jsCode: 'return payload;' },
+    };
     const newNode = {
-      id: `logic-${Date.now()}`,
+      id: nodeId,
       type,
       position,
-      data: { id: `logic-${Date.now()}` }
+      data: { id: nodeId, ...(defaultData[type] || {}) }
     };
     setLogicNodes(nds => nds.concat(newNode));
   };
@@ -268,6 +422,14 @@ export default function AppBuilderPage() {
     }
     return null;
   };
+
+  const handleTransformStart = useCallback((id, transformType) => {
+    if (transformType !== 'resize') return;
+    const component = findComponent(components, id);
+    resizeSnapshotRef.current = component
+      ? { id, component: JSON.parse(JSON.stringify(component)) }
+      : null;
+  }, [components]);
 
   const updateComponent = (comps, id, updater) => {
     return comps.map(c => {
@@ -299,6 +461,12 @@ export default function AppBuilderPage() {
   };
 
   const selectedComponent = selectedIds.length === 1 ? findComponent(components, selectedIds[0]) : null;
+  const selectedButtonActionMode = selectedComponent?.type === 'button'
+    ? inferButtonActionMode(
+        selectedComponent.props,
+        logicNodes.some((node) => node.type === 'triggerNode' && node.data?.componentId === selectedComponent.id && (node.data?.eventType || 'onClick') === 'onClick')
+      )
+    : 'none';
 
   const handleDragStart = (e, type) => {
     e.dataTransfer.setData('application/json', JSON.stringify({ type }));
@@ -340,9 +508,21 @@ export default function AppBuilderPage() {
   };
 
   const createNewComponent = (type, x = 0, y = 0) => {
-    const base = { id: getId(type), type, props: { position: { x, y }, style: {} } };
+    const defaultSize = COMPONENT_DEFAULT_SIZES[type] || { width: 200, height: 45 };
+    const base = {
+      id: getId(type),
+      type,
+      props: {
+        position: {
+          x: Math.max(0, Math.min(x, canvas.width - defaultSize.width)),
+          y: Math.max(0, y),
+        },
+        style: { width: `${defaultSize.width}px`, height: `${defaultSize.height}px` },
+      },
+    };
     if (type === 'container') {
-      base.props.style = { padding: '1rem', border: '1px solid #cbd5e1', borderRadius: '4px', minHeight: '50px' };
+      base.props.layoutMode = 'absolute';
+      base.props.style = { ...base.props.style, padding: '1rem', border: '1px solid #cbd5e1', borderRadius: '4px' };
       base.children = [];
     } else if (type === 'text') {
       base.props.text = 'New Text';
@@ -354,12 +534,12 @@ export default function AppBuilderPage() {
       base.props.inputKey = 'input_' + Date.now();
     } else if (type === 'image') {
       base.props.imageUrl = 'https://via.placeholder.com/150';
-      base.props.style = { width: '150px', height: '150px' };
+      base.props.style = { ...base.props.style };
     } else if (type === 'textarea') {
       base.props.label = 'Label';
       base.props.placeholder = 'Type multiline text here...';
       base.props.inputKey = 'textarea_' + Date.now();
-      base.props.style = { width: '200px', height: '80px' };
+      base.props.style = { ...base.props.style };
     } else if (type === 'dropdown') {
       base.props.label = 'Select Option';
       base.props.options = 'Option 1, Option 2, Option 3';
@@ -368,7 +548,7 @@ export default function AppBuilderPage() {
       base.props.label = 'Check me';
       base.props.inputKey = 'checkbox_' + Date.now();
     } else if (type === 'divider') {
-      base.props.style = { width: '200px', height: '2px', backgroundColor: '#cbd5e1' };
+      base.props.style = { ...base.props.style, backgroundColor: '#cbd5e1' };
     }
     return base;
   };
@@ -381,8 +561,8 @@ export default function AppBuilderPage() {
 
     if (isShiftKey && isDragging) {
       const snapThreshold = 10;
-      const canvasWidth = 800;
-      const canvasHeight = 800; // estimated max height
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
       const centerX = canvasWidth / 2;
       const centerY = canvasHeight / 2;
 
@@ -418,16 +598,21 @@ export default function AppBuilderPage() {
     }
 
     setSnapLines(isDragging ? activeLines : []);
+    const activeResizeSnapshot = resizeSnapshotRef.current?.id === id
+      ? resizeSnapshotRef.current.component
+      : null;
 
     setComponents(prev => {
       let newComps = [...prev];
       const isMultiMoving = selectedIds.includes(id) && selectedIds.length > 1;
 
       if (isMultiMoving && transform.deltaX !== undefined && transform.deltaY !== undefined) {
+        const draggedComponent = findComponent(newComps, id);
         selectedIds.forEach(sid => {
-          if (sid === id) return; // handled below
+          if (sid === id || componentContains(draggedComponent, sid)) return;
           newComps = updateComponent(newComps, sid, (c) => {
-            c.props.position = { 
+            c.props = { ...(c.props || {}) };
+            c.props.position = {
               x: (c.props.position?.x || 0) + transform.deltaX, 
               y: (c.props.position?.y || 0) + transform.deltaY 
             };
@@ -437,6 +622,7 @@ export default function AppBuilderPage() {
       }
 
       newComps = updateComponent(newComps, id, (comp) => {
+        comp.props = { ...(comp.props || {}) };
         if (newX !== null || newY !== null) {
           comp.props.position = { 
             x: newX !== null ? newX : (comp.props.position?.x || 0), 
@@ -444,24 +630,49 @@ export default function AppBuilderPage() {
           };
         }
         if (transform.width !== undefined || transform.height !== undefined) {
-          comp.props.style = comp.props.style || {};
+          comp.props.style = { ...(comp.props.style || {}) };
           if (transform.width !== undefined) comp.props.style.width = transform.width;
           if (transform.height !== undefined) comp.props.style.height = transform.height;
+
+          if (activeResizeSnapshot?.children?.length) {
+            const originalWidth = numericPixelDimension(activeResizeSnapshot.props?.style?.width);
+            const originalHeight = numericPixelDimension(activeResizeSnapshot.props?.style?.height);
+            const resizedWidth = numericPixelDimension(transform.width) ?? originalWidth;
+            const resizedHeight = numericPixelDimension(transform.height) ?? originalHeight;
+            const scaleX = originalWidth && resizedWidth ? resizedWidth / originalWidth : 1;
+            const scaleY = originalHeight && resizedHeight ? resizedHeight / originalHeight : 1;
+            comp.children = scaleDescendantGeometry(activeResizeSnapshot.children, scaleX, scaleY);
+          }
         }
         return comp;
       });
 
       return newComps;
     });
-  }, [components, selectedIds]);
+    if (!isDragging && (transform.width !== undefined || transform.height !== undefined)) {
+      resizeSnapshotRef.current = null;
+    }
+  }, [canvas, components, selectedIds]);
 
   const updateSelectedData = (key, value, isStyle = false) => {
     if (selectedIds.length !== 1) return;
     const sId = selectedIds[0];
     setComponents(prev => updateComponent(prev, sId, (comp) => {
+      comp.props = { ...(comp.props || {}) };
       if (key === 'x' || key === 'y') {
         comp.props.position = { ...comp.props.position, [key]: value };
       } else if (isStyle) {
+        if ((key === 'width' || key === 'height') && comp.children?.length) {
+          const previous = numericPixelDimension(comp.props?.style?.[key]);
+          const next = numericPixelDimension(value);
+          if (previous && next) {
+            comp.children = scaleDescendantGeometry(
+              comp.children,
+              key === 'width' ? next / previous : 1,
+              key === 'height' ? next / previous : 1
+            );
+          }
+        }
         comp.props.style = { ...comp.props.style, [key]: value };
       } else {
         comp.props[key] = value;
@@ -477,8 +688,48 @@ export default function AppBuilderPage() {
     }));
   };
 
-  const handleReparent = useCallback((draggedId, targetContainerId) => {
+  const updateSelectedWorkflow = (projectId) => {
+    if (selectedIds.length !== 1) return;
+    const componentId = selectedIds[0];
+    updateSelectedData('workflowId', projectId);
+    setWorkflowMappings((previous) => {
+      const next = { ...normalizeWorkflowMappings(previous) };
+      if (projectId) next[componentId] = { ...(next[componentId] || {}), projectId: String(projectId) };
+      else delete next[componentId];
+      return next;
+    });
+  };
+
+  const findAbsolutePosition = (items, componentId, parentPosition = { x: 0, y: 0 }) => {
+    for (const item of items) {
+      const position = item.props?.position || { x: 0, y: 0 };
+      const absolute = {
+        x: parentPosition.x + (Number(position.x) || 0),
+        y: parentPosition.y + (Number(position.y) || 0),
+      };
+      if (item.id === componentId) return absolute;
+      if (item.children) {
+        const found = findAbsolutePosition(item.children, componentId, absolute);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const handleReparent = (draggedId, targetContainerId) => {
     setComponents(prev => {
+      const draggedComponent = findComponent(prev, draggedId);
+      const targetComponent = targetContainerId === 'root' ? null : findComponent(prev, targetContainerId);
+      const containsTarget = (component) => component?.children?.some(
+        (child) => child.id === targetContainerId || containsTarget(child)
+      );
+      if (!draggedComponent || containsTarget(draggedComponent)) return prev;
+      if (targetContainerId !== 'root' && !['container', 'form'].includes(targetComponent?.type)) return prev;
+
+      const draggedGlobalPosition = findAbsolutePosition(prev, draggedId);
+      const targetGlobalPosition = targetContainerId === 'root'
+        ? { x: 0, y: 0 }
+        : findAbsolutePosition(prev, targetContainerId);
       let draggedComp = null;
       let newTree = JSON.parse(JSON.stringify(prev)); // Deep copy to avoid mutation issues
       
@@ -497,6 +748,12 @@ export default function AppBuilderPage() {
       
       if (!draggedComp) return prev;
 
+      draggedComp.props = { ...(draggedComp.props || {}) };
+      draggedComp.props.position = {
+        x: Math.max(0, (draggedGlobalPosition?.x || 0) - (targetGlobalPosition?.x || 0)),
+        y: Math.max(0, (draggedGlobalPosition?.y || 0) - (targetGlobalPosition?.y || 0)),
+      };
+
       let inserted = false;
       if (targetContainerId === 'root') {
         newTree.push(draggedComp);
@@ -504,13 +761,11 @@ export default function AppBuilderPage() {
       } else {
         const insertToTarget = (list) => {
           for (let i = 0; i < list.length; i++) {
-            if (list[i].id === targetContainerId) {
-              if (list[i].type === 'container' || list[i].type === 'form') {
-                if (!list[i].children) list[i].children = [];
-                list[i].children.push(draggedComp);
-                inserted = true;
-                return true;
-              }
+            if (list[i].id === targetContainerId && (list[i].type === 'container' || list[i].type === 'form')) {
+              if (!list[i].children) list[i].children = [];
+              list[i].children.push(draggedComp);
+              inserted = true;
+              return true;
             }
             if (list[i].children && insertToTarget(list[i].children)) return true;
           }
@@ -522,32 +777,49 @@ export default function AppBuilderPage() {
       if (!inserted) newTree.push(draggedComp); // Fallback to root
       return newTree;
     });
-  }, []);
+  };
 
   const handleSaveAndDeploy = async () => {
     try {
-      const workflowMappings = {};
+      const componentMappings = {};
+      const componentIds = new Set();
       const extractMappings = (comps) => {
         comps.forEach(c => {
+          componentIds.add(c.id);
           if (c.props.workflowId) {
-            workflowMappings[c.id] = { projectId: c.props.workflowId };
+            componentMappings[c.id] = { projectId: c.props.workflowId };
           }
           if (c.children) extractMappings(c.children);
         });
       };
       extractMappings(components);
+      const normalizedMappings = Object.fromEntries(
+        Object.entries(normalizeWorkflowMappings({ ...workflowMappings, ...componentMappings }))
+          .filter(([componentId]) => componentIds.has(componentId))
+      );
+      const savedCanvas = normalizeCanvas(canvas);
 
       const payload = {
         app_id: appId,
-        title: appTitle,
-        ui_graph_data: { components, rootStyle, globalCss, globalJs },
+        app_name: appTitle || 'Untitled App',
+        ui_graph_data: {
+          components,
+          description: appDescription,
+          rootStyle,
+          globalCss,
+          globalJs,
+          canvas: savedCanvas,
+          editorLayoutVersion: EDITOR_LAYOUT_VERSION,
+        },
         logic_graph: { nodes: logicNodes, edges: logicEdges },
-        workflow_mappings: workflowMappings
+        workflow_mappings: normalizedMappings
       };
 
       const res = await axios.post('/api/builder/save', payload, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
+      setWorkflowMappings(normalizedMappings);
+      setCanvas(savedCanvas);
       
       const appUrl = `${window.location.origin}/custom-app/${res.data.id}`;
       setDeployedUrl(appUrl);
@@ -597,12 +869,39 @@ export default function AppBuilderPage() {
     ));
   };
 
+  const effectiveCanvas = resolveCanvas(components, canvas);
+  const playgroundPreset = PLAYGROUND_PRESETS.find(
+    (preset) => preset.width === canvas.width && preset.height === canvas.height
+  )?.id || 'custom';
+
+  const handlePlaygroundPresetChange = (presetId) => {
+    const preset = PLAYGROUND_PRESETS.find((item) => item.id === presetId);
+    if (preset) {
+      setCanvas((current) => ({ ...current, width: preset.width, height: preset.height }));
+    }
+  };
+
+  const commitCanvasDimension = (dimension) => {
+    const value = dimension === 'width'
+      ? clampCanvasDimension(canvasDimensionDraft[dimension], 320, 1920, canvas.width)
+      : clampCanvasDimension(canvasDimensionDraft[dimension], 480, 3000, canvas.height);
+    setCanvas((current) => ({ ...current, [dimension]: value }));
+    setCanvasDimensionDraft((draft) => ({ ...draft, [dimension]: String(value) }));
+  };
+
   return (
     <div className="builder-layout">
       {globalCss && <style>{globalCss}</style>}
       {/* Header */}
       <header className="builder-header">
         <div className="header-left">
+          <button
+            onClick={() => navigate('/')}
+            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', marginRight: '0.5rem' }}
+            title="홈으로 돌아가기"
+          >
+            <ArrowLeft size={20} />
+          </button>
           <MousePointer2 size={24} color="#3b82f6" />
           <input 
             className="app-title-input"
@@ -611,6 +910,34 @@ export default function AppBuilderPage() {
             placeholder="앱 이름 입력..."
             style={{ width: '150px' }}
           />
+          <div className="app-details-control">
+            <button
+              className={`builder-icon-button ${isAppDetailsOpen ? 'active' : ''}`}
+              onClick={() => setIsAppDetailsOpen((open) => !open)}
+              title="앱 정보"
+              aria-label="앱 정보"
+            >
+              <FileText size={17} />
+            </button>
+            {isAppDetailsOpen && (
+              <div className="app-details-popover">
+                <div className="prop-group">
+                  <label htmlFor="app-details-title">앱 제목</label>
+                  <input id="app-details-title" type="text" value={appTitle} onChange={(e) => setAppTitle(e.target.value)} />
+                </div>
+                <div className="prop-group">
+                  <label htmlFor="app-details-description">앱 설명</label>
+                  <textarea
+                    id="app-details-description"
+                    rows="5"
+                    value={appDescription}
+                    onChange={(e) => setAppDescription(e.target.value)}
+                    placeholder="앱의 목적과 사용 방법을 기록하세요."
+                  />
+                </div>
+              </div>
+            )}
+          </div>
           <div style={{ marginLeft: '1rem', display: 'flex', background: '#0f172a', padding: '4px', borderRadius: '6px' }}>
             <button
               onClick={() => {
@@ -674,6 +1001,17 @@ export default function AppBuilderPage() {
         </div>
 
         <div className="header-right">
+          {executionLogs.length > 0 && (
+            <button
+              className="builder-icon-button builder-log-toggle"
+              onClick={() => setIsExecutionPanelOpen((open) => !open)}
+              title="실행 로그"
+              aria-label="실행 로그"
+            >
+              <TerminalSquare size={18} />
+              <span>{executionLogs.length}</span>
+            </button>
+          )}
           <button className="btn-ai-assistant" onClick={() => setIsAssistantOpen(!isAssistantOpen)}>
             <Sparkles size={16} /> AI 어시스턴트
           </button>
@@ -792,7 +1130,7 @@ export default function AppBuilderPage() {
           style={activeTab === 'logic' || activeTab === 'preview' ? { padding: 0 } : {}}
         >
           {activeTab === 'design' ? (
-            <div style={{ width: '100%', height: '100%', overflow: 'auto', padding: '20px', boxSizing: 'border-box', backgroundColor: '#f1f5f9' }}>
+            <div style={{ width: '100%', height: '100%', overflow: 'auto', padding: '20px', boxSizing: 'border-box', backgroundColor: '#0f172a' }}>
               <div 
                 className="canvas-area"
                 onDragOver={handleDragOver}
@@ -800,10 +1138,10 @@ export default function AppBuilderPage() {
                 onClick={() => handleSelect(null)}
                 style={{ 
                   position: 'relative',
-                  width: '1024px',
-                  height: '768px',
-                  minWidth: '1024px',
-                  minHeight: '768px',
+                  width: `${effectiveCanvas.width}px`,
+                  height: `${effectiveCanvas.height}px`,
+                  minWidth: `${effectiveCanvas.width}px`,
+                  minHeight: `${effectiveCanvas.height}px`,
                   backgroundColor: 'white',
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   margin: '0 auto',
@@ -834,8 +1172,12 @@ export default function AppBuilderPage() {
                   isPreview={false}
                   onSelectComponent={handleSelect}
                   onDropComponent={handleDropOnContainer}
+                  onTransformStart={handleTransformStart}
                   onUpdateTransform={handleUpdateTransform}
                   selectedIds={selectedIds}
+                  canvasWidth={effectiveCanvas.width}
+                  canvasHeight={effectiveCanvas.height}
+                  rootStyle={rootStyle}
                 />
               )}
               </div>
@@ -849,6 +1191,7 @@ export default function AppBuilderPage() {
                 onEdgesChange={onLogicEdgesChange}
                 onConnect={onLogicConnect}
                 nodeTypes={logicNodeTypes}
+                onInit={(instance) => { reactFlowInstanceRef.current = instance; }}
                 fitView
               >
                 <Background color="#334155" gap={16} />
@@ -876,15 +1219,15 @@ export default function AppBuilderPage() {
               />
             </div>
           ) : (
-            <div style={{ width: '100%', height: '100%', overflow: 'auto', padding: '20px', boxSizing: 'border-box', backgroundColor: '#f1f5f9' }}>
+            <div style={{ width: '100%', height: '100%', overflow: 'auto', padding: '20px', boxSizing: 'border-box', backgroundColor: '#0f172a' }}>
               <div 
                 className="canvas-area"
                 style={{ 
                   position: 'relative',
-                  width: '1024px',
-                  height: '768px',
-                  minWidth: '1024px',
-                  minHeight: '768px',
+                  width: `${effectiveCanvas.width}px`,
+                  height: `${effectiveCanvas.height}px`,
+                  minWidth: `${effectiveCanvas.width}px`,
+                  minHeight: `${effectiveCanvas.height}px`,
                   backgroundColor: 'white',
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   margin: '0 auto',
@@ -896,6 +1239,9 @@ export default function AppBuilderPage() {
                   globalJs={globalJs}
                   rootStyle={rootStyle}
                   isPreview={true} 
+                  canvasWidth={effectiveCanvas.width}
+                  canvasHeight={effectiveCanvas.height}
+                  onExecutionEvent={handleExecutionEvent}
                 />
               </div>
             </div>
@@ -916,6 +1262,57 @@ export default function AppBuilderPage() {
                 <label>Padding</label>
                 <input type="text" value={rootStyle.padding || '2rem'} onChange={(e) => setRootStyle({...rootStyle, padding: e.target.value})} />
               </div>
+              <div className="prop-group">
+                <label>Playground Size</label>
+                <select value={playgroundPreset} onChange={(e) => handlePlaygroundPresetChange(e.target.value)}>
+                  {PLAYGROUND_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>{preset.label}</option>
+                  ))}
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div className="playground-dimensions">
+                <div className="prop-group">
+                  <label htmlFor="playground-width">Width</label>
+                  <input
+                    id="playground-width"
+                    type="number"
+                    min="320"
+                    max="1920"
+                    step="1"
+                    value={canvasDimensionDraft.width}
+                    onChange={(e) => setCanvasDimensionDraft((draft) => ({ ...draft, width: e.target.value }))}
+                    onBlur={() => commitCanvasDimension('width')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur();
+                    }}
+                  />
+                </div>
+                <div className="prop-group">
+                  <label htmlFor="playground-height">Height</label>
+                  <input
+                    id="playground-height"
+                    type="number"
+                    min="480"
+                    max="3000"
+                    step="1"
+                    value={canvasDimensionDraft.height}
+                    onChange={(e) => setCanvasDimensionDraft((draft) => ({ ...draft, height: e.target.value }))}
+                    onBlur={() => commitCanvasDimension('height')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur();
+                    }}
+                  />
+                </div>
+              </div>
+              <label className="playground-auto-height">
+                <input
+                  type="checkbox"
+                  checked={canvas.autoHeight !== false}
+                  onChange={(e) => setCanvas((current) => ({ ...current, autoHeight: e.target.checked }))}
+                />
+                <span>Auto Height</span>
+              </label>
             </div>
           ) : selectedIds.length > 1 ? (
             <div className="properties-panel">
@@ -928,7 +1325,7 @@ export default function AppBuilderPage() {
             <div className="properties-panel">
               <div className="sidebar-title">Properties - {selectedComponent?.type}</div>
               
-              {selectedComponent?.type === 'button' || selectedComponent?.type === 'text' ? (
+              {selectedComponent?.type === 'button' || selectedComponent?.type === 'text' || selectedComponent?.type === 'terminal' ? (
                 <div className="prop-group">
                   <label>Text Content</label>
                   <input 
@@ -1018,61 +1415,77 @@ export default function AppBuilderPage() {
               {selectedComponent?.type === 'container' && (
                 <>
                   <div className="prop-group">
-                    <label>Flex Direction</label>
-                    <select value={selectedComponent.props.style?.flexDirection || 'column'} onChange={(e) => updateSelectedData('flexDirection', e.target.value, true)}>
-                      <option value="column">Column (Vertical)</option>
-                      <option value="row">Row (Horizontal)</option>
+                    <label>Layout Mode</label>
+                    <select value={selectedComponent.props.layoutMode || 'absolute'} onChange={(e) => updateSelectedData('layoutMode', e.target.value)}>
+                      <option value="absolute">Free Position</option>
+                      <option value="column">Column</option>
+                      <option value="row">Row</option>
+                      <option value="grid">Grid</option>
                     </select>
                   </div>
-                  <div className="prop-group">
-                    <label>Justify Content (주축 정렬)</label>
-                    <select value={selectedComponent.props.style?.justifyContent || 'flex-start'} onChange={(e) => updateSelectedData('justifyContent', e.target.value, true)}>
-                      <option value="flex-start">Start</option>
-                      <option value="center">Center</option>
-                      <option value="flex-end">End</option>
-                      <option value="space-between">Space Between</option>
-                    </select>
-                  </div>
-                  <div className="prop-group">
-                    <label>Align Items (교차축 정렬)</label>
-                    <select value={selectedComponent.props.style?.alignItems || 'stretch'} onChange={(e) => updateSelectedData('alignItems', e.target.value, true)}>
-                      <option value="stretch">Stretch (꽉 채우기)</option>
-                      <option value="flex-start">Start</option>
-                      <option value="center">Center</option>
-                      <option value="flex-end">End</option>
-                    </select>
-                  </div>
+                  {selectedComponent.props.layoutMode !== 'absolute' && (
+                    <>
+                      <div className="prop-group">
+                        <label>Gap</label>
+                        <input type="text" value={selectedComponent.props.style?.gap || '12px'} onChange={(e) => updateSelectedData('gap', e.target.value, true)} />
+                      </div>
+                      <div className="prop-group">
+                        <label>Justify Content</label>
+                        <select value={selectedComponent.props.style?.justifyContent || 'flex-start'} onChange={(e) => updateSelectedData('justifyContent', e.target.value, true)}>
+                          <option value="flex-start">Start</option>
+                          <option value="center">Center</option>
+                          <option value="flex-end">End</option>
+                          <option value="space-between">Space Between</option>
+                        </select>
+                      </div>
+                      <div className="prop-group">
+                        <label>Align Items</label>
+                        <select value={selectedComponent.props.style?.alignItems || 'stretch'} onChange={(e) => updateSelectedData('alignItems', e.target.value, true)}>
+                          <option value="stretch">Stretch</option>
+                          <option value="flex-start">Start</option>
+                          <option value="center">Center</option>
+                          <option value="flex-end">End</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 
               {selectedComponent?.type === 'button' && (
                 <>
-                  <div className="sidebar-title" style={{ marginTop: '1.5rem', color: '#10b981' }}>Workflow Binding</div>
                   <div className="prop-group">
-                    <label>Project ID (Workflow to Run)</label>
-                    <input 
-                      type="text" 
-                      placeholder="Enter Project ID" 
-                      value={selectedComponent.props.workflowId || ''} 
-                      onChange={(e) => updateSelectedData('workflowId', e.target.value)} 
-                    />
-                    <small style={{ color: 'var(--text-muted)' }}>* Button click will execute this workflow.</small>
+                    <label>Click Action</label>
+                    <select value={selectedButtonActionMode} onChange={(e) => updateSelectedData('actionMode', e.target.value)}>
+                      <option value="auto">Automatic (Legacy)</option>
+                      <option value="workflow">Workflow</option>
+                      <option value="blueprint">Blueprint</option>
+                      <option value="script">JavaScript</option>
+                      <option value="none">None</option>
+                    </select>
                   </div>
                 </>
               )}
-              
-              {selectedComponent?.type === 'button' && (
+
+              {selectedComponent?.type === 'button' && ['auto', 'workflow'].includes(selectedButtonActionMode) && (
+                <>
+                  <div className="sidebar-title" style={{ marginTop: '1.5rem', color: '#10b981' }}>Workflow Binding</div>
+                  <div className="prop-group">
+                    <label>Project ID</label>
+                    <select value={selectedComponent.props.workflowId || ''} onChange={(e) => updateSelectedWorkflow(e.target.value)}>
+                      <option value="">-- 워크플로우 선택 --</option>
+                      {userWorkflows.map(wf => <option key={wf.id} value={wf.id}>{wf.title || `Workflow #${wf.id}`}</option>)}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {selectedComponent?.type === 'button' && ['auto', 'script'].includes(selectedButtonActionMode) && (
                 <>
                   <div className="sidebar-title" style={{ marginTop: '1.5rem', color: '#f59e0b' }}>Global JS Binding</div>
                   <div className="prop-group">
-                    <label>onClickHandler (JS Function Name)</label>
-                    <input 
-                      type="text"
-                      placeholder="e.g. onSaveClick" 
-                      value={selectedComponent.props.onClickHandler || ''} 
-                      onChange={(e) => updateSelectedData('onClickHandler', e.target.value)} 
-                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
-                    />
+                    <label>onClickHandler</label>
+                    <input type="text" placeholder="e.g. onSaveClick" value={selectedComponent.props.onClickHandler || ''} onChange={(e) => updateSelectedData('onClickHandler', e.target.value)} style={{ fontFamily: 'monospace', fontSize: '12px' }} />
                   </div>
                 </>
               )}
@@ -1105,9 +1518,40 @@ export default function AppBuilderPage() {
         <div className={`ai-assistant-drawer ${isAssistantOpen ? 'open' : ''}`}>
           <div className="ai-drawer-header">
             <h3><Sparkles size={18} color="#3b82f6" /> AI 앱 빌더</h3>
-            <button className="btn-icon-close" onClick={() => setIsAssistantOpen(false)}>
-              ✕
-            </button>
+            <div className="ai-drawer-header-actions">
+              <span className="builder-token-total" title={`입력 ${builderTokenUsage.input_tokens.toLocaleString()} / 출력 ${builderTokenUsage.output_tokens.toLocaleString()}`}>
+                <Coins size={14} /> {builderTokenUsage.total_tokens.toLocaleString()}
+              </span>
+              <button className="btn-icon-close" onClick={() => setIsAssistantOpen(false)} title="닫기" aria-label="닫기">
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          <div className="ai-generation-options">
+            <div className="ai-generation-options-title">
+              <Workflow size={15} /> Workflow
+            </div>
+            <div className="ai-workflow-mode" role="group" aria-label="AI 생성 Workflow 정책">
+              <button className={generationWorkflowMode === 'auto' ? 'active' : ''} onClick={() => setGenerationWorkflowMode('auto')}>자동 생성</button>
+              <button className={generationWorkflowMode === 'existing' ? 'active' : ''} onClick={() => setGenerationWorkflowMode('existing')}>기존 사용</button>
+              <button className={generationWorkflowMode === 'none' ? 'active' : ''} onClick={() => setGenerationWorkflowMode('none')}>사용 안 함</button>
+            </div>
+            {generationWorkflowMode === 'existing' && (
+              <select value={generationWorkflowId} onChange={(e) => setGenerationWorkflowId(e.target.value)}>
+                <option value="">Workflow 선택</option>
+                {userWorkflows.map((workflow) => (
+                  <option key={workflow.id} value={workflow.id}>{workflow.title || `Workflow #${workflow.id}`}</option>
+                ))}
+              </select>
+            )}
+            {builderTokenUsage.requests > 0 && (
+              <div className="builder-token-breakdown">
+                <span>입력 {builderTokenUsage.input_tokens.toLocaleString()}</span>
+                <span>출력 {builderTokenUsage.output_tokens.toLocaleString()}</span>
+                <span>{builderTokenUsage.requests}회</span>
+              </div>
+            )}
           </div>
           
           <div className="ai-drawer-messages">
@@ -1144,7 +1588,7 @@ export default function AppBuilderPage() {
             <button 
               className="btn-send"
               onClick={handleSendChatMessage}
-              disabled={!chatInput.trim() || isChatLoading}
+              disabled={!chatInput.trim() || isChatLoading || (generationWorkflowMode === 'existing' && !generationWorkflowId)}
             >
               <ArrowRight size={18} />
             </button>
@@ -1152,27 +1596,91 @@ export default function AppBuilderPage() {
         </div>
       </div>
 
-      {/* Deploy Modal */}
-      {showDeployModal && (
-        <div className="modal-overlay">
-          <div className="deploy-modal">
-            <h2>🎉 배포 완료!</h2>
-            <p>커스텀 앱이 성공적으로 저장되고 배포되었습니다.</p>
-            <div className="url-box">
-              <input type="text" readOnly value={deployedUrl} />
-              <button onClick={() => { navigator.clipboard.writeText(deployedUrl); alert('복사되었습니다!'); }}>
-                복사
+      {isExecutionPanelOpen && (
+        <section className="builder-execution-panel" style={{ height: `${executionPanelHeight}px` }}>
+          <div
+            className="builder-execution-resizer"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              const startY = event.clientY;
+              const startHeight = executionPanelHeight;
+              const onMouseMove = (moveEvent) => {
+                const nextHeight = startHeight + startY - moveEvent.clientY;
+                setExecutionPanelHeight(Math.max(180, Math.min(window.innerHeight * 0.7, nextHeight)));
+              };
+              const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+              };
+              document.addEventListener('mousemove', onMouseMove);
+              document.addEventListener('mouseup', onMouseUp);
+            }}
+          >
+            <span />
+          </div>
+          <header className="builder-execution-header">
+            <div><TerminalSquare size={16} /> 실행 로그</div>
+            <div className="builder-execution-actions">
+              <button onClick={() => setExecutionLogs([])} title="로그 지우기" aria-label="로그 지우기">
+                <Trash2 size={16} />
+              </button>
+              <button onClick={() => setIsExecutionPanelOpen(false)} title="닫기" aria-label="닫기">
+                <X size={18} />
               </button>
             </div>
-            <div className="modal-actions">
-              <a href={deployedUrl} target="_blank" rel="noreferrer" className="btn-primary">
-                앱 열기
+          </header>
+          <div className="builder-execution-output">
+            {executionLogs.length === 0 ? (
+              <span className="builder-log-empty">로그가 없습니다.</span>
+            ) : executionLogs.map((log) => (
+              <div key={log.id} className={`builder-log-line ${log.level || 'info'}`}>
+                <time>{new Date(log.timestamp).toLocaleTimeString('ko-KR', { hour12: false })}</time>
+                <span>{log.message}</span>
+                {log.details !== null && log.details !== undefined && (
+                  <pre>{typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}</pre>
+                )}
+              </div>
+            ))}
+            <div ref={executionLogEndRef} />
+          </div>
+        </section>
+      )}
+
+      {/* Deploy Modal */}
+      {showDeployModal && (
+        <div
+          className="app-builder-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowDeployModal(false);
+          }}
+        >
+          <section className="app-builder-deploy-modal" role="dialog" aria-modal="true" aria-labelledby="deploy-modal-title">
+            <header className="app-builder-modal-header">
+              <span className="app-builder-success-icon"><CheckCircle2 size={22} /></span>
+              <div>
+                <h2 id="deploy-modal-title">배포 완료</h2>
+                <p>커스텀 앱이 성공적으로 저장되고 배포되었습니다.</p>
+              </div>
+              <button className="app-builder-modal-close" onClick={() => setShowDeployModal(false)} title="닫기" aria-label="닫기">
+                <X size={18} />
+              </button>
+            </header>
+            <label className="app-builder-url-label" htmlFor="deployed-app-url">App URL</label>
+            <div className="app-builder-url-box">
+              <input id="deployed-app-url" type="text" readOnly value={deployedUrl} />
+              <button onClick={() => navigator.clipboard.writeText(deployedUrl)} title="URL 복사" aria-label="URL 복사">
+                <Copy size={17} />
+              </button>
+            </div>
+            <div className="app-builder-modal-actions">
+              <a href={deployedUrl} target="_blank" rel="noreferrer" className="app-builder-modal-primary">
+                <ExternalLink size={16} /> 앱 열기
               </a>
-              <button className="btn-secondary" onClick={() => setShowDeployModal(false)}>
+              <button className="app-builder-modal-secondary" onClick={() => setShowDeployModal(false)}>
                 닫기
               </button>
             </div>
-          </div>
+          </section>
         </div>
       )}
     </div>

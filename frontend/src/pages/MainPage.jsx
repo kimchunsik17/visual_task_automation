@@ -42,7 +42,7 @@ function MainPage() {
   const location = useLocation();
   const { user, token } = useAuth();
   const [autoPrompt, setAutoPrompt] = useState('');
-  const [complexityLevel, setComplexityLevel] = useState('medium'); // Set medium as default like screenshot
+  const [complexityLevel, setComplexityLevel] = useState('low'); // Set low as default
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
   const [selectedFiles, setSelectedFiles] = useState([]);

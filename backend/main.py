@@ -116,7 +116,7 @@ class ChatPayload(BaseModel):
     project_id: str
     message: str
     graph_data: Dict[str, Any] = Field(default_factory=lambda: {"nodes": [], "edges": []})
-    complexity_level: str = "medium"
+    complexity_level: str = "low"
     training_consent: bool = False
     target_type: Optional[str] = "auto"
 
@@ -146,7 +146,7 @@ async def upload_chat_context(project_id: str = Form(...), files: List[UploadFil
     """
     processed_files = []
     total_chunks = 0
-    
+
     for file in files:
         safe_filename = os.path.basename(file.filename)
         if not safe_filename:
@@ -174,7 +174,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     if not credentials:
         return None
     token = credentials.credentials
-    
+
     # 테스트 빌드: 프론트엔드에서 dev-mock-token을 보내면 바로 더미 유저 반환
     if token == "dev-mock-token":
         user_id = 9999
@@ -283,7 +283,7 @@ def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
             db.add(user)
             db.commit()
             db.refresh(user)
-        
+
         access_token = jwt.encode(
             {"user_id": user.id, "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7)},
             JWT_SECRET,
@@ -474,7 +474,7 @@ async def delete_user_account(user: models.User = Depends(get_current_user_requi
     db.query(models.GenerationTrace).filter(
         models.GenerationTrace.user_id == user.id,
     ).delete(synchronize_session=False)
-    
+
     # 2. Delete bot logs and stop bots for their projects
     projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
     project_ids = [p.id for p in projects]
@@ -482,7 +482,7 @@ async def delete_user_account(user: models.User = Depends(get_current_user_requi
         # Stop any running discord bots
         for pid in project_ids:
             discord_bot.stop_discord_bot(pid)
-            
+
         db.query(models.BotLog).filter(models.BotLog.project_id.in_(project_ids)).delete(synchronize_session=False)
         # 3. Delete projects
         db.query(models.Project).filter(models.Project.user_id == user.id).delete(synchronize_session=False)
@@ -527,8 +527,46 @@ def get_my_projects(user: models.User = Depends(get_current_user_required), db: 
     projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
     return [{"id": p.id, "title": p.title, "description": p.description, "visibility": p.visibility, "updated_at": p.updated_at, "share_token": p.share_token} for p in projects]
 
+def check_node_quotas(user_id: int, new_graph_data: dict, db: Session, exclude_project_id: int = None):
+    projects = db.query(models.Project).filter(models.Project.user_id == user_id).all()
+    manual_projects = [p for p in projects if not (p.description and p.description.startswith("Auto-generated backend workflow"))]
+
+    total_webhooks = 0
+    total_bots = 0
+    total_schedules = 0
+
+    for p in manual_projects:
+        if exclude_project_id and p.id == exclude_project_id:
+            continue
+        g_data = p.graph_data if isinstance(p.graph_data, dict) else {}
+        nodes = g_data.get("nodes", []) if isinstance(g_data.get("nodes", []), list) else []
+        total_webhooks += sum(1 for n in nodes if isinstance(n, dict) and n.get("type") == "webhookNode")
+        total_bots += sum(1 for n in nodes if isinstance(n, dict) and n.get("type") in ["telegramNode", "discordNode", "kakaoNode"])
+        total_schedules += sum(1 for n in nodes if isinstance(n, dict) and n.get("type") == "schedulerNode")
+
+    new_nodes = new_graph_data.get("nodes", []) if isinstance(new_graph_data.get("nodes", []), list) else []
+    new_webhooks = sum(1 for n in new_nodes if isinstance(n, dict) and n.get("type") == "webhookNode")
+    new_bots = sum(1 for n in new_nodes if isinstance(n, dict) and n.get("type") in ["telegramNode", "discordNode", "kakaoNode"])
+    new_schedules = sum(1 for n in new_nodes if isinstance(n, dict) and n.get("type") == "schedulerNode")
+
+    if total_webhooks + new_webhooks > 2:
+        raise HTTPException(status_code=400, detail="Maximum 2 webhooks allowed per user.")
+    if total_bots + new_bots > 2:
+        raise HTTPException(status_code=400, detail="Maximum 2 bots allowed per user.")
+    if total_schedules + new_schedules > 2:
+        raise HTTPException(status_code=400, detail="Maximum 2 schedules allowed per user.")
+
 @app.post("/api/projects")
 def create_project(payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    if not (payload.description and payload.description.startswith("Auto-generated backend workflow")):
+        manual_projects_count = db.query(models.Project).filter(
+            models.Project.user_id == user.id,
+            ~models.Project.description.startswith("Auto-generated backend workflow")
+        ).count()
+        if manual_projects_count >= 5:
+            raise HTTPException(status_code=400, detail="Maximum 5 workflows allowed per user.")
+
+    check_node_quotas(user.id, payload.graph_data, db)
     project = models.Project(
         user_id=user.id,
         title=payload.title,
@@ -697,6 +735,7 @@ async def delete_project(project_id: int, user: models.User = Depends(get_curren
 
 @app.put("/api/projects/{project_id}")
 async def update_project(project_id: int, payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    check_node_quotas(user.id, payload.graph_data, db, exclude_project_id=project_id)
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -823,11 +862,27 @@ def get_custom_apps(user: models.User = Depends(get_current_user), db: Session =
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     apps = db.query(models.CustomApp).filter(models.CustomApp.owner_id == user.id).order_by(models.CustomApp.created_at.desc()).all()
-    return [{
-        "id": a.id,
-        "title": a.title,
-        "created_at": a.created_at
-    } for a in apps]
+    result = []
+    for custom_app in apps:
+        combined = custom_app.ui_graph_data or {}
+        ui_data = combined.get("ui") if "ui" in combined else combined
+        result.append({
+            "id": custom_app.id,
+            "title": custom_app.title,
+            "description": (ui_data or {}).get("description", ""),
+            "created_at": custom_app.created_at,
+            "updated_at": custom_app.updated_at,
+        })
+    return result
+
+@app.delete("/api/apps/custom/{app_id}")
+def delete_custom_app(app_id: str, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    custom_app = db.query(models.CustomApp).filter(models.CustomApp.id == app_id, models.CustomApp.owner_id == user.id).first()
+    if not custom_app:
+        raise HTTPException(status_code=404, detail="Custom app not found")
+    db.delete(custom_app)
+    db.commit()
+    return {"status": "success"}
 
 @app.get("/api/apps/custom/{app_id}")
 def get_custom_app(app_id: str, db: Session = Depends(get_db)):
@@ -842,6 +897,7 @@ def get_custom_app(app_id: str, db: Session = Depends(get_db)):
     return {
         "id": custom_app.id,
         "title": custom_app.title,
+        "description": (ui_data or {}).get("description", ""),
         "ui_graph_data": ui_data,
         "logic_graph": logic_data,
         "workflow_mappings": custom_app.workflow_mappings,
@@ -965,8 +1021,15 @@ def run_project_workflow(project_id: int, request: Request, payload: Optional[Pr
     if payload:
         if payload.inputs:
             kwargs.update(payload.inputs)
+            first_value = next(iter(payload.inputs.values()), None)
+            if first_value is not None:
+                kwargs.setdefault('input_text', first_value)
+                kwargs.setdefault('text', first_value)
+                kwargs.setdefault('default_input', first_value)
         if payload.input_text:
             kwargs['default_input'] = payload.input_text
+            kwargs.setdefault('input_text', payload.input_text)
+            kwargs.setdefault('text', payload.input_text)
 
     try:
         result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='custom_app_run', project_id=project.id, **kwargs)
@@ -1590,7 +1653,7 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
             raise HTTPException(status_code=500, detail=f"앱 생성 중 오류: {str(e)}")
 
     # ── 2. Workflow Generation (일반 워크플로우 생성) ──
->>>>>>> main
+
     try:
         reply, graph_data, token_usage, clarification = await run_agent_turn(
             payload.graph_data,
@@ -1854,7 +1917,15 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다.")
 
-    result_text, tokens, logs = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **payload.inputs)
+    inputs_dict = payload.inputs
+    if inputs_dict and isinstance(inputs_dict, dict):
+        if "input_text" not in inputs_dict:
+            values = list(inputs_dict.values())
+            if values:
+                inputs_dict["input_text"] = values[0]
+                inputs_dict["text"] = values[0]
+
+    result_text, tokens, logs = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **inputs_dict)
     
     import json
     try:
@@ -2371,6 +2442,14 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
     now = datetime.datetime.utcnow()
     chart_data = []
 
+    def empty_usage_bucket():
+        return {"execution": 0, "agent": 0, "app_builder": 0, "evaluation": 0}
+
+    def usage_type(log):
+        if log.status in {"agent", "app_builder", "evaluation"}:
+            return log.status
+        return "execution"
+
     if time_range == "hourly":
         start_time = now - datetime.timedelta(hours=23)
         start_time = start_time.replace(minute=0, second=0, microsecond=0)
@@ -2381,20 +2460,15 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         usage = {}
         for i in range(24):
             t = start_time + datetime.timedelta(hours=i)
-            usage[t.strftime("%Y-%m-%d %H:00")] = {"execution": 0, "agent": 0, "evaluation": 0}
+            usage[t.strftime("%Y-%m-%d %H:00")] = empty_usage_bucket()
         for log in recent_logs:
             if log.execution_time:
                 t_str = log.execution_time.strftime("%Y-%m-%d %H:00")
                 if t_str in usage:
                     slot = usage[t_str]
                     tok = log.total_tokens or 0
-                    if log.status == "agent":
-                        slot["agent"] += tok
-                    elif log.status == "evaluation":
-                        slot["evaluation"] += tok
-                    else:
-                        slot["execution"] += tok
-        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), "execution": v["execution"], "agent": v["agent"], "evaluation": v["evaluation"], "fullDate": k} for k, v in sorted(usage.items())]
+                    slot[usage_type(log)] += tok
+        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), **v, "fullDate": k} for k, v in sorted(usage.items())]
 
     elif time_range == "monthly":
         start_time = now - datetime.timedelta(days=29)
@@ -2406,27 +2480,22 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         usage = {}
         for i in range(30):
             d = (start_time + datetime.timedelta(days=i)).date().isoformat()
-            usage[d] = {"execution": 0, "agent": 0, "evaluation": 0}
+            usage[d] = empty_usage_bucket()
         for log in recent_logs:
             if log.execution_time:
                 d_str = log.execution_time.date().isoformat()
                 if d_str in usage:
                     slot = usage[d_str]
                     tok = log.total_tokens or 0
-                    if log.status == "agent":
-                        slot["agent"] += tok
-                    elif log.status == "evaluation":
-                        slot["evaluation"] += tok
-                    else:
-                        slot["execution"] += tok
-        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), "execution": v["execution"], "agent": v["agent"], "evaluation": v["evaluation"], "fullDate": k} for k, v in sorted(usage.items())]
+                    slot[usage_type(log)] += tok
+        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), **v, "fullDate": k} for k, v in sorted(usage.items())]
 
     elif time_range == "yearly":
         usage = {}
         m = now.month
         y = now.year
         for i in range(12):
-            usage[f"{y}-{m:02d}"] = {"execution": 0, "agent": 0, "evaluation": 0}
+            usage[f"{y}-{m:02d}"] = empty_usage_bucket()
             m -= 1
             if m == 0:
                 m = 12
@@ -2443,13 +2512,8 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
                 if m_str in usage:
                     slot = usage[m_str]
                     tok = log.total_tokens or 0
-                    if log.status == "agent":
-                        slot["agent"] += tok
-                    elif log.status == "evaluation":
-                        slot["evaluation"] += tok
-                    else:
-                        slot["execution"] += tok
-        chart_data = [{"date": k, "tokens": sum(v.values()), "execution": v["execution"], "agent": v["agent"], "evaluation": v["evaluation"], "fullDate": k} for k, v in sorted(usage.items())]
+                    slot[usage_type(log)] += tok
+        chart_data = [{"date": k, "tokens": sum(v.values()), **v, "fullDate": k} for k, v in sorted(usage.items())]
 
     else: # weekly
         start_time = now - datetime.timedelta(days=6)
@@ -2461,32 +2525,22 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
         usage = {}
         for i in range(7):
             d = (start_time + datetime.timedelta(days=i)).date().isoformat()
-            usage[d] = {"execution": 0, "agent": 0, "evaluation": 0}
+            usage[d] = empty_usage_bucket()
         for log in recent_logs:
             if log.execution_time:
                 d_str = log.execution_time.date().isoformat()
                 if d_str in usage:
                     slot = usage[d_str]
                     tok = log.total_tokens or 0
-                    if log.status == "agent":
-                        slot["agent"] += tok
-                    elif log.status == "evaluation":
-                        slot["evaluation"] += tok
-                    else:
-                        slot["execution"] += tok
-        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), "execution": v["execution"], "agent": v["agent"], "evaluation": v["evaluation"], "fullDate": k} for k, v in sorted(usage.items())]
+                    slot[usage_type(log)] += tok
+        chart_data = [{"date": k[-5:], "tokens": sum(v.values()), **v, "fullDate": k} for k, v in sorted(usage.items())]
 
     # 용도별 누적 사용량
     all_logs = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.user_id == user.id).all()
-    usage_by_type = {"execution": 0, "agent": 0, "evaluation": 0}
+    usage_by_type = empty_usage_bucket()
     for log in all_logs:
         tok = log.total_tokens or 0
-        if log.status == "agent":
-            usage_by_type["agent"] += tok
-        elif log.status == "evaluation":
-            usage_by_type["evaluation"] += tok
-        else:
-            usage_by_type["execution"] += tok
+        usage_by_type[usage_type(log)] += tok
 
     # Project usage
     project_usage_rows = db.query(
@@ -2513,7 +2567,7 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
     none_usage = db.query(func.sum(models.FlowExecutionLog.total_tokens)).filter(
         models.FlowExecutionLog.user_id == user.id,
         models.FlowExecutionLog.project_id.is_(None),
-        models.FlowExecutionLog.status.notin_(["agent", "evaluation"])
+        models.FlowExecutionLog.status.notin_(["agent", "app_builder", "evaluation"])
     ).scalar()
     
     if none_usage:
@@ -2714,6 +2768,21 @@ class BuilderSaveRequest(BaseModel):
     logic_graph: dict
     workflow_mappings: dict
 
+def normalize_builder_workflow_mappings(mappings: dict) -> dict:
+    normalized = {}
+    for component_id, raw_mapping in (mappings or {}).items():
+        if isinstance(raw_mapping, dict):
+            project_id = raw_mapping.get("projectId", raw_mapping.get("id"))
+            extra = raw_mapping.copy()
+        else:
+            project_id = raw_mapping
+            extra = {}
+        if project_id is None or project_id == "":
+            continue
+        extra["projectId"] = str(project_id)
+        normalized[str(component_id)] = extra
+    return normalized
+
 @app.post("/api/builder/save")
 def builder_save_app(req: BuilderSaveRequest, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not user:
@@ -2729,7 +2798,7 @@ def builder_save_app(req: BuilderSaveRequest, user: models.User = Depends(get_cu
         if existing_app:
             existing_app.title = req.app_name
             existing_app.ui_graph_data = combined_data
-            existing_app.workflow_mappings = req.workflow_mappings
+            existing_app.workflow_mappings = normalize_builder_workflow_mappings(req.workflow_mappings)
             db.commit()
             return {"status": "success", "id": existing_app.id}
             
@@ -2738,7 +2807,7 @@ def builder_save_app(req: BuilderSaveRequest, user: models.User = Depends(get_cu
         id=app_id,
         title=req.app_name,
         ui_graph_data=combined_data,
-        workflow_mappings=req.workflow_mappings,
+        workflow_mappings=normalize_builder_workflow_mappings(req.workflow_mappings),
         owner_id=user.id
     )
     db.add(new_app)
@@ -2754,20 +2823,62 @@ class BuilderGenerateAppRequest(BaseModel):
     prompt: str
     current_state: dict
     generate_mode: str = "code"
+    workflow_mode: str = "auto"
+    existing_workflow_id: Optional[int] = None
 
 @app.post("/api/builder/generate_app")
 async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    workflow_mode = req.workflow_mode if req.workflow_mode in {"auto", "existing", "none"} else "auto"
+    existing_workflow = None
+    generation_prompt = req.prompt
+    if workflow_mode == "existing":
+        if not req.existing_workflow_id:
+            raise HTTPException(status_code=400, detail="기존 Workflow를 선택해주세요.")
+        existing_workflow = db.query(models.Project).filter(
+            models.Project.id == req.existing_workflow_id,
+            models.Project.user_id == user.id,
+        ).first()
+        if not existing_workflow:
+            raise HTTPException(status_code=404, detail="선택한 Workflow를 찾을 수 없습니다.")
+        generation_prompt += (
+            "\n\n[Workflow 정책] 새 Workflow를 만들지 말고 반드시 기존 Workflow를 사용하세요. "
+            f"Workflow ID는 {existing_workflow.id}, 제목은 '{existing_workflow.title}'입니다. "
+            "백엔드 동작이 필요한 버튼은 이 Workflow ID에 연결하세요."
+        )
+    elif workflow_mode == "none":
+        generation_prompt += (
+            "\n\n[Workflow 정책] 백엔드 Workflow를 만들거나 연결하지 마세요. "
+            "화면과 클라이언트 JavaScript만 생성하세요."
+        )
+
     # 1. Call app_agent
     from app_agent import generate_app_safely
-    result = await generate_app_safely(req.prompt, req.current_state, provider="openai", generate_mode=req.generate_mode)
+    try:
+        result = await generate_app_safely(generation_prompt, req.current_state, provider="openai", generate_mode=req.generate_mode)
+    except Exception as exc:
+        print(f"App Builder generation failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"앱 생성 실패: {exc}") from exc
     
     workflow_mappings = result.workflow_mappings.copy()
+    workflow_token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     
+    actual_project_id = str(existing_workflow.id) if existing_workflow else None
+
     # 2. If it requires backend workflow, use meta_agent to generate a project
-    if result.requires_backend_workflow and result.backend_workflow_prompt:
+    if workflow_mode == "auto" and result.requires_backend_workflow and result.backend_workflow_prompt:
         try:
             import asyncio
-            flow_data = await asyncio.to_thread(meta_agent.generate_flow, result.backend_workflow_prompt)
+            def generate_backend_flow_with_usage():
+                from langchain_community.callbacks import get_openai_callback
+                with get_openai_callback() as callback:
+                    generated_flow = meta_agent.generate_flow(result.backend_workflow_prompt)
+                return generated_flow, {
+                    "input_tokens": int(callback.prompt_tokens or 0),
+                    "output_tokens": int(callback.completion_tokens or 0),
+                    "total_tokens": int(callback.total_tokens or 0),
+                }
+
+            flow_data, workflow_token_usage = await asyncio.to_thread(generate_backend_flow_with_usage)
             if hasattr(flow_data, "model_dump"):
                 flow_data_dict = flow_data.model_dump()
             else:
@@ -2785,59 +2896,102 @@ async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: mo
             db.refresh(project)
             
             # 3. Replace 'NEW_WORKFLOW_ID' with actual project.id in mappings and logic nodes
+            import re
             actual_project_id = str(project.id)
-            for k, v in workflow_mappings.items():
-                if v == "NEW_WORKFLOW_ID":
-                    workflow_mappings[k] = actual_project_id
-                    
-            for node in result.logic_nodes:
-                if node.type == "workflowNode" and node.data.projectId == "NEW_WORKFLOW_ID":
-                    node.data.projectId = actual_project_id
         except Exception as e:
             print(f"Error generating backend workflow: {e}")
             result.reply += "\n\n(참고: 백엔드 워크플로우 생성 중 오류가 발생했습니다. 일부 기능이 동작하지 않을 수 있습니다.)"
 
-    def flatten_and_clean(comps):
-        """
-        Flatten nested component trees into a single-level list and strip
-        all position/sizing data. The frontend will handle layout via flexbox.
-        This eliminates the fundamental conflict between absolute positioning
-        and AI-generated flex layout instructions.
-        """
-        flat = []
-        for c in comps:
-            if not hasattr(c, 'props'):
-                c.props = {}
-            # Remove position — frontend flow layout handles placement
-            if 'position' in c.props:
-                del c.props['position']
-            # Clean up style — remove any absolute positioning artifacts
-            if 'style' in c.props:
-                for key in ['position', 'left', 'top', 'right', 'bottom']:
-                    c.props['style'].pop(key, None)
-            
-            if c.type == 'container' and hasattr(c, 'children') and c.children:
-                # Flatten: pull children out of containers, discard the container shell
-                flat.extend(flatten_and_clean(c.children))
-            else:
-                c.children = None  # no nesting
-                flat.append(c)
-        return flat
+    if workflow_mode == "none":
+        workflow_mappings = {}
+        workflow_node_ids = {node.id for node in result.logic_nodes if node.type == "workflowNode"}
+        result.logic_nodes = [node for node in result.logic_nodes if node.id not in workflow_node_ids]
+        result.logic_edges = [
+            edge for edge in result.logic_edges
+            if edge.source not in workflow_node_ids and edge.target not in workflow_node_ids
+        ]
+    elif actual_project_id:
+        import re
+        if result.requires_backend_workflow and not workflow_mappings:
+            def first_button_id(components):
+                for component in components:
+                    if component.type == "button":
+                        return component.id
+                    nested_id = first_button_id(component.children or [])
+                    if nested_id:
+                        return nested_id
+                return None
 
-    result.ui_components = flatten_and_clean(result.ui_components)
+            fallback_button_id = first_button_id(result.ui_components)
+            if fallback_button_id:
+                workflow_mappings[fallback_button_id] = actual_project_id
+        for component_id, mapping in list(workflow_mappings.items()):
+            if isinstance(mapping, dict):
+                mapping = {**mapping, "projectId": actual_project_id}
+            else:
+                mapping = actual_project_id
+            workflow_mappings[component_id] = mapping
+        for node in result.logic_nodes:
+            if node.type == "workflowNode":
+                node.data.projectId = actual_project_id
+        if result.global_js:
+            result.global_js = re.sub(r"['\"][A-Z_]*WORKFLOW_ID['\"]", f"'{actual_project_id}'", result.global_js)
+            result.global_js = re.sub(
+                r"(runWorkflow\(\s*['\"])[^'\"]+(['\"])",
+                rf"\g<1>{actual_project_id}\g<2>",
+                result.global_js,
+            )
+
+    token_usage = {
+        key: int((result.token_usage or {}).get(key, 0) or 0) + int(workflow_token_usage.get(key, 0) or 0)
+        for key in ("input_tokens", "output_tokens", "total_tokens")
+    }
+    token_usage["app_generation"] = result.token_usage or {}
+    token_usage["workflow_generation"] = workflow_token_usage
+    total_tokens = int(token_usage.get("total_tokens", 0) or 0)
+    if total_tokens > 0:
+        user.token_balance -= total_tokens
+        db.add(models.FlowExecutionLog(
+            user_id=user.id,
+            project_id=None,
+            payload=f"App Builder Generate ({req.app_id or 'new'}): {req.prompt[:200]}",
+            result=(result.reply or "")[:500],
+            total_tokens=total_tokens,
+            token_usage_details={
+                **token_usage,
+                "usage_type": "app_builder",
+                "app_id": req.app_id,
+                "workflow_mode": workflow_mode,
+            },
+            status="app_builder",
+        ))
+        db.commit()
+
+    normalized_workflow_mappings = normalize_builder_workflow_mappings(workflow_mappings)
+    current_ui_graph = req.current_state.get("ui_graph_data") or {}
+    current_canvas = current_ui_graph.get("canvas") or {}
+    current_root_style = current_ui_graph.get("rootStyle") or {}
+    canvas = {
+        "width": current_canvas.get("width", 1024),
+        "height": current_canvas.get("height", 768),
+        "autoHeight": current_canvas.get("autoHeight", True),
+    }
+    root_style = {**current_root_style, **(result.root_style or {})}
 
     return {
         "reply": result.reply,
         "new_title": result.new_title,
         "ui_graph_data": {
             "components": [c.model_dump() for c in result.ui_components],
-            "rootStyle": result.root_style,
+            "rootStyle": root_style,
             "globalCss": result.global_css,
-            "globalJs": result.global_js
+            "globalJs": result.global_js,
+            "canvas": canvas
         },
         "logic_graph": {
             "nodes": [n.model_dump() for n in result.logic_nodes],
             "edges": [e.model_dump() for e in result.logic_edges]
         },
-        "workflow_mappings": workflow_mappings
+        "workflow_mappings": normalized_workflow_mappings,
+        "token_usage": token_usage,
     }

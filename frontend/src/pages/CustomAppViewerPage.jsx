@@ -1,7 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import UIEngine from '../components/UIEngine';
+import {
+  DEFAULT_CANVAS,
+  applyWorkflowMappings,
+  normalizeCanvas,
+  normalizeComponents,
+  normalizeWorkflowMappings,
+  resolveCanvas,
+} from '../appBuilderSchema';
 
 export default function CustomAppViewerPage() {
   const { appId } = useParams();
@@ -12,6 +20,21 @@ export default function CustomAppViewerPage() {
   const [logicGraph, setLogicGraph] = useState(null);
   const [rootStyle, setRootStyle] = useState({});
   const [globalCss, setGlobalCss] = useState('');
+  const [globalJs, setGlobalJs] = useState('');
+  const [canvas, setCanvas] = useState(DEFAULT_CANVAS);
+  const [viewportWidth, setViewportWidth] = useState(DEFAULT_CANVAS.width);
+  const viewportRef = useRef(null);
+
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element) return undefined;
+
+    const updateWidth = () => setViewportWidth(element.clientWidth || DEFAULT_CANVAS.width);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const fetchApp = async () => {
@@ -21,11 +44,19 @@ export default function CustomAppViewerPage() {
         setAppData(data);
         
         if (data.ui_graph_data) {
-          setComponents(injectWorkflows(data.ui_graph_data.components || [], data.workflow_mappings));
+          const loadedCanvas = normalizeCanvas(data.ui_graph_data.canvas);
+          const mappings = normalizeWorkflowMappings(data.workflow_mappings);
+          const loadedComponents = applyWorkflowMappings(
+            normalizeComponents(data.ui_graph_data.components || [], loadedCanvas),
+            mappings
+          );
+          setComponents(loadedComponents);
+          setCanvas(resolveCanvas(loadedComponents, loadedCanvas));
           setRootStyle(data.ui_graph_data.rootStyle || { backgroundColor: '#f1f5f9', padding: '2rem' });
           if (data.ui_graph_data.globalCss) {
              setGlobalCss(data.ui_graph_data.globalCss);
           }
+          setGlobalJs(data.ui_graph_data.globalJs || '');
         }
         if (data.logic_graph) {
           setLogicGraph(data.logic_graph);
@@ -40,20 +71,6 @@ export default function CustomAppViewerPage() {
     fetchApp();
   }, [appId]);
 
-  const injectWorkflows = (components, workflowMappings) => {
-    return components.map(comp => {
-      const newComp = { ...comp, props: { ...comp.props } };
-      if (workflowMappings && workflowMappings[comp.id]) {
-        const mapping = workflowMappings[comp.id];
-        newComp.props.workflowId = typeof mapping === 'object' && mapping !== null ? (mapping.projectId || mapping.id) : String(mapping);
-      }
-      if (newComp.children) {
-        newComp.children = injectWorkflows(newComp.children, workflowMappings);
-      }
-      return newComp;
-    });
-  };
-
   if (isLoading) {
     return <div style={{ color: '#64748b', padding: '2rem', textAlign: 'center', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>로딩 중...</div>;
   }
@@ -67,28 +84,45 @@ export default function CustomAppViewerPage() {
     );
   }
 
+  const scale = Math.min(viewportWidth / canvas.width, 1);
+
   return (
     <>
       {globalCss && <style>{globalCss}</style>}
-      <div style={{ backgroundColor: '#1e1e1e', minHeight: '100vh', padding: '2rem', display: 'flex', justifyContent: 'center' }}>
-        <div style={{ 
-          backgroundColor: rootStyle.backgroundColor || '#f1f5f9',
-          padding: rootStyle.padding || '0px',
-          position: 'relative',
+      <div style={{ backgroundColor: '#1e1e1e', minHeight: '100vh', padding: 'clamp(12px, 3vw, 32px)', boxSizing: 'border-box' }}>
+        <div ref={viewportRef} style={{
           width: '100%',
-          maxWidth: '800px',
-          minHeight: 'calc(100vh - 4rem)',
           margin: '0 auto',
-          boxSizing: 'border-box',
-          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-          borderRadius: '8px',
-          overflowY: 'auto'
         }}>
-          <UIEngine 
-            components={components} 
-            logicGraph={logicGraph}
-            isPreview={true} 
-          />
+          <div style={{
+            position: 'relative',
+            width: `${canvas.width * scale}px`,
+            height: `${canvas.height * scale}px`,
+            margin: '0 auto',
+          }}>
+            <div style={{
+              position: 'absolute',
+              width: `${canvas.width}px`,
+              height: `${canvas.height}px`,
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+              backgroundColor: rootStyle.backgroundColor || '#f1f5f9',
+              overflow: 'hidden',
+              boxSizing: 'border-box',
+              borderRadius: '8px',
+              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+            }}>
+              <UIEngine
+                components={components}
+                logicGraph={logicGraph}
+                globalJs={globalJs}
+                rootStyle={rootStyle}
+                canvasWidth={canvas.width}
+                canvasHeight={canvas.height}
+                isPreview={true}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </>

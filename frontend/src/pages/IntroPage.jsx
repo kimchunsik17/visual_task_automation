@@ -1,13 +1,15 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bot, FileText, ArrowRight, Play, MessageCircle, Calendar, Hash, Mail, Send, BookOpen, Wand2, LayoutGrid, Shield, Star } from 'lucide-react';
 import './IntroPage.css';
 import demo1 from '../assets/demo-1.webp';
 import demo2 from '../assets/demo-2.webp';
 import demo3 from '../assets/demo-3.webp';
+import introVideoPoster from '../assets/intro-video-poster.jpg';
 
 function IntroPage() {
   const navigate = useNavigate();
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   // Simple intersection observer to trigger fade-up animations on scroll
   useEffect(() => {
@@ -42,7 +44,7 @@ function IntroPage() {
           <div className="hero-glow-bg"></div>
           <div className="hero-text fade-up-element" style={{ transitionDelay: '0ms' }}>
             <h1 className="hero-title">
-              <span className="text-gradient hero-title-top">코딩 없이 연결하는</span><br />시각적 업무 자동화
+              <span className="text-gradient" style={{ fontSize: '45px' }}>코딩 없이 연결하는</span><br style={{ fontSize: '70x' }} />시각적 업무 자동화
             </h1>
             <p className="hero-subtitle">
               반복되는 업무를 줄이고 중요한 일에 집중하세요.<br />
@@ -57,14 +59,31 @@ function IntroPage() {
 
           <div className="hero-image-wrapper fade-up-element" style={{ transitionDelay: '200ms' }}>
             <div className="hero-image-glow"></div>
-            <div className="hero-image-container floating-anim">
+            <div className="hero-image-container">
               <div className="hero-gif-grid">
-                <div className="major-feature-visual">
-                  <img
-                    src={demo1}
-                    alt="생성형 AI 워크플로우 시연"
-                    style={{ width: '100%', borderRadius: '20px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}
-                  />
+                <div className="hero-video-frame">
+                  {isVideoPlaying ? (
+                    <iframe
+                      className="hero-video"
+                      src="https://www.youtube-nocookie.com/embed/MMWdtbzdsPQ?autoplay=1&playsinline=1&rel=0"
+                      title="시각적 업무 자동화 소개 영상"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="hero-video-poster"
+                      onClick={() => setIsVideoPlaying(true)}
+                      aria-label="소개 영상 재생"
+                    >
+                      <img src={introVideoPoster} alt="" />
+                      <span className="hero-video-play" aria-hidden="true">
+                        <Play size={34} fill="currentColor" />
+                      </span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -186,6 +205,24 @@ function IntroPage() {
           </div>
         </section>
 
+        {/* MAJOR FEATURE 0: Visual Workflow Editor */}
+        <section className="intro-major-feature reverse fade-up-element">
+          <div className="major-feature-content">
+            <h2 className="major-feature-title">한눈에 설계하는 워크플로우</h2>
+            <p className="major-feature-desc">
+              필요한 기능을 캔버스에 배치하고 실행 순서대로 연결하세요.<br /><br />
+              복잡한 자동화도 노드의 흐름을 따라가며 직관적으로 구성하고, 실행 전에 전체 구조를 한눈에 확인할 수 있습니다.
+            </p>
+          </div>
+          <div className="major-feature-visual">
+            <img
+              className="major-feature-image"
+              src={demo1}
+              alt="시각적 워크플로우 편집 화면"
+            />
+          </div>
+        </section>
+
         {/* MAJOR FEATURE 1: Generative LLM */}
         <section className="intro-major-feature fade-up-element">
           <div className="major-feature-content">
@@ -197,9 +234,9 @@ function IntroPage() {
           </div>
           <div className="major-feature-visual">
             <img
+              className="major-feature-image"
               src={demo2}
               alt="생성형 AI 워크플로우 시연"
-              style={{ width: '100%', borderRadius: '20px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}
             />
           </div>
         </section>
@@ -207,7 +244,7 @@ function IntroPage() {
         {/* MAJOR FEATURE 2: Evaluation */}
         <section className="intro-major-feature reverse fade-up-element">
           <div className="major-feature-content">
-            <h2 className="major-feature-title">얼마나 좋아?<br></br>완벽을 기하는 파이프라인 평가</h2>
+            <h2 className="major-feature-title">얼마나 좋을까?<br></br>완벽을 기하는 파이프라인 평가</h2>
             <p className="major-feature-desc">
               단순히 답변을 생성하는 데 그치지 마세요. 생성된 워크플로우나 봇이 얼마나 정확하고 유용한 답변을 하는지 체계적으로 평가하세요.<br /><br />
               평가 전용 노드를 통해 답변의 품질을 자동으로 측정하고 분석하여, 지속적으로 프롬프트와 파이프라인을 개선할 수 있는 강력한 피드백 루프를 제공합니다.
@@ -215,15 +252,18 @@ function IntroPage() {
           </div>
           <div className="major-feature-visual">
             <img
+              className="major-feature-image"
               src={demo3}
               alt="평가 기능 시연"
-              style={{ width: '100%', borderRadius: '20px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}
             />
           </div>
         </section>
 
         {/* HOW IT WORKS SECTION */}
         <section className="intro-how-it-works">
+          <div className="how-it-works-bg" aria-hidden="true">
+            <img src={demo1} alt="" />
+          </div>
           <div className="intro-section-header fade-up-element">
             <h2 className="intro-section-title">어떻게 사용하나요?</h2>
             <p className="intro-section-subtitle">쉽고 빠르지만 놀랄만큼 강력합니다.</p>

@@ -14,7 +14,7 @@ python-multipart
 
 openpyxl
 python-pptx
-pywin32
+
 google-auth
 google-auth-oauthlib
 gspread
