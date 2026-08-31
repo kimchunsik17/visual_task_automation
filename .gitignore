@@ -95,3 +95,6 @@ backend/chroma_db/
 
 # Vite 의존성 사전 번들 캐시
 .vite/
+
+# pytest 격리용 sqlite (conftest 가 생성)
+backend/test_run.db
