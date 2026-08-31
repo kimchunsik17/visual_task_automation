@@ -85,7 +85,8 @@ app = FastAPI(title="Business Automation API")
 
 # Ensure uploads directory exists
 os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# /uploads 서빙 라우트는 get_current_user_required 정의 뒤(아래)로 옮겼다 — 모듈 로드 순서 때문.
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -231,6 +232,33 @@ def get_current_user_required(user: models.User = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
+
+
+# ⚠️ 예전에는 app.mount("/uploads", StaticFiles(...)) 로 업로드·생성 산출물을 인증 없이 전부
+# 노출했다(2026-08-31 적대적 리뷰: 인터넷에서 output.hwpx 등 고정 파일명이 200 으로 다운로드됐다).
+# 파일 접근은 이미 artifact_id 라우트로 이관됐고 /uploads/ 정적 URL 을 참조하는 프론트·백엔드
+# 코드가 없다. 정적 마운트를 없애고, stored_name 으로 소유자를 확인하는 라우트로 대체한다.
+@app.get("/uploads/{stored_name}")
+def serve_upload(stored_name: str, user: models.User = Depends(get_current_user_required),
+                 db: Session = Depends(get_db)):
+    import artifacts as _artifacts
+    # 경로 순회 차단 — stored_name 은 파일명 하나여야 한다.
+    if "/" in stored_name or "\\" in stored_name or stored_name in ("", ".", ".."):
+        raise HTTPException(status_code=404, detail="Not found")
+    record = db.query(models.UploadedFile).filter(
+        models.UploadedFile.stored_name == stored_name).first()
+    if record is None or record.owner_user_id != user.id:
+        # 소유자가 아니면 존재를 알리지 않는다.
+        raise HTTPException(status_code=404, detail="Not found")
+    root = _artifacts.upload_root()
+    candidate = (root / stored_name).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(candidate)
 
 
 def _optional_user(request: Request, db: Session):
@@ -4922,6 +4950,21 @@ def toggle_community_like(payload: LikePayload,
 
 
 # ── 워크플로우 공유 ─────────────────────────────────────────────────────
+def _post_for_share_or_404(db, share):
+    """글에 붙은 워크플로우 공유의 소속 Post 를 찾는다. owner_type 은 post|answer|template 인데,
+    template 공유(운영 DB 972건)는 글에 속하지 않으므로 이 경로로 열지 않는다(2026-08-31 리뷰)."""
+    if share.owner_type == "post":
+        post_id = share.owner_id
+    elif share.owner_type == "answer":
+        answer = db.query(models.Answer).filter(models.Answer.id == share.owner_id).first()
+        if answer is None:
+            raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
+        post_id = answer.post_id
+    else:
+        raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
+    return db.query(models.Post).filter(models.Post.id == post_id).first()
+
+
 @app.post("/api/community/shares/preview")
 def preview_share(payload: dict = Body(...),
                   user: models.User = Depends(get_current_user_required),
@@ -4946,9 +4989,11 @@ def get_share(share_id: int, user: models.User = Depends(get_current_user),
     share = db.query(models.WorkflowShare).filter(models.WorkflowShare.id == share_id).first()
     if not share:
         raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
-    post_id = share.owner_id if share.owner_type == "post" else (
-        db.query(models.Answer).filter(models.Answer.id == share.owner_id).first().post_id)
-    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    # ⚠️ owner_type 은 post | answer | template 세 값이다. 예전에는 post 가 아니면 전부 answer 로
+    #    간주해, template share(운영 DB 972건 전부)가 엉뚱한 Answer 행으로 판정을 타고 그중 16건은
+    #    무관한 공개 글의 visibility 로 통과해 in_review 스냅샷을 노출했다(2026-08-31 적대적 리뷰).
+    #    template 공유는 이 라우트가 아니라 커뮤니티 템플릿 갤러리로 봐야 하므로 여기선 거부한다.
+    post = _post_for_share_or_404(db, share)
     if not community_posts.can_view(db, post, user.id if user else None):
         raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
     return {"status": "success",
@@ -4967,9 +5012,7 @@ def import_shared_workflow(share_id: int, user: models.User = Depends(get_curren
     share = db.query(models.WorkflowShare).filter(models.WorkflowShare.id == share_id).first()
     if not share:
         raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
-    post_id = share.owner_id if share.owner_type == "post" else (
-        db.query(models.Answer).filter(models.Answer.id == share.owner_id).first().post_id)
-    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    post = _post_for_share_or_404(db, share)
     if not community_posts.can_view(db, post, user.id):
         raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
 
