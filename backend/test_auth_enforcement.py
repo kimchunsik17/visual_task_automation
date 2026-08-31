@@ -135,3 +135,47 @@ def test_spa_catchall_blocks_path_traversal():
         assert "JWT_SECRET" not in body and "DATABASE_URL" not in body and "OPENAI_API_KEY" not in body, \
             f"{evil} 로 .env 가 새어 나온다"
         assert not body.startswith("root:"), f"{evil} 로 /etc/passwd 가 새어 나온다"
+
+
+# ── 워크플로우 공유 owner_type 분기 (2026-08-31 라운드2 리뷰) ──────────────
+def test_template_share_not_exposed_via_post_share_route():
+    """owner_type 이 'template' 인 공유는 글에 속하지 않는다. 예전에는 post 가 아니면 전부
+    answer 로 간주해, template share 가 무관한 공개 글의 visibility 로 통과해 in_review
+    스냅샷을 노출했다. 이제 이 라우트는 template 공유를 404 로 거부해야 한다."""
+    db = SessionLocal()
+    tag = uuid.uuid4().hex[:8]
+    u = models.User(email=f"sh-{tag}@e.com", name="u", token_balance=10)
+    db.add(u); db.commit(); db.refresh(u)
+    uid = u.id
+    share = models.WorkflowShare(owner_type="template", owner_id=999999,
+                                 graph_snapshot={"nodes": [], "edges": []}, schema_version=1)
+    db.add(share); db.commit(); db.refresh(share)
+    sid = share.id
+    db.close()
+
+    r = client.get(f"/api/community/shares/{sid}", headers=_headers(type("U", (), {"id": uid})()))
+    assert r.status_code == 404, f"template 공유가 글 공유 라우트로 노출된다: {r.status_code}"
+
+    db = SessionLocal()
+    db.query(models.WorkflowShare).filter(models.WorkflowShare.id == sid).delete()
+    db.query(models.User).filter(models.User.id == uid).delete()
+    db.commit(); db.close()
+
+
+def test_uploads_route_requires_ownership():
+    """/uploads/{stored_name} 정적 마운트를 소유권 확인 라우트로 대체했다. 인증 없으면 401,
+    남의 파일이면 404(존재를 알리지 않음)."""
+    assert client.get("/uploads/output.hwpx").status_code == 401
+    # 존재하지 않는 파일도 인증 후엔 404
+    db = SessionLocal()
+    tag = uuid.uuid4().hex[:8]
+    u = models.User(email=f"up-{tag}@e.com", name="u", token_balance=10)
+    db.add(u); db.commit(); db.refresh(u)
+    uid = u.id
+    db.close()
+    r = client.get("/uploads/definitely-not-a-real-file.bin", headers=_headers(
+        type("U", (), {"id": uid})()))
+    assert r.status_code == 404
+    db = SessionLocal()
+    db.query(models.User).filter(models.User.id == uid).delete()
+    db.commit(); db.close()
