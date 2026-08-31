@@ -116,3 +116,22 @@ def test_owner_can_still_deploy_and_run(owner_and_project):
                        headers=_headers(owner)).status_code == 200
     r = client.post(f"/api/projects/{project.id}/run", json={}, headers=_headers(owner))
     assert r.status_code not in (401, 403, 404), r.text
+
+
+# ── 경로 순회 (2026-08-31 적대적 리뷰) ────────────────────────────────────
+def test_spa_catchall_blocks_path_traversal():
+    """catch-all 이 os.path.join(dist, full_path) 를 그대로 열어, 0.0.0.0:8000 직접 접근 +
+    curl --path-as-is 로 `/../../backend/.env` 가 인증 없이 유출됐다. dist 밖은 index 로 폴백해야 한다."""
+    import os
+    frontend_dist = getattr(main, "FRONTEND_DIST", None)
+    if not frontend_dist or not os.path.isdir(frontend_dist):
+        pytest.skip("이 배포에는 FRONTEND_DIST 가 없다(개발 서버) — catch-all 이 등록되지 않는다")
+
+    # TestClient 는 경로를 정규화하지 않으므로 순회를 그대로 실어 보낼 수 있다.
+    for evil in ("../../backend/.env", "../.env", "../../../../etc/passwd"):
+        r = client.get(f"/{evil}")
+        # 200 이어도 내용이 index.html 이면 안전하다. 민감 파일 내용이 나오면 실패.
+        body = r.text
+        assert "JWT_SECRET" not in body and "DATABASE_URL" not in body and "OPENAI_API_KEY" not in body, \
+            f"{evil} 로 .env 가 새어 나온다"
+        assert not body.startswith("root:"), f"{evil} 로 /etc/passwd 가 새어 나온다"
