@@ -27,11 +27,15 @@ def generate_value_node(node_id, node, indent, active_llm_id, prev_res_var, visi
         # 상류의 특정 경로를 한 번만 받아 허브에 담는다 — 하류 여러 곳이 이 노드를 바인딩한다.
         lines.append(f"{indent}val_{node_id} = {node_bindings.bound_expr(node, node_id, 'value')}")
     elif file_path:
-        lines.append(f"{indent}import os")
+        # 경로는 업로드 루트 안이어야 한다 — _safe_user_path 가 루트 밖이면 None 을 준다.
+        # 이 제한이 없을 때 file_path 에 backend/.env 를 적으면 비밀이 노드 출력으로 나갔다.
         lines.append(f"{indent}file_content_{node_id} = ''")
+        lines.append(f"{indent}_vpath_{node_id} = _safe_user_path(r\"{file_path}\")")
         lines.append(f"{indent}try:")
-        lines.append(f"{indent}    if os.path.exists(r\"{file_path}\"):")
-        lines.append(f"{indent}        with open(r\"{file_path}\", 'r', encoding='utf-8', errors='replace') as f:")
+        lines.append(f"{indent}    if _vpath_{node_id} is None:")
+        lines.append(f"{indent}        file_content_{node_id} = '허용되지 않은 파일 경로입니다(업로드한 파일만 읽을 수 있습니다)'")
+        lines.append(f"{indent}    elif _vpath_{node_id}.is_file():")
+        lines.append(f"{indent}        with open(_vpath_{node_id}, 'r', encoding='utf-8', errors='replace') as f:")
         lines.append(f"{indent}            file_content_{node_id} = f.read()")
         lines.append(f"{indent}    else:")
         lines.append(f"{indent}        file_content_{node_id} = 'File not found'")

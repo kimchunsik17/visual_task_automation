@@ -291,6 +291,23 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     # 값의 출처는 __node_results__(노드별 결과)이고, 오류 판정은 __node_meta__(ADR-0025)를 본다 —
     # 오류 문구가 데이터로 위장해 필드에 들어가지 않게 한다.
     lines.append("import re as _re")
+    # 사용자가 준 파일 경로를 **업로드 루트 안으로 제한**한다(2026-08-31 보안 감사).
+    # 지금까지 valueNode.file_path / templateAnalyzer·fileModifier 의 template_path 가 아무 제한
+    # 없이 open() 되어, 경로에 backend/.env 를 적으면 DATABASE_URL·JWT_SECRET·OPENAI_API_KEY 가
+    # 노드 출력으로 흘러나왔다. 심볼릭 링크는 resolve() 가 풀어 준 뒤에 판정한다.
+    lines.append("import os as _os")
+    lines.append("from pathlib import Path as _Path")
+    lines.append("def _safe_user_path(raw):")
+    lines.append("    if not raw:")
+    lines.append("        return None")
+    lines.append("    root = _Path(_os.getenv('UPLOAD_DIR', 'uploads')).resolve()")
+    lines.append("    try:")
+    lines.append("        candidate = _Path(str(raw))")
+    lines.append("        resolved = (candidate if candidate.is_absolute() else _Path.cwd() / candidate).resolve()")
+    lines.append("        resolved.relative_to(root)")
+    lines.append("    except Exception:")
+    lines.append("        return None")
+    lines.append("    return resolved")
     lines.append("__node_bindings__ = " + repr(node_bindings.runtime_map(nodes)))
     lines.append("def _binding_path(value, path):")
     lines.append("    if not path:")
