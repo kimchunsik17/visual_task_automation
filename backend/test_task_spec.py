@@ -239,3 +239,29 @@ def test_conditional_goal_requires_merge_when_conditions_field_is_empty():
     })}
 
     assert "INTENT_MERGE_MISSING" in codes
+
+
+def test_unrequested_review_step_is_not_asked_about():
+    """요청에 없는 승인·검토 단계는 묻지도 말고 넣지도 않는다(생성 원칙 1).
+    2026-08-31 평가 case32: "팜플렛 만들어서 디스코드에 올려줘" 가 3회 중 2회
+    "게시 전 검토 단계를 넣을까요?" 질문으로 끝나 그래프가 아예 안 나왔다."""
+    spec = _spec(
+        goal="3단 팜플렛 양식으로 신규 서비스 소개 인쇄물을 만들어서 디스코드에 올린다",
+        missing_information=[MissingInformation(
+            key="posting_review", description="게시 전 검토 단계를 넣을지 선택이 필요합니다.",
+            category="risk_decision", blocks_generation=True,
+        )],
+    )
+    assert apply_clarification_policy(spec).clarification_required is False
+
+
+def test_risky_value_decisions_still_block():
+    """값 자체가 위험한 결정은 그대로 되물어야 한다 — 위 예외가 너무 넓어지면 안 된다."""
+    spec = _spec(
+        goal="조건에 맞는 주문을 자동으로 취소한다",
+        missing_information=[MissingInformation(
+            key="cancel_threshold", description="어떤 주문을 취소 대상으로 볼지 기준이 없습니다.",
+            category="risk_decision", blocks_generation=True,
+        )],
+    )
+    assert apply_clarification_policy(spec).clarification_required is True

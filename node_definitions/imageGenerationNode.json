@@ -1,0 +1,136 @@
+{
+  "type": "imageGenerationNode",
+  "version": 1,
+  "category": "ai",
+  "display": {
+    "label": "AI 이미지 생성·수정",
+    "collapsedLabel": "AI 이미지",
+    "icon": "node-poster-generator",
+    "color": "#06b6d4",
+    "headerColor": "linear-gradient(135deg, #0891b2, #7c3aed)"
+  },
+  "inputs": [
+    { "name": "in", "dataType": "any", "label": "프롬프트/수정 피드백" }
+  ],
+  "outputs": [
+    { "name": "out", "dataType": "artifact:image", "label": "생성 이미지" }
+  ],
+  "fields": [
+    {
+      "name": "apiKey",
+      "kind": "secret",
+      "label": "OpenAI API 키",
+      "credential": { "provider": "openai" }
+    },
+    {
+      "name": "prompt",
+      "kind": "textarea",
+      "label": "이미지 프롬프트 (선택)",
+      "placeholder": "비우면 직전 노드의 출력 또는 검수 피드백을 사용합니다."
+    },
+    {
+      "name": "action",
+      "kind": "select",
+      "label": "동작",
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "자동 판단 (생성/수정)" },
+        { "value": "generate", "label": "항상 새 이미지 생성" },
+        { "value": "edit", "label": "이전 이미지 수정" }
+      ],
+      "ui": { "coerceToDefault": true },
+      "validation": [
+        { "rule": "enum", "message": "{node_id}(imageGenerationNode)의 action은 auto/generate/edit 중 하나여야 한다 (현재: {value_repr})" }
+      ]
+    },
+    {
+      "name": "model",
+      "kind": "select",
+      "label": "대화 모델",
+      "default": "gpt-5.6",
+      "options": [
+        { "value": "gpt-5.6", "label": "GPT-5.6" }
+      ],
+      "ui": { "coerceToDefault": true },
+      "validation": [
+        { "rule": "enum", "message": "{node_id}(imageGenerationNode)의 model이 지원 목록에 없다 (현재: {value_repr})" }
+      ]
+    },
+    {
+      "name": "size",
+      "kind": "select",
+      "label": "크기",
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "자동" },
+        { "value": "1024x1024", "label": "1024×1024 · 정사각" },
+        { "value": "1536x1024", "label": "1536×1024 · 가로" },
+        { "value": "1024x1536", "label": "1024×1536 · 세로" },
+        { "value": "2048x2048", "label": "2048×2048 · 2K 정사각" },
+        { "value": "2048x1152", "label": "2048×1152 · 2K 가로" }
+      ],
+      "validation": [
+        { "rule": "enum", "message": "{node_id}(imageGenerationNode)의 size가 지원 목록에 없다 (현재: {value_repr})" }
+      ]
+    },
+    {
+      "name": "quality",
+      "kind": "select",
+      "label": "품질",
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "자동" },
+        { "value": "low", "label": "낮음 · 빠른 시안" },
+        { "value": "medium", "label": "중간" },
+        { "value": "high", "label": "높음 · 최종본" }
+      ],
+      "validation": [
+        { "rule": "enum", "message": "{node_id}(imageGenerationNode)의 quality가 지원 목록에 없다 (현재: {value_repr})" }
+      ]
+    },
+    {
+      "name": "background",
+      "kind": "select",
+      "label": "배경",
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "자동" },
+        { "value": "opaque", "label": "불투명" },
+        { "value": "transparent", "label": "투명" }
+      ],
+      "validation": [
+        { "rule": "enum", "message": "{node_id}(imageGenerationNode)의 background가 지원 목록에 없다 (현재: {value_repr})" }
+      ]
+    },
+    {
+      "name": "outputFormat",
+      "kind": "select",
+      "label": "출력 형식",
+      "default": "png",
+      "options": [
+        { "value": "png", "label": "PNG" },
+        { "value": "webp", "label": "WebP" },
+        { "value": "jpeg", "label": "JPEG" }
+      ],
+      "validation": [
+        { "rule": "enum", "message": "{node_id}(imageGenerationNode)의 outputFormat이 지원 목록에 없다 (현재: {value_repr})" }
+      ]
+    },
+    {
+      "name": "previousResponseId",
+      "kind": "text",
+      "label": "이전 응답 ID (고급·선택)",
+      "placeholder": "비우면 같은 노드의 최신 이미지 버전을 사용합니다."
+    }
+  ],
+  "credentials": [
+    { "name": "apiKey", "provider": "openai", "optional": true }
+  ],
+  "capabilities": ["network", "filesystem", "image-generation", "image-editing"],
+  "sideEffect": "external-write",
+  "executor": "imageGenerationNode",
+  "mock": {},
+  "llm": {
+    "description": "OpenAI 이미지 도구로 새 이미지를 생성하거나, 이전 결과를 대화 문맥으로 이어 수정한다. data.prompt(선택 — 비우면 직전 노드 출력 사용), data.action(\"auto\"|\"generate\"|\"edit\", 기본 auto), data.model(기본 \"gpt-5.6\"), data.size, data.quality, data.background, data.outputFormat을 설정한다. API 키는 data.apiKey에 직접 저장하지 말고 가능한 한 \"{{API_CENTER:openai}}\" 참조를 사용한다. 수정 피드백 루프에서는 이전 imageGenerationNode 결과의 response_id와 artifact_id를 전달하며, 각 수정본은 기존 파일을 덮어쓰지 않고 새 버전으로 저장된다. edit 모드에서 data.previousResponseId를 비우면 같은 프로젝트·노드의 최신 이미지 버전을 자동으로 이어서 수정한다. 결과는 uploads/ 아래 이미지 파일 경로이며 디스코드·텔레그램 발송 노드에 바로 연결할 수 있다.\n"
+  }
+}

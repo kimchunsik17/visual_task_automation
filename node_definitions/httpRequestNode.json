@@ -1,0 +1,184 @@
+{
+  "type": "httpRequestNode",
+  "version": 1,
+  "category": "action",
+  "display": {
+    "label": "HTTP Request",
+    "icon": "node-http-request",
+    "color": "#0ea5e9"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "method",
+      "kind": "select",
+      "label": "Method",
+      "default": "GET",
+      "options": [
+        {
+          "value": "GET",
+          "label": "GET"
+        },
+        {
+          "value": "POST",
+          "label": "POST"
+        },
+        {
+          "value": "PUT",
+          "label": "PUT"
+        },
+        {
+          "value": "DELETE",
+          "label": "DELETE"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "allowMissing": false,
+          "message": "{node_id}(httpRequestNode)의 method는 GET/POST/PUT/DELETE 중 하나여야 한다 (현재: {value_repr})"
+        }
+      ]
+    },
+    {
+      "name": "url",
+      "kind": "text",
+      "label": "URL",
+      "placeholder": "https://api.example.com/data",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(httpRequestNode)에 url이 없다"
+        }
+      ]
+    },
+    {
+      "name": "headers",
+      "kind": "secret",
+      "label": "Headers (JSON)",
+      "credential": {
+        "provider": "openai"
+      }
+    },
+    {
+      "name": "body",
+      "kind": "textarea",
+      "label": "Body (JSON)",
+      "placeholder": "{",
+      "ui": {
+        "draggable": true
+      }
+    }
+  ],
+  "credentials": [],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-write",
+  "executor": "httpRequestNode",
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "message": "목업 응답입니다"
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "error": "unauthorized"
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "5"
+            },
+            "body": {
+              "error": "too many requests"
+            }
+          }
+        ]
+      },
+      "not_found": {
+        "responses": [
+          {
+            "status": 404,
+            "body": {
+              "error": "not found"
+            }
+          }
+        ]
+      },
+      "server_error": {
+        "responses": [
+          {
+            "status": 500,
+            "body": {
+              "error": "internal error"
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "외부 API 호출. data.method(GET|POST|PUT|DELETE), data.url(문자열),\n                   data.headers(JSON 문자열, 생략 가능), data.body(JSON 문자열, 생략 가능).\n"
+  },
+  "connector": {
+    "service": "HTTP",
+    "role": "action",
+    "modes": [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE"
+    ],
+    "credentials": [],
+    "timeoutSeconds": 15.0,
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 0.5,
+      "maxDelaySeconds": 20.0,
+      "retryNonIdempotent": false
+    },
+    "sideEffectByMode": {
+      "GET": "external-read",
+      "POST": "external-write",
+      "PUT": "external-write",
+      "DELETE": "external-write"
+    },
+    "docsUrl": "https://developer.mozilla.org/docs/Web/HTTP/Methods",
+    "verifiedAt": "2026-08-30"
+  }
+}

@@ -36,11 +36,21 @@ SIDE_EFFECT_NODE_TYPES = {
 TRIGGER_NODE_TYPES = {
     "discordTriggerNode", "scheduleNode", "startNode", "telegramTriggerNode", "webhookNode",
 }
+
+# NodeDefinition 을 가진 노드는 위 하드코딩 목록에 손으로 넣지 않고 정의에서 파생시킨다
+# (ADR-0008). 목록에 넣는 걸 잊으면 새 연동 노드가 dry-run 을 조용히 통과해 실제로 외부에
+# 쓰기를 해버린다 — 그 실수를 구조적으로 막는다.
+import node_definition as _node_definition  # noqa: E402
+
+SIDE_EFFECT_NODE_TYPES |= _node_definition.types_with_external_writes()
+TRIGGER_NODE_TYPES |= _node_definition.trigger_types()
 ARBITRARY_CODE_NODE_TYPES = {"pythonNode"}
 HIGH_RISK_NODE_TYPES = {
     "databaseNode", "paymentLinkNode", "tossNode", "fileModifierNode", "posterGeneratorNode",
 }
-IGNORED_EDGE_HANDLES = {"template", "tools"}
+# 'attachments' 는 발송 노드의 첨부 포트다(ADR-0018) — 제어 흐름이 아니라 파일 배선이라
+# graph.compile_workflow 와 같은 기준으로 도달 가능성 계산에서 뺀다.
+IGNORED_EDGE_HANDLES = {"template", "tools", "attachments"}
 
 
 class DryRunStep(BaseModel):

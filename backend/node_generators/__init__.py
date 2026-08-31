@@ -6,3 +6,6 @@ from . import data_nodes
 from . import ui_nodes
 from . import agent_nodes
 from . import template_nodes
+from . import connector_nodes
+from . import image_nodes
+from . import document_nodes

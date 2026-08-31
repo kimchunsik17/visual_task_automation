@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { Icon } from './icons';
 import './CustomAlert.css';
 
 let requestConfirm = null;
@@ -30,7 +30,7 @@ const CustomConfirm = () => {
     <div className="custom-alert-overlay">
       <div className="custom-alert-modal">
         <div className="custom-alert-icon">
-          <AlertTriangle size={32} color="#fbbf24" />
+          <Icon name="status-warning" size={32} color="#fbbf24" />
         </div>
         <div className="custom-alert-content">
           <p className="custom-alert-message">{state.message}</p>

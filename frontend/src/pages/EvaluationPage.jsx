@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Activity, CheckCircle, XCircle, Clock, Zap, ArrowLeft, RefreshCw, BarChart3 } from 'lucide-react';
+import { Play, Activity, Clock, Zap, ArrowLeft, RefreshCw, BarChart3 } from 'lucide-react';
+import { Icon } from '../icons';
 import './EvaluationPage.css';
 
 export default function EvaluationPage() {
@@ -184,7 +185,7 @@ export default function EvaluationPage() {
                   <span className="card-value">{summary.average_score}%</span>
                 </div>
                 <div className="summary-card">
-                  <CheckCircle size={24} className="card-icon text-green" />
+                  <Icon name="status-success" size={24} className="card-icon text-green" />
                   <span className="card-label">통과 (Pass)</span>
                   <span className="card-value">{summary.pass_count} / {summary.total_tests}</span>
                 </div>
@@ -214,9 +215,9 @@ export default function EvaluationPage() {
                   <span className="category-badge">{res.category}</span>
                   <div className="result-status">
                     {res.passed ? (
-                      <span className="status pass"><CheckCircle size={16} /> PASS</span>
+                      <span className="status pass"><Icon name="status-success" size={16} /> PASS</span>
                     ) : (
-                      <span className="status fail"><XCircle size={16} /> FAIL</span>
+                      <span className="status fail"><Icon name="status-failed" size={16} /> FAIL</span>
                     )}
                   </div>
                 </div>

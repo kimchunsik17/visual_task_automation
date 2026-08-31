@@ -1,0 +1,282 @@
+{
+  "type": "googleDriveNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "Google Drive",
+    "icon": "node-file-modifier",
+    "color": "#34a853"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    },
+    {
+      "name": "artifacts",
+      "dataType": "artifact",
+      "label": "내려받은 파일"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "동작",
+      "default": "search_files",
+      "options": [
+        {
+          "value": "search_files",
+          "label": "파일 검색"
+        },
+        {
+          "value": "upload_file",
+          "label": "파일 업로드"
+        },
+        {
+          "value": "create_share_link",
+          "label": "공유 링크 생성"
+        },
+        {
+          "value": "download_file",
+          "label": "파일 내려받기"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "allowMissing": true,
+          "message": "{node_id}(googleDriveNode)의 mode '{value}'은 허용되지 않는다 (허용: {allowed})"
+        }
+      ]
+    },
+    {
+      "name": "query",
+      "kind": "text",
+      "label": "검색어 (검색)",
+      "showWhen": {
+        "field": "mode",
+        "equals": "search_files"
+      }
+    },
+    {
+      "name": "filePath",
+      "kind": "text",
+      "label": "업로드할 파일 경로 (업로드)",
+      "showWhen": {
+        "field": "mode",
+        "equals": "upload_file"
+      }
+    },
+    {
+      "name": "fileName",
+      "kind": "text",
+      "label": "저장할 이름 (선택)",
+      "showWhen": {
+        "field": "mode",
+        "equals": "upload_file"
+      }
+    },
+    {
+      "name": "folderId",
+      "kind": "text",
+      "label": "폴더 ID (선택)",
+      "showWhen": {
+        "field": "mode",
+        "equals": "upload_file"
+      }
+    },
+    {
+      "name": "fileId",
+      "kind": "text",
+      "label": "파일 ID (공유 링크 / 내려받기)"
+    },
+    {
+      "name": "maxResults",
+      "kind": "number",
+      "label": "최대 결과 수 (검색)",
+      "default": 10,
+      "showWhen": {
+        "field": "mode",
+        "equals": "search_files"
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "google",
+      "provider": "google_oauth"
+    }
+  ],
+  "capabilities": [
+    "network",
+    "filesystem"
+  ],
+  "sideEffect": "external-write",
+  "executor": "googleDriveNode",
+  "connector": {
+    "service": "Google Drive",
+    "role": "action",
+    "modes": [
+      "search_files",
+      "upload_file",
+      "create_share_link",
+      "download_file"
+    ],
+    "credentials": [
+      {
+        "provider": "google_oauth",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive"
+        ]
+      }
+    ],
+    "baseUrl": "https://www.googleapis.com/drive/v3",
+    "timeoutSeconds": 20.0,
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "search_files": "external-read",
+      "upload_file": "external-write",
+      "create_share_link": "external-write",
+      "download_file": "external-read"
+    },
+    "outputSchemaByMode": {},
+    "docsUrl": "https://developers.google.com/workspace/drive/api/reference/rest/v3",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/files/file_dl1"
+            },
+            "status": 200,
+            "body": {
+              "id": "file_dl1",
+              "name": "계약서.pdf",
+              "mimeType": "application/pdf",
+              "webViewLink": "https://drive.example/file_dl1",
+              "size": "91"
+            },
+            "bodyBase64": "JVBERi0xLjQKbW9jayBkcml2ZSBkb3dubG9hZAp4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4"
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/upload/drive"
+            },
+            "status": 200,
+            "body": {
+              "id": "file_up1",
+              "name": "보고서.pdf",
+              "mimeType": "application/pdf",
+              "webViewLink": "https://drive.example/file_up1"
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/permissions"
+            },
+            "status": 200,
+            "body": {
+              "id": "perm1"
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/files/file1"
+            },
+            "status": 200,
+            "body": {
+              "id": "file1",
+              "name": "제안서.docx",
+              "webViewLink": "https://drive.example/file1"
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/files"
+            },
+            "status": 200,
+            "body": {
+              "files": [
+                {
+                  "id": "file1",
+                  "name": "제안서.docx",
+                  "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  "webViewLink": "https://drive.example/file1",
+                  "modifiedTime": "2026-08-27T09:00:00Z"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "not_found": {
+        "responses": [
+          {
+            "status": 404,
+            "body": {
+              "error": {
+                "message": "File not found"
+              }
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "error": {
+                "message": "Invalid Credentials"
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "30"
+            },
+            "body": {
+              "error": {
+                "message": "rateLimitExceeded"
+              }
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "Google Drive 파일 검색/업로드/공유 링크 생성/내려받기. data.mode(search_files | upload_file |\n                   create_share_link | download_file). 검색: data.query(문자열 — 파일 이름 부분 일치). 업로드:\n                   data.filePath(서버 업로드 저장소의 파일 경로, 비우면 직전 노드 출력)+선택\n                   data.fileName·data.folderId. 공유 링크·내려받기: data.fileId. 📎 내려받기는 파일을\n                   첨부 가능한 결과물로 저장하므로, 뒤에 emailNode/discordNode/gmailNode 를 연결하면\n                   그 파일이 그대로 첨부된다. Google 문서 형식(구글 문서/시트/슬라이드)은 그대로 받을 수 없다.\n"
+  }
+}

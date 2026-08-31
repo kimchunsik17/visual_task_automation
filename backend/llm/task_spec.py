@@ -115,7 +115,20 @@ def apply_clarification_policy(spec: TaskSpec) -> TaskSpec:
             item.category == "risk_decision"
             and any(word in explicit_approval for word in ("승인", "approval", "거절", "rejected"))
         )
-        if item.category in non_blocking or integration_detail or approval_already_specified:
+        # 요청에 없는 승인·검토 단계는 **묻지도 말고 넣지도 않는다**(생성 원칙 1 — 요청에 없는
+        # 보조 노드는 사용자가 결과를 보고 에디터에서 붙이는 몫이다). 판정이 반대로 걸려 있어서,
+        # 승인을 언급하지 않은 요청일 때 오히려 "검토 단계를 넣을까요?"를 되묻고 생성을 멈췄다
+        # (2026-08-31 평가 case32: "팜플렛 만들어서 디스코드에 올려줘" 가 3회 중 2회 질문으로 끝났다).
+        # 값 자체가 위험한 결정(금액·삭제 대상 등)은 이 예외에 걸리지 않으므로 그대로 차단된다.
+        unrequested_review_step = (
+            item.category == "risk_decision"
+            and not any(word in explicit_approval for word in
+                        ("승인", "approval", "검토", "review", "거절", "rejected", "미리보기"))
+            and any(word in f"{item.key} {item.description}".lower() for word in
+                    ("승인", "approval", "검토", "review", "미리보기", "preview", "확인 단계", "게시 방식"))
+        )
+        if (item.category in non_blocking or integration_detail
+                or approval_already_specified or unrequested_review_step):
             item = item.model_copy(update={"blocks_generation": False})
         normalized_missing.append(item)
 

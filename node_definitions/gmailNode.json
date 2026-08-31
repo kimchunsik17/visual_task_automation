@@ -1,0 +1,281 @@
+{
+  "type": "gmailNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "Gmail 발송/답장",
+    "icon": "node-email",
+    "color": "#ea4335"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    },
+    {
+      "name": "attachments",
+      "dataType": "artifact",
+      "label": "첨부"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "동작",
+      "default": "send_email",
+      "options": [
+        {
+          "value": "send_email",
+          "label": "메일 발송"
+        },
+        {
+          "value": "reply_email",
+          "label": "답장"
+        },
+        {
+          "value": "create_draft",
+          "label": "임시저장"
+        },
+        {
+          "value": "add_label",
+          "label": "라벨 적용"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "allowMissing": true,
+          "message": "{node_id}(gmailNode)의 mode '{value}'은 허용되지 않는다 (허용: {allowed})"
+        }
+      ]
+    },
+    {
+      "name": "to",
+      "kind": "text",
+      "label": "수신자 (발송/임시저장)",
+      "placeholder": "receiver@example.com"
+    },
+    {
+      "name": "subject",
+      "kind": "text",
+      "label": "제목 (발송/임시저장)"
+    },
+    {
+      "name": "body",
+      "kind": "textarea",
+      "label": "본문 (비우면 직전 노드 출력)",
+      "ui": {
+        "draggable": true
+      }
+    },
+    {
+      "name": "messageId",
+      "kind": "text",
+      "label": "메시지 ID (답장/라벨)",
+      "placeholder": "예: 18f2ab..."
+    },
+    {
+      "name": "labelName",
+      "kind": "text",
+      "label": "라벨 이름 (라벨 적용)",
+      "showWhen": {
+        "field": "mode",
+        "equals": "add_label"
+      }
+    },
+    {
+      "name": "attachments",
+      "kind": "attachments",
+      "label": "첨부 파일",
+      "default": {
+        "mode": "auto",
+        "artifactIds": []
+      },
+      "ui": {
+        "provider": "gmail",
+        "help": "선행 노드가 만든 파일(이미지·포스터·문서)을 자동으로 첨부합니다. 발송·답장·임시저장에만 적용되고 라벨 적용에는 쓰이지 않습니다."
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "google",
+      "provider": "google_oauth"
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-write",
+  "executor": "gmailNode",
+  "connector": {
+    "service": "Gmail",
+    "role": "action",
+    "modes": [
+      "send_email",
+      "reply_email",
+      "create_draft",
+      "add_label"
+    ],
+    "credentials": [
+      {
+        "provider": "google_oauth",
+        "scopes": [
+          "https://www.googleapis.com/auth/gmail.modify"
+        ]
+      }
+    ],
+    "baseUrl": "https://gmail.googleapis.com/gmail/v1",
+    "timeoutSeconds": 15.0,
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "send_email": "external-write",
+      "reply_email": "external-write",
+      "create_draft": "external-write",
+      "add_label": "external-write"
+    },
+    "outputSchemaByMode": {},
+    "docsUrl": "https://developers.google.com/workspace/gmail/api/reference/rest",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/messages/orig1"
+            },
+            "status": 200,
+            "body": {
+              "id": "orig1",
+              "threadId": "t9",
+              "payload": {
+                "headers": [
+                  {
+                    "name": "From",
+                    "value": "sender@example.com"
+                  },
+                  {
+                    "name": "Subject",
+                    "value": "문의"
+                  },
+                  {
+                    "name": "Message-ID",
+                    "value": "<orig1@mail>"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/messages/send"
+            },
+            "status": 200,
+            "body": {
+              "id": "sent1",
+              "threadId": "t9"
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/drafts"
+            },
+            "status": 200,
+            "body": {
+              "id": "draft1"
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/labels"
+            },
+            "status": 200,
+            "body": {
+              "labels": [
+                {
+                  "id": "Label_1",
+                  "name": "업무"
+                }
+              ]
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/labels"
+            },
+            "status": 200,
+            "body": {
+              "id": "Label_2",
+              "name": "새라벨"
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/modify"
+            },
+            "status": 200,
+            "body": {
+              "id": "m1"
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "error": {
+                "message": "Invalid Credentials"
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "30"
+            },
+            "body": {
+              "error": {
+                "message": "rateLimitExceeded"
+              }
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "Gmail 메일 발송/답장/임시저장/라벨. data.mode(send_email | reply_email | create_draft |\n                   add_label). 발송·임시저장: data.to(문자열)+data.subject(문자열)+data.body(문자열, 비우면\n                   직전 노드 출력을 본문으로 사용). 답장: data.messageId(+선택 data.body — 원본의 제목과\n                   스레드를 자동으로 잇는다). 라벨: data.messageId+data.labelName(없는 라벨은 만든다).\n                   📎 파일 첨부: 발송·답장·임시저장은 앞의 파일 생성 노드가 만든 파일을 자동으로 첨부한다\n                   (data.attachments 를 비워 두면 기본값. 끄려면 {\"mode\": \"none\"}). 답장에 첨부해도\n                   원본 스레드는 그대로 유지된다.\n"
+  }
+}

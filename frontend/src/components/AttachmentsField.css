@@ -1,0 +1,190 @@
+/* 첨부 포트 UI (ADR-0018, 우선 백로그 20 FILE-SEND-4).
+   노드 본문 안에 들어가므로 폭이 좁다 — 파일 이름은 자르고, 크기·한도는 항상 보이게 둔다. */
+
+.attachments-field {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.25);
+}
+
+.attachments-help {
+  margin: 0.25rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.attachments-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 0.4rem;
+}
+
+.attachments-empty {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.attachments-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.08);
+  font-size: 0.68rem;
+  color: #e2e8f0;
+}
+
+.attachments-chip.warn {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.attachments-chip .chip-kind {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.attachments-chip .chip-name {
+  overflow: hidden;
+  max-width: 110px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachments-chip .chip-size {
+  color: #94a3b8;
+}
+
+.attachments-chip .chip-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: #fca5a5;
+}
+
+.attachments-chip .chip-remove {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.attachments-chip .chip-remove:hover {
+  color: #f87171;
+}
+
+/* provider 한도 대비 총량. 넘으면 실행 전에 여기서 먼저 보인다. */
+.attachments-meter {
+  margin-top: 0.4rem;
+}
+
+.attachments-meter .meter-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.attachments-meter .meter-bar span {
+  display: block;
+  height: 100%;
+  background: #38bdf8;
+}
+
+.attachments-meter.over .meter-bar span {
+  background: #f87171;
+}
+
+.attachments-meter .meter-text {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.66rem;
+  color: #94a3b8;
+}
+
+.attachments-meter.over .meter-text {
+  color: #fca5a5;
+}
+
+.attachments-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 0.4rem;
+}
+
+.attachments-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.6);
+  color: #cbd5e1;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.attachments-actions button:hover:not(:disabled) {
+  border-color: rgba(56, 189, 248, 0.5);
+  color: #e2e8f0;
+}
+
+.attachments-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.attachments-picker {
+  max-height: 160px;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
+  list-style: none;
+}
+
+.attachments-picker li {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.attachments-picker li:last-child {
+  border-bottom: 0;
+}
+
+.attachments-picker label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 6px;
+  font-size: 0.68rem;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.attachments-picker .picker-name {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachments-picker .picker-meta {
+  color: #64748b;
+}
+
+.attachments-ok {
+  margin: 0.4rem 0 0;
+  font-size: 0.68rem;
+  color: #6ee7b7;
+}

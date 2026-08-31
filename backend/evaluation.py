@@ -41,17 +41,65 @@ def _case(
     required_data: Optional[dict[str, list[str]]] = None,
     expected_handles: Optional[list[tuple[str, str]]] = None,
     expected_outcome: str = "graph",
+    expected_bindings: Optional[list[tuple[str, str]]] = None,
 ) -> dict:
     return {
         "id": case_id,
         "category": category,
         "prompt": prompt,
         "expected_nodes": expected_nodes,
+        "forbidden_nodes": FORBIDDEN_NODES.get(case_id, []),
         "expected_paths": [list(path) for path in (expected_paths or [])],
         "required_data": required_data or {},
         "expected_handles": [list(item) for item in (expected_handles or [])],
         "expected_outcome": expected_outcome,
+        # (노드타입, 필드) — 값을 옮기기만 하는 자리를 데이터 바인딩으로 처리했는지.
+        # 선언한 케이스만 감점 대상이라 기존 케이스의 점수는 그대로다(회귀 비교 유지).
+        "expected_bindings": [list(item) for item in (expected_bindings or [])],
     }
+
+
+# 하드 네거티브 라벨(ADR-0013, RAG Phase A): 그 요청의 그래프에 나타나면 명백히 잘못인 노드.
+# retrieval 평가(node_retrieval_eval.py)에서 "잘못된 후보를 고르는 비율"을 재는 기준이고,
+# 생성 채점에서는 forbidden_nodes_present로 표시만 한다(점수/통과 기준은 바꾸지 않는다 —
+# 기존 결과와의 회귀 비교가 깨지지 않게). 확신이 없는 케이스는 비워 둔다.
+FORBIDDEN_NODES: dict[int, list[str]] = {
+    33: ["llmNode", "jsonParserNode", "promptNode"],  # 값 이동은 바인딩 — LLM 을 끼우면 잘못
+    1: ["emailNode", "slackNode", "webCrawlerNode"],      # 화면 출력 요청 — 외부 발송/수집 금지
+    2: ["webhookNode", "discordNode", "emailNode"],       # 스케줄 트리거, 슬랙 지정
+    3: ["scheduleNode", "slackNode", "emailNode"],        # 웹훅 트리거, 카카오/디스코드 지정
+    4: ["slackNode", "kakaoNode"],                        # 디스코드/이메일 지정
+    5: ["conditionNode"],                                 # 승인/거절은 humanApprovalNode 핸들로 분기
+    6: ["distributorNode"],                               # 반복 다듬기는 loopNode
+    7: ["loopNode"],                                      # 목록 각각 처리는 distributorNode
+    8: ["webCrawlerNode", "webhookNode"],                 # REST 호출은 httpRequestNode
+    9: ["pythonNode"],                                    # 파싱은 전용 jsonParserNode
+    10: ["httpRequestNode"],                              # 크롤링은 webCrawlerNode
+    11: ["slackNode", "kakaoNode", "discordNode"],        # 이메일 지정
+    12: ["discordNode", "kakaoNode", "emailNode"],        # 텔레그램 지정
+    13: ["googleSheetsNode", "scheduleNode"],             # 캘린더 '일정'은 주기 실행이 아니다
+    14: ["googleCalendarNode", "databaseNode"],
+    15: ["googleSheetsNode", "databaseNode"],
+    16: ["googleSheetsNode"],
+    17: ["databaseNode"],                                 # CSV 텍스트 입력이지 DB가 아니다
+    18: ["webCrawlerNode"],
+    19: ["posterGeneratorNode"],
+    20: ["fileModifierNode"],                             # 포스터 PNG는 posterGeneratorNode
+    21: ["scheduleNode"],                                 # '10분 기다림'은 delayNode
+    22: ["tossNode", "emailNode", "slackNode"],           # 결제 '생성'은 paymentLinkNode, 카카오 지정
+    23: ["conditionNode"],                                # 전문가 라우팅은 multiAgentNode
+    24: ["discordTriggerNode", "webhookNode", "scheduleNode"],
+    25: ["telegramTriggerNode", "webhookNode", "scheduleNode"],
+    26: ["paymentLinkNode"],
+    27: ["webhookNode", "emailNode", "discordNode"],      # 30분마다=schedule, 슬랙 지정
+    29: ["scheduleNode", "webhookNode"],
+    30: ["pythonNode"],                                   # 구조화 변환은 llm+jsonParserNode
+    # 서식 파일이 없는 "새 문서/포스터 만들기"에 구노드 조합을 쓰면 실행이 실패한다(계획 §2).
+    31: ["templateAnalyzerNode", "fileModifierNode"],
+    # posterGeneratorNode 는 금지가 아니다 — 매번 새로 디자인하는 정당한 경로다. 다만 "양식으로"
+    # 만드는 요청이면 프리셋 포맷(formatNode) 이 일관성·비용에서 낫다.
+    32: ["templateAnalyzerNode", "fileModifierNode"],
+}
 
 
 # 시나리오 축을 분리해 모델/프롬프트 변경 후 같은 입력으로 회귀를 비교한다.
@@ -115,7 +163,7 @@ TEST_CASES = [
     _case(18, "Tokenize", "업로드한 PDF에서 텍스트를 추출해 요약해줘.",
           ["tokenizerNode", "llmNode", "outputNode"],
           [("tokenizerNode", "llmNode")], {"tokenizerNode": ["method"]}),
-    _case(19, "Document", "지원자 정보를 자기소개서 Word 서식에 채워 새 파일로 저장해줘.",
+    _case(19, "Document", "내가 올린 자기소개서 Word 서식 파일의 빈칸을 지원자 정보로 채워 새 파일로 저장해줘.",
           ["templateAnalyzerNode", "llmNode", "fileModifierNode"],
           [("templateAnalyzerNode", "llmNode"), ("llmNode", "fileModifierNode")]),
     _case(20, "Poster", "행사 정보를 받아 900x1200 PNG 홍보 포스터로 저장해줘.",
@@ -153,6 +201,30 @@ TEST_CASES = [
           ["dynamicInputNode", "llmNode", "jsonParserNode", "outputNode"],
           [("llmNode", "jsonParserNode"), ("jsonParserNode", "outputNode")],
           {"llmNode": ["model", "systemPrompt"], "jsonParserNode": ["mode"]}),
+    # 포맷 스튜디오 계획 Phase 3 — 서식 파일 없이 새 문서를 만드는 요청은 formatNode 로 가야 한다.
+    # 예전에는 templateAnalyzer→fileModifier 3노드 조합으로 흘렀고, 서식 파일이 없어서 실행이 실패했다.
+    _case(31, "FormatDocument", "직원 지각 사건에 대한 시말서를 작성해서 한글 파일로 만들고 팀장 이메일로 보내줘.",
+          ["formatNode", "emailNode"],
+          [("formatNode", "emailNode")],
+          {"formatNode": ["formatId"]}),
+    _case(32, "FormatDesign", "3단 팜플렛 양식으로 신규 서비스 소개 인쇄물을 만들어서 디스코드에 올려줘.",
+          ["formatNode", "discordNode"],
+          [("formatNode", "discordNode")],
+          {"formatNode": ["formatId"]}),
+    # 데이터 흐름 분리 계획 §6-4 — 앞 노드의 값을 그대로 넣는 자리에 llmNode/jsonParserNode 를
+    # 끼우지 말고 데이터 바인딩을 쓰는지. 요청이 payload 키 이름을 알려주므로 path 도 쓸 수 있다.
+    _case(33, "FieldBinding",
+          "웹훅으로 지각 사건 접수를 받아 시말서를 채워서 담당자 이메일로 보내줘. "
+          "요청 본문에 department, authorName, incidentAt, summary, cause, prevention, "
+          "managerEmail 키가 들어와.",
+          ["webhookNode", "formatNode", "emailNode"],
+          [("webhookNode", "formatNode"), ("formatNode", "emailNode")],
+          {"formatNode": ["formatId"]},
+          # formatNode.values 는 요구하지 않는다 — 웹훅이 formatNode 의 직전 노드면 values 를
+          # 비워도 그 출력(JSON)에서 같은 이름 키를 가져오는 것이 문서화된 동작이고, 결과도 같다
+          # (LLM 0회). 반면 toEmail 은 payload 안의 값을 필드로 옮겨야 하므로 바인딩이 아니면
+          # llmNode/jsonParserNode 를 끼우는 수밖에 없다 — 그래서 이 필드만 감점 대상이다.
+          expected_bindings=[("emailNode", "toEmail")]),
 ]
 
 
@@ -240,9 +312,11 @@ def score_generated_graph(test: dict, graph_data: Dict[str, Any]) -> dict:
             "score": 0, "passed": False, "schema_passed": False,
             "structural_passed": False, "compile_passed": False, "dry_run_passed": False,
             "generated_nodes": [], "missing_nodes": test["expected_nodes"],
+            "forbidden_nodes_present": [],
             "missing_paths": test.get("expected_paths", []),
             "missing_data": test.get("required_data", {}),
             "missing_handles": test.get("expected_handles", []),
+            "missing_bindings": test.get("expected_bindings", []),
             "validation_errors": [f"FlowGraph schema 오류: {exc}"], "intent_coverage": 0.0,
             "validation_issues": [],
         }
@@ -251,6 +325,7 @@ def score_generated_graph(test: dict, graph_data: Dict[str, Any]) -> dict:
     nodes, edges = dumped["nodes"], dumped["edges"]
     generated_types = [node.get("type") for node in nodes]
     missing_nodes = [node_type for node_type in test["expected_nodes"] if node_type not in generated_types]
+    forbidden_present = [node_type for node_type in test.get("forbidden_nodes", []) if node_type in generated_types]
     missing_paths = [path for path in test.get("expected_paths", []) if not _has_path(nodes, edges, path[0], path[1])]
 
     missing_data = {}
@@ -269,6 +344,16 @@ def score_generated_graph(test: dict, graph_data: Dict[str, Any]) -> dict:
         )
         if not found:
             missing_handles.append([source_type, handle])
+
+    # 데이터 바인딩(계획 §6-4): 값을 옮기기만 하는 자리를 바인딩으로 처리했는지.
+    missing_bindings = []
+    for node_type, field in test.get("expected_bindings", []):
+        bound = any(
+            ((node.get("data") or {}).get("bindings") or {}).get(field, {}).get("source")
+            for node in nodes if node.get("type") == node_type
+        )
+        if not bound:
+            missing_bindings.append([node_type, field])
 
     structural_passed, validation_errors = validate_flow(graph)
     structured_issues = [issue.model_dump() for issue in validation_issues(validation_errors)]
@@ -297,8 +382,10 @@ def score_generated_graph(test: dict, graph_data: Dict[str, Any]) -> dict:
         10 + 30 * node_coverage + 20 * path_coverage + 10 * data_coverage + 10 * handle_coverage
         + (10 if structural_passed else 0) + (5 if compile_passed else 0) + (5 if dry_run_passed else 0)
     )
+    # 감점은 expected_bindings 를 선언한 케이스에만 적용된다 — 기존 케이스의 점수는 변하지 않는다.
+    score = max(0, score - 10 * len(missing_bindings))
     passed = (
-        not any((missing_nodes, missing_paths, missing_data, missing_handles))
+        not any((missing_nodes, missing_paths, missing_data, missing_handles, missing_bindings))
         and structural_passed and compile_passed and dry_run_passed
     )
     return {
@@ -306,8 +393,10 @@ def score_generated_graph(test: dict, graph_data: Dict[str, Any]) -> dict:
         "structural_passed": structural_passed, "compile_passed": compile_passed,
         "dry_run_passed": dry_run_passed, "dry_run": dry_run.model_dump(),
         "generated_nodes": generated_types, "missing_nodes": missing_nodes,
+        "forbidden_nodes_present": forbidden_present,
         "missing_paths": missing_paths, "missing_data": missing_data,
-        "missing_handles": missing_handles, "validation_errors": validation_errors,
+        "missing_handles": missing_handles, "missing_bindings": missing_bindings,
+        "validation_errors": validation_errors,
         "validation_issues": structured_issues,
         "intent_coverage": round(intent_coverage, 4),
     }
@@ -544,6 +633,7 @@ async def run_evaluation_suite(
                 "intent_coverage": 0.0, "generated_nodes": [],
                 "missing_nodes": test["expected_nodes"], "missing_paths": test.get("expected_paths", []),
                 "missing_data": test.get("required_data", {}), "missing_handles": test.get("expected_handles", []),
+                "missing_bindings": test.get("expected_bindings", []),
                 "validation_errors": [], "error": str(exc),
                 "validation_issues": [],
             }

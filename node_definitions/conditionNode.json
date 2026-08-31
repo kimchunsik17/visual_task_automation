@@ -1,0 +1,121 @@
+{
+  "type": "conditionNode",
+  "version": 1,
+  "category": "flow",
+  "display": {
+    "label": "Switch / Branch",
+    "collapsedLabel": "Switch\nBranch",
+    "icon": "node-condition",
+    "color": "#0ea5e9"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "else",
+      "dataType": "any",
+      "label": "else"
+    }
+  ],
+  "dynamicOutputs": {
+    "from": "rules",
+    "idField": "id"
+  },
+  "fields": [
+    {
+      "name": "rules",
+      "kind": "repeatable",
+      "label": "조건 규칙",
+      "labelField": "id",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(conditionNode)에 rules가 없다"
+        }
+      ],
+      "itemFields": [
+        {
+          "name": "id",
+          "kind": "text",
+          "label": "Rule ID",
+          "ui": {
+            "hidden": true
+          },
+          "validation": [
+            {
+              "rule": "required",
+              "message": "{node_id}(conditionNode)의 rule {label}에 id가 없다"
+            },
+            {
+              "rule": "unique",
+              "message": "{node_id}(conditionNode)의 rule id '{value}'가 중복된다"
+            }
+          ]
+        },
+        {
+          "name": "operator",
+          "kind": "select",
+          "label": "연산자",
+          "default": "==",
+          "options": [
+            {
+              "value": "==",
+              "label": "== (Equals)"
+            },
+            {
+              "value": "Contains",
+              "label": "Contains"
+            },
+            {
+              "value": ">",
+              "label": "> (Greater)"
+            },
+            {
+              "value": "<",
+              "label": "< (Less)"
+            },
+            {
+              "value": ">=",
+              "label": ">="
+            },
+            {
+              "value": "<=",
+              "label": "<="
+            }
+          ],
+          "validation": [
+            {
+              "rule": "enum",
+              "allowMissing": false,
+              "message": "{node_id}(conditionNode)의 rule {label} operator '{value}'는 허용되지 않는다 (허용: {allowed})"
+            }
+          ]
+        },
+        {
+          "name": "value",
+          "kind": "text",
+          "label": "값",
+          "placeholder": "Value",
+          "validation": [
+            {
+              "rule": "present",
+              "message": "{node_id}(conditionNode)의 rule {label}에 value가 없다"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "credentials": [],
+  "capabilities": [],
+  "sideEffect": "none",
+  "executor": "conditionNode",
+  "mock": {},
+  "llm": {
+    "description": "조건 분기. data.rules=[{\"id\":\"r1\", \"operator\":\"==\"|\"Contains\"|\">\"|\"<\"|\">=\"|\"<=\", \"value\":\"문자열\"}].\n                   분기 엣지는 sourceHandle에 해당 rule의 id(조건 통과) 또는 \"else\"(다 안 맞을 때)를 넣는다.\n                   ⚠️ 비교 대상은 직전 노드가 내놓은 텍스트/값 \"전체\"다 — JSON을 파싱해서 특정 키만 꺼내\n                   비교해주지 않는다. 그래서 llmNode(useStructuredOutput)가 {\"isValid\": false, ...} 같은\n                   여러 필드를 가진 JSON을 반환하고, 그중 isValid 하나만 \"true\"/\"false\"와 비교하고 싶다면\n                   llmNode → conditionNode를 바로 연결하면 안 된다(전체 JSON 문자열이 \"true\"/\"false\"와\n                   같을 리 없어 모든 rule이 항상 실패하고 else 엣지도 없으면 조용히 아무 일도 안 일어난 채\n                   흐름이 끊긴다). 반드시 그 사이에 pythonNode를 끼워서 JSON을 파싱한 뒤 검사하려는\n                   키 값을 뽑아내되, ⚠️ 분기 뒤(valid/invalid 양쪽 경로) 노드들이 원본 JSON의 다른\n                   필드(예: 사용자 이름, 자기소개 내용 등 실제 데이터)를 여전히 써야 한다면 output_data를\n                   \"true\"/\"false\" 같은 값으로만 덮어써서 원본을 통째로 버리면 안 된다 — 그 뒤에 오는\n                   모든 노드가 원본 데이터에 접근할 방법을 영영 잃는다(실제로 자기소개서 프로젝트에서,\n                   분기 이후의 템플릿 채우기 단계가 사용자가 입력한 실제 이름/경력 대신 아무 근거 없이\n                   지어낸 값을 채우는 문제로 나타났다). 이 경우 output_data는 \"PYFLAG_VALID:true\\n\" +\n                   input_data 처럼 판별 결과를 맨 앞에 마커로 붙이고 원본 JSON은 그대로 뒤에 이어붙여서\n                   보존하고, conditionNode의 operator는 \"==\"가 아니라 \"Contains\"로 \"PYFLAG_VALID:true\"\n                   / \"PYFLAG_VALID:false\" 문자열을 검사하게 하라(원본 JSON의 공백/줄바꿈 형식에 좌우되지\n                   않고, 뒤에 오는 노드들도 여전히 원본 데이터를 볼 수 있다). 원본 데이터가 분기 뒤에서\n                   전혀 필요 없는 단순한 경우에만 output_data를 \"true\"/\"false\" 하나로 단순화해도 된다.\n"
+  }
+}

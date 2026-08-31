@@ -1,0 +1,63 @@
+{
+  "type": "formatNode",
+  "version": 1,
+  "category": "document",
+  "display": {
+    "label": "문서 포맷",
+    "icon": "node-file-modifier",
+    "color": "#0d9488"
+  },
+  "inputs": [
+    { "name": "in", "dataType": "json", "label": "빈칸 값 (JSON)" }
+  ],
+  "outputs": [
+    { "name": "out", "dataType": "artifact" }
+  ],
+  "fields": [
+    {
+      "name": "formatId",
+      "kind": "text",
+      "label": "포맷",
+      "placeholder": "프리셋 id 또는 내 포맷 id (예: incident-report)",
+      "validation": [
+        { "rule": "required", "message": "{node_id}(formatNode)에 formatId가 없다" }
+      ]
+    },
+    {
+      "name": "output",
+      "kind": "select",
+      "label": "출력 형식",
+      "default": "hwpx",
+      "options": [
+        { "value": "hwpx", "label": "한/글 (.hwpx)" },
+        { "value": "docx", "label": "워드 (.docx)" },
+        { "value": "pdf", "label": "PDF" },
+        { "value": "xlsx", "label": "엑셀 (.xlsx)" },
+        { "value": "png", "label": "이미지 (.png)" }
+      ],
+      "validation": [
+        { "rule": "enum", "allowMissing": true, "message": "{node_id}(formatNode)의 output '{value}'은 허용되지 않는다 (허용: {allowed})" }
+      ]
+    },
+    {
+      "name": "values",
+      "kind": "json",
+      "label": "빈칸 값 (JSON, 선택 — 비우면 직전 노드 출력 사용)",
+      "placeholder": "{\"authorName\": \"김워크\"}"
+    },
+    {
+      "name": "output_path",
+      "kind": "text",
+      "label": "저장 파일 이름 (선택)",
+      "placeholder": "비우면 포맷 이름을 따서 자동으로 지어진다"
+    }
+  ],
+  "credentials": [],
+  "capabilities": ["filesystem"],
+  "sideEffect": "none",
+  "executor": "formatNode",
+  "mock": {},
+  "llm": {
+    "description": "문서 포맷(빈칸이 선언된 문서·포스터 골격)에 값을 채워 완성 파일을 만든다. LLM 을 부르지\n                   않는 결정적 노드다. data.formatId(문자열, 필수 — 프리셋: incident-report 시말서 ·\n                   proposal 제안서 · job-application 입사지원서 · meeting-minutes 회의록 ·\n                   official-letter 공문 · event-poster 행사 포스터 · tri-fold-pamphlet 3단 팜플렛,\n                   또는 사용자가 포맷 스튜디오에서 만든 포맷의 id — **목록에 없는 id 를 지어내지 마라.**\n                   사용자가 지정하지 않았고 마땅한 프리셋도 없으면 빈 문자열로 두고 답변에서 포맷을\n                   골라 달라고 안내한다). data.output(문자열 — 문서류는 hwpx|docx|pdf|xlsx,\n                   디자인류(포스터·팜플렛)는 png|pdf. 비우면 포맷의 기본값).\n                   data.values(JSON 문자열, 선택 — 빈칸 이름→값. 비우면 직전 노드의 출력(JSON)에서\n                   같은 이름의 키를 자동으로 가져온다). 빈칸 값을 LLM 으로 만들 때는 이 노드 앞에\n                   llmNode 를 두고 useStructuredOutput+jsonSchema 로 포맷의 빈칸 이름과 같은 키를 가진\n                   JSON 을 만들게 한다 — rows 빈칸(표)은 문자열 배열의 배열, 이미지 빈칸은 LLM 이\n                   만들 수 없으니 스키마에 넣지 않는다. 필수 빈칸이 비면 실행이 needs_input 으로 멈춘다.\n                   완성 파일은 artifact 로 등록되어 뒤의 emailNode/discordNode/gmailNode 가 자동으로\n                   첨부한다 — 파일 저장으로 흐름이 끝나면 outputNode 를 붙이지 않아도 된다.\n                   ⚠️ 이미 갖고 있는 서식 **파일**의 빈칸을 채우는 것이라면 이 노드가 아니라\n                   templateAnalyzerNode → llmNode → fileModifierNode 를 쓴다.\n"
+  }
+}

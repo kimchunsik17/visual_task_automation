@@ -10,9 +10,11 @@ discord_bot.py와 같은 목적(그래프 안의 트리거 노드 하나로 "라
 """
 import os
 import requests
+from usage_tracking import EVENT_WORKFLOW_EXECUTION, outcome_from_result, record_usage
 from database import SessionLocal
 import models
 from graph import run_workflow
+from credential_crypto import decrypt_secret
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}/{method}"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://wa-pnu.duckdns.org").rstrip("/")
@@ -42,7 +44,7 @@ def resolve_telegram_token(graph_data: dict, owner_user_id: int, db) -> str:
             .filter(models.UserApiKey.user_id == owner_user_id, models.UserApiKey.provider == "telegram")
             .first()
         )
-        return key_row.api_key if key_row else ""
+        return decrypt_secret(key_row.api_key) if key_row else ""
     return raw_token
 
 
@@ -159,19 +161,18 @@ def process_update(project_id: int, update: dict) -> None:
         )
         db.add(log)
 
-        total_tokens = tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0
-        if total_tokens > 0:
-            if user:
-                user.token_balance -= total_tokens
-            exec_log = models.FlowExecutionLog(
-                user_id=project.user_id,
-                project_id=project_id,
-                payload=json.dumps({"telegram_chat_id": chat_id, "content": text}, ensure_ascii=False),
-                result=result_text,
-                total_tokens=total_tokens,
-                token_usage_details=tokens,
-            )
-            db.add(exec_log)
+        record_usage(
+            db,
+            billable_user_id=project.user_id,
+            actor_user_id=None,
+            project_id=project_id,
+            token_usage=tokens if isinstance(tokens, dict) else None,
+            payload=json.dumps({"telegram_chat_id": chat_id, "content": text}, ensure_ascii=False),
+            result=result_text,
+            event_type=EVENT_WORKFLOW_EXECUTION,
+            outcome=outcome_from_result(result_text),
+            trigger_type="telegram",
+        )
 
         db.commit()
     except Exception as e:

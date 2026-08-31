@@ -1,0 +1,270 @@
+/* 필드 데이터 바인딩 UI — 무선(선 없음)이 기본. 계획 §5 */
+
+.fbind-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-color);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.fbind-toggle:hover {
+  border-color: rgba(96, 165, 250, 0.6);
+  color: #60a5fa;
+}
+
+.fbind-toggle.is-bound {
+  border-color: rgba(96, 165, 250, 0.7);
+  background: rgba(59, 130, 246, 0.16);
+  color: #60a5fa;
+}
+
+.fbind-popover {
+  position: absolute;
+  top: 22px;
+  right: 0;
+  z-index: 40;
+  width: 262px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--card-bg);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34);
+  text-align: left;
+}
+
+.fbind-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 7px;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.fbind-head strong {
+  color: var(--text-color);
+}
+
+.fbind-head > button {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.fbind-empty,
+.fbind-hint {
+  margin: 4px 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.fbind-hint em {
+  color: var(--text-color);
+  font-style: normal;
+}
+
+.fbind-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fbind-source {
+  padding: 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-color);
+}
+
+.fbind-source-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-color);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.fbind-source-head > button {
+  margin-left: auto;
+  padding: 2px 7px;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  border-radius: 999px;
+  background: transparent;
+  color: #60a5fa;
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.fbind-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+}
+
+.fbind-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.fbind-paths > button {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fbind-paths > button:hover {
+  background: var(--btn-active-bg);
+}
+
+.fbind-paths code {
+  color: #60a5fa;
+  font-size: 0.72rem;
+}
+
+.fbind-paths small {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 바인딩된 필드는 입력창 대신 칩 */
+.fbind-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 8px;
+  border: 1px solid rgba(96, 165, 250, 0.5);
+  border-radius: 7px;
+  background: rgba(59, 130, 246, 0.1);
+  font-size: 0.76rem;
+}
+
+.fbind-chip-label {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-color);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fbind-chip code {
+  color: #60a5fa;
+  font-size: 0.72rem;
+}
+
+.fbind-chip > button {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.fbind-chip > button:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--text-color);
+}
+
+/* 필드 한 줄을 감싸 ⚡ 버튼을 오른쪽 위에 얹는다 */
+.fbind-field {
+  position: relative;
+}
+
+/* 접힌 노드 배지 — 포트를 그리지 않는 대신 개수만(§5-4) */
+.fbind-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  color: #60a5fa;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+/* 필드 입력 포트 — 데이터 레이어가 켜진 동안만 나온다(§5-6). 실행 핸들과 구분해 사각형. */
+.fbind-port.react-flow__handle {
+  position: absolute;
+  left: -13px;
+  top: 9px;
+  width: 9px;
+  height: 9px;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(96, 165, 250, 0.9);
+  border-radius: 2px;
+  background: var(--card-bg);
+  transform: none;
+}
+
+.fbind-port.react-flow__handle:hover,
+.fbind-port.react-flow__handle.connectingto {
+  background: #60a5fa;
+}
+
+/* 선택 연결(required: false) — 값이 없으면 멈추지 않고 비워 둔다 */
+.fbind-optional {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 7px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.fbind-optional input { margin: 0; }
+
+.fbind-chip-label em {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(148, 163, 184, 0.22);
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-style: normal;
+}

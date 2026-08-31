@@ -1,10 +1,47 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Business Automation Flow</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=Poppins:wght@700&display=swap" rel="stylesheet">
+
+    <title>WorkFlow Ai — 코딩 없이 연결하는 시각적 업무 자동화</title>
+    <meta name="description" content="드래그 앤 드롭으로 AI 워크플로우를 만드는 업무 자동화 플랫폼. 챗봇·크롤링·알림·문서 작업을 노드로 연결해 자동화하세요." />
+
+    <!-- 파비콘 (frontend/public/ 에서 루트로 서빙된다)
+         기존 logo.png(WA 워드마크)를 합성한 PNG 만 쓴다. SVG 파비콘은 WA 를 트레이스해야 하고
+         트레이스는 곡률과 획 끝을 바꿔서 홍보 자료의 로고와 달라지므로 두지 않는다.
+         둘 다 rel="icon" 이어야 한다 — "alternate icon" 은 primary SVG 가 있을 때만 의미가 있고,
+         SVG 가 없으면 브라우저가 32px 를 무시할 수 있다. -->
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180.png" />
+
+    <!-- 링크 공유 카드 -->
+    <!-- og:url 은 배포 도메인이 정해지면 절대 URL 로 채울 것.
+         og:image 도 절대 URL 이어야 하는 크롤러(Twitter/X 등)가 있다 — Documents/icon-tier6-brand.md 참고 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="WorkFlow Ai" />
+    <meta property="og:title" content="WorkFlow Ai — 코딩 없이 연결하는 시각적 업무 자동화" />
+    <meta property="og:description" content="드래그 앤 드롭으로 AI 워크플로우를 만드는 업무 자동화 플랫폼. 챗봇·크롤링·알림·문서 작업을 노드로 연결해 자동화하세요." />
+    <meta property="og:image" content="/og-image-1200x630.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="ko_KR" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="WorkFlow Ai — 코딩 없이 연결하는 시각적 업무 자동화" />
+    <meta name="twitter:description" content="드래그 앤 드롭으로 AI 워크플로우를 만드는 업무 자동화 플랫폼. 챗봇·크롤링·알림·문서 작업을 노드로 연결해 자동화하세요." />
+    <meta name="twitter:image" content="/og-image-1200x630.png" />
+
+    <!-- 폰트: Pretendard 하나로 통일했다 (이전에는 Inter·Outfit·Poppins·Jua·Quicksand 5종을
+         index.html 과 index.css 에서 중복 로드했고, 그중 한글 본문 폰트는 하나도 없어서
+         한글이 사용자 OS 기본 폰트로 렌더됐다). Pretendard 는 Inter 기반에 한글을 붙인
+         글꼴이라 기존 라틴 인상을 유지한다. variable + dynamic-subset 이므로 실제 화면에
+         쓰인 글자가 속한 unicode-range 조각만 내려받는다. 폰트 스택은 index.css 의
+         --font-sans 가 단일 원본이다. -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="stylesheet" as="style" crossorigin
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   </head>
   <body>
     <div id="root"></div>

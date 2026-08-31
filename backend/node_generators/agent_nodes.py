@@ -30,7 +30,7 @@ def generate_multi_agent_node(node_id, node, indent, active_llm_id, prev_res_var
     input_val = prev_res_var if prev_res_var else 'last_result'
     
     if mode == 'supervisor':
-        supervisor_prompt = node.get('data', {}).get('supervisorPrompt', 'Choose an expert.').replace('"', '\\"').replace('\n', '\\n')
+        supervisor_prompt = node.get('data', {}).get('supervisorPrompt', 'Choose an expert.').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
         lines.append(f"{indent}ma_input_{node_id} = str({input_val})")
         
         # Build descriptions
@@ -38,7 +38,7 @@ def generate_multi_agent_node(node_id, node, indent, active_llm_id, prev_res_var
         for idx, sub in enumerate(sub_nodes):
             if sub['type'] == 'llmNode':
                 name = f"Expert_{idx}"
-                desc = sub.get('data', {}).get('systemPrompt', f"Expert {idx}").replace('"', '\\"').replace('\n', ' ')
+                desc = sub.get('data', {}).get('systemPrompt', f"Expert {idx}").replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ')
                 expert_names.append(f"- {name}: {desc}")
         
         experts_str = "\\n".join(expert_names)
@@ -58,7 +58,7 @@ def generate_multi_agent_node(node_id, node, indent, active_llm_id, prev_res_var
             if sub['type'] == 'llmNode':
                 name = f"Expert_{idx}"
                 model = sub.get('data', {}).get('model', 'gpt-4o-mini')
-                sys_p = sub.get('data', {}).get('systemPrompt', '').replace('"', '\\"').replace('\n', '\\n')
+                sys_p = sub.get('data', {}).get('systemPrompt', '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                 lines.append(f"{indent}if '{name}' in choice_text_{node_id}:")
                 lines.append(f"{indent}    tmp_llm_{node_id}_{idx} = create_runtime_chat_model(model={model!r})")
                 lines.append(f"{indent}    tmp_sys_{node_id}_{idx} = SystemMessage(content=\"{sys_p}\")")
@@ -80,7 +80,7 @@ def generate_multi_agent_node(node_id, node, indent, active_llm_id, prev_res_var
         for idx, sub in enumerate(sub_nodes):
             if sub['type'] == 'llmNode':
                 model = sub.get('data', {}).get('model', 'gpt-4o-mini')
-                sys_p = sub.get('data', {}).get('systemPrompt', '').replace('"', '\\"').replace('\n', '\\n')
+                sys_p = sub.get('data', {}).get('systemPrompt', '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                 lines.append(f"{indent}llm_{node_id}_{idx} = create_runtime_chat_model(model={model!r})")
                 lines.append(f"{indent}sys_{node_id}_{idx} = SystemMessage(content=\"{sys_p}\")")
                 
@@ -97,7 +97,7 @@ def generate_multi_agent_node(node_id, node, indent, active_llm_id, prev_res_var
         lines.append(f"{indent}last_result = res_ma_{node_id}")
         
     elif mode == 'tool_agent':
-        agent_prompt = node.get('data', {}).get('agentPrompt', 'Solve the task.').replace('"', '\\"').replace('\n', '\\n')
+        agent_prompt = node.get('data', {}).get('agentPrompt', 'Solve the task.').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
         lines.append(f"{indent}ma_input_{node_id} = str({input_val})")
         lines.append(f"{indent}res_ma_{node_id} = 'Tool Agent not fully implemented for dynamic tools yet.'")
         # Creating tools on the fly in generated python is complex.

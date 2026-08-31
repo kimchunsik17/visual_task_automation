@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { X, Bot, LayoutTemplate, Download, Code2 } from 'lucide-react';
 import axios from 'axios';
 import { customConfirm } from './CustomConfirm';
+import { celebrateMilestone } from './milestoneCelebrations';
 
-const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
+const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved, previewOnly = false }) => {
   const [deployMode, setDeployMode] = useState('apprunner');
   const [isDeploying, setIsDeploying] = useState(false);
 
@@ -12,6 +13,13 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
   const handleDeploy = async () => {
     setIsDeploying(true);
     try {
+      if (previewOnly) {
+        await new Promise((resolve) => window.setTimeout(resolve, 650));
+        if (onDeployConfigSaved) onDeployConfigSaved(deployMode);
+        onClose();
+        return;
+      }
+
       if (deployMode === 'apprunner') {
         const res = await axios.post(`/api/projects/${project.id}/deploy`, {}, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -23,6 +31,7 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
           window.open(`/app/${shareToken}`, '_blank');
         }
         if (onDeployConfigSaved) onDeployConfigSaved(deployMode);
+        celebrateMilestone('first-deploy');
         onClose();
         return;
       }
@@ -51,6 +60,7 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
           window.open(`/viewer/${project.id}`, '_blank');
         }
         if (onDeployConfigSaved) onDeployConfigSaved(deployMode);
+        celebrateMilestone('first-deploy');
       }
       onClose();
     } catch (error) {
@@ -155,4 +165,3 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved }) => {
 };
 
 export default DeployModal;
-

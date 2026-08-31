@@ -137,7 +137,9 @@ async def test_generate_flow_tool이_전체_시간_제한을_지킨다(monkeypat
     monkeypatch.setenv("LLM_GENERATION_TIMEOUT_SECONDS", "0.01")
     tools, _, _, _ = make_tools(FlowGraph(nodes=[], edges=[]))
 
-    result = await tools[5].ainvoke({"request": "요약 봇 만들어줘"})
+    # 위치(tools[5])로 잡으면 도구를 하나 끼워 넣을 때마다 깨진다 — 이름으로 찾는다.
+    generate = next(t for t in tools if t.name == "generate_flow")
+    result = await generate.ainvoke({"request": "요약 봇 만들어줘"})
 
     assert "시간 제한" in result
 

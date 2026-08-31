@@ -36,6 +36,18 @@ export default function CustomAppViewerPage() {
     return () => observer.disconnect();
   }, []);
 
+  // 익명 업로드 귀속용(ADR-0010): 이 앱이 연결된 워크플로우 id. 공개 프로젝트면 소유자
+  // 용량으로 업로드가 허용된다. Submit/workflowNode 의 projectId → workflow_mappings 순으로 찾는다.
+  const uploadProjectId = React.useMemo(() => {
+    const fromLogic = (logicGraph?.nodes || []).find(
+      (node) => (node.type === 'submitNode' || node.type === 'workflowNode')
+        && node.data?.projectId && !isNaN(node.data.projectId)
+    );
+    if (fromLogic) return fromLogic.data.projectId;
+    const mapping = Object.values(normalizeWorkflowMappings(appData?.workflow_mappings || {}))[0];
+    return mapping?.projectId || null;
+  }, [logicGraph, appData]);
+
   useEffect(() => {
     const fetchApp = async () => {
       try {
@@ -120,6 +132,7 @@ export default function CustomAppViewerPage() {
                 canvasWidth={canvas.width}
                 canvasHeight={canvas.height}
                 isPreview={true}
+                uploadProjectId={uploadProjectId}
               />
             </div>
           </div>

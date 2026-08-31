@@ -1,0 +1,291 @@
+{
+  "type": "dataGoKrNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "공공데이터포털",
+    "icon": "provider-data-go-kr",
+    "color": "#1e5eb8"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "dataset",
+      "kind": "select",
+      "label": "데이터셋",
+      "default": "kma_village_forecast",
+      "options": [
+        {
+          "value": "kma_village_forecast",
+          "label": "기상청 단기예보"
+        },
+        {
+          "value": "msit_press_release",
+          "label": "과기정통부 보도자료"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(dataGoKrNode)에 dataset이 없다"
+        }
+      ]
+    },
+    {
+      "name": "operation",
+      "kind": "select",
+      "label": "동작",
+      "default": "forecast",
+      "options": [
+        {
+          "value": "now",
+          "label": "초단기실황 (기상청)"
+        },
+        {
+          "value": "short_forecast",
+          "label": "초단기예보 (기상청)"
+        },
+        {
+          "value": "forecast",
+          "label": "단기예보 (기상청)"
+        },
+        {
+          "value": "list",
+          "label": "목록 조회 (보도자료)"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(dataGoKrNode)에 operation이 없다"
+        }
+      ]
+    },
+    {
+      "name": "params",
+      "kind": "json",
+      "label": "데이터셋별 요청값",
+      "placeholder": "{\"base_date\":\"20260830\",\"base_time\":\"0500\",\"nx\":98,\"ny\":76}",
+      "ui": {
+        "help": "기상청은 base_date·base_time·nx·ny 가 필요합니다. 보도자료는 비워 두세요."
+      }
+    },
+    {
+      "name": "rows",
+      "kind": "number",
+      "label": "가져올 개수",
+      "default": 10,
+      "validation": [
+        {
+          "rule": "number",
+          "message": "{node_id}(dataGoKrNode)의 rows는 숫자여야 한다"
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "name": "data_go_kr",
+      "provider": "data_go_kr",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "dataGoKrNode",
+  "connector": {
+    "service": "공공데이터포털",
+    "role": "action",
+    "modes": [
+      "query"
+    ],
+    "credentials": [
+      {
+        "provider": "data_go_kr",
+        "scopes": []
+      }
+    ],
+    "baseUrl": "https://apis.data.go.kr",
+    "timeoutSeconds": 20.0,
+    "rateLimit": {
+      "requestsPerMinute": 60
+    },
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "query": "external-read"
+    },
+    "errorStyle": "body",
+    "outputSchemaByMode": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "dataset": {
+            "type": "string"
+          },
+          "datasetLabel": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "page": {
+            "type": "number"
+          },
+          "rows": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "attribution": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "docsUrl": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "docsUrl": "https://www.data.go.kr/data/15084084/openapi.do",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "apis.data.go.kr"
+            },
+            "status": 200,
+            "body": {
+              "response": {
+                "header": {
+                  "resultCode": "00",
+                  "resultMsg": "NORMAL_SERVICE"
+                },
+                "body": {
+                  "pageNo": 1,
+                  "numOfRows": 10,
+                  "totalCount": 2,
+                  "items": {
+                    "item": [
+                      {
+                        "baseDate": "20260830",
+                        "baseTime": "0500",
+                        "category": "TMP",
+                        "fcstDate": "20260830",
+                        "fcstTime": "0600",
+                        "fcstValue": "24",
+                        "nx": 98,
+                        "ny": 76
+                      },
+                      {
+                        "baseDate": "20260830",
+                        "baseTime": "0500",
+                        "category": "REH",
+                        "fcstDate": "20260830",
+                        "fcstTime": "0600",
+                        "fcstValue": "72",
+                        "nx": 98,
+                        "ny": 76
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 200,
+            "body": {
+              "response": {
+                "header": {
+                  "resultCode": "30",
+                  "resultMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR"
+                },
+                "body": {}
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 200,
+            "body": {
+              "response": {
+                "header": {
+                  "resultCode": "22",
+                  "resultMsg": "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"
+                },
+                "body": {}
+              }
+            }
+          }
+        ]
+      },
+      "not_found": {
+        "responses": [
+          {
+            "status": 200,
+            "body": {
+              "response": {
+                "header": {
+                  "resultCode": "03",
+                  "resultMsg": "NODATA_ERROR"
+                },
+                "body": {}
+              }
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "공공데이터포털의 **미리 등록된** 데이터셋을 조회한다. 임의 주소를 열지 않는다 —\n                   임의 HTTP 요청이 필요하면 httpRequestNode 를 쓴다.\n                   data.dataset(문자열): \"kma_village_forecast\"(기상청 단기예보) 또는\n                   \"msit_press_release\"(과기정통부 보도자료).\n                   data.operation(문자열): 기상청은 \"now\"(초단기실황)/\"short_forecast\"(초단기예보)/\n                   \"forecast\"(단기예보), 보도자료는 \"list\".\n                   data.params(JSON, 데이터셋별 요청값) — 기상청은 base_date(YYYYMMDD)·\n                   base_time(HHMM)·nx·ny 가 **필수**다. 좌표를 모르면 사용자에게 물어보고 지어내지 않는다.\n                   data.rows(숫자, 선택 — 기본 10, 최대 100).\n                   출력 JSON 에 items 배열과 함께 attribution·license 가 들어온다 —\n                   공공데이터는 출처 표시가 필요하므로 하류에서 지우지 않는다.\n                   API 센터에 '공공데이터포털' 인증키가 등록되어 있어야 하고,\n                   **데이터셋마다 포털에서 따로 활용신청**을 해야 한다.\n"
+  }
+}

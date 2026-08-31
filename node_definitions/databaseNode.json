@@ -1,0 +1,203 @@
+{
+  "type": "databaseNode",
+  "version": 2,
+  "category": "code",
+  "display": {
+    "label": "데이터베이스",
+    "icon": "node-database",
+    "color": "#059669"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "connectionString",
+      "kind": "text",
+      "label": "DB 연결",
+      "ui": {
+        "hidden": true
+      }
+    },
+    {
+      "name": "query",
+      "kind": "textarea",
+      "label": "SQL 쿼리",
+      "placeholder": "SELECT id, name FROM users WHERE created_at >= :since",
+      "ui": {
+        "draggable": true
+      },
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(databaseNode)에 query가 없다"
+        }
+      ]
+    },
+    {
+      "name": "parameters",
+      "kind": "repeatable",
+      "label": "쿼리 파라미터",
+      "labelField": "name",
+      "ui": {
+        "hidden": true
+      },
+      "itemFields": [
+        {
+          "name": "name",
+          "kind": "text",
+          "label": "이름",
+          "placeholder": "since",
+          "validation": [
+            {
+              "rule": "required",
+              "message": "{node_id}(databaseNode) 파라미터 {label}에 name이 없다"
+            },
+            {
+              "rule": "unique",
+              "message": "{node_id}(databaseNode) 파라미터 이름 '{value}'이 중복된다"
+            }
+          ]
+        },
+        {
+          "name": "source",
+          "kind": "select",
+          "label": "값 출처",
+          "default": "value",
+          "options": [
+            { "value": "value", "label": "고정 값" },
+            { "value": "input", "label": "직전 노드 출력" }
+          ],
+          "validation": [
+            {
+              "rule": "enum",
+              "message": "{node_id}(databaseNode) 파라미터 {label}의 source는 {allowed} 중 하나여야 한다",
+              "allowMissing": true
+            }
+          ]
+        },
+        {
+          "name": "value",
+          "kind": "text",
+          "label": "값",
+          "showWhen": { "field": "source", "equals": "value" }
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "label": "JSON 경로 (비우면 출력 전체)",
+          "placeholder": "customer.id",
+          "showWhen": { "field": "source", "equals": "input" }
+        },
+        {
+          "name": "type",
+          "kind": "select",
+          "label": "타입",
+          "default": "string",
+          "options": [
+            { "value": "string", "label": "문자열" },
+            { "value": "integer", "label": "정수" },
+            { "value": "number", "label": "숫자" },
+            { "value": "boolean", "label": "불리언" },
+            { "value": "date", "label": "날짜" },
+            { "value": "datetime", "label": "날짜시간" },
+            { "value": "json", "label": "JSON" }
+          ],
+          "validation": [
+            {
+              "rule": "enum",
+              "message": "{node_id}(databaseNode) 파라미터 {label}의 type은 {allowed} 중 하나여야 한다",
+              "allowMissing": true
+            }
+          ]
+        },
+        {
+          "name": "required",
+          "kind": "checkbox",
+          "label": "필수",
+          "default": true
+        }
+      ]
+    },
+    {
+      "name": "maxRows",
+      "kind": "number",
+      "label": "최대 행 수",
+      "default": 100,
+      "ui": { "hidden": true },
+      "validation": [
+        {
+          "rule": "number",
+          "message": "{node_id}(databaseNode)의 maxRows는 숫자여야 한다",
+          "min": 1,
+          "minMessage": "{node_id}(databaseNode)의 maxRows는 1 이상이어야 한다"
+        }
+      ]
+    },
+    {
+      "name": "timeoutSeconds",
+      "kind": "number",
+      "label": "제한 시간(초)",
+      "default": 10,
+      "ui": { "hidden": true },
+      "validation": [
+        {
+          "rule": "number",
+          "message": "{node_id}(databaseNode)의 timeoutSeconds는 숫자여야 한다",
+          "min": 1,
+          "minMessage": "{node_id}(databaseNode)의 timeoutSeconds는 1 이상이어야 한다"
+        }
+      ]
+    },
+    {
+      "name": "allowedSchemas",
+      "kind": "text",
+      "label": "허용 schema (쉼표 구분)",
+      "default": "public",
+      "ui": { "hidden": true }
+    },
+    {
+      "name": "outputFormat",
+      "kind": "select",
+      "label": "출력 형식",
+      "default": "rows",
+      "ui": { "hidden": true },
+      "options": [
+        { "value": "rows", "label": "행 배열 JSON" },
+        { "value": "result", "label": "구조화 결과 (ok / data / error)" }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "message": "{node_id}(databaseNode)의 outputFormat은 {allowed} 중 하나여야 한다",
+          "allowMissing": true
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "name": "database",
+      "provider": "database",
+      "optional": true
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "databaseNode",
+  "mock": {},
+  "llm": {
+    "description": "PostgreSQL 데이터베이스 **조회 전용**(실행/변경 아님). data.connectionString은 항상\n                   \"{{API_CENTER:database}}\"로 채운다(사용자가 특정 자격증명을 지정하면 \"{{API_CENTER:database#<id>}}\") —\n                   접속 문자열 원문을 절대 그래프에 적지 않는다(사용자가 대화에 접속 정보를 적어줬어도 마찬가지다.\n                   실제 값은 사용자가 API 센터에 등록하고 실행 시점에 실행기가 해석한다). data.query(문자열,\n                   반드시 SELECT 또는 WITH로 시작하는 statement 하나). ⚠️ INSERT/UPDATE/DELETE/DROP/TRUNCATE/\n                   ALTER/GRANT/REVOKE, DML을 숨긴 CTE, SELECT INTO, FOR UPDATE, COPY, 시스템 schema 조회는\n                   전부 검증기가 막는다 — 데이터를 저장/변경해야 하는 요청이면 databaseNode를 쓰지 말고, 그 사실을\n                   답변에서 사용자에게 안내하라. 동적 값은 문자열로 이어붙이지 말고 쿼리에 `:이름` 바인드\n                   파라미터를 쓰고 data.parameters에 [{\"name\":\"이름\",\"source\":\"value\"|\"input\",\n                   \"value\":\"고정값\" 또는 \"path\":\"직전 출력의 JSON 경로(비우면 전체)\",\"type\":\"string|integer|\n                   number|boolean|date|datetime|json\",\"required\":true}] 로 선언한다(쿼리에 쓴 파라미터는 모두\n                   선언돼야 한다). 선택: data.maxRows(1~1000, 기본 100), data.timeoutSeconds(1~30, 기본 10),\n                   data.allowedSchemas(\"public\" 처럼 쉼표 구분), data.outputFormat(\"rows\" 기본 = 행 배열 JSON,\n                   \"result\" = {ok,data:{columns,rows,rowCount,truncated},error} JSON — 후속 노드가 성공/실패를\n                   구조로 읽어야 하면 \"result\"). connectionString이 비어있으면 실행 시 에러 대신 \"값을 채워달라\"는\n                   안내로 자동 대체된다(query는 여전히 있어야 한다).\n"
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "type": "gmailTriggerNode",
+  "version": 1,
+  "category": "trigger",
+  "display": {
+    "label": "Gmail 새 메일 (시작)",
+    "icon": "node-email",
+    "color": "#ea4335"
+  },
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "query",
+      "kind": "text",
+      "label": "검색 조건 (선택 — Gmail 검색 문법)",
+      "placeholder": "예: from:boss@example.com is:unread"
+    },
+    {
+      "name": "maxResults",
+      "kind": "number",
+      "label": "한 번에 통지할 최대 메일",
+      "default": 10
+    }
+  ],
+  "credentials": [
+    {
+      "name": "google",
+      "provider": "google_oauth"
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "gmailTriggerNode",
+  "connector": {
+    "service": "Gmail",
+    "role": "trigger",
+    "modes": [
+      "new_email"
+    ],
+    "credentials": [
+      {
+        "provider": "google_oauth",
+        "scopes": [
+          "https://www.googleapis.com/auth/gmail.readonly"
+        ]
+      }
+    ],
+    "baseUrl": "https://gmail.googleapis.com/gmail/v1",
+    "timeoutSeconds": 15.0,
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "new_email": "external-read"
+    },
+    "outputSchemaByMode": {
+      "new_email": {
+        "type": "object",
+        "properties": {
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "message_id": {
+                  "type": "string"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "snippet": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "first_run": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "docsUrl": "https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/messages/m2"
+            },
+            "status": 200,
+            "body": {
+              "id": "m2",
+              "threadId": "t2",
+              "snippet": "두 번째 메일",
+              "internalDate": "1790000200000",
+              "payload": {
+                "headers": [
+                  {
+                    "name": "From",
+                    "value": "b@example.com"
+                  },
+                  {
+                    "name": "Subject",
+                    "value": "회의 일정"
+                  },
+                  {
+                    "name": "Date",
+                    "value": "Thu, 27 Aug 2026 09:10:00 +0000"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/messages/m1"
+            },
+            "status": 200,
+            "body": {
+              "id": "m1",
+              "threadId": "t1",
+              "snippet": "첫 메일",
+              "internalDate": "1790000100000",
+              "payload": {
+                "headers": [
+                  {
+                    "name": "From",
+                    "value": "a@example.com"
+                  },
+                  {
+                    "name": "Subject",
+                    "value": "견적 요청"
+                  },
+                  {
+                    "name": "Date",
+                    "value": "Thu, 27 Aug 2026 09:05:00 +0000"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/messages"
+            },
+            "status": 200,
+            "body": {
+              "messages": [
+                {
+                  "id": "m2"
+                },
+                {
+                  "id": "m1"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "error": {
+                "message": "Invalid Credentials"
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "30"
+            },
+            "body": {
+              "error": {
+                "message": "rateLimitExceeded"
+              }
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "Gmail에 조건에 맞는 새 메일이 도착하면 실행되는 플로우의 시작점. data.query(문자열, 선택 —\n                   Gmail 검색 문법, 예: \"from:boss@example.com is:unread\"), data.maxResults(숫자, 선택).\n                   startNode 대신 사용한다. 출력은 새 메일 요약 배열의 JSON 문자열(각 항목:\n                   message_id/thread_id/from/subject/snippet/date). 첫 실행은 기준점만 잡고 통지하지 않는다.\n"
+  }
+}

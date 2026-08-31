@@ -1,0 +1,37 @@
+/* 소개 페이지의 구조 미리보기. 캔버스가 아니라 "읽는 그림" 이므로 상호작용은 넣지 않는다. */
+.tplflow {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-color);
+}
+/* 넓은 워크플로우는 이 안에서만 가로로 밀린다 — 페이지 전체가 밀리면 안 된다. */
+.tplflow-scroll { overflow-x: auto; padding: 0.4rem; }
+.tplflow-scroll svg { display: block; }
+
+.tplflow-node rect:first-child {
+  fill: var(--card-bg);
+  stroke: var(--border-color);
+  stroke-width: 1;
+}
+.tplflow-node-label {
+  fill: var(--text-color);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.tplflow-edge { color: var(--text-muted); }
+.tplflow-edge path { stroke: var(--border-color); stroke-width: 1.5; }
+.tplflow-edge-label {
+  fill: var(--text-muted);
+  font-family: inherit;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.tplflow-note {
+  margin: 0;
+  padding: 0 0.7rem 0.6rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}

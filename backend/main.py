@@ -2,31 +2,39 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Depends, File, UploadFile, HTTPException, status, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, Body, Depends, File, Form, UploadFile, HTTPException, status, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
-import shutil
 import jwt
 import datetime
 import uuid
 import time
+import re
 import requests
 import uuid
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
 from database import engine, Base, get_db
+import db_migrate
 import models
 from graph import compile_workflow, run_workflow
+from node_errors import runtime as node_error_runtime
 from dry_run import dry_run_workflow
 from meta_agent import FLOW_REPAIR_PROMPT_VERSION, run_agent_turn
 import meta_agent
+import node_definition
+import project_revisions
+import mock_service
+from connectors import oauth_flow as connector_oauth_flow
+from connectors import providers as connector_providers
 import app_agent
 import ui_generator
 from generation_trace import (
@@ -41,13 +49,37 @@ import discord_bot
 import telegram_bot
 import scheduler
 from rag_utils import process_and_store_chat_context
+import upload_security
+from upload_security import (
+    CONTEXT_UPLOAD_EXTENSIONS,
+    GENERAL_UPLOAD_EXTENSIONS,
+    max_context_bytes,
+    max_context_files,
+    max_upload_bytes,
+    save_upload_limited,
+)
+from credential_crypto import decrypt_secret, encrypt_secret, migrate_plaintext_credentials
+from usage_tracking import (
+    EVENT_APP_GENERATION,
+    EVENT_WORKFLOW_EXECUTION,
+    EVENT_WORKFLOW_GENERATION,
+    ensure_usage_tracking_schema,
+    outcome_from_result,
+    record_usage,
+)
+import project_access
+from statistics_service import VALID_TIME_RANGES, build_statistics
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key")
 JWT_ALGORITHM = "HS256"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 # Create DB tables
-Base.metadata.create_all(bind=engine)
+# 스키마는 Alembic 마이그레이션으로 맞춘다(ADR-0006). 예전에는 create_all 을 썼는데,
+# 이미 있는 테이블에 컬럼을 추가해주지 않아서 모델 변경이 운영 DB에 조용히 누락됐다.
+# create_all 로 만들어진 기존 DB 는 ensure_schema 가 기준선으로 stamp 한 뒤 인계받는다.
+print(f"[db] {db_migrate.ensure_schema(engine)}")
+ensure_usage_tracking_schema(engine)
 
 app = FastAPI(title="Business Automation API")
 
@@ -61,17 +93,20 @@ import traceback
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    error_id = uuid.uuid4().hex
     with open("error_log.txt", "a") as f:
-        f.write(f"{datetime.datetime.now()} - {str(request.url)} - {str(exc)}\n")
+        f.write(f"{datetime.datetime.now()} - {request.method} {request.url.path} - {error_id} - {str(exc)}\n")
         traceback.print_exc(file=f)
-    return JSONResponse(status_code=500, content={"message": "Internal Server Error", "details": str(exc)})
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Internal Server Error", "error_id": error_id},
+    )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     with open("error_log.txt", "a") as f:
-        f.write(f"{datetime.datetime.now()} - {str(request.url)} - Validation Error: {exc.errors()}\n")
-        f.write(f"Body: {exc.body}\n")
-    return JSONResponse(status_code=422, content={"detail": exc.errors(), "body": exc.body})
+        f.write(f"{datetime.datetime.now()} - {request.method} {request.url.path} - Validation Error: {exc.errors()}\n")
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 # Setup CORS to allow requests from the React frontend
 app.add_middleware(
@@ -85,6 +120,9 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     db = next(get_db())
+    migrated_credentials = migrate_plaintext_credentials(db)
+    if migrated_credentials:
+        print(f"Encrypted {migrated_credentials} legacy credential fields.")
     try:
         discord_bot.boot_existing_discord_bots(db)
     except Exception as e:
@@ -100,11 +138,29 @@ async def startup_event():
         print(f"Failed to boot scheduler: {e}")
     finally:
         db.close()
+    # 노드 지식 색인(ADR-0013)을 백그라운드에서 증분 동기화한다. embedding provider가 없거나
+    # 실패하면 hybrid 선별이 lexical 폴백으로만 동작할 뿐, 서버 기동과 생성에는 영향이 없다.
+    try:
+        import node_knowledge
+        node_knowledge.sync_node_index_in_background()
+    except Exception as e:
+        print(f"Failed to start node knowledge index sync: {e}")
 
 class FlowPayload(BaseModel):
     project_id: Optional[int] = None
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
+    # 사용자 승인 노드별 결정({node_id: 'Y'|'N'}). 에디터가 실행 전에 사용자에게 물어 채운다.
+    # 없으면 승인 노드는 fail-closed 로 실행을 중단한다(P0 — 자동 승인 제거).
+    approval_decisions: Optional[Dict[str, str]] = None
+    # 부분 실행(에디터의 "이 노드부터 실행", EDITOR_SHORTCUTS §7.4): 지정한 노드를 진입점으로
+    # 하류만 실행하고, entry_input이 직전 노드 출력 자리에 들어간다(승인 재개와 같은 메커니즘).
+    entry_node_id: Optional[str] = None
+    entry_input: Optional[str] = None
+    # 범위 실행의 나머지 축(EDITOR_SHORTCUTS §7.4)과 고정 출력(§7.3).
+    stop_node_id: Optional[str] = None
+    scope_node_ids: Optional[List[str]] = None
+    pinned_outputs: Optional[Dict[str, str]] = None
 
 class DeployPayload(BaseModel):
     mode: str
@@ -119,54 +175,8 @@ class ChatPayload(BaseModel):
     complexity_level: str = "low"
     training_consent: bool = False
     target_type: Optional[str] = "auto"
-
-@app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """
-    Receives a file from the frontend and saves it to the uploads/ directory.
-    Returns the file path.
-    """
-    # Prevent path traversal by extracting only the base filename
-    safe_filename = os.path.basename(file.filename)
-    if not safe_filename:
-        safe_filename = str(uuid.uuid4())
-        
-    file_path = os.path.join("uploads", safe_filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    return {"status": "success", "file_path": file_path, "filename": safe_filename}
-
-from fastapi import Form
-
-@app.post("/api/chat/upload_context")
-async def upload_chat_context(project_id: str = Form(...), files: List[UploadFile] = File(...)):
-    """
-    Receives multiple files, extracts text, and stores chunks in the ChromaDB collection
-    for the specific project_id to be used in RAG.
-    """
-    processed_files = []
-    total_chunks = 0
-
-    for file in files:
-        safe_filename = os.path.basename(file.filename)
-        if not safe_filename:
-            continue
-            
-        file_path = os.path.join("uploads", f"{uuid.uuid4()}_{safe_filename}")
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        chunks_added = process_and_store_chat_context(project_id, file_path, safe_filename)
-        total_chunks += chunks_added
-        processed_files.append(safe_filename)
-        
-        # Cleanup file after processing
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass
-            
-    return {"status": "success", "processed_files": processed_files, "total_chunks": total_chunks}
+    # 사용자가 캔버스에서 지목한 대상(백로그 28 POINT-0). 없으면 예전과 똑같이 동작한다.
+    pointing_context: Optional[Dict[str, Any]] = None
 
 security = HTTPBearer(auto_error=False)
 
@@ -175,16 +185,9 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         return None
     token = credentials.credentials
 
-    # 테스트 빌드: 프론트엔드에서 dev-mock-token을 보내면 바로 더미 유저 반환
-    if token == "dev-mock-token":
-        user_id = 9999
-        user = db.query(models.User).filter(models.User.id == user_id).first()
-        if not user:
-            user = models.User(id=user_id, email="dev@local.host", name="Developer (Dev Mode)")
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-        return user
+    # (제거됨) 예전에는 'dev-mock-token' 문자열 하나로 더미 유저(id 9999)를 만들어 인증을
+    # 통과시켰다. 프론트엔드는 이 값을 보낸 적이 없고, 운영에 남으면 헤더 한 줄로 누구나
+    # 남의 계정 경로에 들어올 수 있는 인증 우회다. 검증은 아래 서명 확인 하나로만 한다.
 
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
@@ -208,6 +211,243 @@ def get_current_user_required(user: models.User = Depends(get_current_user)):
     return user
 
 
+def _optional_user(request: Request, db: Session):
+    """Authorization 헤더가 있으면 사용자를 돌려주고, 없거나 잘못됐으면 None."""
+    auth_header = request.headers.get("Authorization") or ""
+    if not auth_header.startswith("Bearer "):
+        return None
+    try:
+        claims = jwt.decode(auth_header.split(" ", 1)[1], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.PyJWTError:
+        return None
+    return db.query(models.User).filter(models.User.id == claims.get("user_id")).first()
+
+
+def _resolve_upload_owner(user, project_id: Optional[str], db: Session):
+    """이 업로드의 용량을 누구 몫으로 계산할지 정한다 (ADR-0010).
+
+    배포된 앱(`/viewer/:projectId`, `/custom-app/:appId`)에는 로그인 요구가 없다. 그래서
+    "로그인한 사람만 업로드" 로 막으면 익명으로 쓰라고 만든 앱이 파일을 못 받는다. 대신
+    익명 업로드는 **공개된 프로젝트에 한해** 허용하고 그 소유자의 용량으로 계산한다.
+    """
+    if user:
+        return user.id, user.id
+
+    if project_id and str(project_id).isdigit():
+        project = db.query(models.Project).filter(models.Project.id == int(project_id)).first()
+        # 비공개 프로젝트 id 를 찍어보며 남의 용량을 소모시키는 것을 막는다.
+        if project and project.visibility == "public":
+            return project.user_id, None
+
+    raise HTTPException(
+        status_code=401,
+        detail="파일을 올리려면 로그인하거나, 공개된 앱에서 업로드해야 합니다.",
+    )
+
+
+@app.post("/api/upload")
+async def upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    project_id: Optional[str] = Form(None),
+    purpose: str = Form("node"),
+    db: Session = Depends(get_db),
+):
+    """검증된 업로드를 서버가 지은 이름으로 저장하고, 소유·용량·보존 기간을 기록한다.
+
+    예전에는 인증이 전혀 없어서 누구나 서버 디스크를 채울 수 있었고, 올라간 파일이 누구
+    것인지 알 방법이 없어 용량 제한도 정리도 불가능했다(ADR-0010).
+    """
+    user = _optional_user(request, db)
+    owner_user_id, uploaded_by_user_id = _resolve_upload_owner(user, project_id, db)
+
+    # 허용 확장자는 용도별로 다르다(ADR-0010) — 문서 목록에 영상이 없고, 영상 목록에 문서가
+    # 없다. purpose='video' 는 앱 빌더 파일 컴포넌트가 영상 업로드(YouTube 노드 등)에 쓴다.
+    if purpose == "video":
+        allowed_extensions = upload_security.VIDEO_UPLOAD_EXTENSIONS
+        max_bytes = int(os.getenv("MAX_VIDEO_UPLOAD_BYTES", 256 * 1024 * 1024))
+    elif purpose == "community":
+        # 커뮤니티 글 이미지. 익명 업로드를 받지 않는 이유는 정리할 주인이 없어지기 때문이다.
+        if user is None:
+            raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+        allowed_extensions = upload_security.IMAGE_UPLOAD_EXTENSIONS
+        max_bytes = int(os.getenv("MAX_COMMUNITY_IMAGE_BYTES", 5 * 1024 * 1024))
+    else:
+        allowed_extensions = GENERAL_UPLOAD_EXTENSIONS
+        max_bytes = max_upload_bytes()
+
+    # 파일 수 한도는 저장 전에 본다. 용량은 실제 크기를 알아야 하므로 저장한 뒤 확인하고,
+    # 넘으면 방금 쓴 파일을 지운다(대략치로 미리 막으면 정상 업로드까지 거절된다).
+    upload_security.ensure_quota(db, owner_user_id, 0)
+
+    file_path, original_name = await save_upload_limited(
+        file,
+        allowed_extensions=allowed_extensions,
+        max_bytes=max_bytes,
+    )
+
+    try:
+        size_bytes = file_path.stat().st_size
+        upload_security.ensure_quota(db, owner_user_id, size_bytes)
+        record = upload_security.record_upload(
+            db,
+            stored_path=file_path,
+            original_name=original_name,
+            owner_user_id=owner_user_id,
+            uploaded_by_user_id=uploaded_by_user_id,
+            project_id=int(project_id) if project_id and str(project_id).isdigit() else None,
+            purpose=purpose if purpose in {"node", "app", "context", "video", "community"} else "node",
+            content_type=file.content_type,
+            size_bytes=size_bytes,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        file_path.unlink(missing_ok=True)
+        raise
+
+    return {
+        "status": "success",
+        "file_path": file_path.as_posix(),
+        "filename": original_name,
+        # artifact_id 를 함께 준다 — 커뮤니티 이미지처럼 경로가 아니라 식별자로 붙이는 곳이 있다.
+        "artifact_id": record.artifact_id,
+        "expires_at": record.expires_at.isoformat() if record.expires_at else None,
+    }
+
+
+@app.get("/api/uploads/usage")
+def get_upload_usage(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """내 업로드 사용량. 한도에 걸렸을 때 왜 걸렸는지 보여주기 위한 것이다."""
+    used_bytes, used_files = upload_security.current_usage(db, user.id)
+    return {
+        "status": "success",
+        "used_bytes": used_bytes,
+        "used_files": used_files,
+        "max_bytes": upload_security.quota_bytes_per_user(),
+        "max_files": upload_security.quota_files_per_user(),
+        "retention_days": upload_security.retention_days(),
+    }
+
+
+@app.get("/api/artifacts")
+def list_artifacts(
+    project_id: Optional[int] = None,
+    limit: int = 50,
+    user: models.User = Depends(get_current_user_required),
+    db: Session = Depends(get_db),
+):
+    """첨부로 고를 수 있는 내 파일 목록 (ADR-0018). Inspector 의 파일 선택기가 읽는다.
+
+    저장 이름과 서버 경로는 응답에 들어가지 않는다 — `artifactId` 와 표시 이름·크기·형식만 나간다.
+    """
+    import artifacts as artifact_service
+
+    if project_id is not None:
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+        if not project or project.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+    refs = artifact_service.list_for_project(db, owner_user_id=user.id, project_id=project_id, limit=limit)
+    return {"status": "success", "artifacts": [ref.to_public_dict() for ref in refs]}
+
+
+@app.post("/api/artifacts/validate")
+def validate_artifacts(
+    payload: dict = Body(...),
+    user: models.User = Depends(get_current_user_required),
+    db: Session = Depends(get_db),
+):
+    """실제 전송 없이 첨부만 검증한다 (ADR-0018 FILE-SEND-4 ②).
+
+    편집기의 "첨부 검증" 버튼과 런타임이 **같은** 함수를 쓴다 — 편집기에서 통과한 첨부가 실행에서
+    거절되면 사용자는 이유를 알 수 없다.
+    """
+    import delivery_attachments
+    from artifacts import ArtifactError
+
+    provider = str(payload.get("provider") or "discord").lower()
+    project_id = payload.get("projectId")
+    artifact_ids = payload.get("artifactIds") or []
+    if not isinstance(artifact_ids, list):
+        raise HTTPException(status_code=400, detail="artifactIds must be a list")
+    if project_id is not None:
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+        if not project or project.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+    policy = delivery_attachments.policy_for(provider)
+    try:
+        resolved = delivery_attachments.validate_attachments(
+            db, artifact_ids, owner_user_id=user.id, project_id=project_id, policy=policy,
+        )
+    except ArtifactError as exc:
+        return {
+            "status": "error", "ok": False,
+            "policy": policy.to_public_dict(),
+            "error": exc.error.to_dict(),
+        }
+    return {
+        "status": "success", "ok": True,
+        "policy": policy.to_public_dict(),
+        "attachments": [item.ref.to_public_dict() for item in resolved],
+        "totalBytes": sum(item.ref.size_bytes for item in resolved),
+    }
+
+
+@app.get("/api/artifacts/policies")
+def artifact_policies():
+    """채널별 첨부 한도. Node Definition·Inspector 사전 검증·런타임이 같은 값을 읽게 한다."""
+    import delivery_attachments
+
+    return {
+        "status": "success",
+        "enabled": delivery_attachments.delivery_v1_enabled(),
+        "connectors": {
+            name: {**policy, "enabled": delivery_attachments.connector_enabled(name)}
+            for name, policy in delivery_attachments.policies_public().items()
+        },
+    }
+
+
+@app.post("/api/chat/upload_context")
+async def upload_chat_context(
+    project_id: str = Form(...),
+    files: List[UploadFile] = File(...),
+    user: models.User = Depends(get_current_user_required),
+    db: Session = Depends(get_db),
+):
+    """Validate context documents and restrict existing projects to their owner."""
+    if not project_id or len(project_id) > 128:
+        raise HTTPException(status_code=400, detail="Invalid project id")
+    if len(files) > max_context_files():
+        raise HTTPException(status_code=413, detail=f"At most {max_context_files()} files may be uploaded.")
+
+    if project_id.isdigit():
+        project = db.query(models.Project).filter(models.Project.id == int(project_id)).first()
+        if not project or project.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Project not found")
+    elif not re.fullmatch(r"draft-[0-9]{10,20}", project_id):
+        raise HTTPException(status_code=400, detail="Invalid project id")
+
+    processed_files = []
+    total_chunks = 0
+    for file in files:
+        file_path, original_name = await save_upload_limited(
+            file,
+            allowed_extensions=CONTEXT_UPLOAD_EXTENSIONS,
+            max_bytes=max_context_bytes(),
+        )
+        try:
+            chunks_added = process_and_store_chat_context(project_id, str(file_path), original_name)
+        finally:
+            file_path.unlink(missing_ok=True)
+        total_chunks += chunks_added
+        processed_files.append(original_name)
+
+    return {"status": "success", "processed_files": processed_files, "total_chunks": total_chunks}
+
+
 @app.delete("/api/training-data/me")
 def delete_my_training_data(
     user: models.User = Depends(get_current_user_required),
@@ -220,6 +460,105 @@ def delete_my_training_data(
     return {"status": "success", "deleted": deleted}
 
 
+# ── 문서 포맷 라이브러리 (포맷 스튜디오 계획 Phase 1) ─────────────────────
+# 프리셋은 저장소 정본(document_formats/*.json → 프론트 번들)이라 API 는 사용자 포맷만 다룬다.
+# 프리셋 조회 API 는 실행기(load_format)와 노드 UI 폴백을 위해 함께 둔다.
+
+class DocumentFormatPayload(BaseModel):
+    name: str
+    spec: dict
+
+
+def _format_row_public(row) -> dict:
+    return {"id": row.id, "name": row.name, "layout": row.layout,
+            "spec": row.spec, "updated_at": row.updated_at.isoformat() if row.updated_at else None}
+
+
+@app.get("/api/formats/presets")
+def list_format_presets():
+    from documents import format_presets
+    return {"formats": format_presets.PRESETS}
+
+
+class FormatGeneratePayload(BaseModel):
+    prompt: str
+    layout: str = ""  # "" | "document" | "design"
+
+
+@app.post("/api/formats/generate")
+def generate_document_format(payload: FormatGeneratePayload,
+                             user: models.User = Depends(get_current_user_required)):
+    """포맷 스튜디오의 AI 생성 — 저장이 아니라 편집기에 로드할 초안을 돌려준다."""
+    from documents.format_spec import FormatSpecError
+    from format_studio import generate_format_spec
+    try:
+        spec = generate_format_spec(payload.prompt, payload.layout)
+    except FormatSpecError as exc:
+        raise HTTPException(status_code=422, detail=f"생성된 포맷이 규칙에 어긋납니다: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"포맷 생성에 실패했습니다: {exc}")
+    return {"spec": spec}
+
+
+@app.get("/api/formats")
+def list_document_formats(user: models.User = Depends(get_current_user_required),
+                          db: Session = Depends(get_db)):
+    rows = (db.query(models.DocumentFormat)
+            .filter(models.DocumentFormat.owner_user_id == user.id)
+            .order_by(models.DocumentFormat.updated_at.desc()).all())
+    return {"formats": [_format_row_public(r) for r in rows]}
+
+
+@app.post("/api/formats")
+def create_document_format(payload: DocumentFormatPayload,
+                           user: models.User = Depends(get_current_user_required),
+                           db: Session = Depends(get_db)):
+    from documents.format_spec import FormatSpecError, validate_format_spec
+    try:
+        spec = validate_format_spec({**payload.spec, "name": payload.name})
+    except FormatSpecError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    row = models.DocumentFormat(id=f"fmt_{uuid.uuid4().hex}", owner_user_id=user.id,
+                                name=payload.name, layout=spec["layout"], spec=spec)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _format_row_public(row)
+
+
+@app.put("/api/formats/{format_id}")
+def update_document_format(format_id: str, payload: DocumentFormatPayload,
+                           user: models.User = Depends(get_current_user_required),
+                           db: Session = Depends(get_db)):
+    from documents.format_spec import FormatSpecError, validate_format_spec
+    row = (db.query(models.DocumentFormat)
+           .filter(models.DocumentFormat.id == format_id,
+                   models.DocumentFormat.owner_user_id == user.id).first())
+    if row is None:
+        raise HTTPException(status_code=404, detail="포맷을 찾을 수 없습니다.")
+    try:
+        spec = validate_format_spec({**payload.spec, "name": payload.name})
+    except FormatSpecError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    row.name, row.layout, row.spec = payload.name, spec["layout"], spec
+    db.commit()
+    db.refresh(row)
+    return _format_row_public(row)
+
+
+@app.delete("/api/formats/{format_id}")
+def delete_document_format(format_id: str,
+                           user: models.User = Depends(get_current_user_required),
+                           db: Session = Depends(get_db)):
+    deleted = (db.query(models.DocumentFormat)
+               .filter(models.DocumentFormat.id == format_id,
+                       models.DocumentFormat.owner_user_id == user.id).delete())
+    db.commit()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="포맷을 찾을 수 없습니다.")
+    return {"status": "success"}
+
+
 @app.post("/api/dry-run")
 def dry_run_flow(
     payload: FlowPayload,
@@ -228,9 +567,24 @@ def dry_run_flow(
     return dry_run_workflow({"nodes": payload.nodes, "edges": payload.edges}).model_dump()
 
 def is_admin_user(user: models.User) -> bool:
-    admin_emails_str = os.getenv("ADMIN_EMAILS", "")
-    admin_emails = [e.strip().lower() for e in admin_emails_str.split(",") if e.strip()]
-    return user.email.lower() in admin_emails if user.email else False
+    """관리자 판정 (ADR-0020). `User.role` 을 먼저 보고, 없으면 환경변수로 폴백한다.
+
+    폴백은 한 릴리스 뒤 제거한다 — `ADMIN_EMAILS` 는 그 뒤로 **첫 관리자를 만드는 부트스트랩**
+    으로만 남는다(서버 시작 시 승격). 환경변수만 보면 조치 이력에 "누가"를 사용자 id 로 남길 수
+    없고, 권한을 바꾸려면 재배포해야 한다.
+    """
+    import community_safety
+
+    return community_safety.is_admin(user) or community_safety.is_bootstrap_admin(user)
+
+
+def get_current_staff_user(user: models.User = Depends(get_current_user_required)):
+    """moderator 이상. 신고 큐·조치는 admin 이 아니어도 다룰 수 있어야 운영이 굴러간다."""
+    import community_safety
+
+    if not community_safety.has_staff_access(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="운영 권한이 필요합니다.")
+    return user
 
 def get_current_admin_user(user: models.User = Depends(get_current_user_required)):
     if not is_admin_user(user):
@@ -262,6 +616,17 @@ def get_exchange_rate():
             print(f"Failed to fetch exchange rate: {e}")
             
     return {"status": "success", "krw_rate": EXCHANGE_RATE_CACHE["rate"]}
+
+@app.get("/api/node-definitions")
+def get_node_definitions():
+    """NodeDefinition v1 정의 목록 (ADR-0005).
+
+    에디터는 빌드 시점에 만들어진 frontend/src/generated/nodeDefinitions.json 을 쓰므로
+    이 엔드포인트에 의존하지 않는다. 런타임에 정의가 필요한 소비자 — 목업 서버 탭,
+    커뮤니티 노드 검증, 외부 도구 — 를 위한 공개 계약이다.
+    """
+    return {"status": "success", "definitions": node_definition.definitions_payload()}
+
 
 @app.post("/api/auth/google")
 def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
@@ -321,6 +686,14 @@ def get_admin_statistics(user: models.User = Depends(get_current_admin_user), db
         "total_projects": total_projects,
         "total_executions": total_executions
     }
+
+
+@app.get("/api/admin/node-errors")
+def get_admin_node_errors(days: int = 7, user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    """NodeError v1 telemetry(ADR-0016) — code/category/effectState 별 발생 수, legacy 문구 비율,
+    INTERNAL_UNKNOWN 이 반복되는 노드. 사용자 입력·provider 원문은 컬럼에 없으므로 응답에도 없다."""
+    from node_errors import telemetry as node_error_telemetry
+    return node_error_telemetry.summary(db, days=max(1, min(int(days), 90)))
 
 
 @app.get("/api/admin/llm-operations")
@@ -421,6 +794,25 @@ class ApiKeyCreate(BaseModel):
     refresh_token: Optional[str] = None
     expires_in: Optional[int] = None
 
+@app.get("/api/credential-providers")
+def get_credential_providers(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """자격증명 provider 정본 목록과, 로그인한 사용자의 연결 상태 (ADR-0007).
+
+    비밀값은 담지 않는다 — 무엇을 연결해뒀는지, 자동 갱신이 실제로 동작할 준비가 됐는지만
+    알려준다. 그래서 sudo 토큰 없이도 호출할 수 있다(값을 보여주는 /api/user/apikeys 와 다르다).
+    """
+    registry = connector_providers.registry_payload()
+    # 동의 절차로 연결하는 provider 는 콜백 주소를 provider 콘솔에 등록해야 한다. 그 값을
+    # 사용자가 추측하게 두면 등록이 어긋나 "redirect_uri_mismatch" 만 보게 된다.
+    for entry in registry:
+        if entry.get("authorize"):
+            entry["callback_url"] = connector_oauth_flow.callback_url(entry["id"])
+    payload = {"status": "success", "providers": registry}
+    if user:
+        payload["connections"] = connector_providers.connection_status(db, user.id)
+    return payload
+
+
 @app.get("/api/user/apikeys")
 def get_api_keys(user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
     keys = db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id).all()
@@ -432,9 +824,9 @@ def get_api_keys(user: models.User = Depends(get_sudo_user), db: Session = Depen
 
     result = []
     for k in keys:
-        entry = {"provider": k.provider, "masked_key": mask_key(k.api_key)}
+        entry = {"id": k.id, "provider": k.provider, "label": k.label or "", "masked_key": mask_key(decrypt_secret(k.api_key))}
         if k.provider == "kakao_token":
-            entry["has_refresh_token"] = bool(k.refresh_token)
+            entry["has_refresh_token"] = bool(decrypt_secret(k.refresh_token))
             entry["token_expires_at"] = k.token_expires_at.isoformat() if k.token_expires_at else None
         result.append(entry)
     return result
@@ -443,14 +835,14 @@ def get_api_keys(user: models.User = Depends(get_sudo_user), db: Session = Depen
 def save_api_key(payload: ApiKeyCreate, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
     key = db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id, models.UserApiKey.provider == payload.provider).first()
     if key:
-        key.api_key = payload.api_key
+        key.api_key = encrypt_secret(payload.api_key)
     else:
-        key = models.UserApiKey(user_id=user.id, provider=payload.provider, api_key=payload.api_key)
+        key = models.UserApiKey(user_id=user.id, provider=payload.provider, api_key=encrypt_secret(payload.api_key))
         db.add(key)
 
     if payload.provider == "kakao_token":
         if payload.refresh_token:
-            key.refresh_token = payload.refresh_token
+            key.refresh_token = encrypt_secret(payload.refresh_token)
         expires_in = payload.expires_in if payload.expires_in else 6 * 3600  # 카카오 access_token 기본 유효시간
         key.token_expires_at = datetime.datetime.utcnow() + datetime.timedelta(seconds=expires_in)
 
@@ -462,6 +854,166 @@ def delete_api_key(provider: str, user: models.User = Depends(get_sudo_user), db
     db.query(models.UserApiKey).filter(models.UserApiKey.user_id == user.id, models.UserApiKey.provider == provider).delete()
     db.commit()
     return {"status": "success"}
+
+
+# ── OAuth 인가 코드 흐름 (한국형 노드 계획 Phase 0) ────────────────────────────────────
+# 지금까지 OAuth 토큰은 사용자가 provider 콘솔에서 직접 받아 붙여넣었다. 네이버·X·Instagram 을
+# 붙이려면 동의 화면으로 보냈다가 받아오는 경로가 필요하고, 그 절차는 connectors/oauth_flow.py
+# 한 곳에 있다. 여기는 HTTP 표면만 담당한다.
+#
+# 시작·해제는 자격증명을 만들고 지우므로 다른 API 키와 같이 sudo 토큰이 필요하다.
+# **콜백만 공개다** — provider 가 브라우저를 그리로 보낼 때 Authorization 헤더가 없기 때문이다.
+# 그래서 "누구의 토큰인가"는 세션이 아니라 state 가 정한다(oauth_flow.exchange_code 참고).
+
+class OAuthStartPayload(BaseModel):
+    # 동의 후 돌아올 우리 화면. 서버가 상대 경로인지 검증한다(열린 리다이렉터 방지).
+    return_to: Optional[str] = None
+
+
+@app.post("/api/oauth/{provider}/start")
+def oauth_start(provider: str, payload: OAuthStartPayload = Body(default=OAuthStartPayload()),
+                user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    """동의 화면 URL 을 만들어 돌려준다. 클라이언트가 이 주소로 이동시킨다."""
+    try:
+        result = connector_oauth_flow.build_authorization_url(
+            provider, user.id, db, return_to=payload.return_to
+        )
+    except connector_oauth_flow.OAuthFlowError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc), "reason": exc.reason})
+    return {
+        "status": "success",
+        "url": result["url"],
+        "callback_url": connector_oauth_flow.callback_url(provider),
+    }
+
+
+@app.get("/api/oauth/{provider}/callback")
+def oauth_callback(provider: str, request: Request, db: Session = Depends(get_db)):
+    """provider 가 사용자를 돌려보내는 자리. 로그인 세션 없이 호출된다."""
+    params = request.query_params
+    fallback = "/api-center"
+
+    # 사용자가 동의를 거부하면 code 대신 error 가 온다.
+    if params.get("error"):
+        print(f"[oauth_flow] {provider} 동의 거부 또는 오류: {params.get('error')}")
+        return RedirectResponse(f"{fallback}?oauth_error=denied&provider={provider}", status_code=303)
+
+    try:
+        result = connector_oauth_flow.exchange_code(
+            provider, db, code=params.get("code", ""), state=params.get("state", "")
+        )
+    except connector_oauth_flow.OAuthFlowError as exc:
+        return RedirectResponse(
+            f"{fallback}?oauth_error={exc.reason}&provider={provider}", status_code=303
+        )
+
+    # 진행 중이 아닌 낡은 왕복 기록을 함께 치운다(표가 무한히 자라지 않게).
+    try:
+        connector_oauth_flow.purge_expired(db)
+    except Exception as exc:
+        print(f"[oauth_flow] state 정리 실패(무시): {type(exc).__name__}")
+
+    destination = result.get("return_to") or fallback
+    separator = "&" if "?" in destination else "?"
+    return RedirectResponse(f"{destination}{separator}connected={provider}", status_code=303)
+
+
+@app.delete("/api/oauth/{provider}")
+def oauth_revoke(provider: str, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    """연결을 끊는다. 상대 통보가 실패해도 우리 쪽 값은 지운다."""
+    connector_oauth_flow.revoke(provider, user.id, db)
+    return {"status": "success"}
+
+
+# ── Database Query v2: 명명된 자격증명 · 연결 진단 · schema 탐색 · 미리보기 (ADR-0017) ──────
+# 자격증명 생성/삭제는 다른 API 키와 같이 sudo 토큰이 필요하다. 목록·연결 테스트·schema·미리보기는
+# 비밀값을 돌려주지 않으므로 일반 로그인으로 충분하다(에디터의 노드 UI 가 부른다).
+class DatabaseCredentialPayload(BaseModel):
+    label: str = ""
+    connection_string: str
+
+
+class DatabasePreviewPayload(BaseModel):
+    connection_string: str = "{{API_CENTER:database}}"
+    query: str
+    parameters: List[Dict[str, Any]] = Field(default_factory=list)
+    # Test step 에서 사용자가 직접 넣은 값(source=input 파라미터의 시험용 값 등)
+    parameter_values: Dict[str, Any] = Field(default_factory=dict)
+    max_rows: int = 50
+    timeout_seconds: int = 10
+    allowed_schemas: Any = "public"
+    output_format: str = "rows"
+
+
+@app.get("/api/features")
+def get_features():
+    """클라이언트가 어떤 경로의 UI 를 그릴지 정하는 배포 플래그."""
+    import db_query_runtime
+    return {"database_query_v2": db_query_runtime.v2_enabled(), "node_error_v1": node_error_runtime.is_enabled()}
+
+
+@app.get("/api/database/credentials")
+def list_database_credentials(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    import database_credentials
+    return {"credentials": database_credentials.list_credentials(db, user.id)}
+
+
+@app.post("/api/database/credentials")
+def create_database_credential(payload: DatabaseCredentialPayload, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    import database_credentials
+    try:
+        row = database_credentials.create(db, user.id, label=payload.label, connection_string=payload.connection_string)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    summary = next((c for c in database_credentials.list_credentials(db, user.id) if c["id"] == row.id), None)
+    return {"status": "success", "credential": summary}
+
+
+@app.delete("/api/database/credentials/{credential_id}")
+def delete_database_credential(credential_id: int, user: models.User = Depends(get_sudo_user), db: Session = Depends(get_db)):
+    import database_credentials
+    if not database_credentials.delete(db, user.id, credential_id):
+        raise HTTPException(status_code=404, detail="자격증명을 찾을 수 없습니다.")
+    return {"status": "success"}
+
+
+def _owned_database_credential(db, user, credential_id: int):
+    import database_credentials
+    from credential_crypto import decrypt_secret as _decrypt
+    row = database_credentials.get_owned(db, user.id, credential_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="자격증명을 찾을 수 없습니다.")
+    return row, (_decrypt(row.api_key) or "")
+
+
+@app.post("/api/database/credentials/{credential_id}/test")
+def test_database_credential(credential_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """driver → dns → tcp → auth → readonly_probe 단계별 결과. 원문 예외·URI 는 없다."""
+    import database_diagnostics
+    _row, secret = _owned_database_credential(db, user, credential_id)
+    return database_diagnostics.test_connection(secret, timeout_seconds=5)
+
+
+@app.get("/api/database/credentials/{credential_id}/schema")
+def get_database_schema(credential_id: int, schema: str = "public", refresh: bool = False,
+                        user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    import database_diagnostics
+    _row, secret = _owned_database_credential(db, user, credential_id)
+    return database_diagnostics.fetch_schema(credential_id, secret, schema=schema, refresh=refresh)
+
+
+@app.post("/api/database/preview")
+def preview_database_query(payload: DatabasePreviewPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """저장하지 않고 쿼리를 한 번 실행한다(Test step). 실행 경로·판별기·정책은 워크플로우 실행과 동일하다."""
+    import db_query_runtime
+    result = db_query_runtime.run_readonly_query_result(
+        credential_ref=payload.connection_string, owner_user_id=user.id, db=db,
+        query=payload.query, parameters=payload.parameters,
+        parameter_overrides=payload.parameter_values or None,
+        max_rows=max(1, min(int(payload.max_rows or 50), 200)), timeout_seconds=payload.timeout_seconds,
+        allowed_schemas=payload.allowed_schemas, output_format=payload.output_format,
+    )
+    return {**result.to_dict(), "display": str(result)}
 
 @app.delete("/api/users/me")
 async def delete_user_account(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -499,6 +1051,12 @@ class ProjectCreate(BaseModel):
     visibility: str = "private"
     draft_session_id: Optional[str] = None
     generation_trace_id: Optional[str] = None
+    # 낙관적 동시성(ADR-0006). 편집을 시작한 시점의 revision 번호를 같이 보내면, 그 사이에
+    # 다른 곳에서 저장된 경우 덮어쓰지 않고 409로 돌려보낸다. 값을 안 보내는 예전
+    # 클라이언트는 지금까지처럼 그대로 저장된다(하위 호환).
+    base_revision: Optional[int] = None
+    # 충돌을 확인하고도 내 변경으로 덮어쓰겠다고 사용자가 선택한 경우.
+    force_overwrite: bool = False
 
 
 def _record_project_trace_adoption(db: Session, payload: ProjectCreate, user_id: int, project_id: int):
@@ -524,8 +1082,33 @@ def get_public_projects(db: Session = Depends(get_db)):
 
 @app.get("/api/projects/my")
 def get_my_projects(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
-    projects = db.query(models.Project).filter(models.Project.user_id == user.id).all()
-    return [{"id": p.id, "title": p.title, "description": p.description, "visibility": p.visibility, "updated_at": p.updated_at, "share_token": p.share_token} for p in projects]
+    projects = db.query(models.Project).filter(models.Project.user_id == user.id).order_by(models.Project.updated_at.desc()).all()
+    result = []
+    for project in projects:
+        graph_data = project.graph_data if isinstance(project.graph_data, dict) else {}
+        nodes = graph_data.get("nodes", []) if isinstance(graph_data.get("nodes", []), list) else []
+        edges = graph_data.get("edges", []) if isinstance(graph_data.get("edges", []), list) else []
+        result.append({
+            "id": project.id,
+            "title": project.title,
+            "description": project.description,
+            "visibility": project.visibility,
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+            "share_token": project.share_token,
+            "deploy_mode": project.deploy_mode,
+            "current_revision": project.current_revision,
+            "is_live": bool(graph_data.get("is_live", False)),
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+        })
+    return result
+
+
+def _revision_source(payload: ProjectCreate) -> str:
+    """AI 생성 결과를 저장하는 경로면 'ai'. 생성 전후 비교에서 이 값으로 구분한다."""
+    return "ai" if payload.generation_trace_id else "user"
+
 
 def check_node_quotas(user_id: int, new_graph_data: dict, db: Session, exclude_project_id: int = None):
     projects = db.query(models.Project).filter(models.Project.user_id == user_id).all()
@@ -592,7 +1175,19 @@ def create_project(payload: ProjectCreate, user: models.User = Depends(get_curre
             db.commit()
 
     adoption = _record_project_trace_adoption(db, payload, user.id, project.id)
-    return {"status": "success", "id": project.id, "trace_adoption": adoption}
+
+    # 첫 저장도 되돌릴 수 있는 지점으로 남긴다(ADR-0006).
+    project_revisions.record_revision(
+        db, project, author_user_id=user.id, source=_revision_source(payload)
+    )
+    db.commit()
+
+    return {
+        "status": "success",
+        "id": project.id,
+        "trace_adoption": adoption,
+        "current_revision": project.current_revision,
+    }
 
 @app.get("/api/projects/{project_id}")
 def get_project(project_id: int, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -600,11 +1195,10 @@ def get_project(project_id: int, user: models.User = Depends(get_current_user), 
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    if project.visibility == 'private' and (not user or project.user_id != user.id):
+    # 권한 판정은 project_access 한 곳이다(ADR-0024) — 흩어져 있던 검사를 여기로 모았다.
+    # 개인 프로젝트의 동작은 도입 전과 같고, workspace 멤버가 추가로 통과한다.
+    if not project_access.can(db, user, project, project_access.VIEW):
         raise HTTPException(status_code=403, detail="Not authorized to view this project")
-    elif project.visibility == 'friends':
-        if not user or (project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first()):
-            raise HTTPException(status_code=403, detail="Not authorized to view this project")
 
     return {
         "id": project.id,
@@ -614,7 +1208,9 @@ def get_project(project_id: int, user: models.User = Depends(get_current_user), 
         "visibility": project.visibility,
         "deploy_mode": project.deploy_mode,
         "owner_id": project.user_id,
-        "owner_name": project.owner.name if project.owner else "Unknown"
+        "owner_name": project.owner.name if project.owner else "Unknown",
+        # 클라이언트는 이 값을 들고 있다가 저장할 때 base_revision 으로 돌려보낸다.
+        "current_revision": project.current_revision,
     }
 
 @app.get("/api/webhooks")
@@ -656,10 +1252,13 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
                 webhooks.append({
                     "id": f"wh-{p.id}-{n.get('id')}",
                     "projectId": p.id,
+                    "nodeId": n.get('id'),
                     "title": p.title,
                     "url": f"http://localhost:8000{node_url}",
                     "status": "Active" if p.graph_data.get("is_live", False) else "Stopped",
-                    "lastTriggered": last_triggered
+                    "lastTriggered": last_triggered,
+                    "updatedAt": p.updated_at,
+                    "methods": ["GET", "POST"],
                 })
                 break
 
@@ -706,9 +1305,8 @@ async def delete_project(project_id: int, user: models.User = Depends(get_curren
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project.user_id != user.id:
+    if not project_access.can(db, user, project, project_access.DELETE):
         raise HTTPException(status_code=403, detail="Not authorized to delete this project")
-    
 
     try:
         if scheduler.scheduler.get_job(f"project_{project_id}"):
@@ -739,9 +1337,20 @@ async def update_project(project_id: int, payload: ProjectCreate, user: models.U
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project.user_id != user.id:
+    if not project_access.can(db, user, project, project_access.EDIT):
         raise HTTPException(status_code=403, detail="Not authorized to edit this project")
-    
+
+    # 낙관적 동시성 검사(ADR-0006). 예전에는 마지막에 저장한 쪽이 앞선 변경을 조용히
+    # 지웠다 — 이제는 덮어쓰기 전에 사용자에게 물어보게 409로 돌려보낸다.
+    if payload.base_revision is not None and not payload.force_overwrite:
+        if payload.base_revision != project.current_revision:
+            raise HTTPException(
+                status_code=409,
+                detail=project_revisions.conflict_detail(
+                    db, project, payload.base_revision, payload.graph_data or {}
+                ),
+            )
+
     project.title = payload.title
     project.description = payload.description
 
@@ -750,6 +1359,9 @@ async def update_project(project_id: int, payload: ProjectCreate, user: models.U
     flag_modified(project, "graph_data")
     project.visibility = payload.visibility
 
+    project_revisions.record_revision(
+        db, project, author_user_id=user.id, source=_revision_source(payload)
+    )
     db.commit()
     adoption = _record_project_trace_adoption(db, payload, user.id, project_id)
     
@@ -793,7 +1405,150 @@ async def update_project(project_id: int, payload: ProjectCreate, user: models.U
     except Exception as e:
         print(f"Failed to sync telegram bot: {e}")
 
-    return {"status": "success", "trace_adoption": adoption}
+    return {
+        "status": "success",
+        "trace_adoption": adoption,
+        "current_revision": project.current_revision,
+    }
+
+def _owned_project_or_error(project_id: int, user: models.User, db: Session) -> models.Project:
+    """편집 이력은 소유자만 볼 수 있다 — 공개 프로젝트라도 저장 이력까지 공개하지는 않는다."""
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this project's history")
+    return project
+
+
+@app.get("/api/projects/{project_id}/revisions")
+def list_project_revisions(project_id: int, limit: int = 50, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """저장 이력 목록 (ADR-0006). 그래프 본문은 빼고 요약만 담는다."""
+    project = _owned_project_or_error(project_id, user, db)
+    return {
+        "status": "success",
+        "current_revision": project.current_revision,
+        "revisions": project_revisions.list_revisions(db, project_id, limit=limit),
+    }
+
+
+@app.get("/api/projects/{project_id}/revisions/{revision}")
+def get_project_revision(project_id: int, revision: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """특정 시점의 그래프 전체. 두 시점을 받아 클라이언트에서 diff 할 수 있다."""
+    _owned_project_or_error(project_id, user, db)
+    snapshot = project_revisions.revision_at(db, project_id, revision)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    return {"status": "success", "revision": project_revisions.revision_to_dict(snapshot, include_graph=True)}
+
+
+@app.get("/api/projects/{project_id}/revisions/{revision}/diff")
+def diff_project_revision(project_id: int, revision: int, against: Optional[int] = None, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """두 시점 사이에 무엇이 바뀌었는지. `against` 를 비우면 현재 상태와 비교한다."""
+    project = _owned_project_or_error(project_id, user, db)
+    base = project_revisions.revision_at(db, project_id, revision)
+    if base is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    if against is None:
+        target_graph, target_label = project.graph_data, project.current_revision
+    else:
+        target = project_revisions.revision_at(db, project_id, against)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Revision to compare not found")
+        target_graph, target_label = target.graph_data, target.revision
+
+    return {
+        "status": "success",
+        "from_revision": base.revision,
+        "to_revision": target_label,
+        "diff": project_revisions.diff_graphs(base.graph_data, target_graph),
+    }
+
+
+@app.post("/api/projects/{project_id}/revisions/{revision}/restore")
+def restore_project_revision(project_id: int, revision: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """예전 시점으로 되돌린다. 되돌리기 자체도 새 revision 으로 남기므로 이력이 잘리지 않는다."""
+    project = _owned_project_or_error(project_id, user, db)
+    snapshot = project_revisions.revision_at(db, project_id, revision)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    project.title = snapshot.title
+    project.description = snapshot.description
+    project.graph_data = snapshot.graph_data
+    flag_modified(project, "graph_data")
+    project_revisions.record_revision(db, project, author_user_id=user.id, source="restore")
+    db.commit()
+
+    return {
+        "status": "success",
+        "restored_from": revision,
+        "current_revision": project.current_revision,
+        "graph_data": project.graph_data,
+    }
+
+
+class MockRunRequest(BaseModel):
+    # 저장 전 캔버스 상태로도 돌려볼 수 있어야 한다 — "저장해야 테스트 가능"은 첫 성공까지의
+    # 시간을 늘리는 마찰이다. 비우면 저장된 그래프를 쓴다.
+    graph_data: Optional[Dict[str, Any]] = None
+    entry_node_id: str = ""
+    payload: Any = None
+    scenario: str = "success"
+    scenario_by_node: Dict[str, str] = Field(default_factory=dict)
+    # 범위 실행(EDITOR_SHORTCUTS §7.4) — 목업으로 한 노드/구간만 돌린다. start_node_id 는
+    # "그 노드부터 컴파일" 이고 entry_node_id(트리거 payload 주입)와는 다른 축이다.
+    start_node_id: Optional[str] = None
+    stop_node_id: Optional[str] = None
+    scope_node_ids: Optional[List[str]] = None
+    # 고정 출력(§7.3) — 상류를 다시 부르지 않고 저장해 둔 결과로 대체한다.
+    pinned_outputs: Optional[Dict[str, str]] = None
+    # start_node_id 로 시작할 때 직전 노드 출력 자리에 넣을 샘플 입력.
+    sample_input: Optional[str] = None
+
+
+@app.get("/api/projects/{project_id}/mock/scenarios")
+def get_mock_scenarios(project_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """이 워크플로우에서 무엇을 목업으로 돌릴 수 있는지 (ADR-0009).
+
+    노드별로 화면을 하드코딩하지 않고, 그래프에 실제로 놓인 노드의 정의에서 읽어낸다.
+    """
+    project = _owned_project_or_error(project_id, user, db)
+    return {"status": "success", **mock_service.describe_graph(project.graph_data)}
+
+
+@app.post("/api/projects/{project_id}/mock/run")
+def run_mock(project_id: int, payload: MockRunRequest, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """실제 자격증명 없이 워크플로우를 끝까지 실행한다 (ADR-0009).
+
+    Live Mode 와 무관하고, 바깥으로 나가는 요청이 하나도 없다. 실패 경로(인증 실패, 호출 한도,
+    타임아웃)는 시나리오로 재현하므로 진짜 계정으로는 만들기 어려운 상황도 확인할 수 있다.
+    """
+    project = _owned_project_or_error(project_id, user, db)
+    graph_data = payload.graph_data if payload.graph_data is not None else project.graph_data
+
+    if payload.scenario not in mock_service.SCENARIO_LABELS:
+        raise HTTPException(status_code=400, detail=f"알 수 없는 시나리오: {payload.scenario}")
+
+    return {
+        "status": "success",
+        **mock_service.run(
+            graph_data,
+            db=db,
+            project_id=project.id,
+            entry_node_id=payload.entry_node_id,
+            payload=payload.payload,
+            scenario=payload.scenario,
+            scenario_by_node=payload.scenario_by_node,
+            start_node_id=payload.start_node_id,
+            stop_node_id=payload.stop_node_id,
+            scope_node_ids=payload.scope_node_ids,
+            pinned_outputs=payload.pinned_outputs,
+            sample_input=payload.sample_input,
+        ),
+    }
+
 
 @app.post("/api/projects/{project_id}/live")
 async def toggle_project_live(project_id: int, payload: dict, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -862,6 +1617,11 @@ def get_custom_apps(user: models.User = Depends(get_current_user), db: Session =
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     apps = db.query(models.CustomApp).filter(models.CustomApp.owner_id == user.id).order_by(models.CustomApp.created_at.desc()).all()
+    def count_components(items):
+        if not isinstance(items, list):
+            return 0
+        return sum(1 + count_components(item.get("children", [])) for item in items if isinstance(item, dict))
+
     result = []
     for custom_app in apps:
         combined = custom_app.ui_graph_data or {}
@@ -872,6 +1632,8 @@ def get_custom_apps(user: models.User = Depends(get_current_user), db: Session =
             "description": (ui_data or {}).get("description", ""),
             "created_at": custom_app.created_at,
             "updated_at": custom_app.updated_at,
+            "component_count": count_components((ui_data or {}).get("components", [])),
+            "binding_count": len(custom_app.workflow_mappings or {}),
         })
     return result
 
@@ -952,23 +1714,22 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
     edges = project.graph_data.get('edges', [])
     
     try:
-        kwargs = payload.inputs if payload and payload.inputs else {}
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id, **kwargs)
+        # 입력 키 이름은 앱 제작자가 정하므로 **kwargs 로 펼치면 안 된다(ADR 없음 — 버그 수정).
+        user_inputs = dict(payload.inputs) if payload and payload.inputs else {}
+        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id, user_inputs=user_inputs)
         
-        total_tokens = tokens.get('total_tokens', 0) if tokens else 0
-        if owner and total_tokens > 0:
-            owner.token_balance -= total_tokens
-
-        db_log = models.FlowExecutionLog(
-            user_id=user.id if user else None,
+        db_log = record_usage(
+            db,
+            billable_user_id=project.user_id,
+            actor_user_id=user.id if user else None,
             project_id=project.id,
+            token_usage=tokens,
             payload="App Runner Execution",
             result=result_text,
-            total_tokens=total_tokens,
-            token_usage_details=tokens,
-            status="success"
+            event_type=EVENT_WORKFLOW_EXECUTION,
+            outcome=outcome_from_result(result_text),
+            trigger_type="shared_app",
         )
-        db.add(db_log)
         db.flush()
         for step in logs:
             node_log = models.NodeExecutionLog(
@@ -1017,37 +1778,37 @@ def run_project_workflow(project_id: int, request: Request, payload: Optional[Pr
     nodes = project.graph_data.get('nodes', [])
     edges = project.graph_data.get('edges', [])
     
-    kwargs = {}
+    # 입력 키 이름은 앱 제작자가 정한다 — 'db'/'session_id'/'project_id' 같은 이름이 오면
+    # **kwargs 로 펼칠 때 TypeError 가 나서 실행이 통째로 500 으로 죽었다.
+    user_inputs = {}
     if payload:
         if payload.inputs:
-            kwargs.update(payload.inputs)
+            user_inputs.update(payload.inputs)
             first_value = next(iter(payload.inputs.values()), None)
             if first_value is not None:
-                kwargs.setdefault('input_text', first_value)
-                kwargs.setdefault('text', first_value)
-                kwargs.setdefault('default_input', first_value)
+                user_inputs.setdefault('input_text', first_value)
+                user_inputs.setdefault('text', first_value)
+                user_inputs.setdefault('default_input', first_value)
         if payload.input_text:
-            kwargs['default_input'] = payload.input_text
-            kwargs.setdefault('input_text', payload.input_text)
-            kwargs.setdefault('text', payload.input_text)
+            user_inputs['default_input'] = payload.input_text
+            user_inputs.setdefault('input_text', payload.input_text)
+            user_inputs.setdefault('text', payload.input_text)
 
     try:
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='custom_app_run', project_id=project.id, **kwargs)
+        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='custom_app_run', project_id=project.id, user_inputs=user_inputs)
         
-        total_tokens = tokens.get('total_tokens', 0) if tokens else 0
-        if owner and total_tokens > 0:
-            owner.token_balance -= total_tokens
-
-        db_log = models.FlowExecutionLog(
-            user_id=user.id if user else None,
+        record_usage(
+            db,
+            billable_user_id=project.user_id,
+            actor_user_id=user.id if user else None,
             project_id=project.id,
+            token_usage=tokens,
             payload="Custom App Execution",
             result=result_text,
-            total_tokens=total_tokens,
-            token_usage_details=tokens,
-            status="success"
+            event_type=EVENT_WORKFLOW_EXECUTION,
+            outcome=outcome_from_result(result_text),
+            trigger_type="custom_app",
         )
-        db.add(db_log)
         db.commit()
         return {"status": "success", "result": result_text, "tokens": tokens, "logs": logs}
     except Exception as e:
@@ -1070,12 +1831,9 @@ def estimate_tokens(payload: FlowPayload):
     
     # Simple mapping of model to max output tokens
     max_output_map = {
-        'gemini-1.5-flash': 8192,
-        'gemini-1.5-pro': 8192,
         'gpt-4o-mini': 16384,
-        'gpt-4o': 4096,
-        'claude-3-haiku-20240307': 4096,
-        'claude-3-5-sonnet-20240620': 4096
+        'gpt-5.4-mini': 16384,
+        'gpt-5.6': 16384,
     }
     
     for node in payload.nodes:
@@ -1085,7 +1843,7 @@ def estimate_tokens(payload: FlowPayload):
             
             max_out = 0
             if node.get('type') == 'llmNode':
-                model = node.get('data', {}).get('model', 'gemini-1.5-flash')
+                model = node.get('data', {}).get('model', 'gpt-4o-mini')
                 max_out = max_output_map.get(model, 4096)
                 
             node_details[node['id']] = {
@@ -1111,9 +1869,30 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다. 토큰을 충전해 주세요.")
 
+    # 요청 자체가 잘못된 경우는 try 밖에서 막는다 — 아래 except 가 잡으면 400 이 200 + 오류
+    # 문자열로 뭉개져 클라이언트가 "실행이 실패했다" 와 "요청이 틀렸다" 를 구분할 수 없다.
+    node_ids = {str(n.get("id")) for n in payload.nodes}
+    entry_kwargs = {}
+    if payload.entry_node_id:
+        if str(payload.entry_node_id) not in node_ids:
+            raise HTTPException(status_code=400, detail="entry_node_id가 그래프에 없습니다.")
+        entry_kwargs = {"entry_node_id": payload.entry_node_id, "approval_payload": payload.entry_input or ""}
+    if payload.stop_node_id and str(payload.stop_node_id) not in node_ids:
+        raise HTTPException(status_code=400, detail="stop_node_id가 그래프에 없습니다.")
+    if payload.scope_node_ids:
+        unknown = [nid for nid in payload.scope_node_ids if str(nid) not in node_ids]
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"scope_node_ids에 그래프에 없는 노드가 있습니다: {unknown[0]}")
+
     # 1. Run LangGraph
     try:
-        result_text, tokens, logs = run_workflow(payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id)
+        result_text, tokens, logs = run_workflow(
+            payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id,
+            stop_node_id=payload.stop_node_id, scope_node_ids=payload.scope_node_ids,
+            pinned_outputs=payload.pinned_outputs,
+            **({"approval_decisions": payload.approval_decisions} if payload.approval_decisions else {}),
+            **entry_kwargs,
+        )
         
         # Check if run_workflow returned an error string
         if "► Flow 1 Error:" in result_text or "Error calling model" in result_text:
@@ -1144,23 +1923,23 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
     import json
     # 2. Save log to PostgreSQL (or SQLite fallback)
     try:
-        flow_status = "error" if "❌" in result_text or "Error" in result_text else "success"
+        # 성공/실패는 실행 로그의 구조화 오류(NodeError v1)로 판정한다 — 결과 문자열 검색은
+        # legacy 문구가 남은 경로의 fallback 으로만 남아 있다(ADR-0016, node_errors.runtime).
+        flow_status = node_error_runtime.flow_outcome(result_text, logs)
         
-        total_tokens = tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0
-        if user and total_tokens > 0:
-            user.token_balance -= total_tokens
-
-        db_log = models.FlowExecutionLog(
-            user_id=user.id if user else None,
+        db_log = record_usage(
+            db,
+            billable_user_id=user.id if user else None,
+            actor_user_id=user.id if user else None,
             project_id=payload.project_id,
+            token_usage=tokens if isinstance(tokens, dict) else None,
             payload=json.dumps(payload.dict()),
             result=result_text,
-            total_tokens=total_tokens,
-            token_usage_details=tokens if isinstance(tokens, dict) else None,
-            status=flow_status,
-            error_message=result_text if flow_status == "error" else None
+            event_type=EVENT_WORKFLOW_EXECUTION,
+            outcome=flow_status,
+            trigger_type="editor",
+            error_message=result_text if flow_status == "error" else None,
         )
-        db.add(db_log)
         db.flush() # To get db_log.id
         
         for step in logs:
@@ -1174,7 +1953,9 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
                 end_time=end_dt,
                 status=step.get('status', 'success'),
                 result_data=step.get('result_data'),
-                error_message=step.get('error_message')
+                error_message=step.get('error_message'),
+                # telemetry 컬럼 — code/category/effectState/legacy 여부만(ADR-0016 ERROR-4.3)
+                **node_error_runtime.step_columns(step),
             )
             db.add(node_log)
             
@@ -1185,7 +1966,127 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: mode
         db.rollback()
 
     # 3. Return response to frontend
-    return {"status": "success", "result": result_text, "token_usage": tokens, "logs": logs}
+    # 승인 대기로 멈춘 실행이면 프론트가 즉석 승인 UI(견본 미리보기 + 승인/거절)를 띄울 수
+    # 있도록 요청 상세를 함께 돌려준다(ADR-0015).
+    approval_request = None
+    for step in logs:
+        if step.get("approval_request_id"):
+            import approval_service
+            row = db.query(models.ApprovalRequest).filter(
+                models.ApprovalRequest.request_id == step["approval_request_id"],
+            ).first()
+            if row:
+                approval_request = approval_service.request_to_dict(row, include_full_payload=True)
+            break
+    # 구조화 오류 필드(ADR-0016): error_schema, node_error_v1(클라이언트 표시 플래그), outcome, errors[].
+    # 기존 result 문자열은 이행기 표시용으로 함께 제공한다.
+    return {"status": "success", "result": result_text, "token_usage": tokens, "logs": logs,
+            "approval_request": approval_request,
+            **node_error_runtime.response_fields(result_text, logs)}
+
+
+# ── 사용자 승인 요청 (ADR-0015) ─────────────────────────────────────────
+class ApprovalDecisionPayload(BaseModel):
+    decision: str  # approve | reject
+    comment: Optional[str] = ""
+
+
+@app.get("/api/approvals")
+def list_approvals(status: Optional[str] = None, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
+    import approval_service
+    query = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.user_id == user.id)
+    if status:
+        query = query.filter(models.ApprovalRequest.status == status)
+    rows = query.order_by(models.ApprovalRequest.created_at.desc()).limit(100).all()
+    pending_count = db.query(models.ApprovalRequest).filter(
+        models.ApprovalRequest.user_id == user.id,
+        models.ApprovalRequest.status == "pending",
+    ).count()
+    return {
+        "requests": [approval_service.request_to_dict(row) for row in rows],
+        "pending_count": pending_count,
+    }
+
+
+@app.get("/api/approvals/count")
+def count_pending_approvals(db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
+    count = db.query(models.ApprovalRequest).filter(
+        models.ApprovalRequest.user_id == user.id,
+        models.ApprovalRequest.status == "pending",
+    ).count()
+    return {"count": count}
+
+
+@app.get("/api/approvals/{request_id}")
+def get_approval(request_id: str, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
+    import approval_service
+    row = db.query(models.ApprovalRequest).filter(
+        models.ApprovalRequest.request_id == request_id,
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="승인 요청을 찾을 수 없습니다.")
+    if row.user_id != user.id:
+        raise HTTPException(status_code=403, detail="이 승인 요청을 볼 권한이 없습니다.")
+    return approval_service.request_to_dict(row, include_full_payload=True)
+
+
+@app.post("/api/approvals/{request_id}/decide")
+def decide_approval(request_id: str, payload: ApprovalDecisionPayload, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
+    """승인/거절을 기록하고 중단 지점부터 실행을 재개한다. 결정은 한 번만 유효하다."""
+    import json as _json
+
+    import approval_service
+    try:
+        request, result_text, tokens, logs = approval_service.decide_and_resume(
+            db, request_id=request_id, actor_user_id=user.id,
+            decision=payload.decision, comment=payload.comment or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    try:
+        record_usage(
+            db,
+            billable_user_id=request.user_id,
+            actor_user_id=user.id,
+            project_id=request.project_id,
+            token_usage=tokens if isinstance(tokens, dict) else None,
+            payload=_json.dumps({"approval_request_id": request.request_id, "decision": payload.decision}),
+            result=result_text,
+            event_type=EVENT_WORKFLOW_EXECUTION,
+            trigger_type="approval_resume",
+        )
+        db.commit()
+    except Exception as exc:
+        print(f"Failed to record approval resume usage: {exc}")
+        db.rollback()
+
+    # 재개 후 다음 승인 노드에서 다시 멈췄으면(연쇄 승인) 그 요청 상세도 함께 돌려준다.
+    next_approval = None
+    for step in logs:
+        if step.get("approval_request_id"):
+            row = db.query(models.ApprovalRequest).filter(
+                models.ApprovalRequest.request_id == step["approval_request_id"],
+            ).first()
+            if row:
+                next_approval = approval_service.request_to_dict(row, include_full_payload=True)
+            break
+
+    return {
+        "status": "success",
+        "request": approval_service.request_to_dict(request),
+        "result": result_text,
+        "token_usage": tokens,
+        "logs": logs,
+        "approval_request": next_approval,
+    }
+
 
 class EvaluatePayload(BaseModel):
     project_id: int
@@ -1208,11 +2109,6 @@ async def evaluate_project(payload: EvaluatePayload, user: models.User = Depends
             db=db,
             user_id=user.id if user else None,
         )
-
-        eval_tokens = report.get("token_usage", {}).get("total_tokens", 0) if isinstance(report, dict) else 0
-        if user and eval_tokens > 0:
-            user.token_balance -= eval_tokens
-            db.commit()
 
         return {"status": "success", "report": report}
     except Exception as e:
@@ -1246,7 +2142,17 @@ async def evaluate_project_with_autofix(payload: EvaluateAutofixPayload, user: m
 
         autofix_tokens = report.get("autofix_token_usage", {}).get("total_tokens", 0)
         if user and autofix_tokens > 0:
-            user.token_balance -= autofix_tokens
+            record_usage(
+                db,
+                billable_user_id=user.id,
+                actor_user_id=user.id,
+                project_id=payload.project_id,
+                token_usage=report.get("autofix_token_usage"),
+                payload="Evaluation Autofix",
+                result=f"Attempts: {len(report.get('attempts', []))}",
+                event_type=EVENT_WORKFLOW_GENERATION,
+                trigger_type="evaluation_autofix",
+            )
             db.commit()
 
         return {"status": "success", "report": report}
@@ -1273,49 +2179,120 @@ async def run_eval(ids: str = None, profile: str = None, refresh: bool = False):
 
 # ── 사이트(제품) 사용자 평가 ─────────────────────────────────────────────
 # 워크플로우 하나를 채점하는 /api/evaluate와는 별개로, 서비스 자체에 대한 사용자 만족도
-# 설문(1~5점, 문항별)을 받는다. 문항 id는 프론트(SiteFeedbackWidget)와 반드시 일치해야 한다.
+# 설문(1~5점, 문항별)을 받는다.
+#
+# **문항 정본은 여기 하나뿐이다.** 예전에는 프론트(SiteFeedbackWidget)가 같은 목록을 따로
+# 들고 있어서 한쪽만 고치면 조용히 갈라졌다 — 이제 /api/site-feedback/questions 로 내려준다.
+#
+# 문구는 개발 용어를 걷어내고 **처음 온 사람이 바로 답할 수 있는 말**로 쓴다. 한 화면에
+# 네 문항씩 보여주므로 구획(section)마다 정확히 네 개를 둔다.
+SITE_FEEDBACK_SECTIONS = [
+    {
+        "id": "make",
+        "title": "자동화 만들기",
+        "hint": "하고 싶은 일을 적어서 자동화를 만들어 본 경험에 대한 질문이에요.",
+        "questions": [
+            {"key": "gen_intent_match", "title": "말한 대로 만들어졌나요?",
+             "help": "원하는 일을 적었을 때 그에 맞는 자동화가 나왔는지"},
+            {"key": "gen_logic_match", "title": "순서가 자연스러웠나요?",
+             "help": "만들어진 단계가 실제로 일하는 순서와 맞았는지"},
+            {"key": "gen_edit_convenience", "title": "고치기 쉬웠나요?",
+             "help": "만들어진 내용을 원하는 대로 바꾸기 편했는지"},
+            {"key": "gen_detail_completeness", "title": "빠뜨린 게 없었나요?",
+             "help": "조건을 여러 개 말했을 때 하나도 빠지지 않고 들어갔는지"},
+        ],
+    },
+    {
+        "id": "screen",
+        "title": "화면과 사용 편의",
+        "hint": "화면을 보고 쓰는 동안 어땠는지에 대한 질문이에요.",
+        "questions": [
+            {"key": "ux_intuitiveness", "title": "처음에도 쓸 만했나요?",
+             "help": "설명을 따로 안 봐도 어디를 눌러야 할지 알 수 있었는지"},
+            {"key": "ux_visual_clarity", "title": "한눈에 들어왔나요?",
+             "help": "만든 자동화가 어떻게 흘러가는지 화면에서 잘 보였는지"},
+            {"key": "ux_menu_layout", "title": "찾던 기능이 있을 만한 자리에 있었나요?",
+             "help": "메뉴와 버튼 위치 때문에 헤매지 않았는지"},
+            {"key": "ux_customization", "title": "내게 맞게 바꿀 수 있었나요?",
+             "help": "어두운 화면처럼 보기 편한 방식으로 맞출 수 있었는지"},
+        ],
+    },
+    {
+        "id": "run",
+        "title": "실행과 연결",
+        "hint": "만든 자동화를 실제로 돌려 본 경험에 대한 질문이에요.",
+        "questions": [
+            {"key": "perf_speed", "title": "기다리는 시간이 짧았나요?",
+             "help": "실행할 때 답답하지 않았는지"},
+            {"key": "perf_stability", "title": "도중에 멈추지 않았나요?",
+             "help": "쓰는 중에 갑자기 오류가 나거나 멈추지 않았는지"},
+            {"key": "perf_error_clarity", "title": "문제가 생겼을 때 이해됐나요?",
+             "help": "오류 안내를 보고 무엇을 고쳐야 할지 알 수 있었는지"},
+            {"key": "integration_smoothness", "title": "쓰던 서비스와 잘 이어졌나요?",
+             "help": "메일·메신저·문서 같은 외부 서비스 연결이 매끄러웠는지"},
+        ],
+    },
+]
+
+# 요약·검증에 쓰는 평평한 목록. 관리 화면에서 문항을 알아볼 수 있게 구획 이름을 붙여 둔다.
 SITE_FEEDBACK_QUESTIONS = {
-    "gen_intent_match": "프롬프트 입력 시 사용자가 의도한 대로 워크플로우가 정확하게 생성되는가",
-    "gen_logic_match": "LLM이 제안한 자동화 단계가 실제 업무 로직과 잘 일치하는가",
-    "gen_edit_convenience": "자동 생성된 워크플로우를 사용자가 상황에 맞게 수정하고 편집하기 편리한가",
-    "gen_detail_completeness": "복잡한 조건을 요구했을 때 누락 없이 디테일한 부분까지 잘 반영하여 생성하는가",
-    "ux_intuitiveness": "전반적인 인터페이스가 직관적이고 처음 접속해도 적응하기 쉬운가",
-    "ux_visual_clarity": "복잡한 자동화 흐름을 시각적으로 쉽게 파악할 수 있도록 화면이 구성되었는가",
-    "ux_menu_layout": "메뉴 및 기능 버튼의 배치가 업무 흐름을 방해하지 않고 자연스러운가",
-    "ux_customization": "다크모드 지원이나 화면 분할 등 작업 환경을 커스터마이징하기 좋은가",
-    "perf_speed": "워크플로우가 실행될 때 지연 없이 빠른 속도로 처리되는가",
-    "perf_stability": "작업 실행 중 원인을 알 수 없는 오류나 멈춤 현상이 발생하지 않는가",
-    "perf_error_clarity": "에러가 발생했을 때 어디서 문제가 생겼는지 명확하고 쉽게 안내해 주는가",
-    "integration_smoothness": "평소 자주 사용하는 외부 서비스나 앱과의 연동이 매끄럽게 이루어지는가",
-    "integration_extensibility": "새로운 API를 추가하거나 커스텀 기능을 설정하는 과정이 편리한가",
+    question["key"]: f'[{section["title"]}] {question["title"]}'
+    for section in SITE_FEEDBACK_SECTIONS
+    for question in section["questions"]
 }
 
 class SiteFeedbackPayload(BaseModel):
     scores: Dict[str, int]
     comment: Optional[str] = None
 
+@app.get("/api/site-feedback/questions")
+def get_site_feedback_questions():
+    """문항 정본. 인증 없이도 볼 수 있다 — 안에 든 게 설문 문구뿐이다."""
+    return {"status": "success", "sections": SITE_FEEDBACK_SECTIONS}
+
 @app.get("/api/site-feedback/me")
-def get_my_site_feedback(db: Session = Depends(get_db)):
-    """이제 완전히 익명으로 전환되었으므로, 서버단에서는 제출 여부를 추적하지 않습니다."""
-    return {"submitted": False}
+def get_my_site_feedback(user: Optional[models.User] = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """이미 냈는지 여부. 로그인하지 않았으면 판단할 근거가 없으므로 False 다."""
+    if not user:
+        return {"submitted": False}
+    submitted = db.query(models.SiteFeedbackSubmitter).filter(
+        models.SiteFeedbackSubmitter.user_id == user.id).first() is not None
+    return {"submitted": submitted}
 
 @app.post("/api/site-feedback")
-def submit_site_feedback(payload: SiteFeedbackPayload, db: Session = Depends(get_db)):
-    # 평가자의 정보를 받지 않고 완전히 익명으로 저장합니다.
+def submit_site_feedback(payload: SiteFeedbackPayload,
+                         user: models.User = Depends(get_current_user_required),
+                         db: Session = Depends(get_db)):
+    """평가는 **계정당 한 번**이다. 내용은 그대로 익명으로 저장한다.
+
+    예전에는 인증 자체가 없어 누구인지 알 수 없었고, 그래서 같은 사람이 몇 번이든 낼 수
+    있었다. 지금은 로그인을 요구해 "냈다"는 사실만 별도 표에 적고, 평가 내용에는 여전히
+    user_id 를 남기지 않는다(models.SiteFeedbackSubmitter 주석 참고).
+    """
     unknown_keys = set(payload.scores.keys()) - set(SITE_FEEDBACK_QUESTIONS.keys())
     if unknown_keys:
         raise HTTPException(status_code=400, detail=f"알 수 없는 문항: {sorted(unknown_keys)}")
     for key, val in payload.scores.items():
         if not isinstance(val, int) or not (1 <= val <= 5):
             raise HTTPException(status_code=400, detail=f"{key}의 점수는 1~5 사이 정수여야 합니다")
+    # 문항을 전부 "잘 모르겠어요"로 넘겨 빈 응답이 쌓이는 것은 막는다.
+    if not payload.scores:
+        raise HTTPException(status_code=400, detail="점수를 매긴 문항이 하나도 없습니다.")
 
-    feedback = models.SiteFeedback(
-        user_id=None,
-        scores=payload.scores,
-        comment=payload.comment,
-    )
-    db.add(feedback)
-    db.commit()
+    if db.query(models.SiteFeedbackSubmitter).filter(
+            models.SiteFeedbackSubmitter.user_id == user.id).first():
+        raise HTTPException(status_code=409, detail="이미 평가를 제출하셨습니다.")
+
+    db.add(models.SiteFeedback(user_id=None, scores=payload.scores, comment=payload.comment))
+    db.add(models.SiteFeedbackSubmitter(user_id=user.id,
+                                        submitted_on=datetime.date.today()))
+    try:
+        db.commit()
+    except IntegrityError:
+        # 위의 조회와 커밋 사이에 다른 탭이 먼저 넣은 경우. 막는 것은 기본키이지 위 조회가 아니다.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 평가를 제출하셨습니다.")
     return {"status": "success"}
 
 @app.get("/api/site-feedback/summary")
@@ -1336,6 +2313,7 @@ def get_site_feedback_summary(db: Session = Depends(get_db)):
         for k, vs in totals.items()
     }
     return {"status": "success", "response_count": len(rows), "questions": summary}
+
 
 @app.get("/api/projects/{project_id}/runs")
 def get_project_runs(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user_required)):
@@ -1517,8 +2495,50 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
 
     target_type = getattr(payload, 'target_type', 'auto') or 'auto'
     
+    # ── 지목한 대상 해석 (백로그 28 POINT-0) ──
+    #
+    # **앱 생성 분기보다 먼저** 한다. 사용자가 캔버스에서 무언가를 지목했다면 그것은 "이걸
+    # 고쳐줘" 라는 뜻이지 "앱을 만들어줘" 가 아니다. 뒤에 두면 지목이 조용히 무시된다.
+    import pointing as _pointing
+
+    _point_ctx = None
+    _point_allowed = None
+    _point_instruction = None
+    try:
+        _point_ctx = _pointing.parse_context(payload.pointing_context)
+        if _point_ctx is not None:
+            # 이 엔드포인트는 워크플로우 그래프를 다룬다. 앱 컴포넌트 지목은 POINT-2 에서
+            # `/api/builder/generate_app` 에 붙는다 — 여기서 받으면 "대상 없음" 으로만 보인다.
+            _app_kinds = {t["kind"] for t in _point_ctx["targets"]
+                          if t["kind"] in (_pointing.KIND_APP_COMPONENT,
+                                           _pointing.KIND_APP_LOGIC_NODE)}
+            if _app_kinds:
+                raise _pointing.PointingError(
+                    _pointing.POINTING_INVALID_CONTEXT,
+                    "앱 컴포넌트 지목은 아직 지원하지 않습니다.")
+            _point_project = (db.query(models.Project)
+                              .filter(models.Project.id == numeric_project_id).first()
+                              if numeric_project_id else None)
+            if _point_project is None:
+                raise _pointing.PointingError(
+                    _pointing.POINTING_TARGET_NOT_FOUND, "이 워크플로우를 찾을 수 없습니다.")
+            _pointing.check_permission(db, user, _point_project, _point_ctx)
+            _pointing.resolve(_point_ctx["targets"], workflow_graph=payload.graph_data,
+                              revision=getattr(_point_project, "current_revision", None))
+            _point_allowed = _pointing.editable_ids(_point_ctx, workflow_graph=payload.graph_data)
+            _point_resolved = _pointing.resolve(
+                _point_ctx["targets"], workflow_graph=payload.graph_data,
+                revision=getattr(_point_project, "current_revision", None))
+            _point_instruction = _pointing.instruction_block(
+                _point_ctx, _point_allowed, _point_resolved)
+    except _pointing.PointingError as _pe:
+        print(f"[pointing] {_pe.code}: {_pointing.telemetry(_point_ctx, outcome=_pe.code.lower())}")
+        raise HTTPException(status_code=409 if _pe.code == _pointing.POINTING_TARGET_STALE else 400,
+                            detail=_pe.to_dict())
+
     # ── 1. App Builder Generation (앱 제작 의도) ──
-    if is_app_creation_intent(payload.message, target_type):
+    # 지목이 있으면 이 분기를 타지 않는다 — 지목은 곧 "대상 한정 수정" 요청이다.
+    if _point_ctx is None and is_app_creation_intent(payload.message, target_type):
         try:
             app_result = await app_agent.generate_app(
                 prompt=payload.message,
@@ -1583,17 +2603,18 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
             
             total_tokens = 3500
             if user and total_tokens > 0:
-                user.token_balance -= total_tokens
                 try:
-                    db_log = models.FlowExecutionLog(
-                        user_id=user.id,
+                    record_usage(
+                        db,
+                        billable_user_id=user.id,
+                        actor_user_id=user.id,
                         project_id=int(backend_project_id) if backend_project_id and backend_project_id.isdigit() else None,
                         payload=f"App Agent: {payload.message[:200]}",
                         result=app_result.reply[:500] if app_result.reply else "",
                         total_tokens=total_tokens,
-                        status="app_agent"
+                        event_type=EVENT_APP_GENERATION,
+                        trigger_type="app_agent",
                     )
-                    db.add(db_log)
                     db.commit()
                 except Exception as e:
                     db.rollback()
@@ -1663,25 +2684,37 @@ async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_
             db=db,
             trace_id=generation_trace_id,
             training_consent=payload.training_consent,
+            pointing_instruction=_point_instruction,
         )
         trace_payload = token_usage.pop("_generation_trace", None)
         generation_outcome = trace_payload.get("outcome") if trace_payload else None
+
+        # 모델이 "지목한 것만 고쳤다" 고 말해도 믿지 않는다 — 전후를 직접 비교한다.
+        # 범위 밖이 하나라도 바뀌었으면 **요청 전체를 거부**한다(절반만 반영된 그래프가 더 나쁘다).
+        if _point_ctx is not None and _point_allowed is not None and graph_data:
+            try:
+                _pointing.validate_scope(_point_ctx, before=payload.graph_data,
+                                         after=graph_data, allowed=_point_allowed)
+                print(f"[pointing] {_pointing.telemetry(_point_ctx, outcome='applied')}")
+            except _pointing.PointingError as _pe:
+                print(f"[pointing] {_pointing.telemetry(_point_ctx, outcome='scope_violation', violations=len(_pe.targets))}")
+                raise HTTPException(status_code=400, detail=_pe.to_dict())
         
         # 에이전트 토큰 차감 + DB 기록
         total_tokens = token_usage.get("total_tokens", 0)
         if user and total_tokens > 0:
-            user.token_balance -= total_tokens
             try:
-                db_log = models.FlowExecutionLog(
-                    user_id=user.id,
+                record_usage(
+                    db,
+                    billable_user_id=user.id,
+                    actor_user_id=user.id,
                     project_id=numeric_project_id,
                     payload=f"Agent Chat: {payload.message[:200]}",
                     result=reply[:500] if reply else "",
-                    total_tokens=total_tokens,
-                    token_usage_details=token_usage,
-                    status="agent",
+                    token_usage=token_usage,
+                    event_type=EVENT_WORKFLOW_GENERATION,
+                    trigger_type="agent_chat",
                 )
-                db.add(db_log)
                 db.commit()
             except Exception as e:
                 db.rollback()
@@ -1929,18 +2962,18 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     
     import json
     try:
-        total_tokens = tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0
-        if user and total_tokens > 0:
-            user.token_balance -= total_tokens
-
-        db_log = models.FlowExecutionLog(
-            user_id=user.id if user else None,
+        record_usage(
+            db,
+            billable_user_id=user.id if user else None,
+            actor_user_id=user.id if user else None,
+            project_id=project.id,
+            token_usage=tokens if isinstance(tokens, dict) else None,
             payload=json.dumps({"project_id": project_id, "inputs": payload.inputs}),
             result=result_text,
-            total_tokens=total_tokens,
-            token_usage_details=tokens if isinstance(tokens, dict) else None
+            event_type=EVENT_WORKFLOW_EXECUTION,
+            outcome=outcome_from_result(result_text),
+            trigger_type="api",
         )
-        db.add(db_log)
         db.commit()
     except Exception as e:
         print(f"Failed to save deploy log: {e}")
@@ -2023,19 +3056,23 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
     
     try:
         result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='webhook_' + str(project.id), project_id=project.id, **inputs)
-        flow_status = "error" if "❌" in result_text or "Error" in result_text else "success"
+        # 성공/실패는 실행 로그의 구조화 오류(NodeError v1)로 판정한다 — 결과 문자열 검색은
+        # legacy 문구가 남은 경로의 fallback 으로만 남아 있다(ADR-0016, node_errors.runtime).
+        flow_status = node_error_runtime.flow_outcome(result_text, logs)
         
-        db_log = models.FlowExecutionLog(
-            user_id=project.user_id,
+        record_usage(
+            db,
+            billable_user_id=project.user_id,
+            actor_user_id=None,
             project_id=project.id,
+            token_usage=tokens if isinstance(tokens, dict) else None,
             payload=json.dumps(payload, ensure_ascii=False),
             result="Success (Webhook)" if flow_status == "success" else result_text,
-            total_tokens=tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0,
-            token_usage_details=tokens if isinstance(tokens, dict) else None,
-            status=flow_status,
-            error_message=result_text if flow_status == "error" else None
+            event_type=EVENT_WORKFLOW_EXECUTION,
+            outcome=flow_status,
+            trigger_type="webhook",
+            error_message=result_text if flow_status == "error" else None,
         )
-        db.add(db_log)
         db.commit()
         return {"status": "success", "result": result_text}
     except Exception as e:
@@ -2079,6 +3116,7 @@ def get_active_bots(user: models.User = Depends(get_current_user_required), db: 
             result.append({
                 "project_id": p.id,
                 "project_title": p.title,
+                "trigger_node_id": discord_node_id,
                 "platform": "discord",
                 "status": status,
                 "bot_name": bot_name,
@@ -2095,6 +3133,7 @@ def get_active_bots(user: models.User = Depends(get_current_user_required), db: 
             result.append({
                 "project_id": p.id,
                 "project_title": p.title,
+                "trigger_node_id": telegram_node_id,
                 "platform": "telegram",
                 "status": "online" if is_live else "offline",
                 "bot_name": bot_name,
@@ -2317,13 +3356,21 @@ def get_schedules(user: models.User = Depends(get_current_user_required), db: Se
                     status = "Stopped"
                     if job and job.next_run_time:
                         next_run = job.next_run_time.isoformat()
+
+                last_run = db.query(models.FlowExecutionLog).filter(
+                    models.FlowExecutionLog.project_id == p.id
+                ).order_by(models.FlowExecutionLog.execution_time.desc()).first()
                         
                 schedules.append({
                     "project_id": p.id,
+                    "node_id": schedule_node.get("id"),
                     "title": p.title,
                     "cron": cron_expr,
                     "status": status,
-                    "next_run": next_run
+                    "next_run": next_run,
+                    "updated_at": p.updated_at,
+                    "last_run": last_run.execution_time if last_run else None,
+                    "last_outcome": (last_run.outcome or last_run.status) if last_run else None,
                 })
     return schedules
 
@@ -2585,13 +3632,1658 @@ def get_statistics(time_range: str = "weekly", user: models.User = Depends(get_c
     }
 
 
+@app.get("/api/statistics/v2")
+def get_statistics_v2(
+    time_range: str = "weekly",
+    timezone: str = "Asia/Seoul",
+    user: models.User = Depends(get_current_user_required),
+    db: Session = Depends(get_db),
+):
+    if time_range not in VALID_TIME_RANGES:
+        raise HTTPException(status_code=422, detail=f"Unsupported time_range: {time_range}")
+    try:
+        return build_statistics(db, user, time_range=time_range, timezone_name=timezone)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# ── Workspace / RBAC (ADR-0024, 우선 백로그 11) ────────────────────────────
+#
+# 권한 판정은 `project_access.can()` 한 곳이다. 아직 옮기지 않은 엔드포인트는 `user_id == user.id`
+# 를 보는데, 그건 workspace 멤버십보다 **더 엄격하다** — 이전이 덜 끝난 상태의 실패 방식은
+# "팀원이 아직 못 한다"이지 "남이 볼 수 있다"가 아니다.
+
+class WorkspaceCreatePayload(BaseModel):
+    slug: str
+    name: str
+
+
+class InvitePayload(BaseModel):
+    handle: str
+    role: str = "viewer"
+
+
+class RolePayload(BaseModel):
+    userId: int
+    role: str
+
+
+class MoveProjectPayload(BaseModel):
+    workspaceId: Optional[int] = None
+
+
+def _workspace_or_404(db, workspace_id: int, user):
+    import project_access
+
+    workspace = db.query(models.Workspace).filter(models.Workspace.id == workspace_id).first()
+    # 멤버가 아니면 존재 자체를 알리지 않는다.
+    if workspace is None or not project_access.role_of(db, workspace.id, user.id):
+        raise HTTPException(status_code=404, detail="워크스페이스를 찾을 수 없습니다.")
+    return workspace
+
+
+@app.get("/api/workspaces")
+def list_my_workspaces(user: models.User = Depends(get_current_user_required),
+                       db: Session = Depends(get_db)):
+    import workspaces as ws
+
+    return {"status": "success", "workspaces": ws.my_workspaces(db, user),
+            "invites": ws.pending_invites(db, user)}
+
+
+@app.post("/api/workspaces")
+def create_workspace(payload: WorkspaceCreatePayload,
+                     user: models.User = Depends(get_current_user_required),
+                     db: Session = Depends(get_db)):
+    import workspaces as ws
+
+    try:
+        workspace = ws.create_workspace(db, user, slug=payload.slug, name=payload.name)
+    except ws.WorkspaceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "workspaceId": workspace.id, "slug": workspace.slug}
+
+
+@app.get("/api/workspaces/{workspace_id}")
+def get_workspace(workspace_id: int, user: models.User = Depends(get_current_user_required),
+                  db: Session = Depends(get_db)):
+    import project_access
+    import workspaces as ws
+
+    workspace = _workspace_or_404(db, workspace_id, user)
+    role = project_access.role_of(db, workspace.id, user.id)
+    projects = db.query(models.Project).filter(models.Project.workspace_id == workspace.id).all()
+    return {"status": "success", "workspace": {
+        "id": workspace.id, "slug": workspace.slug, "name": workspace.name, "myRole": role,
+        "canManageMembers": project_access.can_manage_members(role),
+        "members": ws.members(db, workspace.id),
+        "projects": [{"id": p.id, "title": p.title, "visibility": p.visibility} for p in projects],
+    }}
+
+
+@app.post("/api/workspaces/{workspace_id}/invites")
+def invite_member(workspace_id: int, payload: InvitePayload,
+                  user: models.User = Depends(get_current_user_required),
+                  db: Session = Depends(get_db)):
+    """**핸들로 초대한다** — 이메일로 초대하면 이메일만 알아도 계정 존재 여부가 확인된다."""
+    import workspaces as ws
+
+    workspace = _workspace_or_404(db, workspace_id, user)
+    try:
+        row = ws.invite(db, user, workspace, handle=payload.handle, role=payload.role)
+    except ws.WorkspaceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "inviteId": row.id}
+
+
+@app.post("/api/workspaces/invites/{invite_id}")
+def respond_invite(invite_id: int, payload: dict = Body(...),
+                   user: models.User = Depends(get_current_user_required),
+                   db: Session = Depends(get_db)):
+    import workspaces as ws
+
+    try:
+        row = ws.respond_to_invite(db, user, invite_id, accept=bool(payload.get("accept")))
+    except ws.WorkspaceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"status": "success", "inviteStatus": row.status}
+
+
+@app.post("/api/workspaces/{workspace_id}/members/role")
+def change_member_role(workspace_id: int, payload: RolePayload,
+                       user: models.User = Depends(get_current_user_required),
+                       db: Session = Depends(get_db)):
+    import workspaces as ws
+
+    workspace = _workspace_or_404(db, workspace_id, user)
+    try:
+        ws.set_role(db, user, workspace, payload.userId, payload.role)
+    except ws.WorkspaceError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return {"status": "success"}
+
+
+@app.delete("/api/workspaces/{workspace_id}/members/{user_id}")
+def remove_member(workspace_id: int, user_id: int,
+                  user: models.User = Depends(get_current_user_required),
+                  db: Session = Depends(get_db)):
+    """**마지막 소유자는 나갈 수 없다** — 주인 없는 workspace 는 아무도 관리할 수 없다."""
+    import workspaces as ws
+
+    workspace = _workspace_or_404(db, workspace_id, user)
+    try:
+        ws.remove_member(db, user, workspace, user_id)
+    except ws.WorkspaceError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return {"status": "success"}
+
+
+@app.get("/api/workspaces/{workspace_id}/audit")
+def workspace_audit(workspace_id: int, limit: int = 50,
+                    user: models.User = Depends(get_current_user_required),
+                    db: Session = Depends(get_db)):
+    import project_access
+    import workspaces as ws
+
+    workspace = _workspace_or_404(db, workspace_id, user)
+    if not project_access.can_manage_members(project_access.role_of(db, workspace.id, user.id)):
+        raise HTTPException(status_code=403, detail="감사 이력은 관리자만 볼 수 있습니다.")
+    return {"status": "success", "events": ws.recent_events(db, workspace.id, limit=limit)}
+
+
+@app.post("/api/projects/{project_id}/workspace")
+def move_project_to_workspace(project_id: int, payload: MoveProjectPayload,
+                              user: models.User = Depends(get_current_user_required),
+                              db: Session = Depends(get_db)):
+    import workspaces as ws
+
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+    try:
+        ws.move_project(db, user, project, workspace_id=payload.workspaceId)
+    except ws.WorkspaceError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return {"status": "success", "workspaceId": project.workspace_id}
+
+
+# ── 커뮤니티 템플릿 (ADR-0023, 우선 백로그 12) ─────────────────────────────
+#
+# §4.12 의 글 공유 위에 **버전·호환성·설치 계보**를 얹는 승격 계층이다. 스냅샷과 정화는 그대로
+# 물려받고 다시 만들지 않는다.
+
+class TemplatePublishPayload(BaseModel):
+    projectId: int
+    slug: str
+    title: str
+    description: Optional[str] = ""
+    category: str = "etc"
+    tags: Optional[List[str]] = None
+    version: str = "1.0.0"
+    changelog: Optional[str] = ""
+
+
+class TemplateVersionPayload(BaseModel):
+    projectId: int
+    version: str
+    changelog: Optional[str] = ""
+
+
+@app.post("/api/community/templates/gate")
+def check_template_gate(payload: dict = Body(...),
+                        user: models.User = Depends(get_current_user_required),
+                        db: Session = Depends(get_db)):
+    """게시 조건을 미리 본다. **왜 안 되는지가 즉시 보여야 한다.**"""
+    import community_templates
+
+    project = db.query(models.Project).filter(
+        models.Project.id == payload.get("projectId"), models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="워크플로우를 찾을 수 없습니다.")
+    return {"status": "success", **community_templates.evaluate_gate(db, project, user)}
+
+
+@app.get("/api/community/templates")
+def list_community_templates(category: Optional[str] = None, tag: Optional[str] = None,
+                             q: Optional[str] = None, sort: str = "quality", limit: int = 30,
+                             db: Session = Depends(get_db)):
+    import community_templates
+
+    rows = community_templates.list_templates(db, category=category, tag=tag,
+                                              query_text=q, sort=sort, limit=limit)
+    return {"status": "success",
+            "templates": [community_templates.public_template(db, t) for t in rows]}
+
+
+@app.post("/api/community/templates")
+def publish_template(payload: TemplatePublishPayload,
+                     user: models.User = Depends(get_current_user_required),
+                     db: Session = Depends(get_db)):
+    import community_templates
+
+    _require_active_profile(db, user)
+    project = db.query(models.Project).filter(models.Project.id == payload.projectId).first()
+    try:
+        template, version = community_templates.publish(
+            db, user, project=project, slug=payload.slug, title=payload.title,
+            description=payload.description or "", category=payload.category,
+            tags=payload.tags, version=payload.version, changelog=payload.changelog or "")
+    except community_templates.TemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "templateId": template.id, "slug": template.slug,
+            "templateStatus": template.status, "versionId": version.id}
+
+
+class TemplateEditPayload(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[List[str]] = None
+    introBody: Optional[str] = None
+    introImageIds: Optional[List[str]] = None
+    thumbnailArtifactId: Optional[str] = None
+
+
+class TemplateRevisePayload(BaseModel):
+    # 둘 중 하나로 그래프를 준다. 운영자는 보통 템플릿을 자기 계정으로 가져와 에디터에서
+    # 고친 뒤 그 프로젝트를 가리킨다 — JSON 을 손으로 붙여넣게 만들 이유가 없다.
+    projectId: Optional[int] = None
+    graph: Optional[Dict[str, Any]] = None
+    version: str
+    changelog: str = ""
+    reviewer: str = ""
+
+
+class TemplateCommentPayload(BaseModel):
+    body: str
+
+
+def _template_for_view(db, slug: str, *, viewer):
+    """소개 페이지가 볼 수 있는 템플릿. 검수 대기·정지 상태는 고칠 수 있는 사람에게만 보인다."""
+    import community_templates
+
+    template = db.query(models.Template).filter(models.Template.slug == slug).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다.")
+    if template.status not in ("published", "deprecated"):
+        if not community_templates.can_edit(db, viewer, template):
+            raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다.")
+    return template
+
+
+@app.get("/api/community/templates/{slug}")
+def get_community_template(slug: str,
+                           user: Optional[models.User] = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    """소개 페이지가 쓰는 한 방 조회 — 템플릿·버전·소개·댓글·내가 누른 좋아요까지 함께 준다."""
+    import community_identity
+    import community_posts
+    import community_templates
+
+    template = _template_for_view(db, slug, viewer=user)
+    versions = db.query(models.TemplateVersion).filter(
+        models.TemplateVersion.template_id == template.id
+    ).order_by(models.TemplateVersion.id.desc()).all()
+
+    payload = community_templates.public_template(db, template)
+    payload["introBody"] = template.intro_body or ""
+    payload["introImages"] = [f"/api/community/templates/{template.slug}/images/{a}"
+                              for a in (template.intro_image_ids or [])]
+    payload["introImageIds"] = [str(a) for a in (template.intro_image_ids or [])]
+    payload["thumbnailArtifactId"] = template.thumbnail_artifact_id
+    payload["canEdit"] = community_templates.can_edit(db, user, template)
+    latest = db.query(models.TemplateVersion).filter_by(id=template.latest_version_id).first()
+    share = (db.query(models.WorkflowShare).filter_by(id=latest.workflow_share_id).first()
+             if latest else None)
+    payload["graphOutline"] = community_templates.graph_outline(share)
+
+    liked = False
+    if user:
+        liked = db.query(models.Reaction).filter(
+            models.Reaction.target_type == "template", models.Reaction.target_id == template.id,
+            models.Reaction.user_id == user.id, models.Reaction.kind == "like").first() is not None
+    payload["likedByMe"] = liked
+    # 자기 것에는 좋아요를 못 누른다 — 버튼을 눌러 보고 실패하는 대신 미리 알려준다.
+    payload["canLike"] = bool(user) and template.owner_id != (user.id if user else None)
+
+    comments = community_posts.list_comments(db, target_type="template",
+                                             target_ids=[template.id],
+                                             viewer_id=user.id if user else None)
+    staff = _viewer_is_staff(db, user)
+    payload["comments"] = [{
+        "id": c.id, "body": c.body,
+        "author": community_identity.public_profile(
+            community_identity.get_profile(db, c.author_id)) if c.author_id else None,
+        "createdAt": c.created_at.isoformat() if c.created_at else None,
+        "canDelete": bool(user and (c.author_id == user.id or staff)),
+    } for c in comments]
+
+    return {"status": "success",
+            "template": payload,
+            "versions": [{"id": v.id, "version": v.version, "changelog": v.changelog,
+                          "status": v.status,
+                          "publishedAt": v.published_at.isoformat() if v.published_at else None,
+                          "compatibility": community_templates.check_compatibility(db, v)}
+                         for v in versions]}
+
+
+@app.patch("/api/community/templates/{slug}")
+def edit_community_template(slug: str, payload: TemplateEditPayload,
+                            user: models.User = Depends(get_current_user_required),
+                            db: Session = Depends(get_db)):
+    """겉면(제목·소개·분류·섬네일)을 고친다. **버전 스냅샷은 건드리지 않는다.**"""
+    import community_templates
+
+    template = _template_for_view(db, slug, viewer=user)
+    image_ids = None
+    if payload.introImageIds is not None:
+        image_ids = _validated_template_images(db, user, template, payload.introImageIds)
+    try:
+        community_templates.edit_template(
+            db, user, template, title=payload.title, description=payload.description,
+            category=payload.category, tags=payload.tags, intro_body=payload.introBody,
+            intro_image_ids=image_ids, thumbnail_artifact_id=payload.thumbnailArtifactId)
+    except community_templates.TemplateError as exc:
+        raise HTTPException(status_code=403 if "권한" in str(exc) else 400, detail=str(exc))
+    return {"status": "success", "template": community_templates.public_template(db, template)}
+
+
+@app.post("/api/community/templates/{slug}/revise")
+def revise_community_template(slug: str, payload: TemplateRevisePayload,
+                              user: models.User = Depends(get_current_user_required),
+                              db: Session = Depends(get_db)):
+    """공식 템플릿의 **로직**을 고쳐 새 버전을 낸다. 기존 버전은 그대로 남는다."""
+    import community_templates
+
+    template = _template_for_view(db, slug, viewer=user)
+
+    graph = payload.graph
+    if payload.projectId is not None:
+        project = db.query(models.Project).filter(models.Project.id == payload.projectId).first()
+        # 남의 프로젝트를 가리켜 그 내용을 공식 템플릿으로 밀어넣지 못하게 한다.
+        if not project or project.user_id != user.id:
+            raise HTTPException(status_code=404, detail="워크플로우를 찾을 수 없습니다.")
+        graph = project.graph_data or {}
+    if graph is None:
+        raise HTTPException(status_code=400, detail="새 버전으로 낼 워크플로우를 지정해주세요.")
+
+    try:
+        _, version = community_templates.revise_curated(
+            db, user, template, graph=graph, version=payload.version,
+            changelog=payload.changelog, reviewer=payload.reviewer)
+    except community_templates.TemplateError as exc:
+        raise HTTPException(status_code=403 if "권한" in str(exc) else 400, detail=str(exc))
+    return {"status": "success", "versionId": version.id, "version": version.version}
+
+
+def _validated_template_images(db, user, template, artifact_ids):
+    """소개에 붙일 이미지를 검증한다.
+
+    이미 소개에 들어 있는 id 는 통과시킨다 — 운영자가 남이 올린 템플릿의 오탈자를 고칠 때
+    그림까지 다시 올리게 만들 수는 없다. 새로 넣는 id 만 **올린 본인 것인지** 확인한다.
+    """
+    import artifacts
+
+    ids = [str(a).strip() for a in (artifact_ids or []) if str(a or "").strip()]
+    if len(ids) > community_templates_max_images():
+        raise HTTPException(status_code=400,
+                            detail=f"이미지는 최대 {community_templates_max_images()}장까지 넣을 수 있습니다.")
+    existing = {str(a) for a in (template.intro_image_ids or [])}
+    for artifact_id in ids:
+        if artifact_id in existing:
+            continue
+        try:
+            resolved = artifacts.resolve(db, artifact_id, owner_user_id=user.id,
+                                         require_project_match=False)
+        except Exception:
+            raise HTTPException(status_code=400, detail="붙일 수 없는 이미지가 있습니다.")
+        if resolved.ref.kind != artifacts.KIND_IMAGE:
+            raise HTTPException(status_code=400, detail="이미지 파일만 붙일 수 있습니다.")
+    return ids
+
+
+def community_templates_max_images() -> int:
+    import community_templates
+
+    return community_templates.MAX_INTRO_IMAGES
+
+
+@app.get("/api/community/templates/{slug}/images/{artifact_id}")
+def get_community_template_image(slug: str, artifact_id: str,
+                                 user: Optional[models.User] = Depends(get_current_user),
+                                 db: Session = Depends(get_db)):
+    """소개 이미지. 공개 목록에 실리는 그림이라 로그인 없이도 볼 수 있다 —
+    다만 **그 템플릿의 소개에 실제로 들어 있는 id** 만 내려준다."""
+    import artifacts
+
+    identifier = str(artifact_id or "").strip()
+    template = _template_for_view(db, slug, viewer=user)
+    if identifier not in [str(a) for a in (template.intro_image_ids or [])]:
+        raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다.")
+    try:
+        resolved = artifacts.resolve(db, identifier, owner_user_id=0, allow_any_owner=True,
+                                     require_project_match=False)
+    except Exception:
+        raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다.")
+    return FileResponse(resolved.path, media_type=resolved.ref.mime_type,
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.post("/api/community/templates/{slug}/like")
+def like_community_template(slug: str,
+                            user: models.User = Depends(get_current_user_required),
+                            db: Session = Depends(get_db)):
+    import community_posts
+
+    template = _template_for_view(db, slug, viewer=user)
+    try:
+        return {"status": "success",
+                **community_posts.toggle_like(db, user, target_type="template",
+                                              target_id=template.id)}
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/community/templates/{slug}/comments")
+def comment_on_community_template(slug: str, payload: TemplateCommentPayload,
+                                  user: models.User = Depends(get_current_user_required),
+                                  db: Session = Depends(get_db)):
+    import community_identity
+    import community_posts
+    import rate_limit
+
+    _require_active_profile(db, user)
+    template = _template_for_view(db, slug, viewer=user)
+    try:
+        rate_limit.enforce(db, f"user:{user.id}", "comment.create",
+                           is_new_account=_is_new_account(user))
+    except rate_limit.RateLimited as exc:
+        raise _rate_limited(exc)
+    try:
+        row = community_posts.create_comment(db, user, target_type="template",
+                                             target_id=template.id, body=payload.body)
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "comment": {
+        "id": row.id, "body": row.body,
+        "author": community_identity.public_profile(community_identity.get_profile(db, user.id)),
+        "createdAt": row.created_at.isoformat() if row.created_at else None,
+        "canDelete": True,
+    }}
+
+
+@app.post("/api/community/templates/{slug}/versions")
+def publish_template_version(slug: str, payload: TemplateVersionPayload,
+                             user: models.User = Depends(get_current_user_required),
+                             db: Session = Depends(get_db)):
+    """새 버전. 설치자에게 알림이 가지만 **사본을 자동으로 고치지는 않는다.**"""
+    import community_templates
+
+    _require_active_profile(db, user)
+    template = db.query(models.Template).filter(models.Template.slug == slug).first()
+    project = db.query(models.Project).filter(models.Project.id == payload.projectId).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다.")
+    try:
+        version = community_templates.publish_version(
+            db, user, template, project=project, version=payload.version,
+            changelog=payload.changelog or "")
+    except community_templates.TemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "versionId": version.id}
+
+
+@app.post("/api/community/templates/{slug}/install")
+def install_community_template(slug: str, version_id: Optional[int] = None,
+                               user: models.User = Depends(get_current_user_required),
+                               db: Session = Depends(get_db)):
+    """사본을 만든다. **실행하지 않는다** — 자격증명은 사용자가 자기 계정에서 채운다."""
+    import community_shares
+    import community_templates
+
+    template = db.query(models.Template).filter(models.Template.slug == slug).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다.")
+    version = db.query(models.TemplateVersion).filter(
+        models.TemplateVersion.id == (version_id or template.latest_version_id)).first()
+    if not version or version.template_id != template.id:
+        raise HTTPException(status_code=404, detail="버전을 찾을 수 없습니다.")
+
+    try:
+        project = community_templates.install(db, user, template, version)
+    except community_templates.TemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    share = db.query(models.WorkflowShare).filter(
+        models.WorkflowShare.id == version.workflow_share_id).first()
+    return {"status": "success", "projectId": project.id,
+            "preview": community_shares.import_preview(share)}
+
+
+@app.post("/api/community/templates/{slug}/versions/{version_id}/yank")
+def yank_template_version(slug: str, version_id: int,
+                          user: models.User = Depends(get_current_user_required),
+                          db: Session = Depends(get_db)):
+    """새 설치만 막는다. 이미 설치한 사본은 **회수할 수 없다** — 남의 프로젝트다."""
+    import community_templates
+
+    version = db.query(models.TemplateVersion).filter(
+        models.TemplateVersion.id == version_id).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="버전을 찾을 수 없습니다.")
+    try:
+        community_templates.yank_version(db, user, version)
+    except community_templates.TemplateError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return {"status": "success"}
+
+
+@app.post("/api/community/moderation/templates/{template_id}")
+def moderate_template(template_id: int, payload: dict = Body(...),
+                      staff: models.User = Depends(get_current_staff_user),
+                      db: Session = Depends(get_db)):
+    """검수 큐의 템플릿을 승인·반려·정지한다. 정지는 **추가 설치만** 막는다."""
+    import community_safety
+
+    template = db.query(models.Template).filter(models.Template.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다.")
+    action = str(payload.get("action") or "")
+    if action not in ("approve", "suspend", "restore"):
+        raise HTTPException(status_code=400, detail="허용되지 않는 조치입니다.")
+
+    template.status = "published" if action in ("approve", "restore") else "suspended"
+    if action == "approve" and not template.published_at:
+        template.published_at = datetime.datetime.utcnow()
+    community_safety.record_action(
+        db, staff, target_type="template", target_id=str(template.id),
+        action="restore" if action in ("approve", "restore") else "suspend",
+        reason=str(payload.get("reason") or ""), commit=False)
+
+    if action == "suspend":
+        # 회수는 불가능하다. 할 수 있는 것은 설치자에게 알리는 것뿐이다.
+        import notifications
+
+        installer_ids = {row.installed_by for row in db.query(models.TemplateInstall)
+                         .join(models.TemplateVersion,
+                               models.TemplateInstall.template_version_id == models.TemplateVersion.id)
+                         .filter(models.TemplateVersion.template_id == template.id).all()
+                         if row.installed_by}
+        for user_id in installer_ids:
+            notifications.notify(db, user_id=user_id, kind="template_suspended",
+                                 target_type="template", target_id=str(template.id), commit=False,
+                                 body=f"설치한 템플릿 '{template.title}' 이 운영 조치로 중지됐습니다. "
+                                      f"이미 가져간 사본은 그대로 남아 있으니 직접 확인해주세요.")
+    db.commit()
+    return {"status": "success", "templateStatus": template.status}
+
+
+# ── 사용자 간 쪽지 (ADR-0022, 우선 백로그 24) ──────────────────────────────
+#
+# 수신 범위 판정은 `messaging.can_message()` 한 곳에 있고 **전송 API 와 SSE 구독이 같은 함수**를
+# 쓴다. 전송만 막고 구독을 열어 두면 차단한 상대의 메시지가 스트림으로 흘러 들어온다.
+
+class ConversationOpenPayload(BaseModel):
+    handle: str
+
+
+class SendMessagePayload(BaseModel):
+    body: str = ""
+    artifactIds: Optional[List[str]] = None
+
+
+class ReadUpToPayload(BaseModel):
+    upToId: Optional[int] = None
+
+
+def _messaging_enabled():
+    import message_stream
+
+    if not message_stream.enabled():
+        raise HTTPException(status_code=503, detail="쪽지 기능이 현재 꺼져 있습니다.")
+
+
+def _conversation_or_404(db, conversation_id: int, user_id: int):
+    import messaging
+
+    conversation = db.query(models.Conversation).filter(
+        models.Conversation.id == conversation_id).first()
+    try:
+        return messaging.require_participant(db, conversation, user_id)
+    except messaging.MessagingError:
+        # 참가자가 아니면 존재 자체를 알리지 않는다 — 대화 id 를 찍어보며 확인할 수 없어야 한다.
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다.")
+
+
+@app.get("/api/messages/conversations")
+def list_conversations(user: models.User = Depends(get_current_user_required),
+                       db: Session = Depends(get_db)):
+    import messaging
+
+    _messaging_enabled()
+    return {"status": "success", "conversations": messaging.list_conversations(db, user.id),
+            "unread": messaging.unread_total(db, user.id)}
+
+
+@app.post("/api/messages/conversations")
+def open_conversation(payload: ConversationOpenPayload,
+                      user: models.User = Depends(get_current_user_required),
+                      db: Session = Depends(get_db)):
+    """대화 열기. **친구가 아니면 여기서 막힌다** — 대화를 여는 것 자체가 수신 범위 검사를 지난다."""
+    import community_identity
+    import messaging
+
+    _messaging_enabled()
+    _require_active_profile(db, user)
+    profile = community_identity.find_by_handle(db, payload.handle)
+    if not profile:
+        raise HTTPException(status_code=404, detail="해당 핸들의 사용자를 찾을 수 없습니다.")
+    other = db.query(models.User).filter(models.User.id == profile.user_id).first()
+    try:
+        conversation = messaging.open_conversation(db, user, other)
+    except messaging.MessagingForbidden as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except messaging.MessagingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "conversationId": conversation.id}
+
+
+@app.get("/api/messages/conversations/{conversation_id}")
+def get_conversation(conversation_id: int, before_id: Optional[int] = None, limit: int = 50,
+                     user: models.User = Depends(get_current_user_required),
+                     db: Session = Depends(get_db)):
+    import community_identity
+    import messaging
+
+    _messaging_enabled()
+    conversation = _conversation_or_404(db, conversation_id, user.id)
+    rows = messaging.list_messages(db, conversation, user.id, before_id=before_id, limit=limit)
+    other_id = messaging.other_participant(conversation, user.id)
+    return {"status": "success",
+            "other": community_identity.public_profile(community_identity.get_profile(db, other_id)),
+            # 친구가 끊기거나 차단되면 읽기만 남는다 — 대화를 지우지는 않는다.
+            "canSend": messaging.can_message(db, user.id, other_id),
+            "messages": [messaging.public_message(m, user.id) for m in rows]}
+
+
+@app.post("/api/messages/conversations/{conversation_id}/messages")
+def send_message(conversation_id: int, payload: SendMessagePayload,
+                 user: models.User = Depends(get_current_user_required),
+                 db: Session = Depends(get_db)):
+    import message_stream
+    import messaging
+    import rate_limit
+
+    _messaging_enabled()
+    _require_active_profile(db, user)
+    conversation = _conversation_or_404(db, conversation_id, user.id)
+    try:
+        rate_limit.enforce(db, f"user:{user.id}", "message.send", is_new_account=_is_new_account(user))
+    except rate_limit.RateLimited as exc:
+        raise _rate_limited(exc)
+
+    try:
+        message = messaging.send_message(db, user, conversation, body=payload.body,
+                                         artifact_ids=payload.artifactIds)
+    except messaging.MessagingForbidden as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except messaging.MessagingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # 같은 프로세스의 대기자를 깨운다. 전달을 **보장**하는 것은 DB 다(message_stream 참고).
+    message_stream.publish([messaging.other_participant(conversation, user.id)])
+    return {"status": "success", "messageId": message.id}
+
+
+@app.post("/api/messages/conversations/{conversation_id}/read")
+def read_conversation(conversation_id: int, payload: ReadUpToPayload,
+                      user: models.User = Depends(get_current_user_required),
+                      db: Session = Depends(get_db)):
+    import messaging
+
+    _messaging_enabled()
+    conversation = _conversation_or_404(db, conversation_id, user.id)
+    return {"status": "success",
+            "lastReadMessageId": messaging.mark_read(db, conversation, user.id,
+                                                     up_to_id=payload.upToId)}
+
+
+@app.delete("/api/messages/conversations/{conversation_id}")
+def hide_conversation(conversation_id: int, user: models.User = Depends(get_current_user_required),
+                      db: Session = Depends(get_db)):
+    """**내 목록에서만** 숨긴다. 상대의 대화와 메시지는 그대로다."""
+    import messaging
+
+    _messaging_enabled()
+    conversation = _conversation_or_404(db, conversation_id, user.id)
+    messaging.hide_conversation(db, conversation, user.id)
+    return {"status": "success"}
+
+
+@app.delete("/api/messages/{message_id}")
+def delete_message_for_me(message_id: int, user: models.User = Depends(get_current_user_required),
+                          db: Session = Depends(get_db)):
+    """내 화면에서만 지운다 — 양쪽에서 지우면 신고가 들어왔을 때 확인할 방법이 없다."""
+    import messaging
+
+    _messaging_enabled()
+    message = db.query(models.Message).filter(models.Message.id == message_id).first()
+    if message is None:
+        raise HTTPException(status_code=404, detail="메시지를 찾을 수 없습니다.")
+    _conversation_or_404(db, message.conversation_id, user.id)
+    messaging.delete_for_me(db, message, user.id)
+    return {"status": "success"}
+
+
+@app.get("/api/messages/stream")
+async def stream_messages(request: Request, last_event_id: int = 0,
+                          user: models.User = Depends(get_current_user_required)):
+    """SSE. 재연결은 정상 동작이다 — `Last-Event-ID` 로 놓친 구간을 메운다.
+
+    nginx 가 `proxy_buffering` 을 켠 채로 두면 이벤트가 버퍼에 갇힌다. `X-Accel-Buffering: no` 로
+    직접 알리고, 배포 문서(.env.example)에도 남겼다.
+    """
+    import message_stream
+    from database import SessionLocal
+
+    _messaging_enabled()
+    if message_stream.stream_count(user.id) >= message_stream.MAX_STREAMS_PER_USER:
+        raise HTTPException(status_code=429, detail="열려 있는 연결이 너무 많습니다. 다른 탭을 닫아주세요.")
+
+    header_id = request.headers.get("last-event-id")
+    try:
+        resume_from = int(header_id) if header_id else int(last_event_id or 0)
+    except (TypeError, ValueError):
+        resume_from = 0
+
+    return StreamingResponse(
+        message_stream.event_stream(SessionLocal, user.id, resume_from),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Accel-Buffering": "no"},
+    )
+
+
+# ── 커뮤니티 Q&A (ADR-0021, 우선 백로그 23) ────────────────────────────────
+#
+# 가시성 판정은 `community_posts.visible_post_query()` 한 곳에 있다. 목록·검색·상세가 각자
+# 판단하면 한 경로만 빠뜨려도 친구 공개 글이 전체에 노출되거나 차단한 사람의 글이 보인다.
+
+class PostPayload(BaseModel):
+    kind: str = "question"
+    visibility: str = "public"
+    title: str
+    body: str = ""
+    tags: Optional[List[str]] = None
+    projectId: Optional[int] = None          # 붙일 워크플로우(선택)
+    nodeError: Optional[dict] = None         # 실행 오류 발췌(선택)
+    nodeType: Optional[str] = None
+    imageArtifactIds: Optional[List[str]] = None   # 붙일 이미지(선택)
+
+
+class PostEditPayload(BaseModel):
+    title: Optional[str] = None
+    body: Optional[str] = None
+    tags: Optional[List[str]] = None
+    visibility: Optional[str] = None
+
+
+class AnswerPayload(BaseModel):
+    body: str
+    projectId: Optional[int] = None
+
+
+class CommentPayload(BaseModel):
+    targetType: str
+    targetId: int
+    body: str
+
+
+class LikePayload(BaseModel):
+    targetType: str
+    targetId: int
+
+
+def _author_of(db, user_id):
+    import community_identity
+
+    return community_identity.public_profile(community_identity.get_profile(db, user_id)) if user_id else None
+
+
+def _viewer_is_staff(db, user) -> bool:
+    """운영 권한 판정의 단일 창구. admin 과 moderator 를 매번 따로 조합하면 화면마다 어긋난다."""
+    import community_safety
+
+    return community_safety.has_staff_access(user)
+
+
+def _post_summary(db, post, *, share=None, viewer_id=None, is_staff=False):
+    return {
+        "id": post.id, "kind": post.kind, "visibility": post.visibility,
+        "title": post.title, "tags": list(post.tags or []),
+        "answerCount": post.answer_count or 0, "likeCount": post.like_count or 0,
+        "resolved": post.accepted_answer_id is not None,
+        "author": _author_of(db, post.author_id),
+        "createdAt": post.created_at.isoformat() if post.created_at else None,
+        "hasWorkflow": share is not None,
+        "images": [f"/api/community/posts/{post.id}/images/{a}"
+                   for a in (post.image_artifact_ids or [])],
+        # 삭제 권한은 서버가 판단해 내려준다 — 화면이 각자 규칙을 다시 쓰면 어긋난다.
+        "canDelete": bool(viewer_id and (post.author_id == viewer_id or is_staff)),
+    }
+
+
+@app.get("/api/community/posts")
+def list_community_posts(sort: str = "unanswered", kind: Optional[str] = None,
+                         tag: Optional[str] = None, error_code: Optional[str] = None,
+                         q: Optional[str] = None, before_id: Optional[int] = None,
+                         limit: int = 20, user: models.User = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """기본 정렬은 **미해결 질문**이다 — Q&A 에서 가장 중요한 화면은 인기 글이 아니라 답이 없는 질문이다."""
+    import community_posts
+
+    viewer_id = user.id if user else None
+    viewer_is_staff = _viewer_is_staff(db, user)
+    posts = community_posts.list_posts(
+        db, viewer_id=viewer_id, sort=sort, kind=kind, tag=tag,
+        error_code=error_code, query_text=q, before_id=before_id, limit=limit)
+    shares = {s.owner_id for s in db.query(models.WorkflowShare).filter(
+        models.WorkflowShare.owner_type == "post",
+        models.WorkflowShare.owner_id.in_([p.id for p in posts] or [-1])).all()}
+    return {"status": "success", "posts": [
+        _post_summary(db, p, share=(True if p.id in shares else None),
+                      viewer_id=viewer_id, is_staff=viewer_is_staff) for p in posts]}
+
+
+MAX_POST_IMAGES = 6
+
+
+def _validated_post_images(db, user, artifact_ids):
+    """붙일 이미지를 글 작성 **전에** 검증한다.
+
+    남의 파일 id 를 그대로 실어 보내는 것을 막아야 하므로 소유자 확인이 있는 `resolve()` 를 쓴다.
+    그림이 아닌 파일(예: pdf·xlsx)은 여기서 거른다 — 확장자만 보고 통과시키면 업로드 관문을
+    우회해 아무 파일이나 글에 붙일 수 있다.
+    """
+    import artifacts
+
+    ids = [str(a).strip() for a in (artifact_ids or []) if str(a or "").strip()]
+    if not ids:
+        return []
+    if len(ids) > MAX_POST_IMAGES:
+        raise HTTPException(status_code=400, detail=f"이미지는 최대 {MAX_POST_IMAGES}장까지 붙일 수 있습니다.")
+
+    validated = []
+    for artifact_id in ids:
+        try:
+            resolved = artifacts.resolve(db, artifact_id, owner_user_id=user.id,
+                                         require_project_match=False)
+        except Exception:
+            raise HTTPException(status_code=400, detail="붙일 수 없는 이미지가 있습니다.")
+        if resolved.ref.kind != artifacts.KIND_IMAGE:
+            raise HTTPException(status_code=400, detail="이미지 파일만 붙일 수 있습니다.")
+        validated.append(resolved.ref.artifact_id)
+    return validated
+
+
+@app.post("/api/community/posts")
+def create_community_post(payload: PostPayload,
+                          user: models.User = Depends(get_current_user_required),
+                          db: Session = Depends(get_db)):
+    import community_posts
+    import community_shares
+    import rate_limit
+
+    _require_active_profile(db, user)
+    try:
+        rate_limit.enforce(db, f"user:{user.id}", "post.create", is_new_account=_is_new_account(user))
+    except rate_limit.RateLimited as exc:
+        raise _rate_limited(exc)
+
+    image_ids = _validated_post_images(db, user, payload.imageArtifactIds)
+    try:
+        post = community_posts.create_post(
+            db, user, kind=payload.kind, title=payload.title, body=payload.body,
+            tags=payload.tags, visibility=payload.visibility, image_artifact_ids=image_ids)
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # 글에 붙은 뒤에야 고정한다 — 글이 안 만들어졌으면 평소 보존 기간대로 정리되어야 한다.
+    community_posts.pin_images(db, image_ids)
+    db.commit()
+
+    # 워크플로우 첨부 — 정화에 실패하면 글까지 되돌린다(반쯤 만들어진 글을 남기지 않는다).
+    if payload.projectId:
+        project = db.query(models.Project).filter(models.Project.id == payload.projectId).first()
+        try:
+            community_shares.create_share(db, user, owner_type="post", owner_id=post.id, project=project)
+        except community_shares.ShareError as exc:
+            db.delete(post)
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    if payload.nodeError:
+        try:
+            community_shares.attach_excerpt(db, post, node_error=payload.nodeError,
+                                            node_type=payload.nodeType or "")
+        except community_shares.ShareError:
+            pass   # 발췌 실패가 글 작성을 막지는 않는다
+    return {"status": "success", "postId": post.id}
+
+
+@app.get("/api/community/posts/{post_id}")
+def get_community_post(post_id: int, user: models.User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    import community_posts
+    import community_shares
+
+    viewer_id = user.id if user else None
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    # 볼 수 없는 글은 **존재하지 않는 것처럼** 404 다 — 친구 공개 글의 존재를 확인할 수 없게.
+    if not community_posts.can_view(db, post, viewer_id):
+        raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다.")
+
+    post.view_count = (post.view_count or 0) + 1
+    db.commit()
+
+    answers = community_posts.list_answers(db, post, viewer_id)
+    share = db.query(models.WorkflowShare).filter(
+        models.WorkflowShare.owner_type == "post", models.WorkflowShare.owner_id == post.id).first()
+    answer_shares = {s.owner_id: s for s in db.query(models.WorkflowShare).filter(
+        models.WorkflowShare.owner_type == "answer",
+        models.WorkflowShare.owner_id.in_([a.id for a in answers] or [-1])).all()}
+    excerpts = db.query(models.ExecutionExcerpt).filter(
+        models.ExecutionExcerpt.post_id == post.id).all()
+    post_comments = community_posts.list_comments(db, target_type="post", target_ids=[post.id],
+                                                  viewer_id=viewer_id)
+    answer_comments = community_posts.list_comments(db, target_type="answer",
+                                                    target_ids=[a.id for a in answers],
+                                                    viewer_id=viewer_id)
+
+    def comment_payload(rows):
+        return [{"id": c.id, "body": c.body, "author": _author_of(db, c.author_id),
+                 "createdAt": c.created_at.isoformat() if c.created_at else None} for c in rows]
+
+    return {"status": "success", "post": {
+        **_post_summary(db, post, share=share, viewer_id=viewer_id,
+                        is_staff=_viewer_is_staff(db, user)),
+        "body": post.body, "viewCount": post.view_count,
+        "acceptedAnswerId": post.accepted_answer_id,
+        "isAuthor": bool(viewer_id and post.author_id == viewer_id),
+        "workflow": community_shares.public_share(share),
+        "excerpts": [community_shares.public_excerpt(e) for e in excerpts],
+        "comments": comment_payload(post_comments),
+        "answers": [{
+            "id": a.id, "body": a.body, "likeCount": a.like_count or 0,
+            "isAccepted": bool(a.is_accepted), "author": _author_of(db, a.author_id),
+            "createdAt": a.created_at.isoformat() if a.created_at else None,
+            "workflow": community_shares.public_share(answer_shares.get(a.id)),
+            "comments": comment_payload([c for c in answer_comments if c.target_id == a.id]),
+        } for a in answers],
+    }}
+
+
+@app.get("/api/community/posts/{post_id}/images/{artifact_id}")
+def get_community_post_image(post_id: int, artifact_id: str,
+                             user: models.User = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    """글 이미지를 내려준다. 볼 자격은 **그 이미지를 실은 글의 공개 범위**가 정한다.
+
+    `/uploads` 정적 경로로 바로 주지 않는 이유는 친구 공개 글 때문이다 — 정적 경로는 주소만 알면
+    누구나 받을 수 있어서, 친구에게만 보인다고 적어놓고 그림은 전부 공개되는 상태가 된다.
+    글 id 를 주소에 넣는 이유는 이 한 건만 보면 되기 때문이다 — artifact id 만 받으면 그 id 를 실은
+    글을 찾으려고 전체 글을 훑어야 한다.
+    """
+    import artifacts
+    import community_posts
+
+    identifier = str(artifact_id or "").strip()
+    viewer_id = user.id if user else None
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    # 글을 볼 수 없으면 이미지도 없다 — 있는지조차 알리지 않는다(404).
+    if not community_posts.can_view(db, post, viewer_id):
+        raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다.")
+    if identifier not in [str(a) for a in (post.image_artifact_ids or [])]:
+        raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다.")
+
+    try:
+        # 소유권 검사를 건너뛴다 — 글쓴이가 아닌 사람도 봐야 하고, 볼 자격은 위에서 이미 정해졌다.
+        resolved = artifacts.resolve(db, identifier, owner_user_id=0, allow_any_owner=True,
+                                     require_project_match=False)
+    except Exception:
+        raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다.")
+    return FileResponse(resolved.path, media_type=resolved.ref.mime_type,
+                        headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.patch("/api/community/posts/{post_id}")
+def edit_community_post(post_id: int, payload: PostEditPayload,
+                        user: models.User = Depends(get_current_user_required),
+                        db: Session = Depends(get_db)):
+    import community_posts
+
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    if not community_posts.can_view(db, post, user.id):
+        raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다.")
+    try:
+        community_posts.edit_post(db, user, post,
+                                  **{k: v for k, v in payload.dict().items() if v is not None})
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return {"status": "success"}
+
+
+@app.delete("/api/community/posts/{post_id}")
+def delete_community_post(post_id: int, user: models.User = Depends(get_current_user_required),
+                          db: Session = Depends(get_db)):
+    import community_posts
+    import community_safety
+
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    if post is None or post.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다.")
+    staff = community_safety.has_staff_access(user)
+    try:
+        community_posts.delete_post(db, user, post, is_staff=staff)
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    if staff and post.author_id != user.id:
+        community_safety.record_action(db, user, target_type="post", target_id=str(post.id),
+                                       action="remove", reason="운영 조치")
+    return {"status": "success"}
+
+
+@app.post("/api/community/posts/{post_id}/answers")
+def create_community_answer(post_id: int, payload: AnswerPayload,
+                            user: models.User = Depends(get_current_user_required),
+                            db: Session = Depends(get_db)):
+    import community_posts
+    import community_shares
+    import notifications
+    import rate_limit
+
+    _require_active_profile(db, user)
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    if not community_posts.can_view(db, post, user.id):
+        raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다.")
+    try:
+        rate_limit.enforce(db, f"user:{user.id}", "answer.create", is_new_account=_is_new_account(user))
+    except rate_limit.RateLimited as exc:
+        raise _rate_limited(exc)
+
+    try:
+        answer = community_posts.create_answer(db, user, post, body=payload.body)
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if payload.projectId:
+        project = db.query(models.Project).filter(models.Project.id == payload.projectId).first()
+        try:
+            community_shares.create_share(db, user, owner_type="answer", owner_id=answer.id,
+                                          project=project)
+        except community_shares.ShareError as exc:
+            db.delete(answer)
+            post.answer_count = max(0, (post.answer_count or 1) - 1)
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    if post.author_id and post.author_id != user.id:
+        notifications.notify(db, user_id=post.author_id, kind="answer", actor_id=user.id,
+                             target_type="post", target_id=str(post.id),
+                             body=f"질문에 답변이 달렸습니다: {post.title[:40]}")
+    return {"status": "success", "answerId": answer.id}
+
+
+@app.post("/api/community/posts/{post_id}/accept/{answer_id}")
+def accept_community_answer(post_id: int, answer_id: int,
+                            user: models.User = Depends(get_current_user_required),
+                            db: Session = Depends(get_db)):
+    """채택은 **질문자만** 한다 — 무엇이 자기 문제를 풀었는지는 질문자만 안다."""
+    import community_posts
+    import notifications
+
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    answer = db.query(models.Answer).filter(models.Answer.id == answer_id).first()
+    if not community_posts.can_view(db, post, user.id) or answer is None:
+        raise HTTPException(status_code=404, detail="찾을 수 없습니다.")
+    try:
+        community_posts.accept_answer(db, user, post, answer)
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    # 채택 알림은 답변자에게 가장 중요한 신호다.
+    if answer.author_id and answer.author_id != user.id:
+        notifications.notify(db, user_id=answer.author_id, kind="accepted", actor_id=user.id,
+                             target_type="post", target_id=str(post.id),
+                             body=f"답변이 채택되었습니다: {post.title[:40]}")
+    return {"status": "success"}
+
+
+@app.delete("/api/community/posts/{post_id}/accept")
+def unaccept_community_answer(post_id: int, user: models.User = Depends(get_current_user_required),
+                              db: Session = Depends(get_db)):
+    import community_posts
+
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    if not community_posts.can_view(db, post, user.id):
+        raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다.")
+    try:
+        community_posts.unaccept_answer(db, user, post)
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return {"status": "success"}
+
+
+@app.delete("/api/community/comments/{comment_id}")
+def delete_community_comment(comment_id: int,
+                             user: models.User = Depends(get_current_user_required),
+                             db: Session = Depends(get_db)):
+    """본인 댓글은 본인이, 그 외에는 운영자가 지운다. 글·답변과 같은 soft delete 다."""
+    import community_posts
+
+    comment = db.query(models.Comment).filter(models.Comment.id == comment_id).first()
+    if not comment or comment.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
+    try:
+        community_posts.delete_comment(db, user, comment, is_staff=_viewer_is_staff(db, user))
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return {"status": "success"}
+
+
+@app.post("/api/community/comments")
+def create_community_comment(payload: CommentPayload,
+                             user: models.User = Depends(get_current_user_required),
+                             db: Session = Depends(get_db)):
+    import community_posts
+    import rate_limit
+
+    _require_active_profile(db, user)
+    try:
+        rate_limit.enforce(db, f"user:{user.id}", "comment.create", is_new_account=_is_new_account(user))
+    except rate_limit.RateLimited as exc:
+        raise _rate_limited(exc)
+
+    # 댓글도 글의 가시성을 따른다 — 볼 수 없는 글에는 댓글을 달 수 없다.
+    post_id = payload.targetId if payload.targetType == "post" else None
+    if payload.targetType == "answer":
+        answer = db.query(models.Answer).filter(models.Answer.id == payload.targetId).first()
+        post_id = answer.post_id if answer else None
+    post = db.query(models.Post).filter(models.Post.id == post_id).first() if post_id else None
+    if not community_posts.can_view(db, post, user.id):
+        raise HTTPException(status_code=404, detail="대상을 찾을 수 없습니다.")
+
+    try:
+        row = community_posts.create_comment(db, user, target_type=payload.targetType,
+                                             target_id=payload.targetId, body=payload.body)
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "commentId": row.id}
+
+
+@app.post("/api/community/likes")
+def toggle_community_like(payload: LikePayload,
+                          user: models.User = Depends(get_current_user_required),
+                          db: Session = Depends(get_db)):
+    import community_posts
+
+    _require_active_profile(db, user)
+    try:
+        result = community_posts.toggle_like(db, user, target_type=payload.targetType,
+                                             target_id=payload.targetId)
+    except community_posts.PostError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", **result}
+
+
+# ── 워크플로우 공유 ─────────────────────────────────────────────────────
+@app.post("/api/community/shares/preview")
+def preview_share(payload: dict = Body(...),
+                  user: models.User = Depends(get_current_user_required),
+                  db: Session = Depends(get_db)):
+    """게시 **전에** 무엇이 지워지는지 보여준다. 사용자가 모른 채 누르게 하지 않는다."""
+    import community_sanitize
+
+    project = db.query(models.Project).filter(
+        models.Project.id == payload.get("projectId"),
+        models.Project.user_id == user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="워크플로우를 찾을 수 없습니다.")
+    return {"status": "success", **community_sanitize.preview(project.graph_data or {})}
+
+
+@app.get("/api/community/shares/{share_id}")
+def get_share(share_id: int, user: models.User = Depends(get_current_user),
+              db: Session = Depends(get_db)):
+    import community_posts
+    import community_shares
+
+    share = db.query(models.WorkflowShare).filter(models.WorkflowShare.id == share_id).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
+    post_id = share.owner_id if share.owner_type == "post" else (
+        db.query(models.Answer).filter(models.Answer.id == share.owner_id).first().post_id)
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    if not community_posts.can_view(db, post, user.id if user else None):
+        raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
+    return {"status": "success",
+            "share": community_shares.public_share(share, include_graph=True),
+            "preview": community_shares.import_preview(share)}
+
+
+@app.post("/api/community/shares/{share_id}/import")
+def import_shared_workflow(share_id: int, user: models.User = Depends(get_current_user_required),
+                           db: Session = Depends(get_db)):
+    """사본을 만든다. **실행하지 않는다** — 자격증명은 사용자가 자기 계정에서 채운다."""
+    import community_posts
+    import community_shares
+    import notifications
+
+    share = db.query(models.WorkflowShare).filter(models.WorkflowShare.id == share_id).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
+    post_id = share.owner_id if share.owner_type == "post" else (
+        db.query(models.Answer).filter(models.Answer.id == share.owner_id).first().post_id)
+    post = db.query(models.Post).filter(models.Post.id == post_id).first()
+    if not community_posts.can_view(db, post, user.id):
+        raise HTTPException(status_code=404, detail="공유된 워크플로우를 찾을 수 없습니다.")
+
+    try:
+        project = community_shares.import_share(db, user, share)
+    except community_shares.ShareError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if post and post.author_id and post.author_id != user.id:
+        notifications.notify(db, user_id=post.author_id, kind="imported", actor_id=user.id,
+                             target_type="post", target_id=str(post.id), quiet=True,
+                             body=f"공유한 워크플로우를 누군가 가져갔습니다: {post.title[:40]}")
+    return {"status": "success", "projectId": project.id,
+            "preview": community_shares.import_preview(share)}
+
+
+# ── 커뮤니티 안전·정체성 공통 기반 (ADR-0020, 우선 백로그 22) ─────────────
+#
+# 이 묶음은 §4.12(글·답변)와 §4.13(쪽지)이 **함께 쓰는 바닥**이다. 기능마다 신고·차단을 따로 두면
+# 관리자가 두 화면을 보며 같은 사용자를 판단하게 되고, "커뮤니티에서 차단했는데 쪽지는 오는"
+# 상태가 반드시 생긴다.
+
+class ProfilePayload(BaseModel):
+    handle: str
+    displayName: Optional[str] = ""
+    bio: Optional[str] = ""
+
+
+class BlockPayload(BaseModel):
+    handle: str
+
+
+class ReportPayload(BaseModel):
+    targetType: str
+    targetId: str
+    reason: str
+    detail: Optional[str] = ""
+
+
+class ReportStatusPayload(BaseModel):
+    status: str
+
+
+class SuspendPayload(BaseModel):
+    handle: str
+    days: int = 7
+    reason: Optional[str] = ""
+
+
+class ReadPayload(BaseModel):
+    ids: Optional[List[int]] = None
+
+
+def _rate_limited(exc) -> HTTPException:
+    return HTTPException(status_code=429, detail="요청이 너무 잦습니다. 잠시 뒤 다시 시도해주세요.",
+                         headers={"Retry-After": str(exc.retry_after)})
+
+
+def _require_active_profile(db, user):
+    """커뮤니티 쓰기의 공통 전제 — 긴급 스위치가 켜져 있고, 프로필이 있고, 정지되지 않았을 것.
+
+    글·답변·댓글·좋아요·쪽지가 모두 이 함수를 지나므로 여기 한 곳이면 쓰기 전체가 멈춘다.
+    읽기 경로는 이 함수를 부르지 않는다 — 그래서 읽기는 항상 유지된다.
+    """
+    import community_identity
+    import community_safety
+
+    if not community_safety.community_writes_enabled(db):
+        raise HTTPException(status_code=503,
+                            detail="커뮤니티 쓰기가 일시 중지됐습니다. 읽기는 계속 가능합니다.")
+    profile = community_identity.get_profile(db, user.id)
+    if profile is None:
+        raise HTTPException(status_code=409, detail="커뮤니티 프로필이 필요합니다. 핸들을 먼저 만들어주세요.")
+    if community_identity.is_suspended(profile):
+        raise HTTPException(status_code=403, detail="커뮤니티 활동이 제한된 상태입니다. 읽기는 계속 가능합니다.")
+    return profile
+
+
+@app.get("/api/community/me")
+def community_me(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """커뮤니티 진입점. 프로필이 없으면 **만들라는 신호와 후보 핸들**을 준다(ADR-0020 SAFE-1).
+
+    핸들을 미리 백필하지 않는 이유가 여기 있다 — 커뮤니티에 처음 들어오는 이 순간에는 사용자가
+    왜 공개 이름이 필요한지 안다.
+    """
+    import community_identity
+    import community_safety
+    import notifications
+
+    profile = community_identity.get_profile(db, user.id)
+    if profile is None:
+        return {"status": "success", "needsProfile": True,
+                "suggestedHandle": community_identity.suggest(db, user),
+                # 운영 권한은 커뮤니티 프로필 생성 여부와 무관하다. 프로필이 없는 moderator도
+                # 운영 콘솔을 찾아갈 수 있어야 하므로 두 분기에서 같은 권한 정보를 돌려준다.
+                "role": getattr(user, "role", "user"),
+                "isStaff": community_safety.has_staff_access(user),
+                "unreadNotifications": notifications.unread_count(db, user.id)}
+    return {
+        "status": "success", "needsProfile": False,
+        "profile": community_identity.public_profile(profile),
+        "role": getattr(user, "role", "user"),
+        "isStaff": community_safety.has_staff_access(user),
+        "unreadNotifications": notifications.unread_count(db, user.id),
+    }
+
+
+@app.post("/api/community/profile")
+def create_community_profile(payload: ProfilePayload,
+                             user: models.User = Depends(get_current_user_required),
+                             db: Session = Depends(get_db)):
+    import community_identity
+
+    try:
+        profile = community_identity.create_profile(
+            db, user, handle=payload.handle,
+            display_name=payload.displayName or "", bio=payload.bio or "")
+    except community_identity.HandleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "profile": community_identity.public_profile(profile)}
+
+
+@app.get("/api/community/profiles/{handle}")
+def get_community_profile(handle: str, user: models.User = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    """공개 프로필. 차단한 상대는 **존재하지 않는 것처럼** 404 다 — 차단 사실을 API 로 확인할 수 없게."""
+    import community_identity
+    import community_safety
+
+    profile = community_identity.find_by_handle(db, handle)
+    if not profile:
+        raise HTTPException(status_code=404, detail="프로필을 찾을 수 없습니다.")
+    if user and profile.user_id in community_safety.hidden_user_ids(db, user.id):
+        raise HTTPException(status_code=404, detail="프로필을 찾을 수 없습니다.")
+    return {"status": "success", "profile": community_identity.public_profile(profile)}
+
+
+@app.get("/api/community/blocks")
+def list_blocks(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    import community_identity
+
+    rows = db.query(models.Block).filter(models.Block.blocker_id == user.id).all()
+    return {"status": "success", "blocked": [
+        community_identity.public_profile(community_identity.get_profile(db, row.blocked_id))
+        for row in rows
+    ]}
+
+
+@app.post("/api/community/blocks")
+def create_block(payload: BlockPayload, user: models.User = Depends(get_current_user_required),
+                 db: Session = Depends(get_db)):
+    """차단 + 친구 해제 + 상대에게 조용한 통지(제품 결정 2026-08-29)."""
+    import community_identity
+    import community_safety
+    import rate_limit
+
+    try:
+        rate_limit.enforce(db, f"user:{user.id}", "block.create")
+    except rate_limit.RateLimited as exc:
+        raise _rate_limited(exc)
+
+    profile = community_identity.find_by_handle(db, payload.handle)
+    if not profile:
+        raise HTTPException(status_code=404, detail="해당 핸들의 사용자를 찾을 수 없습니다.")
+    target = db.query(models.User).filter(models.User.id == profile.user_id).first()
+    try:
+        community_safety.block(db, user, target)
+    except community_safety.SafetyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success"}
+
+
+@app.delete("/api/community/blocks/{handle}")
+def delete_block(handle: str, user: models.User = Depends(get_current_user_required),
+                 db: Session = Depends(get_db)):
+    """차단 해제. **친구 관계는 복구하지 않는다** — 다시 맺을지는 사용자가 정한다."""
+    import community_identity
+    import community_safety
+
+    profile = community_identity.find_by_handle(db, handle)
+    if not profile:
+        raise HTTPException(status_code=404, detail="해당 핸들의 사용자를 찾을 수 없습니다.")
+    target = db.query(models.User).filter(models.User.id == profile.user_id).first()
+    return {"status": "success", "removed": community_safety.unblock(db, user, target)}
+
+
+@app.post("/api/community/reports")
+def create_report(payload: ReportPayload, user: models.User = Depends(get_current_user_required),
+                  db: Session = Depends(get_db)):
+    import community_safety
+    import rate_limit
+
+    try:
+        rate_limit.enforce(db, f"user:{user.id}", "report.create", is_new_account=_is_new_account(user))
+    except rate_limit.RateLimited as exc:
+        raise _rate_limited(exc)
+    try:
+        row = community_safety.report(db, user, target_type=payload.targetType,
+                                      target_id=payload.targetId, reason=payload.reason,
+                                      detail=payload.detail or "")
+    except community_safety.SafetyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "reportId": row.id}
+
+
+@app.get("/api/community/notifications")
+def get_notifications(before_id: Optional[int] = None, limit: int = 30,
+                      user: models.User = Depends(get_current_user_required),
+                      db: Session = Depends(get_db)):
+    import notifications
+
+    return {
+        "status": "success",
+        "unread": notifications.unread_count(db, user.id),
+        "notifications": notifications.list_for(db, user.id, before_id=before_id, limit=limit),
+    }
+
+
+@app.post("/api/community/notifications/read")
+def read_notifications(payload: ReadPayload, user: models.User = Depends(get_current_user_required),
+                       db: Session = Depends(get_db)):
+    import notifications
+
+    updated = notifications.mark_read(db, user.id, notification_ids=payload.ids)
+    return {"status": "success", "updated": updated, "unread": notifications.unread_count(db, user.id)}
+
+
+# ── 운영(moderator 이상) ────────────────────────────────────────────────
+@app.get("/api/community/moderation/reports")
+def list_reports(status_filter: str = "open", limit: int = 50,
+                 staff: models.User = Depends(get_current_staff_user),
+                 db: Session = Depends(get_db)):
+    query = db.query(models.Report)
+    if status_filter != "all":
+        query = query.filter(models.Report.status == status_filter)
+    rows = query.order_by(models.Report.id.desc()).limit(max(1, min(limit, 200))).all()
+    import community_safety
+
+    # 신고된 것이 **무엇인지** 함께 준다 — 대상 미리보기 없이는 판단할 근거가 없다.
+    return {"status": "success", "reports": [{
+        "id": r.id, "targetType": r.target_type, "targetId": r.target_id,
+        "reason": r.reason, "detail": r.detail, "status": r.status,
+        "reporter": _author_of(db, r.reporter_id),
+        "target": community_safety.target_preview(db, r.target_type, r.target_id),
+        "createdAt": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows]}
+
+
+@app.post("/api/community/moderation/reports/{report_id}")
+def update_report(report_id: int, payload: ReportStatusPayload,
+                  staff: models.User = Depends(get_current_staff_user),
+                  db: Session = Depends(get_db)):
+    import community_safety
+
+    try:
+        row = community_safety.resolve_report(db, staff, report_id, status=payload.status)
+    except community_safety.SafetyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "reportStatus": row.status}
+
+
+class ContentActionPayload(BaseModel):
+    targetType: str
+    targetId: str
+    action: str            # hide | remove | restore
+    reason: Optional[str] = ""
+
+
+class WritesSwitchPayload(BaseModel):
+    enabled: bool
+    reason: Optional[str] = ""
+
+
+@app.post("/api/community/moderation/content")
+def moderate_content(payload: ContentActionPayload,
+                     staff: models.User = Depends(get_current_staff_user),
+                     db: Session = Depends(get_db)):
+    """글·답변·댓글·쪽지 조치. **되돌리기도 하나의 조치로 이력에 남는다.**"""
+    import community_safety
+
+    try:
+        community_safety.moderate_content(db, staff, target_type=payload.targetType,
+                                          target_id=payload.targetId, action=payload.action,
+                                          reason=payload.reason or "")
+    except community_safety.SafetyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success"}
+
+
+@app.get("/api/community/moderation/actions")
+def list_moderation_actions(limit: int = 50,
+                            staff: models.User = Depends(get_current_staff_user),
+                            db: Session = Depends(get_db)):
+    import community_safety
+
+    return {"status": "success", "actions": community_safety.recent_actions(db, limit=limit)}
+
+
+@app.get("/api/community/moderation/status")
+def moderation_status(staff: models.User = Depends(get_current_staff_user),
+                      db: Session = Depends(get_db)):
+    import community_safety
+
+    return {
+        "status": "success",
+        "writesEnabled": community_safety.community_writes_enabled(db),
+        "openReports": db.query(models.Report).filter(models.Report.status == "open").count(),
+        "reviewing": db.query(models.Report).filter(models.Report.status == "reviewing").count(),
+    }
+
+
+@app.post("/api/community/moderation/writes")
+def switch_community_writes(payload: WritesSwitchPayload,
+                            staff: models.User = Depends(get_current_staff_user),
+                            db: Session = Depends(get_db)):
+    """긴급 스위치 — 커뮤니티 **쓰기만** 멈춘다. 읽기는 어느 경우에도 유지된다.
+
+    상태를 환경변수가 아니라 조치 이력으로 표현한다. 긴급 스위치가 재배포를 요구하면 정작
+    긴급할 때 쓸 수 없고, 이력에 두면 누가 언제 껐는지가 함께 남는다.
+    """
+    import community_safety
+
+    enabled = community_safety.set_community_writes(db, staff, enabled=payload.enabled,
+                                                    reason=payload.reason or "")
+    return {"status": "success", "writesEnabled": enabled}
+
+
+@app.post("/api/community/moderation/suspend")
+def suspend_member(payload: SuspendPayload, staff: models.User = Depends(get_current_staff_user),
+                   db: Session = Depends(get_db)):
+    """쓰기만 막고 읽기는 남긴다. 되돌리기는 `/restore` 이고 **둘 다 이력에 남는다**."""
+    import community_identity
+    import community_safety
+
+    profile = community_identity.find_by_handle(db, payload.handle)
+    if not profile:
+        raise HTTPException(status_code=404, detail="해당 핸들의 사용자를 찾을 수 없습니다.")
+    target = db.query(models.User).filter(models.User.id == profile.user_id).first()
+    try:
+        updated = community_safety.suspend_user(db, staff, target, days=payload.days,
+                                                reason=payload.reason or "")
+    except community_safety.SafetyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "suspendedUntil": updated.suspended_until.isoformat()}
+
+
+@app.post("/api/community/moderation/restore")
+def restore_member(payload: SuspendPayload, staff: models.User = Depends(get_current_staff_user),
+                   db: Session = Depends(get_db)):
+    import community_identity
+    import community_safety
+
+    profile = community_identity.find_by_handle(db, payload.handle)
+    if not profile:
+        raise HTTPException(status_code=404, detail="해당 핸들의 사용자를 찾을 수 없습니다.")
+    target = db.query(models.User).filter(models.User.id == profile.user_id).first()
+    try:
+        community_safety.restore_user(db, staff, target, reason=payload.reason or "")
+    except community_safety.SafetyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success"}
+
+
 class FriendAddPayload(BaseModel):
-    email: str
+    # 이메일 경로는 폐기됐다(ADR-0020). 필드는 한 릴리스 동안 남겨 두되 무시한다 —
+    # 예전 프론트가 남아 있어도 422 로 죽지 않고 "핸들을 입력하세요" 안내를 받게 하려는 것이다.
+    handle: Optional[str] = None
+    greeting: Optional[str] = None
+    email: Optional[str] = None
+
+
+def _is_new_account(user: models.User) -> bool:
+    """가입 직후에는 rate limit 이 더 엄격하다(ADR-0020). 우회 계정 도배를 좁힌다."""
+    import rate_limit
+
+    profile = db_profile_created_at(user)
+    if profile is None:
+        return True
+    return (datetime.datetime.utcnow() - profile) < datetime.timedelta(hours=rate_limit.NEW_ACCOUNT_HOURS)
+
+
+def db_profile_created_at(user: models.User):
+    """커뮤니티 프로필 생성 시각. 가입 시각 컬럼이 없어 이 값을 계정 나이의 근사로 쓴다."""
+    profile = getattr(user, "community_profile", None)
+    if isinstance(profile, list):
+        profile = profile[0] if profile else None
+    return getattr(profile, "created_at", None) if profile else None
 
 @app.get("/api/friends")
 def get_friends(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """친구 목록. **이메일은 싣지 않는다**(ADR-0020) — 공개 표면의 식별자는 핸들 하나다."""
+    import community_identity
+
     friends = db.query(models.Friendship).filter(models.Friendship.user_id == user.id).all()
-    return [{"id": f.friend.id, "name": f.friend.name, "email": f.friend.email, "picture": f.friend.picture} for f in friends]
+    return [{
+        "id": f.friend.id,
+        "name": f.friend.name,
+        "picture": f.friend.picture,
+        "profile": community_identity.public_profile(community_identity.get_profile(db, f.friend.id)),
+    } for f in friends]
 
 @app.delete("/api/friends/{friend_id}")
 def remove_friend(friend_id: int, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -2604,12 +5296,39 @@ def remove_friend(friend_id: int, user: models.User = Depends(get_current_user_r
 
 @app.post("/api/friends/request")
 def send_friend_request(payload: FriendAddPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
-    if payload.email == user.email:
+    """친구 신청. **핸들로만 찾는다**(ADR-0020).
+
+    예전에는 이메일로 찾았다. 그러면 이메일만 알면 계정 존재 여부가 확인되고(계정 열거), 공개 표면이
+    생기는 순간 그 경로가 스팸의 입구가 된다. 이제 사용자가 스스로 공개한 이름으로만 찾힌다 —
+    커뮤니티에 들어온 적 없는 사용자는 검색되지 않는다.
+    """
+    import community_identity
+    import community_safety
+    import rate_limit
+
+    handle = (payload.handle or "").strip()
+    if not handle:
+        raise HTTPException(status_code=400, detail="상대의 핸들을 입력해주세요. 이메일로는 더 이상 찾을 수 없습니다.")
+
+    try:
+        rate_limit.enforce(db, f"user:{user.id}", "friend.request",
+                           is_new_account=_is_new_account(user))
+    except rate_limit.RateLimited as exc:
+        raise HTTPException(status_code=429, detail="친구 신청을 너무 자주 보냈습니다. 잠시 뒤 다시 시도해주세요.",
+                            headers={"Retry-After": str(exc.retry_after)})
+
+    profile = community_identity.find_by_handle(db, handle)
+    if not profile:
+        raise HTTPException(status_code=404, detail="해당 핸들의 사용자를 찾을 수 없습니다.")
+    if profile.user_id == user.id:
         raise HTTPException(status_code=400, detail="자기 자신에게는 친구 신청을 보낼 수 없습니다.")
 
-    target = db.query(models.User).filter(models.User.email == payload.email).first()
+    target = db.query(models.User).filter(models.User.id == profile.user_id).first()
     if not target:
-        raise HTTPException(status_code=404, detail="해당 이메일의 사용자를 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="해당 핸들의 사용자를 찾을 수 없습니다.")
+    # 차단한 상대에게는 요청이 가지 않는다. 존재 여부를 알려주지 않도록 404 와 같은 문구를 쓴다.
+    if community_safety.is_blocked_between(db, user.id, target.id):
+        raise HTTPException(status_code=404, detail="해당 핸들의 사용자를 찾을 수 없습니다.")
 
     # Already friends?
     already = db.query(models.Friendship).filter(models.Friendship.user_id == user.id, models.Friendship.friend_id == target.id).first()
@@ -2625,10 +5344,20 @@ def send_friend_request(payload: FriendAddPayload, user: models.User = Depends(g
     if pending:
         raise HTTPException(status_code=400, detail="이미 친구 신청을 보냈습니다.")
 
-    req = models.FriendRequest(from_user_id=user.id, to_user_id=target.id, status="pending")
+    req = models.FriendRequest(from_user_id=user.id, to_user_id=target.id, status="pending",
+                               greeting=(payload.greeting or "")[:200] or None)
     db.add(req)
+    # 사이트 내 알림으로 알린다(제품 결정 2026-08-29) — 이메일은 보내지 않는다.
+    import notifications
+
+    sender = community_identity.get_profile(db, user.id)
+    notifications.notify(
+        db, user_id=target.id, kind="friend_request", actor_id=user.id,
+        target_type="profile", target_id=str(user.id), commit=False,
+        body=f"{sender.handle if sender else '한 사용자'}님이 친구 신청을 보냈습니다.",
+    )
     db.commit()
-    return {"status": "success", "message": f"{target.name}님께 친구 신청을 보냈습니다."}
+    return {"status": "success", "message": f"{profile.handle}님께 친구 신청을 보냈습니다."}
 
 @app.get("/api/friends/requests")
 def get_friend_requests(user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
@@ -2748,7 +5477,7 @@ async def builder_generate_ui(req: BuilderGenerateRequest, user: models.User = D
         models.UserApiKey.provider == req.provider
     ).first()
     
-    api_key = api_key_record.api_key if api_key_record else None
+    api_key = decrypt_secret(api_key_record.api_key) if api_key_record else None
     
     # If no key, fallback to system key (for MVP/demo purposes)
     if not api_key:
@@ -2950,21 +5679,22 @@ async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: mo
     token_usage["workflow_generation"] = workflow_token_usage
     total_tokens = int(token_usage.get("total_tokens", 0) or 0)
     if total_tokens > 0:
-        user.token_balance -= total_tokens
-        db.add(models.FlowExecutionLog(
-            user_id=user.id,
+        record_usage(
+            db,
+            billable_user_id=user.id,
+            actor_user_id=user.id,
             project_id=None,
             payload=f"App Builder Generate ({req.app_id or 'new'}): {req.prompt[:200]}",
             result=(result.reply or "")[:500],
-            total_tokens=total_tokens,
-            token_usage_details={
+            token_usage={
                 **token_usage,
                 "usage_type": "app_builder",
                 "app_id": req.app_id,
                 "workflow_mode": workflow_mode,
             },
-            status="app_builder",
-        ))
+            event_type=EVENT_APP_GENERATION,
+            trigger_type="app_builder",
+        )
         db.commit()
 
     normalized_workflow_mappings = normalize_builder_workflow_mappings(workflow_mappings)

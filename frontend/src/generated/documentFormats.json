@@ -1,0 +1,836 @@
+{
+  "version": 1,
+  "formats": [
+    {
+      "version": 1,
+      "id": "event-poster",
+      "name": "행사 포스터",
+      "description": "행사 제목·일시·장소·소개를 담는 A4 세로 포스터. 색과 글꼴은 테마로 변경",
+      "layout": "design",
+      "output": {
+        "default": "png",
+        "allowed": [
+          "png",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "eventTitle",
+          "label": "행사 제목",
+          "kind": "text",
+          "required": true,
+          "example": "2026 가을 개발자 밋업"
+        },
+        {
+          "name": "tagline",
+          "label": "부제",
+          "kind": "text",
+          "required": false,
+          "example": "자동화의 밤"
+        },
+        {
+          "name": "dateTime",
+          "label": "일시",
+          "kind": "text",
+          "required": true,
+          "example": "10월 24일(토) 19:00"
+        },
+        {
+          "name": "place",
+          "label": "장소",
+          "kind": "text",
+          "required": true,
+          "example": "서울 성수 카페 온움"
+        },
+        {
+          "name": "descriptionText",
+          "label": "소개",
+          "kind": "multiline",
+          "required": false
+        },
+        {
+          "name": "hostName",
+          "label": "주최",
+          "kind": "text",
+          "required": false
+        },
+        {
+          "name": "mainImage",
+          "label": "메인 이미지",
+          "kind": "image",
+          "required": false
+        }
+      ],
+      "design": {
+        "width": 794,
+        "height": 1123,
+        "theme": {
+          "primaryColor": "#4f7cff",
+          "backgroundColor": "#0e1424",
+          "textColor": "#f5f7ff",
+          "mutedColor": "#93a0c4",
+          "fontFamily": "Pretendard"
+        },
+        "html": "<div class=\"poster\"><div class=\"top\"><span class=\"badge\">{{hostName}}</span></div><img data-field=\"mainImage\" class=\"hero\"><h1>{{eventTitle}}</h1><p class=\"tagline\">{{tagline}}</p><div class=\"meta\"><div><span>일시</span><strong>{{dateTime}}</strong></div><div><span>장소</span><strong>{{place}}</strong></div></div><p class=\"desc\">{{descriptionText}}</p></div>",
+        "css": ".poster { width: 100%; height: 100vh; box-sizing: border-box; padding: 64px 56px; background: var(--fs-backgroundColor); color: var(--fs-textColor); display: flex; flex-direction: column; gap: 22px; }.top { min-height: 34px; }.badge { display: inline-block; padding: 8px 16px; border: 1.5px solid var(--fs-primaryColor); border-radius: 999px; color: var(--fs-primaryColor); font-size: 15px; font-weight: 700; letter-spacing: .08em; }.hero { width: 100%; max-height: 360px; object-fit: cover; border-radius: 18px; }h1 { margin: 12px 0 0; font-size: 64px; line-height: 1.16; letter-spacing: -0.02em; }.tagline { margin: 0; color: var(--fs-primaryColor); font-size: 26px; font-weight: 700; }.meta { display: flex; gap: 18px; margin-top: auto; }.meta > div { flex: 1; padding: 18px 20px; border-radius: 14px; background: color-mix(in srgb, var(--fs-primaryColor) 14%, transparent); }.meta span { display: block; color: var(--fs-mutedColor); font-size: 14px; margin-bottom: 6px; }.meta strong { font-size: 21px; }.desc { color: var(--fs-mutedColor); font-size: 17px; line-height: 1.7; margin: 0; }"
+      }
+    },
+    {
+      "version": 1,
+      "id": "incident-report",
+      "name": "시말서",
+      "description": "업무 중 발생한 사건의 경위와 재발 방지 대책을 보고하는 문서",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "department",
+          "label": "소속",
+          "kind": "text",
+          "required": true,
+          "example": "운영1팀"
+        },
+        {
+          "name": "authorName",
+          "label": "작성자",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "incidentAt",
+          "label": "발생 일시",
+          "kind": "text",
+          "required": true,
+          "example": "2026-08-30 14:20"
+        },
+        {
+          "name": "place",
+          "label": "발생 장소",
+          "kind": "text",
+          "required": false,
+          "example": "본사 3층 서버실"
+        },
+        {
+          "name": "summary",
+          "label": "사건 개요",
+          "kind": "multiline",
+          "required": true,
+          "description": "무엇이 언제 어떻게 일어났는지 3~5문장"
+        },
+        {
+          "name": "timeline",
+          "label": "경위",
+          "kind": "rows",
+          "columns": [
+            "시각",
+            "내용"
+          ],
+          "required": false
+        },
+        {
+          "name": "cause",
+          "label": "원인 분석",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "prevention",
+          "label": "재발 방지 대책",
+          "kind": "multiline",
+          "required": true
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "시 말 서"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "소속",
+              "{{department}}"
+            ],
+            [
+              "작성자",
+              "{{authorName}}"
+            ],
+            [
+              "발생 일시",
+              "{{incidentAt}}"
+            ],
+            [
+              "발생 장소",
+              "{{place}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "1. 사건 개요"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{summary}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "2. 경위"
+        },
+        {
+          "type": "table",
+          "fromField": "timeline"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "3. 원인 분석"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{cause}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "4. 재발 방지 대책"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{prevention}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "위와 같이 사건 경위를 보고하며, 재발 방지에 최선을 다하겠습니다."
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "job-application",
+      "name": "입사지원서",
+      "description": "인적 사항, 학력·경력, 자기소개를 담는 입사지원서",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "applicantName",
+          "label": "성명",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "position",
+          "label": "지원 직무",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "contact",
+          "label": "연락처",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "email",
+          "label": "이메일",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "photo",
+          "label": "증명사진",
+          "kind": "image",
+          "required": false
+        },
+        {
+          "name": "education",
+          "label": "학력",
+          "kind": "rows",
+          "columns": [
+            "기간",
+            "학교/전공",
+            "비고"
+          ],
+          "required": false
+        },
+        {
+          "name": "career",
+          "label": "경력",
+          "kind": "rows",
+          "columns": [
+            "기간",
+            "회사/직무",
+            "주요 성과"
+          ],
+          "required": false
+        },
+        {
+          "name": "introduction",
+          "label": "자기소개",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "motivation",
+          "label": "지원 동기",
+          "kind": "multiline",
+          "required": true
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "입 사 지 원 서"
+        },
+        {
+          "type": "image",
+          "fromField": "photo",
+          "widthMm": 30
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "성명",
+              "{{applicantName}}"
+            ],
+            [
+              "지원 직무",
+              "{{position}}"
+            ],
+            [
+              "연락처",
+              "{{contact}}"
+            ],
+            [
+              "이메일",
+              "{{email}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "학력 사항"
+        },
+        {
+          "type": "table",
+          "fromField": "education"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "경력 사항"
+        },
+        {
+          "type": "table",
+          "fromField": "career"
+        },
+        {
+          "type": "page_break"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "자기소개"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{introduction}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "지원 동기"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{motivation}}"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "meeting-minutes",
+      "name": "회의록",
+      "description": "회의 개요, 논의 내용, 결정 사항과 후속 조치를 기록하는 문서",
+      "layout": "document",
+      "output": {
+        "default": "docx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf",
+          "xlsx"
+        ]
+      },
+      "fields": [
+        {
+          "name": "meetingTitle",
+          "label": "회의명",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "heldAt",
+          "label": "일시",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "place",
+          "label": "장소",
+          "kind": "text",
+          "required": false
+        },
+        {
+          "name": "attendees",
+          "label": "참석자",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "agenda",
+          "label": "안건",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "discussion",
+          "label": "논의 내용",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "decisions",
+          "label": "결정 사항",
+          "kind": "rows",
+          "columns": [
+            "번호",
+            "결정 내용"
+          ],
+          "required": false
+        },
+        {
+          "name": "actionItems",
+          "label": "후속 조치",
+          "kind": "rows",
+          "columns": [
+            "담당",
+            "할 일",
+            "기한"
+          ],
+          "required": false
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "회의록 — {{meetingTitle}}"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "일시",
+              "{{heldAt}}"
+            ],
+            [
+              "장소",
+              "{{place}}"
+            ],
+            [
+              "참석자",
+              "{{attendees}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "1. 안건"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{agenda}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "2. 논의 내용"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{discussion}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "3. 결정 사항"
+        },
+        {
+          "type": "table",
+          "fromField": "decisions"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "4. 후속 조치"
+        },
+        {
+          "type": "table",
+          "fromField": "actionItems"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "official-letter",
+      "name": "공문",
+      "description": "기관 간 주고받는 대외 공문서(수신·발신·제목·본문·붙임)",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "docNumber",
+          "label": "문서 번호",
+          "kind": "text",
+          "required": true,
+          "example": "워크-2026-041"
+        },
+        {
+          "name": "sender",
+          "label": "발신",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "receiver",
+          "label": "수신",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "subject",
+          "label": "제목",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "body",
+          "label": "본문",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "attachmentsNote",
+          "label": "붙임",
+          "kind": "text",
+          "required": false,
+          "example": "1. 사업 계획서 1부. 끝."
+        },
+        {
+          "name": "date",
+          "label": "시행일",
+          "kind": "text",
+          "required": true
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "{{sender}}"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "문서 번호",
+              "{{docNumber}}"
+            ],
+            [
+              "시행일",
+              "{{date}}"
+            ],
+            [
+              "수신",
+              "{{receiver}}"
+            ],
+            [
+              "제목",
+              "{{subject}}"
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "1. 귀 기관의 무궁한 발전을 기원합니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{body}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "붙임  {{attachmentsNote}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "{{sender}}"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "proposal",
+      "name": "제안서",
+      "description": "과제·사업 제안의 배경, 내용, 일정, 예산을 담는 문서",
+      "layout": "document",
+      "output": {
+        "default": "docx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf",
+          "xlsx"
+        ]
+      },
+      "fields": [
+        {
+          "name": "title",
+          "label": "제안 제목",
+          "kind": "text",
+          "required": true,
+          "example": "고객 문의 자동 분류 시스템 도입"
+        },
+        {
+          "name": "proposer",
+          "label": "제안자/부서",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "background",
+          "label": "제안 배경",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "content",
+          "label": "제안 내용",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "expectedEffect",
+          "label": "기대 효과",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "schedule",
+          "label": "추진 일정",
+          "kind": "rows",
+          "columns": [
+            "단계",
+            "기간",
+            "내용"
+          ],
+          "required": false
+        },
+        {
+          "name": "budget",
+          "label": "소요 예산",
+          "kind": "rows",
+          "columns": [
+            "항목",
+            "금액",
+            "비고"
+          ],
+          "required": false
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "{{title}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "제안자: {{proposer}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "1. 제안 배경"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{background}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "2. 제안 내용"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{content}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "3. 기대 효과"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{expectedEffect}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "4. 추진 일정"
+        },
+        {
+          "type": "table",
+          "fromField": "schedule"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "5. 소요 예산"
+        },
+        {
+          "type": "table",
+          "fromField": "budget"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "tri-fold-pamphlet",
+      "name": "3단 팜플렛",
+      "description": "A4 가로를 3단으로 나눈 안내 팜플렛(제품·서비스 소개)",
+      "layout": "design",
+      "output": {
+        "default": "pdf",
+        "allowed": [
+          "pdf",
+          "png"
+        ]
+      },
+      "fields": [
+        {
+          "name": "brandName",
+          "label": "브랜드/제품명",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "headline",
+          "label": "대표 문구",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "panel1Title",
+          "label": "1면 제목",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "panel1Body",
+          "label": "1면 내용",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "panel2Title",
+          "label": "2면 제목",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "panel2Body",
+          "label": "2면 내용",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "contact",
+          "label": "연락처/웹",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "coverImage",
+          "label": "표지 이미지",
+          "kind": "image",
+          "required": false
+        }
+      ],
+      "design": {
+        "width": 1123,
+        "height": 794,
+        "theme": {
+          "primaryColor": "#0f766e",
+          "backgroundColor": "#ffffff",
+          "textColor": "#0f172a",
+          "mutedColor": "#5b6474",
+          "fontFamily": "Pretendard"
+        },
+        "html": "<div class=\"sheet\"><section class=\"panel\"><h3>{{panel1Title}}</h3><p>{{panel1Body}}</p></section><section class=\"panel\"><h3>{{panel2Title}}</h3><p>{{panel2Body}}</p><p class=\"contact\">{{contact}}</p></section><section class=\"panel cover\"><img data-field=\"coverImage\" class=\"cover-img\"><span class=\"brand\">{{brandName}}</span><h2>{{headline}}</h2></section></div>",
+        "css": ".sheet { display: flex; width: 100%; height: 100vh; box-sizing: border-box; background: var(--fs-backgroundColor); color: var(--fs-textColor); }.panel { flex: 1; box-sizing: border-box; padding: 44px 34px; border-right: 1px dashed color-mix(in srgb, var(--fs-mutedColor) 40%, transparent); display: flex; flex-direction: column; }.panel:last-child { border-right: 0; }h3 { margin: 0 0 12px; color: var(--fs-primaryColor); font-size: 22px; }.panel p { margin: 0 0 10px; font-size: 14.5px; line-height: 1.75; color: var(--fs-textColor); }.contact { margin-top: auto !important; color: var(--fs-mutedColor); font-weight: 600; }.cover { background: color-mix(in srgb, var(--fs-primaryColor) 8%, var(--fs-backgroundColor)); justify-content: center; }.cover-img { width: 100%; max-height: 300px; object-fit: cover; border-radius: 14px; margin-bottom: 22px; }.brand { color: var(--fs-primaryColor); font-weight: 800; letter-spacing: .12em; font-size: 15px; }h2 { margin: 10px 0 0; font-size: 34px; line-height: 1.25; }"
+      }
+    }
+  ]
+}

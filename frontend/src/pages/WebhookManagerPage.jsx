@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
+import { Icon } from '../icons';
 import { customConfirm } from '../CustomConfirm';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
-import { Globe, Copy, Play, Square, Activity, ExternalLink, RefreshCw, Trash2, FileText, MoreVertical } from 'lucide-react';
+import SectionTabs from '../components/SectionTabs';
+import { OPERATIONS_SECTION_TABS } from '../navigation';
+import { formatManagementDateTime, shortResourceId } from './managementFormatters';
+import { Copy, Play, Square, ExternalLink, RefreshCw, Trash2, FileText, MoreVertical } from 'lucide-react';
 import './MainPage.css';
 import './SchedulerPage.css'; // Use identical styles for consistency
 import './WebhookManagerPage.css';
+import './ManagementPage.css';
 
 export default function WebhookManagerPage() {
   const { user, token } = useAuth();
@@ -113,16 +118,18 @@ export default function WebhookManagerPage() {
     fetchWebhooks();
   }, [user]);
 
+  const activeWebhookCount = webhooks.filter((webhook) => webhook.status === 'Active').length;
+
   if (!user) {
     return (
       <div className="main-page-layout">
         <MainSidebar />
-        <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
-            <h2>로그인이 필요합니다</h2>
-            <p>웹훅을 관리하려면 먼저 로그인해주세요.</p>
+        <main className="main-page-content management-page has-tabs">
+          <SectionTabs ariaLabel="운영 섹션" tabs={OPERATIONS_SECTION_TABS} />
+          <div className="management-content">
+            <div className="management-empty"><h2>로그인이 필요합니다</h2><p>웹훅을 관리하려면 먼저 로그인해주세요.</p></div>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -130,100 +137,105 @@ export default function WebhookManagerPage() {
   return (
     <div className="main-page-layout">
       <MainSidebar />
-      <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-        <div className="content-area" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
-          <div className="page-header">
-            <div>
-              <h1 className="page-title"><Globe className="title-icon" /> 웹훅 관리</h1>
-              <p className="page-subtitle">외부 서비스에서 워크플로우를 호출하는 엔드포인트를 모니터링합니다.</p>
+      <main className="main-page-content management-page has-tabs">
+        <SectionTabs ariaLabel="운영 섹션" tabs={OPERATIONS_SECTION_TABS} />
+        <div className="management-content">
+          <header className="management-header">
+            <div className="management-heading">
+              <span className="management-kicker">WEBHOOKS</span>
+              <h1>웹훅</h1>
+              <p>외부 서비스가 워크플로우를 호출하는 엔드포인트와 최근 수신 상태를 관리합니다.</p>
             </div>
-            <button className="btn-refresh" onClick={fetchWebhooks} disabled={loading}>
-              <RefreshCw size={18} className={loading ? 'spinning' : ''} /> 새로고침
-            </button>
+            <div className="management-header-side" aria-label="웹훅 요약">
+              <div className="management-stat"><span>전체</span><strong>{webhooks.length}</strong></div>
+              <div className="management-stat"><span>수신 중</span><strong>{activeWebhookCount}</strong></div>
+              <button className="management-button" onClick={fetchWebhooks} disabled={loading}><RefreshCw size={14} className={loading ? 'spinning' : ''} /> 새로고침</button>
+            </div>
+          </header>
+
+          <div className="management-toolbar">
+            <span className="management-toolbar-label">웹훅은 에디터의 웹훅 수신 노드에서 추가할 수 있습니다.</span>
+            <button className="management-button" onClick={() => navigate('/editor')}><ExternalLink size={13} /> 에디터 열기</button>
           </div>
 
           {loading ? (
-            <div className="loading-state">
-              <RefreshCw size={32} className="spinning" />
-              <p>웹훅 목록을 불러오는 중...</p>
-            </div>
+            <div className="management-loading" aria-label="웹훅 목록을 불러오는 중">{[0, 1, 2, 3].map(item => <span key={item} />)}</div>
           ) : webhooks.length === 0 ? (
-            <div className="empty-state">
-              <Globe size={48} className="empty-icon" />
-              <h3>등록된 웹훅이 없습니다</h3>
+            <div className="management-empty">
+              <span className="management-empty-icon"><Icon name="nav-webhooks" size={20} /></span>
+              <h2>등록된 웹훅이 없습니다</h2>
               <p>에디터에서 '웹훅 수신' 노드를 추가하여 외부 연동을 시작해보세요.</p>
+              <button className="management-button primary" onClick={() => navigate('/editor')}>에디터에서 추가하기</button>
             </div>
           ) : (
-            <div className="scheduler-grid">
+            <div className="management-grid">
               {webhooks.map(wh => (
-                <div key={wh.id} className={`scheduler-card ${wh.status.toLowerCase()}`}>
-                  <div className="scheduler-card-header">
-                    <div className="scheduler-status-indicator">
-                      <span className={`status-dot ${wh.status.toLowerCase()}`}></span>
-                      <span className="status-text">
-                        {wh.status === 'Active' ? '활성 (수신 중)' : '중지됨 (거부)'}
-                      </span>
+                <article key={wh.id} className={`management-card is-${wh.status.toLowerCase()}`}>
+                  <div className="management-card-body">
+                    <div className="management-card-top">
+                      <span className="management-resource"><span className="management-resource-icon"><Icon name="nav-webhooks" size={14} /></span> ENDPOINT</span>
+                      <span className={`management-status ${wh.status.toLowerCase()}`}><span className="management-status-dot" />{wh.status === 'Active' ? '수신 중' : '중지됨'}</span>
                     </div>
-                  </div>
-                  
-                  <div className="scheduler-card-body">
-                    <h3 className="project-title">{wh.title}</h3>
-                    <div className="webhook-url-box" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+                    <h2 title={wh.title}>{wh.title || '제목 없는 웹훅'}</h2>
+                    <div className="management-data-row">
                       <input type="text" readOnly value={wh.url} />
                       <button onClick={(e) => handleCopy(wh.url, e)} title="URL 복사">
                         <Copy size={14} />
                       </button>
                     </div>
-                    <p className="next-run-time" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <Activity size={14} /> 최근 수신: {wh.lastTriggered}
-                    </p>
+                    <div className="management-meta-grid">
+                      <span className="management-meta-item"><span>최근 수신</span><strong>{wh.lastTriggered || '기록 없음'}</strong></span>
+                      <span className="management-meta-item"><span>허용 메서드</span><strong>{Array.isArray(wh.methods) ? wh.methods.join(' · ') : 'GET · POST'}</strong></span>
+                      <span className="management-meta-item"><span>최근 수정</span><strong>{formatManagementDateTime(wh.updatedAt)}</strong></span>
+                      <span className="management-meta-item"><span>프로젝트 ID</span><code>#{wh.projectId}</code></span>
+                      <span className="management-meta-item"><span>노드 ID</span><code title={wh.nodeId}>{shortResourceId(wh.nodeId)}</code></span>
+                      <span className="management-meta-item"><span>엔드포인트 ID</span><code title={wh.id}>{shortResourceId(wh.id)}</code></span>
+                    </div>
                   </div>
 
-                  <div className="scheduler-card-actions">
+                  <footer className="management-card-actions">
                     {wh.status === 'Active' ? (
-                      <button className="btn-primary-action stop" onClick={() => handleAction(wh.id, wh.projectId, 'pause')}>
-                        <Square size={16} /> 수신 중지
+                      <button className="management-button" onClick={() => handleAction(wh.id, wh.projectId, 'pause')}>
+                        <Square size={14} /> 수신 중지
                       </button>
                     ) : (
-                      <button className="btn-primary-action start" onClick={() => handleAction(wh.id, wh.projectId, 'resume')}>
-                        <Play size={16} /> 수신 재개
+                      <button className="management-button primary" onClick={() => handleAction(wh.id, wh.projectId, 'resume')}>
+                        <Play size={14} /> 수신 재개
                       </button>
                     )}
-                    
-                    <div className="dropdown-container">
-                      <button className="btn-icon" onClick={(e) => toggleDropdown(wh.id, e)}>
-                        <MoreVertical size={20} />
+                    <div className="management-menu-wrap">
+                      <button className="management-icon-button" onClick={(e) => toggleDropdown(wh.id, e)} aria-label={`${wh.title} 메뉴`}>
+                        <MoreVertical size={16} />
                       </button>
-                      
                       {activeDropdown === wh.id && (
-                        <div className="dropdown-menu">
-                          <button className="dropdown-item" onClick={() => navigate(`/editor/${wh.projectId}`)}>
-                            <ExternalLink size={16} /> 에디터로
+                        <div className="management-menu">
+                          <button onClick={() => navigate(`/editor/${wh.projectId}`)}>
+                            <ExternalLink size={14} /> 에디터에서 열기
                           </button>
-                          <button className="dropdown-item" onClick={() => openLogs(wh.id)}>
-                            <FileText size={16} /> 수신 로그
+                          <button onClick={() => openLogs(wh.id)}>
+                            <FileText size={14} /> 수신 로그
                           </button>
-                          <div className="dropdown-divider"></div>
-                          <button className="dropdown-item danger" onClick={() => handleDelete(wh.id)}>
-                            <Trash2 size={16} /> 삭제
+                          <div className="management-menu-divider"></div>
+                          <button className="danger" onClick={() => handleDelete(wh.id)}>
+                            <Trash2 size={14} /> 삭제
                           </button>
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
+                  </footer>
+                </article>
               ))}
             </div>
           )}
         </div>
-      </div>
+      </main>
 
       {logsModalOpen && (
-        <div className="token-modal-overlay" onClick={() => setLogsModalOpen(false)}>
-          <div className="token-modal-content logs-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+        <div className="token-modal-overlay management-modal-overlay" onClick={() => setLogsModalOpen(false)}>
+          <div className="token-modal-content logs-modal management-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px' }}>
             <div className="token-modal-header">
               <h3>웹훅 수신 로그</h3>
-              <button className="close-btn" onClick={() => setLogsModalOpen(false)}>&times;</button>
+              <button className="close-btn" onClick={() => setLogsModalOpen(false)} aria-label="로그 닫기">&times;</button>
             </div>
             <div className="logs-container">
               {webhookLogs.length === 0 ? (
@@ -235,7 +247,7 @@ export default function WebhookManagerPage() {
                       <span className="log-user" style={{ color: '#0ea5e9' }}>{log.message}</span>
                       <span className="log-time" style={{ fontSize: '0.85rem' }}>{new Date(log.created_at).toLocaleString()}</span>
                     </div>
-                    <div className="log-message" style={{ background: 'var(--btn-active-bg)', padding: '0.8rem', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace' }}>
+                    <div className="log-message" style={{ background: 'var(--btn-active-bg)', padding: '0.8rem', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
                       {log.payload}
                     </div>
                     <div className="log-response" style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#10b981' }}>

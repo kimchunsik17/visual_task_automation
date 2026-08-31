@@ -9,8 +9,9 @@ import logoImg from './logo.png';
 const RequireAuth = ({ children }) => {
   const { user, login } = useAuth();
 
-  // 테스트 빌드 임시 해제: 항상 통과
-  return children;
+  // (제거됨) 테스트 빌드용 `return children` 무조건 통과. 남겨두면 로그인하지 않은 사람에게도
+  // 에디터·앱 빌더 화면이 그대로 열려, 데이터는 401 로 비어 있는데 UI 만 동작하는 상태가 된다.
+  if (user) return children;
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {

@@ -4,10 +4,14 @@ import { useAuth } from '../AuthContext';
 import { customConfirm } from '../CustomConfirm';
 import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
+import SectionTabs from '../components/SectionTabs';
+import { OPERATIONS_SECTION_TABS } from '../navigation';
+import { formatManagementDateTime, shortResourceId } from './managementFormatters';
 import { GoogleLogin } from '@react-oauth/google';
-import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key, FileText, MoreVertical, Edit, MessageCircle, Send } from 'lucide-react';
+import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key, FileText, MoreVertical, Edit } from 'lucide-react';
 import './MainPage.css';
 import './BotManagerPage.css';
+import './ManagementPage.css';
 
 export default function BotManagerPage() {
   const { user, token } = useAuth();
@@ -107,6 +111,8 @@ export default function BotManagerPage() {
     fetchBots();
   }, [token]);
 
+  const onlineBotCount = bots.filter((bot) => bot.status === 'online').length;
+
   const handleAction = async (projectId, action) => {
     try {
       await axios.post(`/api/bots/${projectId}/${action}`, {}, {
@@ -138,12 +144,12 @@ export default function BotManagerPage() {
     return (
       <div className="main-page-layout">
         <MainSidebar />
-        <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
-            <h2>로그인이 필요합니다</h2>
-            <p>봇을 관리하려면 먼저 로그인해주세요.</p>
+        <main className="main-page-content management-page has-tabs">
+          <SectionTabs ariaLabel="운영 섹션" tabs={OPERATIONS_SECTION_TABS} />
+          <div className="management-content">
+            <div className="management-empty"><h2>로그인이 필요합니다</h2><p>봇을 관리하려면 먼저 로그인해주세요.</p></div>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -151,106 +157,106 @@ export default function BotManagerPage() {
   return (
     <div className="main-page-layout">
       <MainSidebar />
-      <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-        <div className="content-area" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
-          <div className="page-header">
-            <div>
-              <h1 className="page-title"><Bot className="title-icon" /> 봇 관리</h1>
-              <p className="page-subtitle">디스코드로 배포된 챗봇들의 상태를 확인하고 관리하세요.</p>
+      <main className="main-page-content management-page has-tabs">
+        <SectionTabs ariaLabel="운영 섹션" tabs={OPERATIONS_SECTION_TABS} />
+        <div className="management-content">
+          <header className="management-header">
+            <div className="management-heading">
+              <span className="management-kicker">CONNECTED BOTS</span>
+              <h1>봇</h1>
+              <p>디스코드와 텔레그램에 연결한 봇의 실행 상태, 인증 정보와 처리 로그를 관리합니다.</p>
             </div>
-            <button className="btn-refresh" onClick={fetchBots} disabled={loading}>
-              <RefreshCw size={18} className={loading ? 'spinning' : ''} /> 새로고침
-            </button>
+            <div className="management-header-side" aria-label="봇 요약">
+              <div className="management-stat"><span>전체</span><strong>{bots.length}</strong></div>
+              <div className="management-stat"><span>온라인</span><strong>{onlineBotCount}</strong></div>
+              <button className="management-button" onClick={fetchBots} disabled={loading}><RefreshCw size={14} className={loading ? 'spinning' : ''} /> 새로고침</button>
+            </div>
+          </header>
+
+          <div className="management-toolbar">
+            <span className="management-toolbar-label">봇 연결은 에디터의 디스코드·텔레그램 시작 노드에서 추가할 수 있습니다.</span>
+            <button className="management-button" onClick={() => navigate('/editor')}><ExternalLink size={13} /> 에디터 열기</button>
           </div>
 
           {loading ? (
-            <div className="loading-state">
-              <RefreshCw size={32} className="spinning" />
-              <p>봇 목록을 불러오는 중...</p>
-            </div>
+            <div className="management-loading" aria-label="봇 목록을 불러오는 중">{[0, 1, 2, 3].map(item => <span key={item} />)}</div>
           ) : bots.length === 0 ? (
-            <div className="empty-state">
-              <Bot size={48} className="empty-icon" />
-              <h3>활성화된 봇이 없습니다</h3>
+            <div className="management-empty">
+              <span className="management-empty-icon"><Bot size={20} /></span>
+              <h2>연결된 봇이 없습니다</h2>
               <p>에디터에서 '디스코드 봇 (시작)' 또는 '텔레그램 봇 (시작)' 노드를 추가한 프로젝트가 여기에 표시됩니다.</p>
+              <button className="management-button primary" onClick={() => navigate('/editor')}>에디터에서 추가하기</button>
             </div>
           ) : (
-            <div className="bot-grid">
+            <div className="management-grid">
               {bots.map(bot => (
-                <div key={bot.project_id} className={`bot-card ${bot.status}`}>
-                  <div className="bot-card-header">
-                    <div className="bot-status-indicator">
-                      <span className={`status-dot ${bot.status}`}></span>
-                      <span className="status-text">
-                        {bot.status === 'online' ? '온라인' : bot.status === 'connecting' ? '연결 중' : '오프라인'}
-                      </span>
+                <article key={bot.project_id} className={`management-card is-${bot.status}`}>
+                  <div className="management-card-body">
+                    <div className="management-card-top">
+                      <span className="management-resource"><span className="management-resource-icon"><Bot size={14} /></span> CONNECTED BOT</span>
+                      <div className="management-card-tools">
+                        <span className={`management-status ${bot.status}`}><span className="management-status-dot" />{bot.status === 'online' ? '온라인' : bot.status === 'connecting' ? '연결 중' : '오프라인'}</span>
+                      </div>
                     </div>
-                    <div className="bot-platform-badge" style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {bot.platform === 'telegram' ? <Send size={14} color="#26A5E4" /> : <MessageCircle size={14} color="#5865F2" />}
-                      {bot.platform === 'telegram' ? '텔레그램' : '디스코드'}
+                    <h2 title={bot.project_title}>{bot.project_title || '제목 없는 봇'}</h2>
+                    <p className="management-card-description">{bot.bot_name || '연결된 봇 이름을 확인할 수 없습니다.'}</p>
+                    <div className="management-meta-grid">
+                      <span className="management-meta-item"><span>플랫폼</span><strong>{bot.platform === 'telegram' ? '텔레그램' : '디스코드'}</strong></span>
+                      <span className="management-meta-item"><span>봇 계정</span><strong>{bot.bot_name || '확인되지 않음'}</strong></span>
+                      <span className="management-meta-item"><span>최근 수정</span><strong>{formatManagementDateTime(bot.updated_at)}</strong></span>
+                      <span className="management-meta-item"><span>프로젝트 ID</span><code>#{bot.project_id}</code></span>
+                      <span className="management-meta-item"><span>트리거 노드</span><code title={bot.trigger_node_id}>{shortResourceId(bot.trigger_node_id)}</code></span>
                     </div>
-                  </div>
-                  
-                  <div className="bot-card-body">
-                    <h3 className="project-title">{bot.project_title}</h3>
-                    <p className="bot-name">
-                      {bot.bot_name ? bot.bot_name : '연결 정보 없음'}
-                    </p>
-                    <p className="update-time">
-                      마지막 업데이트: {new Date(bot.updated_at).toLocaleDateString()}
-                    </p>
                   </div>
 
-                  <div className="bot-card-actions">
+                  <footer className="management-card-actions">
                     {bot.status === 'online' || bot.status === 'connecting' ? (
-                      <button className="btn-primary-action stop" onClick={() => handleAction(bot.project_id, 'stop')}>
-                        <Square size={16} /> 정지
+                      <button className="management-button" onClick={() => handleAction(bot.project_id, 'stop')}>
+                        <Square size={14} /> 정지
                       </button>
                     ) : (
-                      <button className="btn-primary-action start" onClick={() => handleAction(bot.project_id, 'start')}>
-                        <Play size={16} /> 시작
+                      <button className="management-button primary" onClick={() => handleAction(bot.project_id, 'start')}>
+                        <Play size={14} /> 시작
                       </button>
                     )}
-                    
-                    <div className="dropdown-container">
-                      <button className="btn-icon" onClick={(e) => toggleDropdown(bot.project_id, e)}>
-                        <MoreVertical size={20} />
+                    <div className="management-menu-wrap">
+                      <button className="management-icon-button" onClick={(e) => toggleDropdown(bot.project_id, e)} aria-label={`${bot.project_title} 메뉴`}>
+                        <MoreVertical size={16} />
                       </button>
-                      
                       {activeDropdown === bot.project_id && (
-                        <div className="dropdown-menu">
-                          <button className="dropdown-item" onClick={() => navigate(`/editor/${bot.project_id}`)}>
-                            <Edit size={16} /> 워크플로우 수정
+                        <div className="management-menu">
+                          <button onClick={() => navigate(`/editor/${bot.project_id}`)}>
+                            <Edit size={14} /> 워크플로우 수정
                           </button>
                           {bot.platform !== 'telegram' && (
-                            <button className="dropdown-item" onClick={() => openTokenManager(bot.project_id)}>
-                              <Key size={16} /> 토큰 관리
+                            <button onClick={() => openTokenManager(bot.project_id)}>
+                              <Key size={14} /> 토큰 관리
                             </button>
                           )}
-                          <button className="dropdown-item" onClick={() => openLogs(bot.project_id)}>
-                            <FileText size={16} /> 로그 보기
+                          <button onClick={() => openLogs(bot.project_id)}>
+                            <FileText size={14} /> 로그 보기
                           </button>
-                          <div className="dropdown-divider"></div>
-                          <button className="dropdown-item danger" onClick={() => handleDelete(bot.project_id)}>
-                            <Trash2 size={16} /> 삭제
+                          <div className="management-menu-divider"></div>
+                          <button className="danger" onClick={() => handleDelete(bot.project_id)}>
+                            <Trash2 size={14} /> 삭제
                           </button>
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
+                  </footer>
+                </article>
               ))}
             </div>
           )}
         </div>
-      </div>
+      </main>
 
       {selectedProjectForToken && (
-        <div className="token-modal-overlay" onClick={closeTokenManager}>
-          <div className="token-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="token-modal-overlay management-modal-overlay" onClick={closeTokenManager}>
+          <div className="token-modal-content management-modal" onClick={(e) => e.stopPropagation()}>
             <div className="token-modal-header">
               <h3>디스코드 봇 토큰 관리</h3>
-              <button className="close-btn" onClick={closeTokenManager}>&times;</button>
+              <button className="close-btn" onClick={closeTokenManager} aria-label="토큰 관리 닫기">&times;</button>
             </div>
             
             <div className="token-modal-body">
@@ -287,11 +293,11 @@ export default function BotManagerPage() {
       )}
 
       {logsModalOpen && (
-        <div className="token-modal-overlay" onClick={() => setLogsModalOpen(false)}>
-          <div className="token-modal-content logs-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="token-modal-overlay management-modal-overlay" onClick={() => setLogsModalOpen(false)}>
+          <div className="token-modal-content logs-modal management-modal" onClick={(e) => e.stopPropagation()}>
             <div className="token-modal-header">
               <h3>디스코드 봇 로그</h3>
-              <button className="close-btn" onClick={() => setLogsModalOpen(false)}>&times;</button>
+              <button className="close-btn" onClick={() => setLogsModalOpen(false)} aria-label="로그 닫기">&times;</button>
             </div>
             <div className="logs-container">
               {botLogs.length === 0 ? (
@@ -315,4 +321,3 @@ export default function BotManagerPage() {
     </div>
   );
 }
-

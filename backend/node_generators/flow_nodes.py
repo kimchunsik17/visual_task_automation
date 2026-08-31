@@ -73,7 +73,7 @@ def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, 
             generate_block_fn(target_id, branch_indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
 
     def _cond_expr(operator, value):
-        value_escaped = str(value).replace('"', '\\"')
+        value_escaped = str(value).replace('\\', '\\\\').replace('"', '\\"')
         if operator == "==":
             return f'str({var}) == "{value_escaped}"'
         if operator == "Contains":
@@ -193,11 +193,16 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
     lines.append(f"{indent}if not isinstance(dist_list_{node_id}, list):")
     lines.append(f"{indent}    dist_list_{node_id} = [dist_list_{node_id}]")
 
-    # loopNode와 동일하게 누적 변수를 둔다 — 이게 없으면 done 엣지가 반복 시작 전의
-    # prev_res_var(원본 입력, 예: 파싱 전 raw JSON)를 그대로 넘겨버려서 outputNode가
-    # 루프 안에서 실제로 처리된 최신 결과(last_result) 대신 엉뚱한 옛날 값을 반환한다.
+    # 항목별 결과를 **모두 모은다.** 예전에는 `acc = last_result` 로 매 반복 덮어써서 done
+    # 경로가 **마지막 항목 하나만** 받았다 — "문단 여러 개를 한 번에 번역" 같은 워크플로우가
+    # 마지막 문단만 내놓았다(실제로 겪음). loopNode 는 직전 결과를 다음 회차에 넘기는 게
+    # 의도라 지금 방식이 맞지만, distributorNode 는 "목록 각각 처리" 라 모아야 한다.
+    #
+    # 모은 뒤에는 **줄바꿈으로 이어 붙여 문자열로 넘긴다.** 리스트를 그대로 넘기면 뒤에 오는
+    # 노드(메시지 본문, 출력 등)가 `['a', 'b']` 를 그대로 받아 깨진다.
     acc_var = f"dist_acc_{node_id}"
-    lines.append(f"{indent}{acc_var} = dist_list_{node_id}")
+    joined_var = f"dist_joined_{node_id}"
+    lines.append(f"{indent}{acc_var} = []")
     lines.append(f"{indent}for dist_item_{node_id} in dist_list_{node_id}:")
     lines.append(f"{indent}    last_result = dist_item_{node_id}")
 
@@ -209,8 +214,12 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
     else:
         for target_id, handle in body_edges:
             generate_block_fn(target_id, indent + "    ", active_llm_id=active_llm_id, prev_res_var=f"dist_item_{node_id}", visited=visited)
-    lines.append(f"{indent}    {acc_var} = last_result")
+    lines.append(f"{indent}    {acc_var}.append(last_result)")
+
+    # 빈 값은 빼고 이어 붙인다 — 조건 분기로 건너뛴 항목이 빈 줄로 남으면 결과가 지저분해진다.
+    lines.append(f"{indent}{joined_var} = '\\n'.join(str(_r) for _r in {acc_var} if str(_r).strip())")
+    lines.append(f"{indent}last_result = {joined_var}")
 
     done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
     if done_edges:
-        generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)
+        generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=joined_var, visited=visited)

@@ -1,0 +1,82 @@
+{
+  "type": "emailNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "이메일 전송",
+    "icon": "node-email",
+    "color": "#f43f5e"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    },
+    {
+      "name": "attachments",
+      "dataType": "artifact",
+      "label": "첨부"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "smtp_credentials",
+      "kind": "secret",
+      "label": "SMTP 계정 (이메일:앱비밀번호)",
+      "credential": {
+        "provider": "google_smtp"
+      }
+    },
+    {
+      "name": "toEmail",
+      "kind": "text",
+      "label": "수신자 이메일",
+      "placeholder": "receiver@example.com",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(emailNode)에 toEmail이 없다"
+        }
+      ]
+    },
+    {
+      "name": "subject",
+      "kind": "text",
+      "label": "제목",
+      "placeholder": "Auto Flow 알림"
+    },
+    {
+      "name": "attachments",
+      "kind": "attachments",
+      "label": "첨부 파일",
+      "default": {
+        "mode": "auto",
+        "artifactIds": []
+      },
+      "ui": {
+        "provider": "smtp",
+        "help": "선행 노드가 만든 파일(이미지·포스터·문서)을 자동으로 첨부합니다. 특정 파일만 보내려면 직접 선택하세요."
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "smtp",
+      "provider": "google_smtp",
+      "optional": true
+    }
+  ],
+  "capabilities": [],
+  "sideEffect": "external-write",
+  "executor": "emailNode",
+  "mock": {},
+  "llm": {
+    "description": "이메일 전송. data.toEmail(문자열, 받는사람), data.subject(문자열, 선택 — 기본값은\n                   \"Auto Flow 알림\"). 본문은 직전 노드의 출력을 그대로 쓴다. SMTP 크리덴셜은 서버\n                   배포 시점 .env 설정이 필요하다(챗봇이 채울 필드 아님) — 없으면 실행 시 실패한다.\n                   📎 파일 첨부: 앞의 파일 생성 노드(fileModifierNode/posterGeneratorNode/\n                   imageGenerationNode)가 만든 파일은 data.attachments 를 비워 두면 자동으로 첨부된다\n                   (\"문서 만들어서 이메일로 보내줘\"). 파일 경로 문자열을 본문에 끼워 넣지 마라 —\n                   노드 연결이 첨부의 근거다. 첨부를 원치 않으면 {\"mode\": \"none\"} 으로 둔다.\n"
+  }
+}

@@ -1,0 +1,36 @@
+/* 데이터 레이어 — 실행 엣지(굵은 실선)와 다른 시각 언어: 얇은 점선 */
+.data-layer-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  /* 노드·실행 엣지 뒤로 지나간다(위로 지나가면 캔버스가 어수선해진다).
+     viewport 가 스택 컨텍스트(z-index:2 + transform)라서 음수 층은 그 안의 0층 전부보다 뒤,
+     배경 격자(-1, DOM 상 앞)보다는 앞에 그려진다. */
+  z-index: -1;
+}
+
+.data-layer-link {
+  fill: none;
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  opacity: 0.85;
+}
+
+.data-layer-end {
+  opacity: 0.9;
+}
+
+/* 선이 몇 개일 때만 흐름 애니메이션 — 많으면 드래그가 눈에 띄게 느려진다(컴포넌트 주석 참고) */
+.data-layer-svg.is-animated .data-layer-link {
+  animation: data-layer-flow 1.1s linear infinite;
+}
+
+@keyframes data-layer-flow {
+  to { stroke-dashoffset: -9; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .data-layer-link { animation: none; }
+}

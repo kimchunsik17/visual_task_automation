@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "id": "incident-report",
+  "name": "시말서",
+  "description": "업무 중 발생한 사건의 경위와 재발 방지 대책을 보고하는 문서",
+  "layout": "document",
+  "output": {
+    "default": "hwpx",
+    "allowed": [
+      "hwpx",
+      "docx",
+      "pdf"
+    ]
+  },
+  "fields": [
+    {
+      "name": "department",
+      "label": "소속",
+      "kind": "text",
+      "required": true,
+      "example": "운영1팀"
+    },
+    {
+      "name": "authorName",
+      "label": "작성자",
+      "kind": "text",
+      "required": true,
+      "example": "김워크"
+    },
+    {
+      "name": "incidentAt",
+      "label": "발생 일시",
+      "kind": "text",
+      "required": true,
+      "example": "2026-08-30 14:20"
+    },
+    {
+      "name": "place",
+      "label": "발생 장소",
+      "kind": "text",
+      "required": false,
+      "example": "본사 3층 서버실"
+    },
+    {
+      "name": "summary",
+      "label": "사건 개요",
+      "kind": "multiline",
+      "required": true,
+      "description": "무엇이 언제 어떻게 일어났는지 3~5문장"
+    },
+    {
+      "name": "timeline",
+      "label": "경위",
+      "kind": "rows",
+      "columns": [
+        "시각",
+        "내용"
+      ],
+      "required": false
+    },
+    {
+      "name": "cause",
+      "label": "원인 분석",
+      "kind": "multiline",
+      "required": true
+    },
+    {
+      "name": "prevention",
+      "label": "재발 방지 대책",
+      "kind": "multiline",
+      "required": true
+    }
+  ],
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "시 말 서"
+    },
+    {
+      "type": "table",
+      "columns": [
+        "항목",
+        "내용"
+      ],
+      "rows": [
+        [
+          "소속",
+          "{{department}}"
+        ],
+        [
+          "작성자",
+          "{{authorName}}"
+        ],
+        [
+          "발생 일시",
+          "{{incidentAt}}"
+        ],
+        [
+          "발생 장소",
+          "{{place}}"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "1. 사건 개요"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{summary}}"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "2. 경위"
+    },
+    {
+      "type": "table",
+      "fromField": "timeline"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "3. 원인 분석"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{cause}}"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "4. 재발 방지 대책"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{prevention}}"
+    },
+    {
+      "type": "paragraph",
+      "text": "위와 같이 사건 경위를 보고하며, 재발 방지에 최선을 다하겠습니다."
+    }
+  ]
+}

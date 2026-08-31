@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "id": "job-application",
+  "name": "입사지원서",
+  "description": "인적 사항, 학력·경력, 자기소개를 담는 입사지원서",
+  "layout": "document",
+  "output": {
+    "default": "hwpx",
+    "allowed": [
+      "hwpx",
+      "docx",
+      "pdf"
+    ]
+  },
+  "fields": [
+    {
+      "name": "applicantName",
+      "label": "성명",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "position",
+      "label": "지원 직무",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "contact",
+      "label": "연락처",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "email",
+      "label": "이메일",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "photo",
+      "label": "증명사진",
+      "kind": "image",
+      "required": false
+    },
+    {
+      "name": "education",
+      "label": "학력",
+      "kind": "rows",
+      "columns": [
+        "기간",
+        "학교/전공",
+        "비고"
+      ],
+      "required": false
+    },
+    {
+      "name": "career",
+      "label": "경력",
+      "kind": "rows",
+      "columns": [
+        "기간",
+        "회사/직무",
+        "주요 성과"
+      ],
+      "required": false
+    },
+    {
+      "name": "introduction",
+      "label": "자기소개",
+      "kind": "multiline",
+      "required": true
+    },
+    {
+      "name": "motivation",
+      "label": "지원 동기",
+      "kind": "multiline",
+      "required": true
+    }
+  ],
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "입 사 지 원 서"
+    },
+    {
+      "type": "image",
+      "fromField": "photo",
+      "widthMm": 30
+    },
+    {
+      "type": "table",
+      "columns": [
+        "항목",
+        "내용"
+      ],
+      "rows": [
+        [
+          "성명",
+          "{{applicantName}}"
+        ],
+        [
+          "지원 직무",
+          "{{position}}"
+        ],
+        [
+          "연락처",
+          "{{contact}}"
+        ],
+        [
+          "이메일",
+          "{{email}}"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "학력 사항"
+    },
+    {
+      "type": "table",
+      "fromField": "education"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "경력 사항"
+    },
+    {
+      "type": "table",
+      "fromField": "career"
+    },
+    {
+      "type": "page_break"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "자기소개"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{introduction}}"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "지원 동기"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{motivation}}"
+    }
+  ]
+}

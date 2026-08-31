@@ -45,3 +45,26 @@ def test_dry_run_reports_invalid_graph_and_never_executes_python():
     assert result.success is False
     assert result.structural_passed is False
     assert result.blocked_side_effect_count == 1
+
+
+def test_dry_run_accepts_edges_without_ids():
+    """프론트 실행 계열 직렬화가 오랫동안 엣지 id 를 빼고 보냈다(실행기는 id 를 안 읽어서
+    무증상). dry_run 이 FlowGraph 재파싱을 도입하면서 'edges.N.id Field required' 로 터졌다 —
+    FlowGraph 의 mode="before" 검증기가 누락 id 를 보충하므로 다시는 스키마 오류가 나면 안 된다."""
+    from dry_run import dry_run_workflow
+    result = dry_run_workflow({
+        "nodes": [
+            {"id": "node_a", "type": "startNode", "data": {}},
+            {"id": "node_b", "type": "promptNode", "data": {"userPrompt": "x"}},
+            {"id": "node_c", "type": "llmNode", "data": {"systemPrompt": "y", "model": "gpt-4o-mini"}},
+            {"id": "node_d", "type": "outputNode", "data": {}},
+        ],
+        "edges": [
+            {"source": "node_a", "target": "node_b", "sourceHandle": "out", "targetHandle": "in"},
+            {"source": "node_b", "target": "node_c", "sourceHandle": "out", "targetHandle": "in"},
+            {"source": "node_c", "target": "node_d", "sourceHandle": "out", "targetHandle": "in"},
+        ],
+    })
+    assert not any("FlowGraph schema 오류" in issue for issue in result.issues), result.issues
+    assert result.structural_passed and result.success
+

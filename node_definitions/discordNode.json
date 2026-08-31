@@ -1,0 +1,93 @@
+{
+  "type": "discordNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "디스코드 발송",
+    "icon": "node-discord-send",
+    "color": "#5865F2"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    },
+    {
+      "name": "attachments",
+      "dataType": "artifact",
+      "label": "첨부"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "botToken",
+      "kind": "secret",
+      "label": "Bot Token 또는 Webhook URL",
+      "credential": {
+        "provider": "discord"
+      },
+      "validation": [
+        {
+          "rule": "present",
+          "message": "{node_id}(discordNode)에 botToken이 없다"
+        }
+      ]
+    },
+    {
+      "name": "channelId",
+      "kind": "text",
+      "label": "채널 ID (Webhook시 생략)",
+      "placeholder": "1234567890",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(discordNode)가 Webhook이 아닌 봇 토큰 방식일 때는 channelId가 필수다",
+          "when": {
+            "field": "botToken",
+            "truthy": true,
+            "notStartsWith": "http"
+          }
+        },
+        {
+          "rule": "digits",
+          "message": "{node_id}(discordNode)의 channelId({value_repr})가 실제 디스코드 채널 ID 형식(숫자로만 된 스노우플레이크)이 아니다 — 사용자가 채널을 알려주지 않았다면 지어내지 말고 빈 문자열로 둬라"
+        }
+      ]
+    },
+    {
+      "name": "attachments",
+      "kind": "attachments",
+      "label": "첨부 파일",
+      "default": {
+        "mode": "auto",
+        "artifactIds": []
+      },
+      "ui": {
+        "provider": "discord",
+        "help": "앞 노드가 만든 포스터·이미지·문서를 캡션과 함께 보냅니다."
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "discord",
+      "provider": "discord",
+      "optional": true
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-write",
+  "executor": "discordNode",
+  "mock": {},
+  "llm": {
+    "description": "디스코드 메시지 발송. data.botToken(문자열), data.channelId(문자열, 선택). 직전 노드의\n                   출력을 본문으로 발송한다. 📎 파일 첨부: 앞에 있는 파일 생성 노드\n                   (posterGeneratorNode/fileModifierNode/imageGenerationNode)가 만든 파일은 자동으로\n                   첨부된다 — data.attachments 를 비워 두면 기본값이 \"앞 노드의 파일 자동 첨부\"다.\n                   \"포스터 만들어서 디스코드로 보내줘\" 같은 요청에는 생성 노드 뒤에 discordNode를\n                   연결하기만 하면 되고, 본문(캡션)은 첨부와 함께 그대로 전송된다. 파일 경로 문자열을\n                   본문에 끼워 넣지 마라 — 경로가 아니라 노드 연결이 첨부의 근거다. 파일을 보내고\n                   싶지 않으면 data.attachments 를 {\"mode\": \"none\"} 으로 둔다.\n                   discordTriggerNode로 시작하는 봇의 자동 답장도 동일하게 동작한다.\n"
+  }
+}

@@ -40,6 +40,10 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from meta_agent import FlowGraph, FlowNode, FlowEdge, validate_flow, PLACEHOLDER_URL
+
+# 내장 Database 예제의 연결 상태 — 노드는 secret 을 갖지 않고 API 센터 자격증명을 가리킨다
+# (ADR-0017). 자격증명이 없으면 실행이 CREDENTIAL_MISSING 으로 끝나며 API 센터로 안내한다.
+DB_CREDENTIAL_REF = "{{API_CENTER:database}}"
 from rag_utils import get_vector_store, TRANSLATED_COLLECTION
 
 MODEL = "gpt-4o-mini"
@@ -61,13 +65,13 @@ tpl1 = FlowGraph(
         node("n1", "startNode"),
         node("n2", "dynamicInputNode", {"inputLabel": "Airtable 웹훅 이벤트 페이로드(row_changed 또는 field_changed)", "testValue": '{"event_type":"row_changed"}'}),
         node("n3", "conditionNode", {"rules": [{"id": "row_changed", "operator": "Contains", "value": "row_changed"}]}),
-        node("n4", "distributorNode"),
+        # 분배 노드를 두지 않는다 — 앞이 웹훅 페이로드 한 건이라 목록이 아니고, 그러면
+        # distributorNode 는 한 번만 돈다(2026-08-31 확인). 한 건 처리로 곧게 잇는다.
         node("n5", "httpRequestNode", {"method": "GET", "url": PLACEHOLDER_URL}),
         node("n6", "tokenizerNode", {"method": "extract_text"}),
         node("n7", "promptNode", {"userPrompt": "이 파일 내용을 바탕으로 이 레코드의 빈 필드에 채울 값을 생성해줘"}),
         node("n8", "llmNode", {"model": MODEL, "systemPrompt": "너는 Airtable 레코드의 빈 필드를 채우는 데이터 추출 전문가다"}),
         node("n9", "httpRequestNode", {"method": "PUT", "url": PLACEHOLDER_URL}),
-        node("n10", "distributorNode"),
         node("n11", "promptNode", {"userPrompt": "변경된 필드 하나에 어울리는 값을 새로 생성해줘"}),
         node("n12", "llmNode", {"model": MODEL, "systemPrompt": "너는 Airtable 필드 값을 동적으로 생성하는 전문가다"}),
         node("n13", "httpRequestNode", {"method": "PUT", "url": PLACEHOLDER_URL}),
@@ -77,18 +81,16 @@ tpl1 = FlowGraph(
     edges=[
         edge("e1", "n1", "n2"),
         edge("e2", "n2", "n3"),
-        edge("e3", "n3", "n4", "row_changed"),
-        edge("e4", "n4", "n5"),
+        edge("e3", "n3", "n5", "row_changed"),
         edge("e5", "n5", "n6"),
         edge("e6", "n6", "n7"),
         edge("e7", "n7", "n8"),
         edge("e8", "n8", "n9"),
-        edge("e9", "n3", "n10", "else"),
-        edge("e10", "n10", "n11"),
+        edge("e9", "n3", "n11", "else"),
         edge("e11", "n11", "n12"),
         edge("e12", "n12", "n13"),
-        edge("e13", "n4", "n14", "done"),
-        edge("e14", "n10", "n14", "done"),
+        edge("e13", "n9", "n14"),
+        edge("e14", "n13", "n14"),
         edge("e15", "n14", "n15"),
     ],
 )
@@ -99,7 +101,7 @@ tpl2 = FlowGraph(
     description="수신 메일을 AI가 긴급/스팸/일반으로 분류해 해당 폴더로 이동하고 긴급 메일은 슬랙으로 알린다.",
     nodes=[
         node("n1", "startNode"),
-        node("n2", "distributorNode"),
+        # 분배 노드를 두지 않는다 — 앞이 startNode 라 목록이 아니고, 그러면 한 번만 돈다.
         node("n3", "promptNode", {"userPrompt": "이 이메일 내용을 보고 카테고리를 판별해줘. 반드시 '긴급', '스팸', '일반' 중 하나로만 답해"}),
         node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 이메일 분류 전문가다"}),
         node("n5", "conditionNode", {"rules": [
@@ -114,8 +116,7 @@ tpl2 = FlowGraph(
         node("n11", "outputNode"),
     ],
     edges=[
-        edge("e1", "n1", "n2"),
-        edge("e2", "n2", "n3"),
+        edge("e1", "n1", "n3"),
         edge("e3", "n3", "n4"),
         edge("e4", "n4", "n5"),
         edge("e5", "n5", "n6", "urgent"),
@@ -125,7 +126,7 @@ tpl2 = FlowGraph(
         edge("e9", "n7", "n10"),
         edge("e10", "n8", "n10"),
         edge("e11", "n9", "n10"),
-        edge("e12", "n2", "n11", "done"),
+        edge("e12", "n10", "n11"),
     ],
 )
 
@@ -304,7 +305,7 @@ tpl8 = FlowGraph(
     description="DB에서 최근 데이터를 조회해두고, 자연어 질문에 그 데이터를 근거로 답변해 카카오톡으로 보낸다.",
     nodes=[
         node("n1", "startNode"),
-        node("n2", "databaseNode", {"connectionString": PLACEHOLDER_URL, "query": "SELECT id, name, email, created_at FROM users ORDER BY created_at DESC LIMIT 200"}),
+        node("n2", "databaseNode", {"connectionString": DB_CREDENTIAL_REF, "query": "SELECT id, name, email, created_at FROM users ORDER BY created_at DESC LIMIT 200"}),
         node("n3", "conditionNode", {"rules": [{"id": "error", "operator": "Contains", "value": "Database Error"}]}),
         node("n4", "kakaoNode", {"accessToken": "", "receiver": ""}),
         node("n5", "dynamicInputNode", {"inputLabel": "위 데이터에 대해 궁금한 점", "testValue": "이번 주에 신규 가입한 사용자 몇 명이야?"}),
@@ -1121,11 +1122,11 @@ tpl39 = FlowGraph(
     description="템플릿 파일의 빈 필드를 분석하고, 사용자가 준 정보를 바탕으로 AI가 값을 채워 문서를 완성한다.",
     nodes=[
         node("n1", "startNode"),
-        node("n2", "templateAnalyzerNode", {"template_path": "uploads/contract_template.hwp"}),
+        node("n2", "templateAnalyzerNode", {"template_path": "uploads/contract_template.hwpx"}),
         node("n3", "dynamicInputNode", {"inputLabel": "계약 정보(상대방명/금액/계약일 등)", "testValue": "상대방: 주식회사 예시 / 금액: 5,000,000원 / 계약일: 2026-08-01"}),
         node("n4", "promptNode", {"userPrompt": "위 템플릿의 빈 필드 목록과 사용자가 준 정보를 참고해서, 각 필드에 맞는 값을 JSON으로 채워줘"}),
         node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 문서 템플릿의 빈 필드를 정확히 채우는 전문가다"}),
-        node("n6", "fileModifierNode", {"template_path": "uploads/contract_template.hwp"}),
+        node("n6", "fileModifierNode", {"template_path": "uploads/contract_template.hwpx"}),
         node("n7", "outputNode"),
     ],
     edges=[
@@ -1326,7 +1327,7 @@ tpl48 = FlowGraph(
     description="DB에서 평점 높은 영화 목록을 조회해두고, 사용자 취향에 맞는 영화를 추천한다.",
     nodes=[
         node("n1", "startNode"),
-        node("n2", "databaseNode", {"connectionString": PLACEHOLDER_URL, "query": "SELECT title, genre, rating FROM movies ORDER BY rating DESC LIMIT 200"}),
+        node("n2", "databaseNode", {"connectionString": DB_CREDENTIAL_REF, "query": "SELECT title, genre, rating FROM movies ORDER BY rating DESC LIMIT 200"}),
         node("n3", "dynamicInputNode", {"inputLabel": "원하는 영화 취향이나 질문", "testValue": "잔잔한 힐링 영화 추천해줘"}),
         node("n4", "promptNode", {"userPrompt": "위 영화 목록을 참고해서 사용자 취향에 맞는 영화를 2~3개 추천하고 이유를 설명해줘"}),
         node("n5", "llmNode", {"model": MODEL, "systemPrompt": "너는 영화 취향에 맞게 추천해주는 큐레이터다"}),
@@ -1732,7 +1733,7 @@ tpl64 = FlowGraph(
     description="매일 재고를 점검해 재주문 기준 미만이면 발주 승인을 요청하고, 승인 시 발주를 진행한다.",
     nodes=[
         node("n1", "scheduleNode", {"cronExpression": "0 7 * * *"}),
-        node("n2", "databaseNode", {"connectionString": "", "query": "SELECT sku, quantity, reorder_point FROM stock"}),
+        node("n2", "databaseNode", {"connectionString": DB_CREDENTIAL_REF, "query": "SELECT sku, quantity, reorder_point FROM stock"}),
         node("n3", "promptNode", {"userPrompt": "이 재고 데이터를 보고 재주문 기준(reorder_point) 미만인 품목이 있는지 판단해서, 있으면 '발주 필요'라고만 답하고 없으면 정확히 '정상'이라고만 답해"}),
         node("n4", "llmNode", {"model": MODEL, "systemPrompt": "너는 재고 데이터를 검토하는 구매 담당자다"}),
         node("n5", "conditionNode", {"rules": [{"id": "need", "operator": "Contains", "value": "발주 필요"}]}),
@@ -3613,7 +3614,7 @@ tpl150 = FlowGraph(
     nodes=[
         node("n1", "scheduleNode", {"cronExpression": "0 9 * * *"}),
         node("n2", "databaseNode", {
-            "connectionString": "",
+            "connectionString": DB_CREDENTIAL_REF,
             "query": "SELECT order_date, revenue, order_count FROM daily_sales_summary WHERE order_date >= CURRENT_DATE - INTERVAL '7 days' ORDER BY order_date DESC"
         }),
         node("n3", "promptNode", {"userPrompt": "이 매출 데이터를 바탕으로 오늘 공유할 핵심 매출 변화와 특이사항을 5줄 이내로 요약해줘"}),

@@ -209,6 +209,8 @@ def build_generation_trace(
     langfuse_trace_id: Optional[str] = None,
     dry_run_result: Optional[dict] = None,
     training_consent: bool = False,
+    node_selection: Optional[dict] = None,
+    generation_plan: Optional[dict] = None,
 ) -> dict:
     settings = load_llm_settings()
     routing_mode = os.getenv("LLM_ROUTING_MODE", "provider").strip().lower()
@@ -250,6 +252,11 @@ def build_generation_trace(
         "request_preview": redact_trace_text(message) if store_content else None,
         "task_spec": _sanitize_value(task_spec) if store_content and task_spec else None,
         "graph_summary": graph_summary,
+        # 노드 선별 계측(ADR-0013): LLM 선별과 hybrid shadow 선별, 실제 사용/누락/불필요 타입.
+        # 노드 타입 이름과 크기 수치만 담고 사용자 요청 원문은 담지 않는다.
+        "node_selection": _sanitize_value(node_selection) if node_selection else None,
+        # GenerationPlan 계측(백로그 10번): 후보 수/평가 정책/후보별 결정론 점수와 선택.
+        "generation_plan": _sanitize_value(generation_plan) if generation_plan else None,
         "validation_issues": _sanitize_value(validation_issues or []),
         "repair_notes": _sanitize_value(repair_notes or []),
         "token_usage": _sanitize_value(safe_usage),
@@ -293,6 +300,8 @@ def persist_generation_trace(db, trace: dict, *, user_id: Optional[int], project
         request_preview=trace.get("request_preview"),
         task_spec=trace.get("task_spec"),
         graph_summary=trace.get("graph_summary") or {},
+        node_selection=trace.get("node_selection"),
+        generation_plan=trace.get("generation_plan"),
         validation_issues=trace.get("validation_issues") or [],
         repair_notes=trace.get("repair_notes") or [],
         token_usage=trace.get("token_usage") or {},
@@ -388,6 +397,8 @@ def trace_to_dict(row) -> dict:
         "request_preview": row.request_preview,
         "task_spec": row.task_spec,
         "graph_summary": graph_summary,
+        "node_selection": row.node_selection,
+        "generation_plan": row.generation_plan,
         "acceptance_status": graph_summary.get("acceptance_status"),
         "edit_metrics": graph_summary.get("edit_metrics"),
         "validation_issues": row.validation_issues or [],

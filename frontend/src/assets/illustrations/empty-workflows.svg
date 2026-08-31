@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" fill="none"
+     stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+  <defs>
+    <linearGradient id="ew-fade-l" gradientUnits="userSpaceOnUse" x1="112" y1="120" x2="46" y2="90">
+      <stop offset="0" stop-color="currentColor" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="currentColor" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ew-fade-r" gradientUnits="userSpaceOnUse" x1="208" y1="120" x2="274" y2="150">
+      <stop offset="0" stop-color="currentColor" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="currentColor" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="40" width="256" height="160" rx="14" opacity="0.55"/>
+  <path opacity="0.26" d="M48 72h.01M80 72h.01M112 72h.01M144 72h.01M176 72h.01M208 72h.01M240 72h.01M272 72h.01M48 104h.01M80 104h.01M240 104h.01M272 104h.01M48 136h.01M80 136h.01M240 136h.01M272 136h.01M48 168h.01M80 168h.01M112 168h.01M144 168h.01M176 168h.01M208 168h.01M240 168h.01M272 168h.01"/>
+  <path stroke="url(#ew-fade-l)" d="M112 120C84 120 76 94 46 90"/>
+  <path stroke="url(#ew-fade-r)" d="M208 120C236 120 244 146 274 150"/>
+  <rect x="112" y="96" width="96" height="48" rx="10" opacity="0.75" stroke-dasharray="9 10"/>
+  <path stroke="#3b82f6" d="M160 110v20M150 120h20"/>
+</svg>

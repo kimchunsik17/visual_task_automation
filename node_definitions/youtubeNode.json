@@ -1,0 +1,287 @@
+{
+  "type": "youtubeNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "YouTube",
+    "icon": "node-youtube",
+    "color": "#ff0033"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "동작",
+      "default": "upload_video",
+      "options": [
+        {
+          "value": "upload_video",
+          "label": "영상 업로드"
+        },
+        {
+          "value": "update_metadata",
+          "label": "영상 정보 수정"
+        },
+        {
+          "value": "create_comment",
+          "label": "댓글 달기"
+        },
+        {
+          "value": "add_to_playlist",
+          "label": "재생목록에 추가"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "allowMissing": false,
+          "message": "{node_id}(youtubeNode)의 mode는 upload_video/update_metadata/create_comment/add_to_playlist 중 하나여야 한다 (현재: {value_repr})"
+        }
+      ]
+    },
+    {
+      "name": "filePath",
+      "kind": "text",
+      "label": "업로드할 영상 파일 경로",
+      "placeholder": "비우면 직전 노드의 출력을 파일 경로로 쓴다",
+      "showWhen": {
+        "field": "mode",
+        "equals": "upload_video"
+      }
+    },
+    {
+      "name": "videoId",
+      "kind": "text",
+      "label": "영상 ID",
+      "placeholder": "예: dQw4w9WgXcQ (비우면 직전 노드 출력에서 찾는다)"
+    },
+    {
+      "name": "playlistId",
+      "kind": "text",
+      "label": "재생목록 ID",
+      "placeholder": "예: PLxxxxxxxxxxxx",
+      "showWhen": {
+        "field": "mode",
+        "equals": "add_to_playlist"
+      },
+      "validation": [
+        {
+          "rule": "required",
+          "when": {
+            "field": "mode",
+            "truthy": true
+          },
+          "message": "{node_id}(youtubeNode)에 playlistId가 없다"
+        }
+      ]
+    },
+    {
+      "name": "title",
+      "kind": "text",
+      "label": "제목",
+      "placeholder": "비우면 파일 이름을 쓴다"
+    },
+    {
+      "name": "description",
+      "kind": "textarea",
+      "label": "설명",
+      "placeholder": "{{last_result}} 로 직전 노드 결과를 넣을 수 있다",
+      "ui": {
+        "draggable": true
+      }
+    },
+    {
+      "name": "privacyStatus",
+      "kind": "select",
+      "label": "공개 범위",
+      "default": "private",
+      "options": [
+        {
+          "value": "private",
+          "label": "비공개 (private)"
+        },
+        {
+          "value": "unlisted",
+          "label": "일부 공개 (unlisted)"
+        },
+        {
+          "value": "public",
+          "label": "공개 (public)"
+        }
+      ]
+    },
+    {
+      "name": "commentText",
+      "kind": "textarea",
+      "label": "댓글 내용",
+      "placeholder": "{{last_result}} 로 직전 노드 결과를 넣을 수 있다",
+      "showWhen": {
+        "field": "mode",
+        "equals": "create_comment"
+      },
+      "ui": {
+        "draggable": true
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "google_oauth",
+      "provider": "google_oauth",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network",
+    "filesystem"
+  ],
+  "sideEffect": "external-write",
+  "executor": "youtubeNode",
+  "connector": {
+    "service": "YouTube",
+    "role": "action",
+    "modes": [
+      "upload_video",
+      "update_metadata",
+      "create_comment",
+      "add_to_playlist"
+    ],
+    "credentials": [
+      {
+        "provider": "google_oauth",
+        "scopes": [
+          "https://www.googleapis.com/auth/youtube.upload",
+          "https://www.googleapis.com/auth/youtube.force-ssl"
+        ]
+      }
+    ],
+    "baseUrl": "https://www.googleapis.com/youtube/v3",
+    "timeoutSeconds": 120.0,
+    "rateLimit": {
+      "requestsPerMinute": 30
+    },
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0,
+      "retryNonIdempotent": false
+    },
+    "sideEffectByMode": {
+      "upload_video": "external-write",
+      "update_metadata": "external-write",
+      "create_comment": "external-write",
+      "add_to_playlist": "external-write"
+    },
+    "docsUrl": "https://developers.google.com/youtube/v3/docs",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/upload/youtube/v3/videos"
+            },
+            "status": 200,
+            "body": {
+              "id": "mock_video_id"
+            }
+          },
+          {
+            "match": {
+              "method": "PUT",
+              "urlContains": "/videos"
+            },
+            "status": 200,
+            "body": {
+              "id": "mock_video_id"
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/commentThreads"
+            },
+            "status": 200,
+            "body": {
+              "id": "mock_comment_id"
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/playlistItems"
+            },
+            "status": 200,
+            "body": {
+              "id": "mock_playlist_item_id"
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "error": {
+                "message": "Invalid Credentials"
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "30"
+            },
+            "body": {
+              "error": {
+                "message": "rateLimitExceeded"
+              }
+            }
+          }
+        ]
+      },
+      "not_found": {
+        "responses": [
+          {
+            "status": 404,
+            "body": {
+              "error": {
+                "message": "videoNotFound"
+              }
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "YouTube에 영상을 올리거나 이미 있는 영상을 다룬다.\n                   data.mode(upload_video | update_metadata | create_comment | add_to_playlist).\n                   - upload_video   : data.filePath(올릴 영상 파일 경로 — 비우면 직전 노드의 출력을 경로로\n                                      쓴다), data.title(선택, 비우면 파일 이름), data.description(선택),\n                                      data.privacyStatus(private | unlisted | public, 기본 private).\n                                      ⚠️ 사용자가 \"공개로 올려줘\"라고 명시하지 않았으면 반드시 private을\n                                      유지해라 — 공개 게시는 되돌릴 수 없고, 의도하지 않은 공개는 사용자가\n                                      가장 크게 손해 보는 실수다.\n                   - update_metadata: data.videoId(필수), data.title/data.description/data.privacyStatus(선택).\n                   - create_comment : data.videoId(필수), data.commentText(필수 — 직전 노드가 만든 텍스트를\n                                      쓰려면 \"{last_result}\"를 넣어라).\n                   - add_to_playlist: data.videoId(필수), data.playlistId(필수).\n                   자격 증명은 API 센터의 Google 토큰을 쓰므로 노드 data에 토큰을 넣지 마라(다른 발송\n                   노드처럼 {{API_CENTER:...}}를 적을 필요도 없다 — 실행 시 자동으로 붙는다).\n                   ⚠️ videoId를 사용자가 알려주지 않았다면 지어내지 말고 빈 문자열로 두거나, 앞에\n                   youtubeTriggerNode를 두어 실제 영상 id가 흘러오게 구성해라.\n"
+  }
+}

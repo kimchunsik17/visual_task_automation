@@ -1,0 +1,911 @@
+{
+  "version": 1,
+  "_comment": "NodeError v1 공통 오류 catalog (ADR-0016). 정본은 이 파일 하나다 — backend/node_errors/catalog.py 가 읽고 검증하며, frontend/src/generated/errorCatalog.json 과 Documents/ERROR_CATALOG.md 는 `python backend/export_node_definitions.py` 가 여기서 만든다. code 는 SCREAMING_SNAKE_CASE 의 DOMAIN_REASON, 사용자 조치나 제품 처리 방식이 다를 때만 나눈다. 출시한 code 의 의미는 바꾸지 않는다 — 제거할 땐 deprecated=true 와 replacedBy 를 한 릴리스 이상 유지한다.",
+  "categories": {
+    "credential": {
+      "label": "자격증명",
+      "icon": "key-round",
+      "description": "API 센터의 연결·권한·갱신이 필요한 오류"
+    },
+    "validation": {
+      "label": "입력 검증",
+      "icon": "alert-circle",
+      "description": "외부 호출 전에 노드 입력이 잘못된 오류"
+    },
+    "artifact": {
+      "label": "파일",
+      "icon": "file-warning",
+      "description": "생성·업로드 파일 참조가 유효하지 않은 오류"
+    },
+    "database": {
+      "label": "데이터베이스",
+      "icon": "database",
+      "description": "Database Query 연결·쿼리 오류"
+    },
+    "delivery": {
+      "label": "발송",
+      "icon": "send",
+      "description": "Discord·이메일 등 외부 발송 오류 — effectState 확인 뒤 재시도"
+    },
+    "connector": {
+      "label": "연동",
+      "icon": "plug",
+      "description": "공식 연동 서비스 호출 오류"
+    },
+    "timeout": {
+      "label": "시간 초과",
+      "icon": "history",
+      "description": "응답을 제한 시간 안에 받지 못한 오류"
+    },
+    "runtime": {
+      "label": "실행",
+      "icon": "bug",
+      "description": "실행 엔진 내부 오류 — 요청 ID 로 진단"
+    }
+  },
+  "resolutions": {
+    "open_api_center": {
+      "label": "API 센터에서 연결",
+      "kind": "navigate",
+      "target": "/settings/api-center"
+    },
+    "focus_field": {
+      "label": "해당 입력으로 이동",
+      "kind": "focus_field"
+    },
+    "reselect_file": {
+      "label": "파일 다시 선택",
+      "kind": "focus_field"
+    },
+    "diagnose_connection": {
+      "label": "연결 정보 확인",
+      "kind": "navigate",
+      "target": "/settings/api-center"
+    },
+    "retry": {
+      "label": "다시 시도",
+      "kind": "retry"
+    },
+    "verify_then_retry": {
+      "label": "발송 결과 확인 뒤 수동 재시도",
+      "kind": "manual"
+    },
+    "wait_then_retry": {
+      "label": "잠시 뒤 다시 시도",
+      "kind": "retry"
+    },
+    "contact_support": {
+      "label": "요청 ID 로 문의",
+      "kind": "copy_request_id"
+    },
+    "none": {
+      "label": "조치 없음",
+      "kind": "none"
+    }
+  },
+  "codes": [
+    {
+      "code": "CREDENTIAL_MISSING",
+      "category": "credential",
+      "owner": "connectors",
+      "messageKey": "credential.missing",
+      "userMessage": "필요한 자격증명이 등록되어 있지 않습니다. API 센터에서 먼저 연결해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "safeDetailKeys": [
+        "provider",
+        "providerName",
+        "service"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#credential_missing"
+    },
+    {
+      "code": "CREDENTIAL_INVALID",
+      "category": "credential",
+      "owner": "connectors",
+      "messageKey": "credential.invalid",
+      "userMessage": "인증에 실패했습니다. API 센터에 등록한 값이 만료됐거나 잘못됐습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "safeDetailKeys": [
+        "provider",
+        "providerName",
+        "service",
+        "status"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#credential_invalid"
+    },
+    {
+      "code": "CREDENTIAL_FORBIDDEN",
+      "category": "credential",
+      "owner": "connectors",
+      "messageKey": "credential.forbidden",
+      "userMessage": "접근 권한이 없습니다. 필요한 권한(scope)이 있는지, 대상이 이 계정과 공유되어 있는지 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "safeDetailKeys": [
+        "provider",
+        "providerName",
+        "service",
+        "status"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#credential_forbidden"
+    },
+    {
+      "code": "CREDENTIAL_EXPIRED",
+      "category": "credential",
+      "owner": "connectors",
+      "messageKey": "credential.expired",
+      "userMessage": "자격증명이 만료됐습니다. API 센터에서 다시 연결해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "safeDetailKeys": [
+        "provider",
+        "providerName",
+        "service"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#credential_expired"
+    },
+    {
+      "code": "VALIDATION_REQUIRED",
+      "category": "validation",
+      "owner": "node-definition",
+      "messageKey": "validation.required",
+      "userMessage": "필수 입력이 비어 있습니다. 노드 설정을 채워주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "label"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#validation_required"
+    },
+    {
+      "code": "VALIDATION_INVALID_TYPE",
+      "category": "validation",
+      "owner": "node-definition",
+      "messageKey": "validation.invalid_type",
+      "userMessage": "입력 값의 형식이 맞지 않습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "label",
+        "expected",
+        "receivedType"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#validation_invalid_type"
+    },
+    {
+      "code": "VALIDATION_OUT_OF_RANGE",
+      "category": "validation",
+      "owner": "node-definition",
+      "messageKey": "validation.out_of_range",
+      "userMessage": "입력 값이 허용 범위를 벗어났습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "label",
+        "min",
+        "max",
+        "allowed"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#validation_out_of_range"
+    },
+    {
+      "code": "ARTIFACT_NOT_FOUND",
+      "category": "artifact",
+      "owner": "artifacts",
+      "messageKey": "artifact.not_found",
+      "userMessage": "첨부할 파일을 찾지 못했습니다. 파일을 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "safeDetailKeys": [
+        "artifactId",
+        "attachmentIndex"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#artifact_not_found"
+    },
+    {
+      "code": "ARTIFACT_FORBIDDEN",
+      "category": "artifact",
+      "owner": "artifacts",
+      "messageKey": "artifact.forbidden",
+      "userMessage": "이 파일에 접근할 권한이 없습니다. 현재 프로젝트에서 만든 파일만 첨부할 수 있습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "safeDetailKeys": [
+        "artifactId",
+        "attachmentIndex"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#artifact_forbidden"
+    },
+    {
+      "code": "ARTIFACT_EXPIRED",
+      "category": "artifact",
+      "owner": "artifacts",
+      "messageKey": "artifact.expired",
+      "userMessage": "파일 보존 기간이 지났습니다. 파일을 다시 만들거나 업로드해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "safeDetailKeys": [
+        "artifactId",
+        "attachmentIndex"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#artifact_expired"
+    },
+    {
+      "code": "ARTIFACT_TOO_LARGE",
+      "category": "artifact",
+      "owner": "artifacts",
+      "messageKey": "artifact.too_large",
+      "userMessage": "파일이 허용 크기를 넘습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "safeDetailKeys": [
+        "artifactId",
+        "attachmentIndex",
+        "sizeBytes",
+        "limitBytes"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#artifact_too_large"
+    },
+    {
+      "code": "ARTIFACT_UNSUPPORTED_TYPE",
+      "category": "artifact",
+      "owner": "artifacts",
+      "messageKey": "artifact.unsupported_type",
+      "userMessage": "이 채널이 지원하지 않는 파일 형식입니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "safeDetailKeys": [
+        "artifactId",
+        "attachmentIndex",
+        "mimeType",
+        "allowedTypes"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#artifact_unsupported_type"
+    },
+    {
+      "code": "DATABASE_DRIVER_MISSING",
+      "category": "database",
+      "owner": "database",
+      "messageKey": "database.driver_missing",
+      "userMessage": "이 데이터베이스 종류를 실행할 드라이버가 서버에 없습니다. 현재는 PostgreSQL 만 지원합니다.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "diagnose_connection",
+      "safeDetailKeys": [
+        "dialect",
+        "supportedDialects"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#database_driver_missing"
+    },
+    {
+      "code": "DATABASE_CONNECTION_FAILED",
+      "category": "database",
+      "owner": "database",
+      "messageKey": "database.connection_failed",
+      "userMessage": "데이터베이스에 연결하지 못했습니다. 호스트·포트·네트워크와 접속 정보를 확인해주세요.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "diagnose_connection",
+      "safeDetailKeys": [
+        "dialect",
+        "phase",
+        "timeoutSeconds"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#database_connection_failed"
+    },
+    {
+      "code": "DATABASE_AUTH_FAILED",
+      "category": "database",
+      "owner": "database",
+      "messageKey": "database.auth_failed",
+      "userMessage": "데이터베이스 인증에 실패했습니다. API 센터의 Database 접속 정보(사용자·비밀번호)를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "diagnose_connection",
+      "safeDetailKeys": [
+        "dialect"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#database_auth_failed"
+    },
+    {
+      "code": "DATABASE_TIMEOUT",
+      "category": "database",
+      "owner": "database",
+      "messageKey": "database.timeout",
+      "userMessage": "쿼리가 제한 시간 안에 끝나지 않았습니다. 조회 범위를 줄이거나 제한 시간을 늘려주세요.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "dialect",
+        "timeoutSeconds"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#database_timeout"
+    },
+    {
+      "code": "DATABASE_QUERY_REJECTED",
+      "category": "database",
+      "owner": "database",
+      "messageKey": "database.query_rejected",
+      "userMessage": "이 노드는 읽기 전용 조회(SELECT/WITH) 하나만 실행합니다. 쿼리를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "reason",
+        "allowedStatements"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#database_query_rejected"
+    },
+    {
+      "code": "DATABASE_QUERY_FAILED",
+      "category": "database",
+      "owner": "database",
+      "messageKey": "database.query_failed",
+      "userMessage": "데이터베이스가 쿼리를 실행하지 못했습니다. 테이블·컬럼 이름과 문법을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "dialect"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#database_query_failed"
+    },
+    {
+      "code": "DELIVERY_INVALID_RECIPIENT",
+      "category": "delivery",
+      "owner": "delivery",
+      "messageKey": "delivery.invalid_recipient",
+      "userMessage": "수신 대상을 찾지 못했습니다. 채널 ID·웹훅·수신자 주소를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "provider",
+        "status"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#delivery_invalid_recipient"
+    },
+    {
+      "code": "DELIVERY_AUTH_FAILED",
+      "category": "delivery",
+      "owner": "delivery",
+      "messageKey": "delivery.auth_failed",
+      "userMessage": "발송 채널 인증에 실패했습니다. 봇 토큰·웹훅·SMTP 계정 정보를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "safeDetailKeys": [
+        "provider",
+        "status"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#delivery_auth_failed"
+    },
+    {
+      "code": "DELIVERY_FORBIDDEN",
+      "category": "delivery",
+      "owner": "delivery",
+      "messageKey": "delivery.forbidden",
+      "userMessage": "이 채널에 보낼 권한이 없습니다. 봇이 채널에 초대되어 있고 쓰기 권한이 있는지 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "safeDetailKeys": [
+        "provider",
+        "status"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#delivery_forbidden"
+    },
+    {
+      "code": "DELIVERY_RATE_LIMITED",
+      "category": "delivery",
+      "owner": "delivery",
+      "messageKey": "delivery.rate_limited",
+      "userMessage": "발송 채널의 호출 한도에 걸렸습니다. 잠시 뒤 다시 시도해주세요.",
+      "retryable": true,
+      "effectStateDefault": "not_started",
+      "resolution": "wait_then_retry",
+      "safeDetailKeys": [
+        "provider",
+        "status",
+        "retryAfterMs"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#delivery_rate_limited"
+    },
+    {
+      "code": "DELIVERY_TIMEOUT",
+      "category": "delivery",
+      "owner": "delivery",
+      "messageKey": "delivery.timeout",
+      "userMessage": "전송 결과를 확인하지 못했습니다. 중복 발송을 막기 위해 자동으로 다시 보내지 않았습니다 — 채널에서 도착 여부를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "verify_then_retry",
+      "safeDetailKeys": [
+        "provider",
+        "timeoutSeconds"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#delivery_timeout"
+    },
+    {
+      "code": "DELIVERY_PROVIDER_REJECTED",
+      "category": "delivery",
+      "owner": "delivery",
+      "messageKey": "delivery.provider_rejected",
+      "userMessage": "발송 채널이 요청을 거절했습니다. 본문 길이·형식과 첨부 조건을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "provider",
+        "status",
+        "reason"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#delivery_provider_rejected"
+    },
+    {
+      "code": "DELIVERY_RESULT_UNKNOWN",
+      "category": "delivery",
+      "owner": "delivery",
+      "messageKey": "delivery.result_unknown",
+      "userMessage": "발송 채널에 일시적인 문제가 있어 전송 결과를 알 수 없습니다. 채널에서 도착 여부를 확인한 뒤 필요하면 다시 보내주세요.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "verify_then_retry",
+      "safeDetailKeys": [
+        "provider",
+        "status"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#delivery_result_unknown"
+    },
+    {
+      "code": "CONNECTOR_NOT_FOUND",
+      "category": "connector",
+      "owner": "connectors",
+      "messageKey": "connector.not_found",
+      "userMessage": "연동 서비스에서 대상을 찾지 못했습니다. 입력한 ID나 주소를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "service",
+        "status",
+        "provider"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#connector_not_found"
+    },
+    {
+      "code": "CONNECTOR_INVALID_REQUEST",
+      "category": "connector",
+      "owner": "connectors",
+      "messageKey": "connector.invalid_request",
+      "userMessage": "연동 서비스가 요청을 거절했습니다. 노드에 입력한 값을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "service",
+        "status",
+        "provider"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#connector_invalid_request"
+    },
+    {
+      "code": "CONNECTOR_RATE_LIMITED",
+      "category": "connector",
+      "owner": "connectors",
+      "messageKey": "connector.rate_limited",
+      "userMessage": "연동 서비스 호출 한도에 걸렸습니다. 잠시 뒤 다시 시도됩니다.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "wait_then_retry",
+      "safeDetailKeys": [
+        "service",
+        "status",
+        "provider",
+        "retryAfterMs"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#connector_rate_limited"
+    },
+    {
+      "code": "CONNECTOR_QUOTA_EXCEEDED",
+      "category": "connector",
+      "owner": "connectors",
+      "messageKey": "connector.quota_exceeded",
+      "userMessage": "연동 서비스 사용 한도를 초과했습니다. 요금제나 할당량을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "none",
+      "safeDetailKeys": [
+        "service",
+        "status",
+        "provider"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#connector_quota_exceeded"
+    },
+    {
+      "code": "CONNECTOR_TIMEOUT",
+      "category": "timeout",
+      "owner": "connectors",
+      "messageKey": "connector.timeout",
+      "userMessage": "연동 서비스 응답이 제한 시간 안에 오지 않았습니다.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "retry",
+      "safeDetailKeys": [
+        "service",
+        "provider",
+        "timeoutSeconds"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#connector_timeout"
+    },
+    {
+      "code": "CONNECTOR_NETWORK_ERROR",
+      "category": "connector",
+      "owner": "connectors",
+      "messageKey": "connector.network_error",
+      "userMessage": "연동 서비스에 연결하지 못했습니다. 네트워크 상태를 확인해주세요.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "retry",
+      "safeDetailKeys": [
+        "service",
+        "provider"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#connector_network_error"
+    },
+    {
+      "code": "CONNECTOR_PROVIDER_ERROR",
+      "category": "connector",
+      "owner": "connectors",
+      "messageKey": "connector.provider_error",
+      "userMessage": "연동 서비스 쪽에 일시적인 문제가 있습니다. 잠시 뒤 다시 시도됩니다.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "wait_then_retry",
+      "safeDetailKeys": [
+        "service",
+        "status",
+        "provider"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#connector_provider_error"
+    },
+    {
+      "code": "RUNTIME_RESOURCE_EXCEEDED",
+      "category": "runtime",
+      "owner": "runtime",
+      "messageKey": "runtime.resource_exceeded",
+      "userMessage": "코드가 허용된 실행 시간 또는 메모리를 넘어 중단했습니다. 처리량을 줄이거나 반복 범위를 좁혀주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "limitKind",
+        "limit",
+        "nodeType"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#runtime_resource_exceeded"
+    },
+    {
+      "code": "RUNTIME_USER_CODE_FAILED",
+      "category": "runtime",
+      "owner": "runtime",
+      "messageKey": "runtime.user_code_failed",
+      "userMessage": "코드 노드에서 오류가 났습니다. 들어온 데이터의 모양이 코드가 기대한 것과 다를 수 있습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "nodeType",
+        "errorType",
+        "line"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#runtime_user_code_failed"
+    },
+    {
+      "code": "RUNTIME_CANCELLED",
+      "category": "runtime",
+      "owner": "runtime",
+      "messageKey": "runtime.cancelled",
+      "userMessage": "실행이 취소됐습니다.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "none",
+      "safeDetailKeys": [
+        "phase"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#runtime_cancelled"
+    },
+    {
+      "code": "RUNTIME_OUTPUT_TOO_LARGE",
+      "category": "runtime",
+      "owner": "runtime",
+      "messageKey": "runtime.output_too_large",
+      "userMessage": "노드 출력이 허용 크기를 넘어 일부만 저장됐습니다.",
+      "retryable": false,
+      "effectStateDefault": "applied",
+      "resolution": "none",
+      "safeDetailKeys": [
+        "sizeBytes",
+        "limitBytes"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#runtime_output_too_large"
+    },
+    {
+      "code": "RUNTIME_SERIALIZATION_FAILED",
+      "category": "runtime",
+      "owner": "runtime",
+      "messageKey": "runtime.serialization_failed",
+      "userMessage": "노드 출력을 저장 가능한 형식으로 바꾸지 못했습니다.",
+      "retryable": false,
+      "effectStateDefault": "applied",
+      "resolution": "contact_support",
+      "safeDetailKeys": [
+        "phase"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#runtime_serialization_failed"
+    },
+    {
+      "code": "INTERNAL_UNKNOWN",
+      "category": "runtime",
+      "owner": "runtime",
+      "messageKey": "runtime.internal_unknown",
+      "userMessage": "예상하지 못한 오류가 발생했습니다. 요청 ID 와 함께 문의해주세요.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "contact_support",
+      "safeDetailKeys": [
+        "phase"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#internal_unknown"
+    },
+    {
+      "code": "LEGACY_NODE_ERROR",
+      "category": "runtime",
+      "owner": "runtime",
+      "messageKey": "runtime.legacy_node_error",
+      "userMessage": "노드가 오류 문구를 결과에 남겼습니다.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "none",
+      "safeDetailKeys": [
+        "legacyPattern"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#legacy_node_error",
+      "transitional": true
+    },
+    {
+      "code": "POINTING_TARGET_NOT_FOUND",
+      "category": "validation",
+      "owner": "pointing",
+      "messageKey": "validation.pointing_target_not_found",
+      "userMessage": "지목한 대상을 찾을 수 없습니다. 삭제됐을 수 있으니 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "targets",
+        "scope",
+        "targetCount"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#pointing_target_not_found"
+    },
+    {
+      "code": "POINTING_TARGET_STALE",
+      "category": "validation",
+      "owner": "pointing",
+      "messageKey": "validation.pointing_target_stale",
+      "userMessage": "지목한 뒤 대상이 바뀌었습니다. 다시 첨부해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "targets",
+        "scope",
+        "targetCount"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#pointing_target_stale"
+    },
+    {
+      "code": "POINTING_SCOPE_VIOLATION",
+      "category": "validation",
+      "owner": "pointing",
+      "messageKey": "validation.pointing_scope_violation",
+      "userMessage": "지목하지 않은 항목이 함께 바뀌어 적용하지 않았습니다. 편집 범위를 넓히려면 범위를 다시 골라주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "verify_then_retry",
+      "safeDetailKeys": [
+        "targets",
+        "scope",
+        "targetCount"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#pointing_scope_violation"
+    },
+    {
+      "code": "POINTING_CONTEXT_TOO_LARGE",
+      "category": "validation",
+      "owner": "pointing",
+      "messageKey": "validation.pointing_context_too_large",
+      "userMessage": "한 번에 다루기에 지목한 범위가 너무 넓습니다. 선택을 줄여주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "targets",
+        "scope",
+        "targetCount"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#pointing_context_too_large"
+    },
+    {
+      "code": "POINTING_FORBIDDEN",
+      "category": "validation",
+      "owner": "pointing",
+      "messageKey": "validation.pointing_forbidden",
+      "userMessage": "이 대상을 수정할 권한이 없습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "contact_support",
+      "safeDetailKeys": [
+        "targets",
+        "scope",
+        "targetCount"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#pointing_forbidden"
+    },
+    {
+      "code": "POINTING_INVALID_CONTEXT",
+      "category": "validation",
+      "owner": "pointing",
+      "messageKey": "validation.pointing_invalid_context",
+      "userMessage": "지목 정보를 읽지 못했습니다. 대상을 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "targets",
+        "scope",
+        "targetCount"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#pointing_invalid_context"
+    },
+    {
+      "code": "FORMAT_NOT_FOUND",
+      "category": "validation",
+      "owner": "documents",
+      "messageKey": "validation.format_not_found",
+      "userMessage": "선택한 문서 포맷을 찾을 수 없습니다. 노드에서 포맷을 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "formatId"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#format_not_found"
+    },
+    {
+      "code": "FORMAT_SPEC_INVALID",
+      "category": "validation",
+      "owner": "documents",
+      "messageKey": "validation.format_spec_invalid",
+      "userMessage": "문서 포맷 정의가 잘못되어 렌더링할 수 없습니다. 포맷 스튜디오에서 포맷을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "formatId",
+        "reason"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#format_spec_invalid"
+    },
+    {
+      "code": "FORMAT_FIELD_MISSING",
+      "category": "validation",
+      "owner": "documents",
+      "messageKey": "validation.format_field_missing",
+      "userMessage": "문서의 필수 빈칸이 채워지지 않았습니다. 앞 노드의 출력이나 값 설정을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "formatId",
+        "missingFields"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#format_field_missing"
+    },
+    {
+      "code": "FORMAT_OUTPUT_UNSUPPORTED",
+      "category": "validation",
+      "owner": "documents",
+      "messageKey": "validation.format_output_unsupported",
+      "userMessage": "이 포맷이 지원하지 않는 출력 형식입니다. 출력 형식을 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "formatId",
+        "output"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#format_output_unsupported"
+    },
+    {
+      "code": "FORMAT_IMAGE_FORBIDDEN",
+      "category": "artifact",
+      "owner": "documents",
+      "messageKey": "artifact.format_image_forbidden",
+      "userMessage": "이미지를 문서에 넣지 못했습니다. 업로드한 파일이거나 앞 노드가 만든 이미지만 넣을 수 있습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "safeDetailKeys": [
+        "formatId",
+        "artifactId"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#format_image_forbidden"
+    },
+    {
+      "code": "BINDING_SOURCE_NOT_RUN",
+      "category": "validation",
+      "owner": "runtime",
+      "messageKey": "validation.binding_source_not_run",
+      "userMessage": "연결한 값의 출처 노드가 이번 실행에서 실행되지 않았습니다. 분기 경로를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "sourceNodeId"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#binding_source_not_run"
+    },
+    {
+      "code": "BINDING_PATH_MISSING",
+      "category": "validation",
+      "owner": "runtime",
+      "messageKey": "validation.binding_path_missing",
+      "userMessage": "연결한 값이 출처 노드의 결과에 없습니다. 경로를 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "sourceNodeId",
+        "path"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#binding_path_missing"
+    },
+    {
+      "code": "BINDING_SOURCE_FAILED",
+      "category": "validation",
+      "owner": "runtime",
+      "messageKey": "validation.binding_source_failed",
+      "userMessage": "연결한 값의 출처 노드가 오류로 끝나 값을 가져올 수 없습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "sourceNodeId"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#binding_source_failed"
+    }
+  ]
+}

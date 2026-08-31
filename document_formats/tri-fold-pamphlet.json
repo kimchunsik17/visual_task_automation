@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "id": "tri-fold-pamphlet",
+  "name": "3단 팜플렛",
+  "description": "A4 가로를 3단으로 나눈 안내 팜플렛(제품·서비스 소개)",
+  "layout": "design",
+  "output": {
+    "default": "pdf",
+    "allowed": [
+      "pdf",
+      "png"
+    ]
+  },
+  "fields": [
+    {
+      "name": "brandName",
+      "label": "브랜드/제품명",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "headline",
+      "label": "대표 문구",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "panel1Title",
+      "label": "1면 제목",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "panel1Body",
+      "label": "1면 내용",
+      "kind": "multiline",
+      "required": true
+    },
+    {
+      "name": "panel2Title",
+      "label": "2면 제목",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "panel2Body",
+      "label": "2면 내용",
+      "kind": "multiline",
+      "required": true
+    },
+    {
+      "name": "contact",
+      "label": "연락처/웹",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "coverImage",
+      "label": "표지 이미지",
+      "kind": "image",
+      "required": false
+    }
+  ],
+  "design": {
+    "width": 1123,
+    "height": 794,
+    "theme": {
+      "primaryColor": "#0f766e",
+      "backgroundColor": "#ffffff",
+      "textColor": "#0f172a",
+      "mutedColor": "#5b6474",
+      "fontFamily": "Pretendard"
+    },
+    "html": "<div class=\"sheet\"><section class=\"panel\"><h3>{{panel1Title}}</h3><p>{{panel1Body}}</p></section><section class=\"panel\"><h3>{{panel2Title}}</h3><p>{{panel2Body}}</p><p class=\"contact\">{{contact}}</p></section><section class=\"panel cover\"><img data-field=\"coverImage\" class=\"cover-img\"><span class=\"brand\">{{brandName}}</span><h2>{{headline}}</h2></section></div>",
+    "css": ".sheet { display: flex; width: 100%; height: 100vh; box-sizing: border-box; background: var(--fs-backgroundColor); color: var(--fs-textColor); }.panel { flex: 1; box-sizing: border-box; padding: 44px 34px; border-right: 1px dashed color-mix(in srgb, var(--fs-mutedColor) 40%, transparent); display: flex; flex-direction: column; }.panel:last-child { border-right: 0; }h3 { margin: 0 0 12px; color: var(--fs-primaryColor); font-size: 22px; }.panel p { margin: 0 0 10px; font-size: 14.5px; line-height: 1.75; color: var(--fs-textColor); }.contact { margin-top: auto !important; color: var(--fs-mutedColor); font-weight: 600; }.cover { background: color-mix(in srgb, var(--fs-primaryColor) 8%, var(--fs-backgroundColor)); justify-content: center; }.cover-img { width: 100%; max-height: 300px; object-fit: cover; border-radius: 14px; margin-bottom: 22px; }.brand { color: var(--fs-primaryColor); font-weight: 800; letter-spacing: .12em; font-size: 15px; }h2 { margin: 10px 0 0; font-size: 34px; line-height: 1.25; }"
+  }
+}

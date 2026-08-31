@@ -1,0 +1,1339 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Workflow Editor — 실행 패널·노드 팔레트·승인 모달 등 E1/E2 단계에서 클래스로 옮긴 규칙.
+   설계 문서: Documents/WORKFLOW_EDITOR_DESIGN_IMPROVEMENT_PLAN.md
+   토큰: styles/toolShell.css (.tool-shell 의 --ts-*). 헤더·아이콘 버튼·팝오버는 index.css 의
+   editor-* 규칙을 그대로 쓴다. 이 파일은 hex 를 쓰지 않는다.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Tool Header 보조 ─────────────────────────────────────────────────────── */
+.editor-history-controls {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.tool-shell .editor-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+  border-color: transparent;
+}
+
+@media (max-width: 720px) {
+  .editor-history-controls {
+    display: none;
+  }
+}
+
+/* ── 노드 팔레트 ─────────────────────────────────────────────────────────── */
+.sidebar-header {
+  min-height: 44px;
+  padding: 0 8px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ts-text);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.sidebar-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--ts-surface-3);
+  color: var(--ts-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ts-field-h);
+  margin: 10px 12px 6px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-control);
+  background: var(--ts-surface-2);
+  color: var(--ts-text-muted);
+}
+
+.sidebar-search:focus-within {
+  border-color: var(--ts-accent);
+}
+
+.sidebar-search svg {
+  position: static;
+  flex: 0 0 auto;
+}
+
+.sidebar-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ts-text);
+  font-size: 0.82rem;
+}
+
+.sidebar-search input:focus-visible {
+  box-shadow: none;
+}
+
+.sidebar-search .sidebar-search-clear {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+}
+
+.node-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px 12px;
+  overflow-y: auto;
+}
+
+.sidebar-category-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  margin-top: 6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--ts-radius-control);
+  background: transparent;
+  color: var(--ts-text-muted);
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-category-header:first-child {
+  margin-top: 0;
+}
+
+.sidebar-category-header:hover {
+  background: var(--ts-surface-3);
+  color: var(--ts-text);
+}
+
+.sidebar-category-header svg {
+  transition: transform var(--ts-motion) ease;
+}
+
+.sidebar-category-header[aria-expanded="true"] svg.chevron {
+  transform: rotate(90deg);
+}
+
+.sidebar-category-header .sidebar-count {
+  margin-left: auto;
+}
+
+.dnd-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-control);
+  color: var(--ts-text);
+  font-size: 0.84rem;
+  font-weight: 500;
+  cursor: grab;
+  transition: background-color var(--ts-motion) ease, border-color var(--ts-motion) ease;
+}
+
+.dnd-node:hover {
+  background: var(--ts-surface-3);
+  border-color: var(--ts-border);
+}
+
+.dnd-node:active {
+  cursor: grabbing;
+}
+
+.dnd-node-icon {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--node-color, var(--ts-text-muted));
+  background: color-mix(in srgb, var(--node-color, var(--ts-text-muted)) 14%, transparent);
+}
+
+.dnd-node-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dnd-node-category {
+  flex: 0 0 auto;
+  color: var(--ts-text-muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.node-list-empty {
+  padding: 12px 8px;
+  color: var(--ts-text-muted);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+/* ── 실행 패널 ───────────────────────────────────────────────────────────── */
+.editor-execution-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  min-height: 250px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--ts-surface-1);
+  border-top: 1px solid var(--ts-border);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.editor-execution-resizer {
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  z-index: 901;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+}
+
+.editor-execution-resizer span {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ts-border);
+}
+
+.editor-execution-header {
+  min-height: 44px;
+  padding: 0 8px 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--ts-border);
+}
+
+/* 탭이 6개라 좁은 화면에서는 가로로 넘친다 — 탭 줄만 스크롤시키고 닫기 버튼은 제자리에 둔다. */
+.editor-execution-tabs {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.editor-execution-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-execution-tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ts-text-muted);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--ts-motion) ease, border-color var(--ts-motion) ease;
+}
+
+.editor-execution-tabs button:hover {
+  color: var(--ts-text);
+}
+
+.editor-execution-tabs button.active {
+  color: var(--ts-text);
+  border-bottom-color: var(--ts-accent);
+  font-weight: 600;
+}
+
+.editor-execution-tabs button.active svg {
+  color: var(--ts-accent);
+}
+
+.exec-tab-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--ts-surface-3);
+  color: var(--ts-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.exec-tab-badge.success { background: var(--ts-success-soft); color: var(--ts-success); }
+.exec-tab-badge.warning { background: var(--ts-warning-soft); color: var(--ts-warning); }
+.exec-tab-badge.danger { background: var(--ts-danger-soft); color: var(--ts-danger); }
+
+.editor-execution-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editor-execution-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* 패널 내부 공통 블록 — exec-* 접두 하나로 제한한다 */
+.exec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 24px;
+}
+
+.exec-section.exec-fill {
+  flex: 1;
+  min-height: 0;
+}
+
+.exec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.exec-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.exec-title strong {
+  color: var(--ts-text);
+  font-size: 0.95rem;
+}
+
+.exec-title code {
+  color: var(--ts-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+}
+
+.exec-node-tile {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--node-color, var(--ts-text-muted));
+  background: color-mix(in srgb, var(--node-color, var(--ts-text-muted)) 16%, transparent);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.exec-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tool-shell .btn-secondary.exec-btn,
+.tool-shell .btn-run.exec-btn {
+  height: 30px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 0.78rem;
+}
+
+.tool-shell .btn-secondary.danger {
+  color: var(--ts-danger);
+  border-color: color-mix(in srgb, var(--ts-danger) 55%, transparent);
+}
+
+.tool-shell .btn-secondary.danger:hover:not(:disabled) {
+  background: var(--ts-danger-soft);
+  border-color: var(--ts-danger);
+}
+
+.exec-hint,
+.exec-empty {
+  margin: 0;
+  color: var(--ts-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.exec-empty {
+  padding: 4px 0;
+}
+
+.exec-empty.center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.exec-subtitle {
+  margin-top: 4px;
+  color: var(--ts-text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.exec-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exec-field > label,
+.exec-io-head > label {
+  color: var(--ts-text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.exec-field label small {
+  margin-left: 6px;
+  color: var(--ts-text-muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.exec-textarea {
+  width: 100%;
+  min-height: 64px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-control);
+  background: var(--ts-surface-2);
+  color: var(--ts-text);
+  font-family: inherit;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.exec-textarea:focus {
+  border-color: var(--ts-accent);
+}
+
+.exec-io {
+  margin-top: 4px;
+}
+
+.exec-io-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.exec-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ts-accent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.exec-link.muted {
+  color: var(--ts-text-muted);
+  font-family: inherit;
+}
+
+.exec-link:hover {
+  text-decoration: underline;
+}
+
+.exec-pre {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-panel);
+  background: var(--ts-surface-2);
+  color: var(--ts-text);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.exec-pre.danger {
+  border-color: color-mix(in srgb, var(--ts-danger) 55%, transparent);
+  color: var(--ts-danger);
+}
+
+.exec-pre.grow {
+  flex: 1;
+  max-height: none;
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.exec-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.exec-badge.success { background: var(--ts-success-soft); color: var(--ts-success); }
+.exec-badge.warning { background: var(--ts-warning-soft); color: var(--ts-warning); }
+.exec-badge.danger { background: var(--ts-danger-soft); color: var(--ts-danger); }
+.exec-badge.info { background: var(--ts-accent-soft); color: var(--ts-accent); }
+
+.exec-status {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.exec-status.success { color: var(--ts-success); }
+.exec-status.danger { color: var(--ts-danger); }
+
+.exec-card {
+  padding: 10px 12px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-panel);
+  background: var(--ts-surface-2);
+  color: var(--ts-text);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.exec-card.clickable {
+  cursor: pointer;
+  transition: border-color var(--ts-motion) ease;
+}
+
+.exec-card.clickable:hover {
+  border-color: var(--ts-border-strong);
+}
+
+.exec-card.danger {
+  border-color: color-mix(in srgb, var(--ts-danger) 45%, transparent);
+}
+
+.exec-card.info {
+  border-color: color-mix(in srgb, var(--ts-accent) 40%, transparent);
+  background: var(--ts-accent-soft);
+}
+
+.exec-card.ai {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-color: color-mix(in srgb, var(--ts-ai) 45%, transparent);
+  background: var(--ts-ai-soft);
+}
+
+.exec-card.ai svg {
+  color: var(--ts-ai);
+}
+
+.exec-card strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ts-text);
+  font-size: 0.82rem;
+}
+
+.exec-card.info strong {
+  color: var(--ts-accent);
+}
+
+.exec-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ts-text-muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.exec-step {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  white-space: normal;
+}
+
+.exec-step .muted {
+  color: var(--ts-text-muted);
+}
+
+.exec-result {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-panel);
+  background: var(--ts-surface-2);
+}
+
+.exec-result .exec-pre {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: auto;
+}
+
+.exec-response {
+  flex: 1;
+  padding: 14px 16px;
+  overflow: auto;
+  color: var(--ts-text);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.exec-file {
+  padding: 16px;
+}
+
+.exec-file p {
+  margin: 0 0 10px;
+  color: var(--ts-text);
+}
+
+.tool-shell .exec-download {
+  display: inline-flex;
+  width: fit-content;
+  text-decoration: none;
+}
+
+/* 로그 — 터미널 성격은 유지하되 색은 토큰으로(형광 초록 제거) */
+.exec-log {
+  flex: 1;
+  padding: 14px 16px;
+  overflow-y: auto;
+  background: var(--ts-log-bg);
+  color: var(--ts-log-text);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.exec-log-line {
+  margin-bottom: 4px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.exec-log-line.command {
+  margin-top: 8px;
+  color: var(--ts-accent);
+}
+
+.exec-log-empty {
+  color: var(--ts-log-muted);
+}
+
+/* 평가 탭 */
+.exec-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  text-align: center;
+}
+
+.exec-center p {
+  margin: 0;
+  color: var(--ts-text);
+  font-size: 0.92rem;
+}
+
+.exec-center small {
+  color: var(--ts-text-muted);
+  font-size: 0.8rem;
+}
+
+.exec-spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid var(--ts-surface-3);
+  border-top-color: var(--ts-accent);
+  border-radius: 50%;
+  animation: exec-spin 1s linear infinite;
+}
+
+.exec-spinner.ai { border-top-color: var(--ts-ai); }
+.exec-spinner.success { border-top-color: var(--ts-success); }
+
+@keyframes exec-spin {
+  to { transform: rotate(360deg); }
+}
+
+.exec-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(320px, 100%);
+  text-align: left;
+}
+
+.exec-step-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0.35;
+  transition: opacity var(--ts-motion) ease;
+}
+
+.exec-step-item.active { opacity: 1; }
+.exec-step-item.done { opacity: 0.6; }
+
+.exec-step-item i {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--ts-surface-3);
+  color: var(--ts-text-muted);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.exec-step-item.active i {
+  border-color: var(--ts-success);
+  background: transparent;
+  color: var(--ts-success);
+}
+
+.exec-step-item.done i {
+  background: var(--ts-success);
+  color: var(--ts-on-accent);
+}
+
+.exec-step-item span {
+  color: var(--ts-text);
+  font-size: 0.88rem;
+}
+
+.exec-step-item.active span {
+  color: var(--ts-success);
+  font-weight: 600;
+}
+
+.exec-blink {
+  animation: exec-blink 1.5s infinite;
+}
+
+@keyframes exec-blink {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+.exec-score-card {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 24px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-modal);
+  background: var(--ts-surface-2);
+}
+
+.exec-score-ring {
+  width: 96px;
+  height: 96px;
+  flex: 0 0 96px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 8px solid var(--ts-border);
+  border-radius: 50%;
+  color: var(--ts-text);
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.exec-score-ring.success { border-color: var(--ts-success); }
+.exec-score-ring.warning { border-color: var(--ts-warning); }
+.exec-score-ring.danger { border-color: var(--ts-danger); }
+
+.exec-score-card h3 {
+  margin: 0 0 6px;
+  color: var(--ts-text);
+  font-size: 1.05rem;
+}
+
+.exec-score-card p {
+  margin: 0;
+  color: var(--ts-text-muted);
+  line-height: 1.55;
+}
+
+.exec-score {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.exec-score.success { color: var(--ts-success); }
+.exec-score.warning { color: var(--ts-warning); }
+.exec-score.danger { color: var(--ts-danger); }
+
+.exec-attempts {
+  color: var(--ts-text-muted);
+  font-size: 0.85rem;
+}
+
+.exec-h4 {
+  margin: 0 0 12px;
+  color: var(--ts-text);
+  font-size: 0.95rem;
+}
+
+.exec-h4.warning {
+  color: var(--ts-warning);
+}
+
+.exec-testcases {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.exec-testcase {
+  padding: 16px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-panel);
+  background: var(--ts-surface-2);
+}
+
+.exec-testcase-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--ts-text);
+  font-weight: 600;
+}
+
+.exec-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 720px) {
+  .exec-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.exec-block-label.exec-mt {
+  margin-top: 10px;
+}
+
+.exec-block-label {
+  margin-bottom: 4px;
+  color: var(--ts-text-muted);
+  font-size: 0.78rem;
+}
+
+.exec-block {
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-control);
+  background: var(--ts-surface-1);
+  color: var(--ts-text);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.exec-block.danger {
+  border-color: color-mix(in srgb, var(--ts-danger) 45%, transparent);
+  background: var(--ts-danger-soft);
+}
+
+.exec-feedback {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ts-border);
+}
+
+.exec-suggestions {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--ts-text);
+  line-height: 1.6;
+}
+
+.exec-suggestions li {
+  margin-bottom: 6px;
+}
+
+/* 패널이 닫혀 있을 때의 알약 — 미니맵 위, 선택 툴바(하단 중앙)와 겹치지 않는 자리 */
+.editor-result-pill {
+  position: fixed;
+  right: 16px;
+  bottom: 182px;
+  z-index: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px 0 12px;
+  border: 1px solid var(--ts-border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ts-surface-1) 94%, transparent);
+  color: var(--ts-text);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.3);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: border-color var(--ts-motion) ease, background-color var(--ts-motion) ease;
+}
+
+.editor-result-pill:hover {
+  border-color: var(--ts-accent);
+}
+
+.editor-result-pill svg {
+  color: var(--ts-accent);
+}
+
+.editor-result-pill .sidebar-count {
+  background: var(--ts-accent-soft);
+  color: var(--ts-accent);
+}
+
+@media (max-width: 768px) {
+  .editor-result-pill {
+    right: auto;
+    left: 50%;
+    bottom: 88px;
+    transform: translateX(-50%);
+  }
+}
+
+/* ── 사용자 승인 모달 ─────────────────────────────────────────────────────── */
+.editor-approval-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(2, 6, 23, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.editor-approval-dialog {
+  width: min(640px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-modal);
+  background: var(--ts-surface-1);
+  color: var(--ts-text);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.editor-approval-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 10px 0 18px;
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.editor-approval-dialog > header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
+.editor-approval-dialog > header strong svg {
+  color: var(--ts-warning);
+}
+
+.editor-approval-body {
+  padding: 14px 18px;
+  overflow-y: auto;
+}
+
+.editor-approval-message {
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.editor-approval-dialog .exec-pre {
+  max-height: 38vh;
+}
+
+.editor-approval-dialog > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--ts-border);
+}
+
+/* ── 온보딩 체크리스트: 캔버스를 덜 가리게 ──────────────────────────────── */
+.tool-shell .onboarding-checklist.is-collapsed {
+  width: 232px;
+}
+
+/* ── 실행 오류 카드 (NodeError v1, ADR-0016) ─────────────────────────── */
+.exec-error-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.exec-error-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--ts-danger) 45%, transparent);
+  border-radius: var(--ts-radius-panel);
+  background: var(--ts-surface-2);
+  color: var(--ts-text);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.exec-error-card.compact { padding: 8px 10px; }
+
+.exec-error-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.exec-error-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--ts-danger-soft);
+  color: var(--ts-danger);
+}
+
+.exec-error-icon.cat-credential { background: var(--ts-warning-soft); color: var(--ts-warning); }
+.exec-error-icon.cat-validation { background: var(--ts-accent-soft); color: var(--ts-accent); }
+.exec-error-icon.cat-timeout { background: var(--ts-warning-soft); color: var(--ts-warning); }
+
+.exec-error-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.exec-error-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+
+.exec-error-category { color: var(--ts-danger); }
+
+.exec-error-message { white-space: pre-wrap; word-break: break-word; }
+
+.exec-error-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  color: var(--ts-text-muted);
+}
+
+.exec-error-code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--ts-surface-3, var(--ts-surface));
+  border: 1px solid var(--ts-border);
+}
+
+.exec-error-effect.unknown, .exec-error-effect.applied { color: var(--ts-warning); font-weight: 600; }
+
+.exec-error-hint { font-size: 0.74rem; color: var(--ts-text-muted); }
+
+/* 실행 오류의 safeDetails — 어느 필드·어느 노드·어떤 경로인지 (ADR-0016) */
+.exec-error-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.75rem;
+  margin: 0.3rem 0 0;
+}
+
+.exec-error-details > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.exec-error-details dt {
+  color: var(--ts-text-muted);
+  font-size: 0.72rem;
+}
+
+.exec-error-details dd {
+  margin: 0;
+  max-width: 22rem;
+  overflow: hidden;
+  color: var(--ts-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exec-error-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.exec-error-actions .exec-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* Inspector 탭·검색 (EDITOR_SHORTCUTS §7.2) */
+.exec-tabs { display: inline-flex; gap: 2px; }
+
+.exec-tab {
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ts-text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.exec-tab:hover { color: var(--ts-text); }
+.exec-tab.active { background: var(--ts-surface-2); border-color: var(--ts-border); color: var(--ts-text); }
+
+.exec-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 4px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: 8px;
+  color: var(--ts-text-muted);
+}
+
+.exec-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--ts-text);
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.exec-search-count { font-size: 0.72rem; }
+.exec-actions.wrap { flex-wrap: wrap; }
+
+/* 캔버스 메모: 크기 조절 + 안전한 부분 서식 편집기 */
+.memo-node .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.memo-format-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  margin-bottom: 7px;
+  padding: 3px 4px;
+  border: 1px solid color-mix(in srgb, var(--text-color) 12%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+}
+
+.memo-format-toolbar button,
+.memo-font-size-control select {
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 11px;
+}
+
+.memo-format-toolbar button {
+  min-width: 24px;
+  padding: 0 5px;
+  cursor: pointer;
+}
+
+.memo-format-toolbar button:hover,
+.memo-format-toolbar button:focus-visible,
+.memo-font-size-control select:focus-visible {
+  background: color-mix(in srgb, var(--text-color) 11%, transparent);
+  outline: none;
+}
+
+.memo-font-size-control select { width: 54px; cursor: pointer; }
+.memo-format-divider { width: 1px; height: 16px; background: color-mix(in srgb, var(--text-color) 18%, transparent); }
+.memo-highlight-glyph { padding: 0 2px; color: #111827; background: #fde047; border-radius: 2px; font-weight: 700; }
+
+.memo-rich-editor {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  outline: none;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.memo-rich-editor:empty::before {
+  content: attr(data-placeholder);
+  color: color-mix(in srgb, var(--text-color) 48%, transparent);
+  pointer-events: none;
+}
+
+.memo-rich-editor mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: #fde047;
+  color: #111827;
+}
+
+/* 선택 항목을 AI에 첨부 (백로그 28 POINT-1). 다른 도구와 구분되게 강조색을 쓴다. */
+.editor-selection-toolbar .editor-selection-attach { color: var(--primary-color); }
+.editor-selection-toolbar .editor-selection-attach:hover {
+  background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+}

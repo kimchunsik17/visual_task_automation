@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, CheckCircle2, XCircle, Clock, Database, ChevronDown, ChevronRight, Zap, TestTube } from 'lucide-react';
+import { ArrowLeft, Clock, Database, ChevronDown, ChevronRight, Zap, TestTube } from 'lucide-react';
+import { Icon } from '../icons';
 import './ProjectRunsPage.css';
 
 function ProjectRunsPage() {
@@ -167,9 +168,9 @@ function ProjectRunsPage() {
                     >
                       <div className="run-status-icon">
                         {run.status === 'success' ? (
-                          <CheckCircle2 size={18} className="text-success" />
+                          <Icon name="status-success" size={18} className="text-success" />
                         ) : (
-                          <XCircle size={18} className="text-error" />
+                          <Icon name="status-failed" size={18} className="text-error" />
                         )}
                       </div>
                       <div className="run-info">
@@ -251,9 +252,9 @@ function ProjectRunsPage() {
                         <div className="step-card-header" onClick={() => toggleNodeExpand(step.id)}>
                           <div className="step-status">
                             {step.status === 'success' ? (
-                              <CheckCircle2 size={20} className="text-success" />
+                              <Icon name="status-success" size={20} className="text-success" />
                             ) : (
-                              <XCircle size={20} className="text-error" />
+                              <Icon name="status-failed" size={20} className="text-error" />
                             )}
                           </div>
                           <div className="step-title-group">

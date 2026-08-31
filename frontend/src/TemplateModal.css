@@ -22,7 +22,7 @@
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
-  font-family: 'Quicksand', 'Jua', sans-serif;
+  font-family: var(--font-sans);
 }
 
 .modal-header {
@@ -361,6 +361,25 @@
   font-size: 1.1rem;
   color: var(--text-color);
   font-weight: 600;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+/* 템플릿 제목 앞 커스텀 아이콘 — 제목이 두 줄로 감겨도 첫 줄에 정렬 */
+.template-title-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.info-popup-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.info-popup-header h3 .template-title-icon {
+  margin-top: 0;
 }
 
 .template-desc {

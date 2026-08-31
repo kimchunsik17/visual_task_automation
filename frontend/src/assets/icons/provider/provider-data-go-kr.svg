@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- 공공데이터포털: 공공 건물 위로 열린 데이터. 정부 서비스라 남색을 쓴다. -->
+  <path d="M3 10.5 12 5l9 5.5" stroke="#1E5EB8" stroke-width="1.7" stroke-linejoin="round" fill="none"/>
+  <rect x="5.2" y="11.4" width="1.9" height="6.1" rx="0.5" fill="#1E5EB8" stroke="none"/>
+  <rect x="11.05" y="11.4" width="1.9" height="6.1" rx="0.5" fill="#1E5EB8" stroke="none"/>
+  <rect x="16.9" y="11.4" width="1.9" height="6.1" rx="0.5" fill="#1E5EB8" stroke="none"/>
+  <rect x="3.4" y="18.3" width="17.2" height="1.9" rx="0.8" fill="#1E5EB8" stroke="none"/>
+  <circle cx="12" cy="8.4" r="1.15" fill="#ffffff" stroke="#1E5EB8" stroke-width="1"/>
+</svg>

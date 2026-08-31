@@ -82,3 +82,13 @@ frontend/dist.prev/
 /print_users.py
 /test_models.py
 /nginx-app.conf.bak
+
+# Chroma 벡터 인덱스 — 재색인으로 만들어지는 산출물이고 12MB 바이너리다.
+# 주의: 재색인에는 embedding API 호출이 필요하므로 서버 디스크의 것을 지우지 말 것.
+backend/chroma_db/
+
+# 다른 도구의 QA 스크린샷 덤프
+.codex-qa/
+
+# Vite 의존성 사전 번들 캐시
+.vite/

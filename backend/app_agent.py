@@ -11,7 +11,7 @@ load_dotenv()
 
 class UIComponent(BaseModel):
     id: str
-    type: str = Field(description="Valid types: container, text, input, button, textarea, dropdown, checkbox, divider, image")
+    type: str = Field(description="Valid types: container, text, input, button, textarea, dropdown, checkbox, radio, slider, file, divider, image, link, markdown, table, progress")
     props: dict
     children: Optional[List['UIComponent']] = None
 
@@ -97,7 +97,18 @@ SYSTEM_PROMPT = """\
 3. 앱이 데이터를 저장하거나 백엔드 통신이 필요한지 파악 (requires_backend_workflow)
 
 [UI 구조 제약]
-지원하는 컴포넌트 타입: container, text, input, button, textarea, dropdown, checkbox, divider, image
+지원하는 컴포넌트 타입: container, text, input, button, textarea, dropdown, checkbox, radio, slider, file, divider, image, link, markdown, table, progress
+입력 컴포넌트(input, textarea, dropdown, checkbox, radio, slider, file)는 props.label 과 props.inputKey(워크플로우 payload 의 필드 이름)를 가진다.
+- input 은 props.inputType 으로 종류를 정한다: 'text' | 'number' | 'email' | 'password' | 'date' | 'time' | 'url'.
+- dropdown 과 radio 는 props.options 에 쉼표로 구분한 선택지를 쓴다(radio 는 props.direction 'column' | 'row').
+- slider 는 숫자 범위 입력이다 — props.min, props.max, props.step, props.defaultValue.
+- file 은 파일 업로드 입력이다 — props.fileKind('document' | 'video'). 값은 업로드된 파일의 서버 경로이며 워크플로우에 그대로 전달된다(문서 요약·서식 채우기처럼 파일을 읽는 워크플로우의 입력, 영상 업로드 앱이면 fileKind 를 'video' 로).
+출력·표시 컴포넌트:
+- markdown 은 props.text 의 마크다운을 서식 있는 문서로 그린다. LLM 이 만든 요약·설명처럼 서식이 있는 결과를 보여줄 때 text 대신 이것을 쓴다.
+- table 은 값이 JSON 배열(객체 배열)이면 표로 그린다. 목록·검색 결과처럼 행이 여러 개인 결과에 쓴다. props.columns(쉼표 구분)로 열 순서를 고정할 수 있고 props.emptyText 는 데이터가 없을 때 문구다.
+- progress 는 0~props.max(기본 100) 사이의 값을 진행 막대로 보인다 — props.label, props.value.
+- link 는 props.text 와 props.href 를 가진 하이퍼링크다(새 탭으로 열린다).
+워크플로우 결과를 표시할 때: 서식 있는 글이면 markdown, 행 목록이면 table, 그 외 짧은 값은 text 나 읽기 전용 textarea(props.readOnly true)를 쓴다.
 각 컴포넌트는 id, type, props 필드를 가지며 container만 children을 가질 수 있습니다.
 Current State의 page_settings와 ui_graph_data.canvas에 있는 실제 캔버스 너비, 높이, 자동 높이 및 rootStyle을 페이지 제약으로 사용하세요.
 사용자가 페이지 설정 변경을 명시하지 않았다면 현재 캔버스와 rootStyle을 유지하고, 모든 최상위 컴포넌트를 현재 캔버스 안에 배치하세요.
@@ -105,6 +116,8 @@ Current State의 page_settings와 ui_graph_data.canvas에 있는 실제 캔버�
 container 내부 children의 position은 container 기준 로컬 좌표입니다.
 container는 props.layoutMode를 absolute, row, column, grid 중 하나로 지정하세요. 편집 가능한 자유 배치를 기본으로 absolute를 사용하고, 사용자가 반응형 흐름 배치를 요구한 경우에만 row, column, grid를 사용하세요.
 props.style에 픽셀 단위 width와 height를 반드시 명시하고 컴포넌트끼리 겹치거나 캔버스 밖으로 나가지 않게 하세요.
+위치는 props.position 하나로만 지정합니다. props.style 에 position, left, top, right, bottom 을 절대 넣지 마세요 — 렌더러가 props.position 과 합산해 컴포넌트가 어긋납니다.
+container 의 height 는 자식들의 (position.y + height) 최대값보다 크게 잡아 자식이 컨테이너 밖으로 나가지 않게 하세요.
 terminal은 앱 UI 컴포넌트가 아니라 App Builder의 별도 실행 로그 패널이므로 절대 생성하지 마세요. 실행 결과는 text 또는 읽기 전용 textarea로 표시하세요.
 
 [로직 노드 제약]
@@ -139,7 +152,18 @@ SYSTEM_PROMPT_CODE = """\
 4. 백엔드 통신이 필요한지 파악 (requires_backend_workflow)
 
 [UI 구조 제약]
-지원하는 컴포넌트 타입: container, text, input, button, textarea, dropdown, checkbox, divider, image
+지원하는 컴포넌트 타입: container, text, input, button, textarea, dropdown, checkbox, radio, slider, file, divider, image, link, markdown, table, progress
+입력 컴포넌트(input, textarea, dropdown, checkbox, radio, slider, file)는 props.label 과 props.inputKey(워크플로우 payload 의 필드 이름)를 가진다.
+- input 은 props.inputType 으로 종류를 정한다: 'text' | 'number' | 'email' | 'password' | 'date' | 'time' | 'url'.
+- dropdown 과 radio 는 props.options 에 쉼표로 구분한 선택지를 쓴다(radio 는 props.direction 'column' | 'row').
+- slider 는 숫자 범위 입력이다 — props.min, props.max, props.step, props.defaultValue.
+- file 은 파일 업로드 입력이다 — props.fileKind('document' | 'video'). 값은 업로드된 파일의 서버 경로이며 워크플로우에 그대로 전달된다(문서 요약·서식 채우기처럼 파일을 읽는 워크플로우의 입력, 영상 업로드 앱이면 fileKind 를 'video' 로).
+출력·표시 컴포넌트:
+- markdown 은 props.text 의 마크다운을 서식 있는 문서로 그린다. LLM 이 만든 요약·설명처럼 서식이 있는 결과를 보여줄 때 text 대신 이것을 쓴다.
+- table 은 값이 JSON 배열(객체 배열)이면 표로 그린다. 목록·검색 결과처럼 행이 여러 개인 결과에 쓴다. props.columns(쉼표 구분)로 열 순서를 고정할 수 있고 props.emptyText 는 데이터가 없을 때 문구다.
+- progress 는 0~props.max(기본 100) 사이의 값을 진행 막대로 보인다 — props.label, props.value.
+- link 는 props.text 와 props.href 를 가진 하이퍼링크다(새 탭으로 열린다).
+워크플로우 결과를 표시할 때: 서식 있는 글이면 markdown, 행 목록이면 table, 그 외 짧은 값은 text 나 읽기 전용 textarea(props.readOnly true)를 쓴다.
 각 컴포넌트는 id, type, props 필드를 가지며 container만 children을 가질 수 있습니다.
 Current State의 page_settings와 ui_graph_data.canvas에 있는 실제 캔버스 너비, 높이, 자동 높이 및 rootStyle을 페이지 제약으로 사용하세요.
 사용자가 페이지 설정 변경을 명시하지 않았다면 현재 캔버스와 rootStyle을 유지하고, 모든 최상위 컴포넌트를 현재 캔버스 안에 배치하세요.
@@ -147,6 +171,8 @@ Current State의 page_settings와 ui_graph_data.canvas에 있는 실제 캔버�
 container 내부 children의 position은 container 기준 로컬 좌표입니다.
 container는 props.layoutMode를 absolute, row, column, grid 중 하나로 지정하세요. 편집 가능한 자유 배치를 기본으로 absolute를 사용하고, 사용자가 반응형 흐름 배치를 요구한 경우에만 row, column, grid를 사용하세요.
 props.style에 픽셀 단위 width와 height를 반드시 명시하고 컴포넌트끼리 겹치거나 캔버스 밖으로 나가지 않게 하세요.
+위치는 props.position 하나로만 지정합니다. props.style 에 position, left, top, right, bottom 을 절대 넣지 마세요 — 렌더러가 props.position 과 합산해 컴포넌트가 어긋납니다.
+container 의 height 는 자식들의 (position.y + height) 최대값보다 크게 잡아 자식이 컨테이너 밖으로 나가지 않게 하세요.
 terminal은 앱 UI 컴포넌트가 아니라 App Builder의 별도 실행 로그 패널이므로 절대 생성하지 마세요. 실행 결과는 text 또는 읽기 전용 textarea로 표시하세요.
 
 [JavaScript 코드 생성 규칙 (매우 중요)]
@@ -308,8 +334,35 @@ def validate_app(app_data: AppGeneratorResult, generate_mode: str = "code") -> t
             
     return (len(errors) == 0, errors)
 
+_LAYOUT_STYLE_KEYS = ("position", "left", "top", "right", "bottom")
+
+
+def _pixel_value(value):
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and value.strip().endswith("px"):
+        try:
+            return float(value.strip()[:-2])
+        except ValueError:
+            return None
+    return None
+
+
 def normalize_generated_components(components: List[UIComponent]) -> None:
     for component in components:
+        # 위치는 props.position 하나여야 한다. LLM 이 style.left/top 을 함께 내면(CSS 로 생각하므로
+        # 흔하다) 프론트가 둘을 합산해 계단처럼 어긋난다. style 쪽이 의도한 레이아웃이므로 그것을
+        # position 으로 옮기고 style 에서는 지운다. 프론트 normalizeComponents 도 같은 규칙을 갖지만
+        # 응답이 저장되기 전에 서버에서 먼저 정리한다.
+        component.props = component.props or {}
+        style = component.props.get("style")
+        if isinstance(style, dict):
+            left = _pixel_value(style.get("left"))
+            top = _pixel_value(style.get("top"))
+            if left is not None and top is not None:
+                component.props["position"] = {"x": left, "y": top}
+            for key in _LAYOUT_STYLE_KEYS:
+                style.pop(key, None)
         if component.type == "terminal":
             component.type = "text"
             component.props = component.props or {}

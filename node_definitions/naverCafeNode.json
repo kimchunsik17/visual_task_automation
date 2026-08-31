@@ -1,0 +1,262 @@
+{
+  "type": "naverCafeNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "네이버 카페",
+    "icon": "provider-naver-user-oauth",
+    "color": "#03c75a"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "동작",
+      "default": "write_article",
+      "options": [
+        {
+          "value": "write_article",
+          "label": "게시판에 글쓰기"
+        },
+        {
+          "value": "join",
+          "label": "카페 가입"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(naverCafeNode)에 mode가 없다"
+        }
+      ]
+    },
+    {
+      "name": "clubId",
+      "kind": "text",
+      "label": "카페 ID",
+      "placeholder": "숫자. 카페 관리 화면에서 확인할 수 있습니다",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(naverCafeNode)에 clubId가 없다"
+        },
+        {
+          "rule": "digits",
+          "message": "{node_id}(naverCafeNode)의 clubId는 숫자여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "menuId",
+      "kind": "text",
+      "label": "게시판 ID",
+      "placeholder": "숫자. 게시판 주소의 menuid 값 (상품게시판은 쓸 수 없습니다)",
+      "showWhen": {
+        "field": "mode",
+        "equals": "write_article"
+      },
+      "validation": [
+        {
+          "rule": "digits",
+          "message": "{node_id}(naverCafeNode)의 menuId는 숫자여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "subject",
+      "kind": "text",
+      "label": "제목",
+      "showWhen": {
+        "field": "mode",
+        "equals": "write_article"
+      }
+    },
+    {
+      "name": "content",
+      "kind": "textarea",
+      "label": "본문",
+      "placeholder": "비우면 직전 노드의 결과를 본문으로 씁니다",
+      "showWhen": {
+        "field": "mode",
+        "equals": "write_article"
+      }
+    },
+    {
+      "name": "nickname",
+      "kind": "text",
+      "label": "카페에서 쓸 별명",
+      "showWhen": {
+        "field": "mode",
+        "equals": "join"
+      }
+    },
+    {
+      "name": "confirm",
+      "kind": "checkbox",
+      "label": "실제로 게시합니다 (끄면 미리보기만)",
+      "default": false,
+      "ui": {
+        "help": "글쓰기·가입은 되돌릴 수 없습니다. 먼저 미리보기로 내용을 확인한 뒤 켜주세요."
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "naver_user_oauth",
+      "provider": "naver_user_oauth",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-write",
+  "executor": "naverCafeNode",
+  "connector": {
+    "service": "네이버 카페",
+    "role": "action",
+    "modes": [
+      "write_article",
+      "join"
+    ],
+    "credentials": [
+      {
+        "provider": "naver_user_oauth",
+        "scopes": []
+      }
+    ],
+    "baseUrl": "https://openapi.naver.com/v1/cafe",
+    "timeoutSeconds": 20.0,
+    "rateLimit": {
+      "requestsPerMinute": 10
+    },
+    "retryPolicy": {
+      "maxAttempts": 1,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 5.0,
+      "retryNonIdempotent": false
+    },
+    "sideEffectByMode": {
+      "write_article": "external-write",
+      "join": "external-write"
+    },
+    "outputSchemaByMode": {
+      "write_article": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "willSend": {
+            "type": "boolean"
+          },
+          "sent": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "join": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "willSend": {
+            "type": "boolean"
+          },
+          "sent": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "docsUrl": "https://developers.naver.com/docs/login/cafe-api/cafe-api.md",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "POST"
+            },
+            "status": 200,
+            "body": {
+              "message": {
+                "status": "200",
+                "result": {
+                  "articleId": 12345
+                }
+              }
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "errorMessage": "Authentication failed",
+              "errorCode": "024"
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "60"
+            },
+            "body": {
+              "errorMessage": "Rate limit exceeded",
+              "errorCode": "429"
+            }
+          }
+        ]
+      },
+      "forbidden": {
+        "responses": [
+          {
+            "status": 403,
+            "body": {
+              "errorMessage": "권한이 없습니다",
+              "errorCode": "403"
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "네이버 카페 게시판에 글을 쓰거나 카페에 가입한다. **외부에 글이 실제로 올라가는 동작이다.**\n                   data.mode(문자열): \"write_article\"(글쓰기 · 기본값) 또는 \"join\"(가입).\n                   data.clubId(문자열, 필수 — 카페 고유 숫자 ID), data.menuId(문자열, 글쓰기 시 필수 — 게시판 숫자 ID),\n                   data.subject(문자열, 제목), data.content(문자열, 본문 — 비우면 직전 노드 결과를 쓴다),\n                   data.nickname(문자열, 가입 시 카페에서 쓸 별명).\n                   ⚠️ data.confirm(불리언)이 true 여야 실제로 올라간다. **기본값은 false 이고 그때는 미리보기만 한다** —\n                   사용자가 \"올려줘\" 라고 명확히 요청한 경우에만 true 로 두고, 애매하면 false 로 두어 확인받게 한다.\n                   API 센터에 '네이버 사용자 토큰'이 카페 권한으로 연결되어 있어야 한다.\n                   ⚠️ 네이버 블로그 자동 글쓰기는 2020년에 종료되어 제공하지 않는다 — 블로그에 쓰는 워크플로는 만들지 마라.\n"
+  }
+}

@@ -25,9 +25,12 @@ def _perfect_linear_graph():
     }
 
 
-def test_evaluation_suite_has_30_unique_scenarios():
-    assert len(evaluation.TEST_CASES) == 30
-    assert len({case["id"] for case in evaluation.TEST_CASES}) == 30
+def test_evaluation_suite_has_unique_scenarios():
+    # 케이스를 늘릴 때 이 수도 함께 올린다 — id 중복·누락을 막는 것이 목적이다.
+    # 31·32 는 포맷 스튜디오 계획 Phase 3(새 문서·디자인물은 formatNode 로) 회귀 케이스다.
+    # 33: 데이터 흐름 분리 계획 §6-4 의 FieldBinding 케이스를 더했다
+    assert len(evaluation.TEST_CASES) == 33
+    assert len({case["id"] for case in evaluation.TEST_CASES}) == 33
     assert evaluation.TEST_CASES[27]["expected_outcome"] == "clarification"
 
 
@@ -141,3 +144,40 @@ async def test_passed_evaluation_result_is_reused_from_cache(monkeypatch, tmp_pa
     assert calls == 1
     assert second_complete["summary"]["cached_count"] == 1
     assert second_complete["summary"]["token_usage"]["total_tokens"] == 0
+
+
+def test_binding_case_deducts_when_values_are_moved_by_llm():
+    """값을 옮기기만 하는 자리에 LLM/파서를 끼우면 감점 — 바인딩으로 처리하면 만점 후보다.
+    감점은 expected_bindings 를 선언한 케이스에만 적용되므로 기존 케이스 점수는 변하지 않는다."""
+    case = next(c for c in evaluation.TEST_CASES if c["id"] == 33)
+    assert case["expected_bindings"] == [["emailNode", "toEmail"]]
+
+    graph_without = {"nodes": [
+        {"id": "n1", "type": "webhookNode", "data": {"method": "POST", "path": "/incident"}},
+        {"id": "n2", "type": "formatNode", "data": {"formatId": "incident-report", "output": "hwpx"}},
+        {"id": "n3", "type": "emailNode", "data": {"toEmail": "manager@example.com", "subject": "시말서"}},
+    ], "edges": [
+        {"id": "e1", "source": "n1", "target": "n2"},
+        {"id": "e2", "source": "n2", "target": "n3"},
+    ]}
+    graph_with = {"nodes": [
+        graph_without["nodes"][0],
+        graph_without["nodes"][1],
+        {"id": "n3", "type": "emailNode", "data": {
+            "toEmail": "", "subject": "시말서",
+            "bindings": {"toEmail": {"source": "n1", "path": "managerEmail"}}}},
+    ], "edges": graph_without["edges"]}
+
+    without = evaluation.score_generated_graph(case, graph_without)
+    with_bindings = evaluation.score_generated_graph(case, graph_with)
+    assert without["missing_bindings"] == [["emailNode", "toEmail"]]
+    assert not without["passed"]
+    assert with_bindings["missing_bindings"] == []
+    assert with_bindings["score"] > without["score"], (with_bindings["score"], without["score"])
+
+
+def test_existing_cases_have_no_binding_expectations():
+    """감점 항목이 기존 케이스에 조용히 번지면 과거 결과와 비교가 깨진다."""
+    for case in evaluation.TEST_CASES:
+        if case["id"] != 33:
+            assert case["expected_bindings"] == [], case["id"]

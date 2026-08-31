@@ -1,0 +1,56 @@
+{
+  "type": "fileModifierNode",
+  "version": 1,
+  "category": "document",
+  "display": {
+    "label": "자동 완성",
+    "icon": "node-file-modifier",
+    "color": "#f43f5e"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "template_path",
+      "kind": "text",
+      "label": "Template File",
+      "ui": {
+        "hidden": true
+      },
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(fileModifierNode)에 template_path가 없다"
+        }
+      ]
+    },
+    {
+      "name": "output_path",
+      "kind": "text",
+      "label": "Output File Path",
+      "ui": {
+        "hidden": true
+      }
+    }
+  ],
+  "credentials": [],
+  "capabilities": [
+    "filesystem"
+  ],
+  "sideEffect": "none",
+  "executor": "fileModifierNode",
+  "mock": {},
+  "llm": {
+    "description": "templateAnalyzerNode가 찾아낸 빈칸을 실제 값으로 채워서 파일을 완성한다.\n                   ⚠️ 이 노드도 구버전 .hwp는 지원하지 않는다(위와 동일한 이유). .hwpx/.docx는 템플릿이\n                   없어도 자동 생성되므로(위 templateAnalyzerNode와 동일한 원리 — 여기서는 실제 채울\n                   값의 키 이름을 그대로 써서 만들기 때문에 LLM 호출도 필요 없다) 항상 안전하게 쓸 수\n                   있다. data.template_path(문자열, 원본 서식 파일 경로 — templateAnalyzerNode와 동일),\n                   data.output_path(문자열, 선택 — 비우면 template_path의 이름을 따서 자동으로 지어지므로\n                   비워도 되지만, 문서 내용상 더 적합한 이름을 알고 있으면(예: \"김민준_자기소개서.hwpx\")\n                   직접 채워도 좋다). ⚠️ data.output_path를 \".pdf\"로\n                   끝나게 설정하면 template_path는 아예 무시하고 채울 값(JSON)을 곧바로 새 PDF 문서로\n                   렌더링한다 — \"PDF로 출력해줘/PDF로 만들어줘\" 같은 요청엔 별도 서식 파일 없이 이\n                   방식을 쓴다. 채울 값은 자기 data가 아니라 직전 노드의 출력(JSON)에서 가져오므로,\n                   반드시 그 JSON을 만들어주는 노드(templateAnalyzerNode → llmNode/promptNode 조합이\n                   일반적) 바로 뒤에 연결해야 한다 — 그렇지 않으면 에러 없이 빈칸이 하나도 안 채워진\n                   원본이 그대로 저장된다.\n                   ⚠️ **이 노드는 기존 서식 파일 전용이다.** 서식 파일이 없거나 새로 문서를 만드는\n                   요청이면 formatNode 를 쓴다(빈칸이 선언된 포맷에 값만 채운다 — 표·이미지·프리셋\n                   지원, 필수 빈칸이 비면 실행이 멈춰서 빈 문서가 저장되지 않는다).\n                   \"채운다\"는 표현은 이 노드의 신호가 아니다 — 사용자가 가진 파일이 언급되지\n                   않았으면 formatNode 를 쓴다.\n"
+  }
+}

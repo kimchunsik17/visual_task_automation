@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
-import { Play, Share2, Lock, Unlock, Users, AlertTriangle, Copy, Download, Check, XCircle, Clock } from 'lucide-react';
+import { Play, Share2, Lock, Unlock, Users, Copy, Download, Check, XCircle, Clock } from 'lucide-react';
+import { Icon } from '../icons';
 import './AppRunnerPage.css';
 
 // 실행 결과가 fileModifierNode/posterGeneratorNode 등이 만든 실제 파일 경로(uploads/...)를
@@ -128,7 +129,7 @@ export default function AppRunnerPage() {
   if (error && !appInfo) {
     return (
       <div className="app-runner-container error-state">
-        <AlertTriangle size={48} color="#ef4444" />
+        <Icon name="status-failed" size={48} color="#ef4444" />
         <h2>오류 발생</h2>
         <p>{error}</p>
         <button className="btn-secondary" onClick={() => navigate('/')}>홈으로 돌아가기</button>
@@ -214,7 +215,7 @@ export default function AppRunnerPage() {
 
         {error && (
           <div className="app-error-box">
-            <AlertTriangle size={20} />
+            <Icon name="status-failed" size={20} />
             {error}
           </div>
         )}

@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "id": "meeting-minutes",
+  "name": "회의록",
+  "description": "회의 개요, 논의 내용, 결정 사항과 후속 조치를 기록하는 문서",
+  "layout": "document",
+  "output": {
+    "default": "docx",
+    "allowed": [
+      "hwpx",
+      "docx",
+      "pdf",
+      "xlsx"
+    ]
+  },
+  "fields": [
+    {
+      "name": "meetingTitle",
+      "label": "회의명",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "heldAt",
+      "label": "일시",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "place",
+      "label": "장소",
+      "kind": "text",
+      "required": false
+    },
+    {
+      "name": "attendees",
+      "label": "참석자",
+      "kind": "text",
+      "required": true
+    },
+    {
+      "name": "agenda",
+      "label": "안건",
+      "kind": "multiline",
+      "required": true
+    },
+    {
+      "name": "discussion",
+      "label": "논의 내용",
+      "kind": "multiline",
+      "required": true
+    },
+    {
+      "name": "decisions",
+      "label": "결정 사항",
+      "kind": "rows",
+      "columns": [
+        "번호",
+        "결정 내용"
+      ],
+      "required": false
+    },
+    {
+      "name": "actionItems",
+      "label": "후속 조치",
+      "kind": "rows",
+      "columns": [
+        "담당",
+        "할 일",
+        "기한"
+      ],
+      "required": false
+    }
+  ],
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "회의록 — {{meetingTitle}}"
+    },
+    {
+      "type": "table",
+      "columns": [
+        "항목",
+        "내용"
+      ],
+      "rows": [
+        [
+          "일시",
+          "{{heldAt}}"
+        ],
+        [
+          "장소",
+          "{{place}}"
+        ],
+        [
+          "참석자",
+          "{{attendees}}"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "1. 안건"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{agenda}}"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "2. 논의 내용"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{discussion}}"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "3. 결정 사항"
+    },
+    {
+      "type": "table",
+      "fromField": "decisions"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "4. 후속 조치"
+    },
+    {
+      "type": "table",
+      "fromField": "actionItems"
+    }
+  ]
+}

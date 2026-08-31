@@ -4,7 +4,7 @@
   color: var(--text-color);
   display: flex;
   flex-direction: column;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
 }
 
 .eval-header {
@@ -215,13 +215,7 @@
   padding-right: 0.5rem;
 }
 
-.case-list::-webkit-scrollbar {
-  width: 6px;
-}
-.case-list::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.1);
-  border-radius: 3px;
-}
+/* 스크롤바는 index.css 의 전역 규칙을 따른다(페이지별 override 제거). */
 
 .case-option {
   display: flex;
@@ -443,7 +437,7 @@
   padding: 0.3rem 0.6rem;
   border-radius: 6px;
   font-size: 0.8rem;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .node-tag.missing {
