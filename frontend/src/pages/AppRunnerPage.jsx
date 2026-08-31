@@ -43,12 +43,17 @@ export default function AppRunnerPage() {
   useEffect(() => {
     const fetchAppInfo = async () => {
       try {
-        const res = await axios.get(`/api/apps/${shareToken}`);
+        // 인증 헤더를 함께 보낸다 — 비공개 앱은 소유자 본인이 열어야 하므로 GET 도 토큰이 필요하다.
+        // (2026-08-31 회귀: GET /api/apps 에 공개범위 판정이 추가되면서, 헤더 없는 이 호출이
+        //  private 앱에서 403 이 되어 소유자에게도 화면이 안 떴다.)
+        const res = await axios.get(`/api/apps/${shareToken}`, getAuthHeaders());
         setAppInfo(res.data);
       } catch (err) {
         console.error(err);
         if (err.response?.status === 404) {
           setError("요청하신 앱을 찾을 수 없습니다. 주소를 다시 확인해 주세요.");
+        } else if (err.response?.status === 403) {
+          setError("이 앱은 비공개입니다. 만든 사람의 계정으로 로그인해야 열 수 있습니다.");
         } else {
           setError("앱 정보를 불러오는 데 실패했습니다.");
         }
