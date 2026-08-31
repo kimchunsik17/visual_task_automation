@@ -45,6 +45,23 @@ def _find_downstream_schema_fields(start_id, node_dict, forward_edges, max_hops=
         hops += 1
     return None
 
+def _confine_to_uploads(path: str) -> str:
+    """서식·출력 경로를 uploads/ 밑으로 가둔다.
+
+    예전 규칙은 "uploads/ 로 시작하지 않으면 basename 을 붙인다" 였는데, 그래서
+    `uploads/../../.env` 처럼 **uploads/ 로 시작하면서 밖으로 나가는** 경로는 그대로 통과했다
+    (2026-08-31 보안 감사). 상위 이동이 섞여 있으면 basename 만 남긴다.
+    실행 시점 방어는 graph.py 프리앰블의 `_safe_user_path` 가 한 겹 더 한다.
+    """
+    if not path:
+        return path
+    normalized = path.replace('\\', '/')
+    parts = [seg for seg in normalized.split('/') if seg not in ('', '.')]
+    if '..' in parts or not normalized.startswith('uploads/'):
+        return 'uploads/' + os.path.basename(normalized.replace('..', '')) if os.path.basename(normalized.replace('..', '')) else 'uploads/'
+    return normalized
+
+
 @node_registry.register('templateAnalyzerNode')
 def generate_template_analyzer_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Template Analyzer Node ({node_id}) ---")
@@ -53,8 +70,7 @@ def generate_template_analyzer_node(node_id, node, indent, active_llm_id, prev_r
     # output_file과 동일하게 uploads/ 밑으로 정규화한다 — 안 그러면 챗봇이 지어낸 "자기소개서_템플릿.hwpx"
     # 처럼 디렉터리 없는 경로가 서버 실행 위치(backend/) 바로 밑에 그대로 생겨 uploads/ 밖에 파일이
     # 흩어지는 문제가 있었다(실제로 backend/ 루트에 파일이 생기는 것을 확인함).
-    if template_file and not template_file.startswith('uploads/') and not template_file.startswith('uploads\\\\'):
-        template_file = 'uploads/' + os.path.basename(template_file)
+    template_file = _confine_to_uploads(template_file)
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    import re")
     lines.append(f"{indent}    import json")
@@ -174,8 +190,7 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     # output_file과 동일하게 uploads/ 밑으로 정규화한다 — 안 그러면 챗봇이 지어낸 "자기소개서_템플릿.hwpx"
     # 처럼 디렉터리 없는 경로가 서버 실행 위치(backend/) 바로 밑에 그대로 생겨 uploads/ 밖에 파일이
     # 흩어지는 문제가 있었다(실제로 backend/ 루트에 파일이 생기는 것을 확인함).
-    if template_file and not template_file.startswith('uploads/') and not template_file.startswith('uploads\\\\'):
-        template_file = 'uploads/' + os.path.basename(template_file)
+    template_file = _confine_to_uploads(template_file)
                     
     output_file = node.get('data', {}).get('output_path', '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
     if not output_file:
@@ -194,8 +209,7 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
         else:
             output_file = f"결과_{unique_suffix}.txt"
 
-    if not output_file.startswith('uploads/') and not output_file.startswith('uploads\\\\'):
-        output_file = 'uploads/' + os.path.basename(output_file)
+    output_file = _confine_to_uploads(output_file)
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    import json")
     lines.append(f"{indent}    import os")
@@ -490,8 +504,7 @@ def generate_poster_generator_node(node_id, node, indent, active_llm_id, prev_re
     if not output_file:
         unique_suffix = uuid.uuid4().hex[:6]
         output_file = f"poster_{unique_suffix}.{fmt}"
-    if not output_file.startswith('uploads/') and not output_file.startswith('uploads\\\\'):
-        output_file = 'uploads/' + os.path.basename(output_file)
+    output_file = _confine_to_uploads(output_file)
 
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    from poster_generator import render_html_to_file")
