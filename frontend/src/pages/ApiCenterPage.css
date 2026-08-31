@@ -43,7 +43,11 @@
 }
 
 .api-icon {
+  /* 이모지 시절 폰트 크기(1.5rem=24px)와 같은 광학 크기로 SVG(24px)를 정렬한다 */
   font-size: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .guide-btn {
@@ -87,7 +91,7 @@
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .key-input-area input:focus {
@@ -133,7 +137,7 @@
 }
 
 .masked-key {
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--success-color);
   font-size: 1.1rem;
   letter-spacing: 2px;
@@ -172,9 +176,12 @@
   margin-top: 2rem;
 }
 
-.shield-icon {
-  color: var(--accent-color);
-  margin-bottom: 1.5rem;
+.sudo-auth-art {
+  width: min(420px, 100%);
+  height: auto;
+  display: block;
+  margin: -1rem auto 1.25rem;
+  border-radius: 12px;
 }
 
 .sudo-auth-container h2 {
@@ -187,6 +194,17 @@
   color: var(--text-secondary);
   margin-bottom: 2rem;
   max-width: 400px;
+}
+
+@media (max-width: 640px) {
+  .sudo-auth-container {
+    padding: 2.25rem 1rem;
+  }
+
+  .sudo-auth-art {
+    width: min(340px, 100%);
+    margin-top: -0.5rem;
+  }
 }
 
 .google-auth-btn {
@@ -277,4 +295,56 @@
 
 .guide-link:hover {
   text-decoration: underline;
+}
+
+/* ── Database 명명 자격증명 카드 (ADR-0017) ─────────────────────────── */
+.db-cred-empty { font-size: 0.85rem; color: var(--text-muted, #94a3b8); margin-bottom: 10px; }
+.db-cred-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-color, #e2e8f0); }
+.db-cred-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.db-cred-label { font-weight: 600; font-size: 0.9rem; }
+.db-cred-meta { font-size: 0.75rem; color: var(--text-muted, #94a3b8); word-break: break-all; }
+.db-cred-meta code { font-size: 0.72rem; }
+.db-cred-stages { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.72rem; }
+.db-cred-stage { padding: 1px 7px; border-radius: 10px; border: 1px solid #64748b; color: #64748b; }
+.db-cred-stage.ok { border-color: #10b981; color: #10b981; }
+.db-cred-stage.fail { border-color: #ef4444; color: #ef4444; }
+.db-cred-ok { color: #10b981; font-weight: 600; }
+.db-cred-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; flex: 0 0 auto; }
+.db-cred-form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.db-cred-error { color: #ef4444; font-size: 0.8rem; }
+.db-cred-hint { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--text-muted, #94a3b8); }
+
+/* 연결 상태 — 서버가 계산한 만료·자동갱신·권한을 그대로 보여준다(F4).
+   색은 토큰만 쓴다. `--accent-color` 처럼 정의되지 않은 이름을 새로 만들지 않는다. */
+.api-conn-status {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--bg-color);
+  font-size: 0.79rem;
+}
+.api-conn-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.45;
+}
+.api-conn-ok { color: #2a9d5c; }
+.api-conn-warn { color: #d97706; }
+.api-conn-bad { color: #dc2626; }
+.api-conn-row svg { flex-shrink: 0; }
+
+.api-scope-list { margin-top: 2px; color: var(--text-muted); }
+.api-scope-list summary { cursor: pointer; }
+.api-scope-list ul { margin: 6px 0 0; padding-left: 16px; }
+.api-scope-list li { margin-bottom: 3px; line-height: 1.5; }
+.api-scope-list code {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-color);
+  word-break: break-all;
 }

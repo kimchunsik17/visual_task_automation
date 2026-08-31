@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "fields": {
+    "discordNode": [
+      "channelId"
+    ],
+    "emailNode": [
+      "toEmail",
+      "subject"
+    ],
+    "formatNode": [
+      "formatId",
+      "values",
+      "output_path"
+    ],
+    "httpRequestNode": [
+      "url",
+      "body"
+    ],
+    "kakaoNode": [
+      "receiver"
+    ],
+    "slackNode": [
+      "channel",
+      "message"
+    ],
+    "telegramNode": [
+      "chatId"
+    ],
+    "valueNode": [
+      "value"
+    ],
+    "webCrawlerNode": [
+      "url"
+    ]
+  }
+}

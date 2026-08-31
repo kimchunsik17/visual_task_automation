@@ -1,0 +1,78 @@
+{
+  "type": "jsonParserNode",
+  "version": 1,
+  "category": "code",
+  "display": {
+    "label": "JSON 파서",
+    "icon": "node-json-parser",
+    "color": "#eab308"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "파싱 모드",
+      "default": "parse",
+      "options": [
+        {
+          "value": "parse",
+          "label": "String to JSON (파싱)"
+        },
+        {
+          "value": "stringify",
+          "label": "JSON to String (문자열화)"
+        },
+        {
+          "value": "extract",
+          "label": "Extract Key (특정 키 추출)"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "message": "{node_id}(jsonParserNode)의 mode는 parse/stringify/extract 중 하나여야 한다 (현재: {value_repr})"
+        }
+      ]
+    },
+    {
+      "name": "extractKey",
+      "kind": "text",
+      "label": "추출할 키",
+      "placeholder": "예: customer.email",
+      "showWhen": {
+        "field": "mode",
+        "equals": "extract"
+      },
+      "validation": [
+        {
+          "rule": "required",
+          "when": {
+            "field": "mode",
+            "equals": "extract"
+          },
+          "message": "{node_id}(jsonParserNode)는 mode가 extract일 때 extractKey가 필요하다"
+        }
+      ]
+    }
+  ],
+  "credentials": [],
+  "capabilities": [],
+  "sideEffect": "none",
+  "executor": "jsonParserNode",
+  "mock": {},
+  "llm": {
+    "description": "JSON 파싱/변환. data.mode(parse|stringify|extract). extract일 때만 data.extractKey(문자열) 필요.\n                   parse=문자열→JSON, stringify=JSON→문자열, extract=특정 키 값 꺼내기.\n"
+  }
+}

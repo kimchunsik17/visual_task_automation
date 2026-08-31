@@ -1,248 +1,391 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { useSearchParams } from 'react-router-dom';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
+  Activity,
+  AlertCircle,
+  BarChart3,
+  Bot,
+  CheckCircle2,
+  Clock3,
+  Coins,
+  Cpu,
+  FlaskConical,
+  LayoutTemplate,
+  PlayCircle,
+  RefreshCw,
+} from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import MainSidebar from '../MainSidebar';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, BarChart as RechartsBarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
-import { BarChart, Activity, Database, Clock, Cpu, Bot } from 'lucide-react';
-import './MainPage.css';
+import './StatisticsPage.css';
 
-const TYPE_COLORS = {
-  execution:  '#8b5cf6',
-  agent:      '#3b82f6',
-  evaluation: '#10b981',
+const TYPE_META = {
+  execution: { label: '워크플로우 실행', color: '#8b5cf6', icon: Cpu },
+  agent: { label: 'AI 워크플로우 생성', color: '#3b82f6', icon: Bot },
+  app_builder: { label: 'App Builder 생성', color: '#ec4899', icon: LayoutTemplate },
+  evaluation: { label: '워크플로우 평가', color: '#10b981', icon: FlaskConical },
 };
 
-const TYPE_LABELS = {
-  execution:  '워크플로우 실행',
-  agent:      'AI 생성(챗봇)',
-  evaluation: '평가',
-};
+const RANGE_OPTIONS = [
+  { value: 'hourly', label: '최근 24시간', title: '시간별' },
+  { value: 'weekly', label: '최근 7일', title: '일별' },
+  { value: 'monthly', label: '최근 30일', title: '일별' },
+  { value: 'yearly', label: '최근 12개월', title: '월별' },
+];
+
+const isValidRange = (value) => RANGE_OPTIONS.some((option) => option.value === value);
 
 function StatisticsPage() {
   const { user, token } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState('weekly');
-  
-  const tokenDisplayMode = localStorage.getItem('tokenDisplayMode') || 'tokens';
-  const costCurrency = localStorage.getItem('costCurrency') || 'USD';
-  
-  const formatTokenDisplay = (tokens) => {
-    if (!tokens && tokens !== 0) return '-';
-    if (tokenDisplayMode === 'cost') {
-      const usdCost = (tokens / 1000000) * 2.5;
-      const krwRate = Number(localStorage.getItem('krwRate')) || 1400;
-      return costCurrency === 'KRW' ? `${Math.round(usdCost * krwRate).toLocaleString()}` : `$${usdCost.toFixed(4)}`;
-    }
-    return tokens.toLocaleString();
-  };
+  const [error, setError] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [timeRange, setTimeRange] = useState(() => {
+    const requestedRange = searchParams.get('range');
+    return isValidRange(requestedRange) ? requestedRange : 'weekly';
+  });
+  const [displayMode, setDisplayMode] = useState(() => localStorage.getItem('tokenDisplayMode') || 'tokens');
+  const [projectVisibility, setProjectVisibility] = useState(() => ({
+    unassigned: localStorage.getItem('statisticsIncludeUnassigned') !== 'false',
+    deleted: localStorage.getItem('statisticsIncludeDeleted') !== 'false',
+  }));
+  const requestSequence = useRef(0);
+
+  const currency = localStorage.getItem('costCurrency') || 'USD';
+  const timezone = useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
+    [],
+  );
 
   useEffect(() => {
-    if (user && token) {
-      fetchStats();
-    } else {
+    if (!user || !token) {
       setLoading(false);
+      return undefined;
     }
-  }, [user, token, timeRange]);
 
-  const fetchStats = async () => {
-    try {
+    const controller = new AbortController();
+    const sequence = ++requestSequence.current;
+
+    const fetchStats = async () => {
       setLoading(true);
-      const res = await axios.get(`/api/statistics?time_range=${timeRange}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setStats(res.data);
-    } catch (error) {
-      console.error('Failed to fetch statistics:', error);
-    } finally {
-      setLoading(false);
+      setError(null);
+      try {
+        const response = await axios.get('/api/statistics/v2', {
+          params: { time_range: timeRange, timezone },
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (sequence === requestSequence.current) setStats(response.data);
+      } catch (requestError) {
+        if (axios.isCancel(requestError) || requestError.code === 'ERR_CANCELED') return;
+        if (sequence === requestSequence.current) {
+          setError(requestError.response?.data?.detail || '통계 데이터를 불러오지 못했습니다.');
+          setStats(null);
+        }
+      } finally {
+        if (sequence === requestSequence.current) setLoading(false);
+      }
+    };
+
+    fetchStats();
+    return () => controller.abort();
+  }, [refreshKey, timeRange, timezone, token, user]);
+
+  const setRange = (nextRange) => {
+    setTimeRange(nextRange);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('range', nextRange);
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const setUsageDisplayMode = (mode) => {
+    localStorage.setItem('tokenDisplayMode', mode);
+    setDisplayMode(mode);
+  };
+
+  const setProjectCategoryVisibility = (category, included) => {
+    const storageKey = category === 'unassigned'
+      ? 'statisticsIncludeUnassigned'
+      : 'statisticsIncludeDeleted';
+    localStorage.setItem(storageKey, String(included));
+    setProjectVisibility((current) => ({ ...current, [category]: included }));
+  };
+
+  const formatUsage = (tokens, options = {}) => {
+    const normalized = Number(tokens || 0);
+    if (displayMode === 'cost') {
+      const usdCost = (normalized / 1_000_000) * 2.5;
+      if (currency === 'KRW') {
+        const krwRate = Number(localStorage.getItem('krwRate')) || 1400;
+        return `₩${Math.round(usdCost * krwRate).toLocaleString()}`;
+      }
+      if (options.compact) return `$${usdCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      return usdCost < 0.0001 ? `$${usdCost.toFixed(6)}` : `$${usdCost.toFixed(4)}`;
     }
+    if (options.compact) {
+      return Intl.NumberFormat('ko-KR', { notation: 'compact', maximumFractionDigits: 1 }).format(normalized);
+    }
+    return normalized.toLocaleString();
   };
 
   if (!user) {
     return (
       <div className="main-page-layout">
         <MainSidebar />
-        <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
-            <h2>로그인이 필요합니다</h2>
-            <p>통계를 보려면 먼저 로그인해주세요.</p>
-          </div>
-        </div>
+        <main className="statistics-main statistics-auth-state">
+          <AlertCircle size={24} />
+          <h1>로그인이 필요합니다</h1>
+          <p>통계를 보려면 먼저 로그인해주세요.</p>
+        </main>
       </div>
     );
   }
 
-  const hasData = stats && (stats.total_used > 0 || (stats.chart_data && stats.chart_data.length > 0));
+  const rangeMeta = RANGE_OPTIONS.find((option) => option.value === timeRange) || RANGE_OPTIONS[1];
+  const summary = stats?.summary || {};
+  const usageByType = stats?.usage_by_type || {};
+  const breakdownTotal = Object.values(usageByType).reduce((sum, value) => sum + Number(value || 0), 0);
+  const hasUsage = Boolean(stats?.meta?.has_usage);
+  const allProjectUsage = stats?.project_usage || [];
+  const visibleProjectUsage = allProjectUsage.filter((project) => {
+    if (project.project_id === null) return projectVisibility.unassigned;
+    if (project.project_id === -1) return projectVisibility.deleted;
+    return true;
+  });
+  const generatedAt = stats?.meta?.generated_at
+    ? new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(new Date(stats.meta.generated_at))
+    : null;
 
-  const pieData = stats?.usage_by_type
-    ? Object.entries(stats.usage_by_type)
-        .filter(([, v]) => v > 0)
-        .map(([key, value]) => ({ name: TYPE_LABELS[key], value, color: TYPE_COLORS[key], key }))
-    : [];
+  const changeLabel = summary.change_rate == null
+    ? '이전 기간 비교 없음'
+    : `${summary.change_rate > 0 ? '+' : ''}${(summary.change_rate * 100).toFixed(1)}%`;
+
+  const kpis = [
+    { label: displayMode === 'cost' ? '기간 추정 비용' : '기간 사용량', value: formatUsage(summary.period_tokens), detail: changeLabel, icon: Activity, tone: 'blue' },
+    { label: '현재 잔여 토큰', value: Number(summary.remaining_tokens || 0).toLocaleString(), detail: '현재 계정 잔액', icon: Coins, tone: 'green' },
+    { label: '워크플로우 실행', value: `${Number(summary.execution_count || 0).toLocaleString()}회`, detail: rangeMeta.label, icon: PlayCircle, tone: 'violet' },
+    { label: '실행 성공률', value: summary.success_rate == null ? '-' : `${(summary.success_rate * 100).toFixed(1)}%`, detail: summary.success_rate == null ? '실행 기록 없음' : '워크플로우 실행 기준', icon: CheckCircle2, tone: 'teal' },
+  ];
 
   return (
-    <div className="main-page-layout">
+    <div className="main-page-layout statistics-layout">
       <MainSidebar />
-      <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
-        <div className="content-area" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
-          <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h1 className="page-title"><BarChart className="title-icon" /> 사용 통계</h1>
-              <p className="page-subtitle">워크플로우 실행 및 토큰 사용 현황을 확인하세요.</p>
+      <main className="main-page-content statistics-main">
+        <div className="statistics-content">
+          <header className="statistics-page-header">
+            <div className="statistics-heading">
+              <div className="statistics-title-row">
+                <BarChart3 size={23} aria-hidden="true" />
+                <h1>사용 통계</h1>
+              </div>
+              <p>선택한 기간의 토큰 사용과 워크플로우 실행 상태를 확인하세요.</p>
+              <div className="statistics-meta-line">
+                <span>{stats?.period?.timezone || timezone}</span>
+                {generatedAt && <span>마지막 갱신 {generatedAt}</span>}
+                {displayMode === 'cost' && <span>평균 단가 기반 추정치</span>}
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--card-bg)', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <Clock size={16} color="var(--text-muted)" />
-              <select
-                value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
-                style={{ background: 'var(--card-bg)', border: 'none', color: 'var(--text-color)', fontSize: '0.9rem', outline: 'none', cursor: 'pointer' }}
+
+            <div className="statistics-toolbar">
+              <div className="statistics-segmented" role="group" aria-label="사용량 표시 단위">
+                <button type="button" className={displayMode === 'tokens' ? 'active' : ''} onClick={() => setUsageDisplayMode('tokens')}>토큰</button>
+                <button type="button" className={displayMode === 'cost' ? 'active' : ''} onClick={() => setUsageDisplayMode('cost')}>비용</button>
+              </div>
+              <label className="statistics-range-field">
+                <Clock3 size={16} aria-hidden="true" />
+                <span className="statistics-sr-only">조회 기간</span>
+                <select value={timeRange} onChange={(event) => setRange(event.target.value)}>
+                  {RANGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="statistics-icon-button"
+                onClick={() => setRefreshKey((key) => key + 1)}
+                aria-label="통계 새로고침"
+                title="새로고침"
+                disabled={loading}
               >
-                <option value="hourly">일간 (시간별)</option>
-                <option value="weekly">주간 (일별)</option>
-                <option value="monthly">월간 (일별)</option>
-                <option value="yearly">연간 (월별)</option>
-              </select>
+                <RefreshCw size={17} className={loading ? 'spinning' : ''} />
+              </button>
             </div>
-          </div>
+          </header>
 
           {loading ? (
-            <div className="loading-state"><p>통계 데이터를 불러오는 중...</p></div>
-          ) : hasData ? (
+            <StatisticsLoading />
+          ) : error ? (
+            <section className="statistics-state-panel" role="alert">
+              <span className="statistics-state-icon error"><AlertCircle size={24} /></span>
+              <h2>통계를 불러오지 못했습니다</h2>
+              <p>{typeof error === 'string' ? error : '잠시 후 다시 시도해주세요.'}</p>
+              <button type="button" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={16} /> 다시 시도</button>
+            </section>
+          ) : (
             <>
-              {/* 상단 요약 카드 */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-                {[
-                  { label: '총 누적 사용량', value: stats.total_used, color: '#60a5fa', accent: '#3b82f6', icon: <Activity size={16} color="#3b82f6" />, sub: tokenDisplayMode==='cost'?'누적 비용':'누적 토큰', leftBorder: false },
-                  { label: `잔여 ${tokenDisplayMode==='cost'?'잔액':'토큰'}`, value: stats.remaining, color: '#34d399', accent: '#10b981', icon: <Database size={16} color="#10b981" />, sub: '보유 잔여량', leftBorder: false },
-                  { label: '워크플로우 실행', value: stats.usage_by_type?.execution||0, color: '#a78bfa', accent: '#8b5cf6', icon: <Cpu size={16} color="#8b5cf6" />, sub: '실행 노드 소모량', leftBorder: '#8b5cf6' },
-                  { label: 'AI 생성 (챗봇)', value: stats.usage_by_type?.agent||0, color: '#60a5fa', accent: '#3b82f6', icon: <Bot size={16} color="#3b82f6" />, sub: '워크플로우 생성·수정', leftBorder: '#3b82f6' },
-                  { label: '평가', value: stats.usage_by_type?.evaluation||0, color: '#34d399', accent: '#10b981', icon: <span style={{fontSize:'0.9rem'}}>🧪</span>, sub: '워크플로우 품질 평가', leftBorder: '#10b981' },
-                ].map((card, i) => (
-                  <div key={i} style={{ background: 'var(--card-bg)', padding: '1.25rem 1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', borderLeft: card.leftBorder ? `3px solid ${card.leftBorder}` : undefined, boxShadow: 'var(--card-shadow)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
-                      {card.icon}
-                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{card.label}</span>
-                    </div>
-                    <div style={{ fontSize: '1.6rem', fontWeight: 700, color: card.color }}>{formatTokenDisplay(card.value)}</div>
-                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{card.sub}</p>
-                  </div>
-                ))}
-              </div>
+              <section className="statistics-kpi-grid" aria-label="기간 요약">
+                {kpis.map((kpi) => {
+                  const Icon = kpi.icon;
+                  return (
+                    <article key={kpi.label} className={`statistics-kpi statistics-kpi-${kpi.tone}`}>
+                      <div className="statistics-kpi-label"><Icon size={16} /> {kpi.label}</div>
+                      <strong>{kpi.value}</strong>
+                      <span>{kpi.detail}</span>
+                    </article>
+                  );
+                })}
+              </section>
 
-              {/* 스택 영역 차트 + 도넛 */}
-              <div style={{ display: 'grid', gridTemplateColumns: pieData.length > 0 ? '1fr 310px' : '1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                <div style={{ background: 'var(--card-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--card-shadow)' }}>
-                  <h3 style={{ margin: '0 0 1.5rem 0', color: 'var(--text-color)' }}>
-                    {timeRange==='hourly'?'최근 24시간 추이':timeRange==='monthly'?'최근 30일 추이':timeRange==='yearly'?'최근 12개월 추이':'최근 7일 추이'}
-                  </h3>
-                  <div style={{ width: '100%', height: '300px' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={stats.chart_data} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                        <defs>
-                          {Object.entries(TYPE_COLORS).map(([key, color]) => (
-                            <linearGradient key={key} id={`g_${key}`} x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor={color} stopOpacity={0.7}/>
-                              <stop offset="95%" stopColor={color} stopOpacity={0}/>
-                            </linearGradient>
-                          ))}
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
-                        <XAxis dataKey="date" stroke="var(--text-muted)" tick={{fill:'var(--text-muted)'}} />
-                        <YAxis stroke="var(--text-muted)" tick={{fill:'var(--text-muted)'}}
-                          tickFormatter={(v) => v>=1000?`${(v/1000).toFixed(1)}k`:v}
-                        />
-                        <Tooltip
-                          contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-color)' }}
-                          formatter={(value, name) => [formatTokenDisplay(value), {execution:'워크플로우 실행',agent:'AI 생성',evaluation:'평가'}[name]||name]}
-                          labelFormatter={(label, payload) => payload?.[0]?.payload?.fullDate||label}
-                          labelStyle={{ color: 'var(--text-color)', fontWeight: 'bold', marginBottom: '0.4rem' }}
-                        />
-                        <Legend formatter={(v) => ({execution:'워크플로우 실행',agent:'AI 생성',evaluation:'평가'}[v]||v)} />
-                        <Area type="monotone" dataKey="execution" stackId="1" stroke={TYPE_COLORS.execution} fill="url(#g_execution)" strokeWidth={2} />
-                        <Area type="monotone" dataKey="agent" stackId="1" stroke={TYPE_COLORS.agent} fill="url(#g_agent)" strokeWidth={2} />
-                        <Area type="monotone" dataKey="evaluation" stackId="1" stroke={TYPE_COLORS.evaluation} fill="url(#g_evaluation)" strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                {pieData.length > 0 && (
-                  <div style={{ background: 'var(--card-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--card-shadow)', display:'flex', flexDirection:'column' }}>
-                    <h3 style={{ margin: '0 0 0.75rem 0', color: 'var(--text-color)' }}>용도별 비율</h3>
-                    <div style={{ flex: 1, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      <PieChart width={210} height={210}>
-                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={58} outerRadius={90} paddingAngle={3} dataKey="value">
-                          {pieData.map((entry) => <Cell key={entry.key} fill={entry.color} />)}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-color)' }}
-                          formatter={(v) => [formatTokenDisplay(v)]}
-                        />
-                      </PieChart>
-                    </div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem', marginTop:'0.5rem' }}>
-                      {pieData.map(d => (
-                        <div key={d.key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:'0.8rem' }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                            <div style={{ width:8, height:8, borderRadius:'50%', background:d.color }} />
-                            <span style={{ color:'var(--text-muted)' }}>{d.name}</span>
-                          </div>
-                          <span style={{ fontWeight:600, color:'var(--text-color)' }}>
-                            {formatTokenDisplay(d.value)}{' '}
-                            <span style={{ color:'var(--text-muted)', fontWeight:400 }}>
-                              ({stats.total_used > 0 ? Math.round(d.value/stats.total_used*100) : 0}%)
-                            </span>
-                          </span>
+              {!hasUsage ? (
+                <section className="statistics-state-panel statistics-empty-state">
+                  <span className="statistics-state-icon"><BarChart3 size={24} /></span>
+                  <h2>선택한 기간의 사용 기록이 없습니다</h2>
+                  <p>다른 기간을 선택하거나 워크플로우를 실행하면 사용 추이가 표시됩니다.</p>
+                </section>
+              ) : (
+                <>
+                  <div className="statistics-analysis-grid">
+                    <section className="statistics-panel statistics-trend-panel">
+                      <div className="statistics-panel-header">
+                        <div><h2>{rangeMeta.label} 사용 추이</h2><p>{rangeMeta.title} 사용량</p></div>
+                        <div className="statistics-chart-legend" aria-label="차트 범례">
+                          {Object.entries(TYPE_META).map(([key, meta]) => <span key={key}><i style={{ background: meta.color }} />{meta.label}</span>)}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+                      </div>
+                      <div className="statistics-chart" role="img" aria-label={`${rangeMeta.label} 기능별 사용량 영역 차트`}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={stats.chart_data} margin={{ top: 12, right: 8, left: 0, bottom: 0 }} accessibilityLayer>
+                            <defs>
+                              {Object.entries(TYPE_META).map(([key, meta]) => (
+                                <linearGradient key={key} id={`statistics_${key}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor={meta.color} stopOpacity={0.48} />
+                                  <stop offset="95%" stopColor={meta.color} stopOpacity={0.04} />
+                                </linearGradient>
+                              ))}
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
+                            <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} tickLine={false} axisLine={false} />
+                            <YAxis stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} tickLine={false} axisLine={false} width={52} tickFormatter={(value) => formatUsage(value, { compact: true })} />
+                            <Tooltip
+                              contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-color)' }}
+                              formatter={(value, name) => [formatUsage(value), TYPE_META[name]?.label || name]}
+                              labelFormatter={(label, payload) => payload?.[0]?.payload?.fullDate || label}
+                              labelStyle={{ color: 'var(--text-color)', fontWeight: 600, marginBottom: '6px' }}
+                            />
+                            {Object.entries(TYPE_META).map(([key, meta]) => <Area key={key} type="monotone" dataKey={key} stackId="usage" stroke={meta.color} fill={`url(#statistics_${key})`} strokeWidth={2} />)}
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <UsageDataTable rows={stats.chart_data} formatUsage={formatUsage} />
+                    </section>
 
-              {stats.project_usage && stats.project_usage.length > 0 && (
-                <div style={{ background: 'var(--card-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--card-shadow)' }}>
-                  <h3 style={{ margin: '0 0 1.5rem 0' }}>프로젝트별 토큰 사용량</h3>
-                  <div style={{ width: '100%', height: '300px' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RechartsBarChart data={stats.project_usage} margin={{ top: 10, right: 30, left: 0, bottom: 0 }} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" horizontal={false} />
-                        <XAxis type="number" stroke="var(--text-muted)" tick={{fill:'var(--text-muted)'}} />
-                        <YAxis type="category" dataKey="title" width={150} stroke="var(--text-muted)" tick={{fill:'var(--text-muted)'}} />
-                        <Tooltip
-                          contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-color)' }}
-                          formatter={(value) => [formatTokenDisplay(value), tokenDisplayMode==='cost'?'사용 금액':'사용 토큰']}
-                        />
-                        <Bar dataKey="tokens" fill="#10b981" radius={[0, 4, 4, 0]} />
-                      </RechartsBarChart>
-                    </ResponsiveContainer>
+                    <section className="statistics-panel statistics-breakdown-panel">
+                      <div className="statistics-panel-header"><div><h2>기능별 사용량</h2><p>{rangeMeta.label} 기준</p></div></div>
+                      <div className="statistics-breakdown-list">
+                        {Object.entries(TYPE_META).map(([key, meta]) => {
+                          const value = Number(usageByType[key] || 0);
+                          const percentage = breakdownTotal ? (value / breakdownTotal) * 100 : 0;
+                          const Icon = meta.icon;
+                          return (
+                            <div className="statistics-breakdown-row" key={key}>
+                              <div className="statistics-breakdown-info">
+                                <span className="statistics-type-icon" style={{ color: meta.color }}><Icon size={15} /></span>
+                                <span>{meta.label}</span><strong>{formatUsage(value)}</strong>
+                              </div>
+                              <div className="statistics-progress-track" aria-label={`${meta.label} ${percentage.toFixed(1)}%`}><span style={{ width: `${percentage}%`, background: meta.color }} /></div>
+                              <small>{percentage.toFixed(1)}%</small>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
                   </div>
-                </div>
+
+                  <section className="statistics-panel statistics-project-panel">
+                    <div className="statistics-panel-header">
+                      <div><h2>프로젝트별 사용량</h2><p>선택 기간 내 사용량이 많은 순서</p></div>
+                      <div className="statistics-project-filters" role="group" aria-label="프로젝트 사용량 포함 항목">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={projectVisibility.unassigned}
+                            onChange={(event) => setProjectCategoryVisibility('unassigned', event.target.checked)}
+                          />
+                          <span>미지정 프로젝트 포함</span>
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={projectVisibility.deleted}
+                            onChange={(event) => setProjectCategoryVisibility('deleted', event.target.checked)}
+                          />
+                          <span>삭제된 프로젝트 포함</span>
+                        </label>
+                      </div>
+                    </div>
+                    {visibleProjectUsage.length ? (
+                      <div className="statistics-project-list">
+                        {visibleProjectUsage.map((project) => {
+                          const share = summary.period_tokens ? (project.tokens / summary.period_tokens) * 100 : 0;
+                          return (
+                            <div className="statistics-project-row" key={project.project_id ?? 'unassigned'}>
+                              <div className="statistics-project-copy"><strong title={project.title}>{project.title}</strong><span>{share.toFixed(1)}%</span></div>
+                              <div className="statistics-project-meter"><span style={{ width: `${Math.min(share, 100)}%` }} /></div>
+                              <strong className="statistics-project-value">{formatUsage(project.tokens)}</strong>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="statistics-inline-empty">
+                        {allProjectUsage.length ? '현재 포함 조건에 표시할 프로젝트가 없습니다.' : '프로젝트에 연결된 사용 기록이 없습니다.'}
+                      </p>
+                    )}
+                  </section>
+                </>
               )}
             </>
-          ) : (
-            <div style={{ textAlign:'center', padding:'4rem 2rem', background:'var(--card-bg)', borderRadius:'16px', border:'1px solid var(--border-color)', marginTop:'1rem' }}>
-              <div style={{ fontSize:'4rem', marginBottom:'1.5rem', lineHeight:1 }}>📊</div>
-              <h3 style={{ margin:'0 0 0.75rem 0', color:'var(--text-color)', fontSize:'1.3rem', fontWeight:700 }}>아직 사용 기록이 없습니다</h3>
-              <p style={{ color:'var(--text-muted)', margin:'0 0 2rem 0', fontSize:'0.95rem', lineHeight:1.6, maxWidth:'360px', marginLeft:'auto', marginRight:'auto' }}>
-                워크플로우를 실행하면 이곳에 토큰 사용량과 실행 추이가 기록됩니다.
-              </p>
-              <div style={{ display:'flex', justifyContent:'center', gap:'1rem', flexWrap:'wrap' }}>
-                <div style={{ background:'var(--btn-active-bg)', borderRadius:'10px', padding:'1rem 1.5rem', minWidth:'140px' }}>
-                  <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#60a5fa' }}>0</div>
-                  <div style={{ color:'var(--text-muted)', fontSize:'0.8rem', marginTop:'0.25rem' }}>총 사용 토큰</div>
-                </div>
-                <div style={{ background:'var(--btn-active-bg)', borderRadius:'10px', padding:'1rem 1.5rem', minWidth:'140px' }}>
-                  <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#34d399' }}>{stats?.remaining?.toLocaleString()||'-'}</div>
-                  <div style={{ color:'var(--text-muted)', fontSize:'0.8rem', marginTop:'0.25rem' }}>잔여 토큰</div>
-                </div>
-              </div>
-            </div>
           )}
         </div>
-      </div>
+      </main>
     </div>
+  );
+}
+
+function StatisticsLoading() {
+  return (
+    <div className="statistics-loading" aria-live="polite" aria-label="통계 데이터를 불러오는 중">
+      <div className="statistics-kpi-grid">{[0, 1, 2, 3].map((key) => <div key={key} className="statistics-skeleton statistics-kpi-skeleton" />)}</div>
+      <div className="statistics-skeleton statistics-chart-skeleton" />
+    </div>
+  );
+}
+
+function UsageDataTable({ rows, formatUsage }) {
+  return (
+    <details className="statistics-data-details">
+      <summary>데이터 표 보기</summary>
+      <div className="statistics-table-scroll">
+        <table>
+          <thead><tr><th>기간</th>{Object.values(TYPE_META).map((meta) => <th key={meta.label}>{meta.label}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.fullDate}><td>{row.fullDate}</td>{Object.keys(TYPE_META).map((key) => <td key={key}>{formatUsage(row[key])}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   );
 }
 

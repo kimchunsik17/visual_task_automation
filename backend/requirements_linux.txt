@@ -1,6 +1,8 @@
 fastapi
 uvicorn
 sqlalchemy
+sqlglot
+alembic
 psycopg2-binary
 langgraph
 langchain>=0.3
@@ -11,6 +13,7 @@ langchain-community
 python-dotenv
 pydantic
 python-multipart
+cryptography>=41
 
 openpyxl
 python-pptx

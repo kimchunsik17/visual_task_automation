@@ -1,0 +1,235 @@
+{
+  "type": "youtubeTriggerNode",
+  "version": 1,
+  "category": "trigger",
+  "display": {
+    "label": "YouTube 새 영상",
+    "icon": "node-youtube",
+    "color": "#ff0033"
+  },
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "channelId",
+      "kind": "text",
+      "label": "채널 ID (선택 — 비우면 내 채널)",
+      "placeholder": "예: UCxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "maxResults",
+      "kind": "number",
+      "label": "한 번에 확인할 최대 영상 수",
+      "default": 10,
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(youtubeTriggerNode)에 maxResults가 없다"
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "name": "google_oauth",
+      "provider": "google_oauth",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "youtubeTriggerNode",
+  "connector": {
+    "service": "YouTube",
+    "role": "trigger",
+    "modes": [
+      "new_video"
+    ],
+    "credentials": [
+      {
+        "provider": "google_oauth",
+        "scopes": [
+          "https://www.googleapis.com/auth/youtube.readonly"
+        ]
+      }
+    ],
+    "baseUrl": "https://www.googleapis.com/youtube/v3",
+    "timeoutSeconds": 15.0,
+    "pagination": {
+      "style": "cursor",
+      "cursorParam": "pageToken",
+      "cursorPath": "nextPageToken",
+      "itemsPath": "items",
+      "limitParam": "maxResults",
+      "pageSize": 50,
+      "maxPages": 5
+    },
+    "rateLimit": {
+      "requestsPerMinute": 60
+    },
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "new_video": "external-read"
+    },
+    "outputSchemaByMode": {
+      "new_video": {
+        "type": "object",
+        "properties": {
+          "videos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "video_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "published_at": {
+                  "type": "string"
+                },
+                "channel_title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "first_run": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "docsUrl": "https://developers.google.com/youtube/v3/docs/search/list",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/channels"
+            },
+            "status": 200,
+            "body": {
+              "items": [
+                {
+                  "contentDetails": {
+                    "relatedPlaylists": {
+                      "uploads": "UU_mock_uploads"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/playlistItems"
+            },
+            "status": 200,
+            "body": {
+              "items": [
+                {
+                  "snippet": {
+                    "title": "목업 영상 2",
+                    "description": "두 번째",
+                    "channelTitle": "내 채널"
+                  },
+                  "contentDetails": {
+                    "videoId": "vid_002",
+                    "videoPublishedAt": "2026-08-27T09:00:00Z"
+                  }
+                },
+                {
+                  "snippet": {
+                    "title": "목업 영상 1",
+                    "description": "첫 번째",
+                    "channelTitle": "내 채널"
+                  },
+                  "contentDetails": {
+                    "videoId": "vid_001",
+                    "videoPublishedAt": "2026-08-26T09:00:00Z"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "error": {
+                "message": "Invalid Credentials"
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "30"
+            },
+            "body": {
+              "error": {
+                "message": "quotaExceeded"
+              }
+            }
+          }
+        ]
+      },
+      "not_found": {
+        "responses": [
+          {
+            "match": {
+              "urlContains": "/channels"
+            },
+            "status": 404,
+            "body": {
+              "error": {
+                "message": "channelNotFound"
+              }
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "채널에 새 영상이 올라오면 실행되는 플로우의 시작점. startNode 대신 사용한다.\n                   data.channelId(문자열, 선택 — 비우면 API 센터에 연결한 구글 계정의 내 채널을 본다.\n                   사용자가 채널 주소나 ID를 알려주지 않았으면 지어내지 말고 빈 문자열로 둬라),\n                   data.maxResults(정수, 한 번에 확인할 최대 영상 수, 기본 10).\n                   출력은 새 영상 목록 JSON이다 — 각 항목에 video_id, title, description, published_at,\n                   channel_title, url이 들어 있다. 뒤에 llmNode로 요약하거나 slackNode/discordNode로\n                   알리는 흐름이 대표적이다. ⚠️ 처음 실행할 때는 아무 영상도 통지하지 않고 기준점만\n                   잡는다(안 그러면 워크플로우를 켜는 순간 과거 영상 전부에 알림이 쏟아진다) — 따라서\n                   \"만들자마자 한 번 돌려보면 아무 일도 안 일어나는\" 것이 정상이다.\n                   ⚠️ 이 노드는 읽기 전용이라 API 센터에 youtube.readonly 권한만 있으면 된다.\n"
+  }
+}

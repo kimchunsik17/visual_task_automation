@@ -1,11 +1,11 @@
 import asyncio
 import base64
 import json
+from usage_tracking import EVENT_EVALUATION, record_usage
 import os
 import re
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
@@ -25,7 +25,7 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 _DOCX_EXTS = {".docx"}
 _HWPX_EXTS = {".hwpx"}
 _PDF_EXTS = {".pdf"}
-FILE_OUTPUT_NODE_TYPES = {"posterGeneratorNode", "fileModifierNode"}
+FILE_OUTPUT_NODE_TYPES = {"posterGeneratorNode", "fileModifierNode", "imageGenerationNode"}
 
 # 카카오톡/디스코드/텔레그램/이메일/구글시트/구글캘린더/Notion처럼 "외부 서비스로 실제 전송·기록"이
 # 목적인 노드들. 평가 파이프라인(run_evaluation_pipeline)은 project_id 없이 run_workflow를 돌리기
@@ -149,8 +149,13 @@ class EvaluationReport(BaseModel):
 # --- Evaluator Agents ---
 
 def get_eval_llm(project_id=None, langfuse_handler=None):
-    # Use gpt-4o-mini for cost-efficiency but decent logic
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    from llm.providers import create_chat_model
+
+    llm = create_chat_model(
+        profile="evaluation",
+        temperature=0.2,
+        required_capabilities={"structured_output"},
+    )
     if has_langfuse and langfuse_handler:
         tags = ["evaluation"]
         metadata = {}
@@ -453,11 +458,18 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
             from database import SessionLocal
             task_db = SessionLocal()
             try:
-                inputs = {"default_input": tc.input}
+                # 승인 노드는 fail-closed 라(P0) 결정 없이는 실행이 중단된다. 평가는 부작용
+                # 없는 시뮬레이션 환경이므로(위의 자격증명 미치환과 같은 이유) 승인을 명시적으로
+                # 시뮬레이션한다 — "기본값이 승인"인 게 아니라 평가라는 호출자가 결정을 전달하는 것.
+                inputs = {"default_input": tc.input, "approval_decision": "Y"}
                 try:
                     result_text, tokens, logs = run_workflow(nodes, edges, db=task_db, **inputs)
                     error_msg = None
-                    if "► Flow 1 Error:" in result_text or "Dynamic Execution Error:" in result_text or "Execution failed:" in result_text:
+                    # 실행 엔진 수준 실패는 구조화 step(node_type='workflow')으로 먼저 판정한다(ADR-0016).
+                    # 문자열 검색은 legacy fallback 으로만 남긴다.
+                    from node_errors import runtime as _node_error_runtime
+                    if _node_error_runtime.runtime_failure_message(logs) is not None \
+                            or "► Flow 1 Error:" in result_text or "Dynamic Execution Error:" in result_text or "Execution failed:" in result_text:
                         error_msg = result_text
                 except Exception as e:
                     result_text = ""
@@ -519,16 +531,18 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
         # 평가 토큰을 FlowExecutionLog에 저장
         try:
             import json as _json
-            db_log = models.FlowExecutionLog(
-                user_id=user_id,
+            record_usage(
+                db,
+                billable_user_id=user_id,
+                actor_user_id=user_id,
                 project_id=project_id,
                 payload="Evaluation Pipeline",
                 result=f"Score: {report.get('score', 0)}/100",
-                total_tokens=eval_token_usage["total_tokens"],
-                token_usage_details=eval_token_usage,
-                status="evaluation",
+                token_usage=eval_token_usage,
+                event_type=EVENT_EVALUATION,
+                trigger_type="evaluation",
+                deduct_balance=user_id is not None,
             )
-            db.add(db_log)
             db.commit()
         except Exception as e:
             print(f"Failed to save evaluation token log: {e}")

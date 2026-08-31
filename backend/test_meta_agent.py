@@ -12,7 +12,9 @@ test_meta_agent.py — Validator(validate_flow) 단위 테스트
 """
 
 import pytest
-from meta_agent import FlowGraph, FlowNode, FlowEdge, validate_flow, auto_layout
+import time
+import meta_agent
+from meta_agent import FlowGraph, FlowNode, FlowEdge, validate_flow, auto_layout, repair_disconnected_flow, make_tools
 
 
 def N(id, type, data=None):
@@ -67,6 +69,79 @@ def test_고아_엣지면_실패():
     ok, errs = validate_flow(g)
     assert ok is False
     assert any("존재하지 않는 노드" in e for e in errs)
+
+
+def test_repair가_도달할_수_없는_잔여_노드만_제거한다():
+    g = FlowGraph(
+        nodes=[
+            N("n1", "startNode"),
+            N("n2", "outputNode"),
+            N("n3", "mergeNode", {"mergeStrategy": "join_newline"}),
+        ],
+        edges=[E("e1", "n1", "n2")],
+    )
+
+    repaired, notes = repair_disconnected_flow(g)
+    ok, errors = validate_flow(repaired)
+
+    assert ok is True
+    assert errors == []
+    assert [node.id for node in repaired.nodes] == ["n1", "n2"]
+    assert any("n3" in note for note in notes)
+
+
+def test_repair가_multi_agent_tool_배선을_보존한다():
+    g = FlowGraph(
+        nodes=[
+            N("n1", "startNode"),
+            N("n2", "multiAgentNode", {"mode": "supervisor"}),
+            N("n3", "llmNode", {"model": "gpt-4o-mini", "systemPrompt": "요약"}),
+            N("n4", "outputNode"),
+        ],
+        edges=[
+            E("e1", "n1", "n2"),
+            FlowEdge(id="e2", source="n3", target="n2", targetHandle="tools"),
+            E("e3", "n2", "n4"),
+        ],
+    )
+
+    repaired, _ = repair_disconnected_flow(g)
+
+    assert {node.id for node in repaired.nodes} == {"n1", "n2", "n3", "n4"}
+    assert {edge.id for edge in repaired.edges} == {"e1", "e2", "e3"}
+
+
+def test_tools가_마지막_완전_유효_그래프를_보존한다():
+    initial = FlowGraph(
+        nodes=[N("n1", "startNode"), N("n2", "outputNode")],
+        edges=[E("e1", "n1", "n2")],
+    )
+    tools, get_current, _, get_last_valid = make_tools(initial)
+
+    tools[1].invoke({"node_type": "startNode", "data": {}})
+
+    current_ok, _ = validate_flow(get_current())
+    last_valid_ok, _ = validate_flow(get_last_valid())
+    assert current_ok is False
+    assert last_valid_ok is True
+    assert len(get_last_valid().nodes) == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_flow_tool이_전체_시간_제한을_지킨다(monkeypatch):
+    def slow_generate(*args, **kwargs):
+        time.sleep(0.1)
+        return FlowGraph(nodes=[N("n1", "startNode"), N("n2", "outputNode")], edges=[E("e1", "n1", "n2")])
+
+    monkeypatch.setattr(meta_agent, "generate_flow", slow_generate)
+    monkeypatch.setenv("LLM_GENERATION_TIMEOUT_SECONDS", "0.01")
+    tools, _, _, _ = make_tools(FlowGraph(nodes=[], edges=[]))
+
+    # 위치(tools[5])로 잡으면 도구를 하나 끼워 넣을 때마다 깨진다 — 이름으로 찾는다.
+    generate = next(t for t in tools if t.name == "generate_flow")
+    result = await generate.ainvoke({"request": "요약 봇 만들어줘"})
+
+    assert "시간 제한" in result
 
 
 def test_start_누락이면_실패():

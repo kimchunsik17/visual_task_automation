@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Activity, CheckCircle, XCircle, Clock, Zap, ArrowLeft, RefreshCw, BarChart3 } from 'lucide-react';
+import { Play, Activity, Clock, Zap, ArrowLeft, RefreshCw, BarChart3 } from 'lucide-react';
+import { Icon } from '../icons';
 import './EvaluationPage.css';
 
 export default function EvaluationPage() {
@@ -14,14 +15,21 @@ export default function EvaluationPage() {
   const [availableCases, setAvailableCases] = useState([]);
   const [selectedCaseIds, setSelectedCaseIds] = useState(new Set());
   const [isLoadingCases, setIsLoadingCases] = useState(true);
+  const [evaluationMode, setEvaluationMode] = useState('targeted');
+  const [targetedMaxCases, setTargetedMaxCases] = useState(5);
+  const [smokeCaseIds, setSmokeCaseIds] = useState([]);
 
   useEffect(() => {
     const fetchCases = async () => {
       try {
         const res = await fetch('/api/evaluate/cases');
         const data = await res.json();
-        setAvailableCases(data.cases);
-        setSelectedCaseIds(new Set(data.cases.map(c => c.id)));
+        const cases = data.cases || [];
+        const smokeIds = data.smoke_case_ids || cases.slice(0, 3).map(c => c.id);
+        setAvailableCases(cases);
+        setSmokeCaseIds(smokeIds);
+        setTargetedMaxCases(data.targeted_max_cases || 5);
+        setSelectedCaseIds(new Set(smokeIds));
       } catch (e) {
         console.error("Failed to fetch evaluation cases", e);
       } finally {
@@ -32,20 +40,21 @@ export default function EvaluationPage() {
   }, []);
 
   const toggleCaseSelection = (id) => {
+    if (evaluationMode === 'full') return;
     setSelectedCaseIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else if (next.size < targetedMaxCases) next.add(id);
+      else alert(`비용 보호를 위해 한 번에 최대 ${targetedMaxCases}개까지 선택할 수 있습니다.`);
       return next;
     });
   };
 
-  const selectAllCases = (select) => {
-    if (select) {
-      setSelectedCaseIds(new Set(availableCases.map(c => c.id)));
-    } else {
-      setSelectedCaseIds(new Set());
-    }
+  const changeEvaluationMode = (mode) => {
+    setEvaluationMode(mode);
+    setSelectedCaseIds(new Set(
+      mode === 'full' ? availableCases.map(c => c.id) : smokeCaseIds
+    ));
   };
 
   const startEvaluation = () => {
@@ -53,6 +62,9 @@ export default function EvaluationPage() {
       alert("평가할 프롬프트를 최소 1개 이상 선택해주세요.");
       return;
     }
+    if (evaluationMode === 'full' && !window.confirm(
+      '전체 30개 평가는 많은 API 토큰을 사용할 수 있습니다. 계속할까요?'
+    )) return;
 
     setIsRunning(true);
     setResults([]);
@@ -60,7 +72,10 @@ export default function EvaluationPage() {
     setProgress(0);
 
     const idsParam = Array.from(selectedCaseIds).join(',');
-    const eventSource = new EventSource(`/api/evaluate/run?ids=${idsParam}`);
+    const query = evaluationMode === 'full'
+      ? 'profile=full'
+      : `profile=targeted&ids=${idsParam}`;
+    const eventSource = new EventSource(`/api/evaluate/run?${query}`);
 
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -73,6 +88,10 @@ export default function EvaluationPage() {
       } else if (data.type === 'complete') {
         setSummary(data.summary);
         setResults(data.results);
+        setIsRunning(false);
+        eventSource.close();
+      } else if (data.type === 'error') {
+        alert(data.message);
         setIsRunning(false);
         eventSource.close();
       }
@@ -108,9 +127,15 @@ export default function EvaluationPage() {
               <div className="case-selection-panel">
                 <div className="case-selection-header">
                   <h3>평가할 프롬프트 선택</h3>
-                  <div className="case-actions">
-                    <button onClick={() => selectAllCases(true)}>전체 선택</button>
-                    <button onClick={() => selectAllCases(false)}>전체 해제</button>
+                  <div className="evaluation-mode" role="group" aria-label="평가 범위">
+                    <button
+                      className={evaluationMode === 'targeted' ? 'active' : ''}
+                      onClick={() => changeEvaluationMode('targeted')}
+                    >빠른 평가</button>
+                    <button
+                      className={evaluationMode === 'full' ? 'active' : ''}
+                      onClick={() => changeEvaluationMode('full')}
+                    >전체 평가</button>
                   </div>
                 </div>
                 <div className="case-list">
@@ -119,6 +144,7 @@ export default function EvaluationPage() {
                       <input 
                         type="checkbox" 
                         checked={selectedCaseIds.has(c.id)}
+                        disabled={evaluationMode === 'full'}
                         onChange={() => toggleCaseSelection(c.id)}
                       />
                       <span className="case-category">{c.category}</span>
@@ -128,7 +154,7 @@ export default function EvaluationPage() {
                 </div>
                 <button className="run-eval-btn" onClick={startEvaluation}>
                   <Play size={20} />
-                  <span>평가 시작하기 ({selectedCaseIds.size}개)</span>
+                  <span>{evaluationMode === 'full' ? '전체 평가 시작' : `빠른 평가 시작 (${selectedCaseIds.size}개)`}</span>
                 </button>
               </div>
             )}
@@ -159,7 +185,7 @@ export default function EvaluationPage() {
                   <span className="card-value">{summary.average_score}%</span>
                 </div>
                 <div className="summary-card">
-                  <CheckCircle size={24} className="card-icon text-green" />
+                  <Icon name="status-success" size={24} className="card-icon text-green" />
                   <span className="card-label">통과 (Pass)</span>
                   <span className="card-value">{summary.pass_count} / {summary.total_tests}</span>
                 </div>
@@ -189,9 +215,9 @@ export default function EvaluationPage() {
                   <span className="category-badge">{res.category}</span>
                   <div className="result-status">
                     {res.passed ? (
-                      <span className="status pass"><CheckCircle size={16} /> PASS</span>
+                      <span className="status pass"><Icon name="status-success" size={16} /> PASS</span>
                     ) : (
-                      <span className="status fail"><XCircle size={16} /> FAIL</span>
+                      <span className="status fail"><Icon name="status-failed" size={16} /> FAIL</span>
                     )}
                   </div>
                 </div>

@@ -1,0 +1,45 @@
+/* 신고 창. 모달 껍데기는 TemplateEditDialog 와 같은 규칙을 쓴다. */
+.report-backdrop {
+  display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0; z-index: 1200; padding: 1.25rem;
+  background: rgba(2, 6, 23, 0.66); backdrop-filter: blur(2px); box-sizing: border-box;
+}
+.report-modal {
+  display: flex; flex-direction: column; gap: 0.7rem;
+  width: min(100%, 420px); padding: 1.15rem 1.25rem 1.1rem; box-sizing: border-box;
+  border: 1px solid var(--border-color); border-radius: 14px;
+  background: var(--card-bg); box-shadow: 0 24px 60px rgba(2, 6, 23, 0.38);
+}
+.report-head { display: flex; align-items: center; justify-content: space-between; }
+.report-head h2 {
+  display: flex; align-items: center; gap: 0.4rem; margin: 0;
+  color: var(--text-color); font-size: 0.98rem; font-weight: 660;
+}
+.report-head button {
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 1px solid transparent; border-radius: 8px; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+}
+.report-head button:hover { border-color: var(--border-color); color: var(--text-color); }
+.report-note { margin: 0; color: var(--text-muted); font-size: 0.76rem; line-height: 1.55; }
+.report-reasons { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.report-reasons label {
+  padding: 0.34rem 0.68rem; border: 1px solid var(--border-color); border-radius: 999px;
+  color: var(--text-muted); cursor: pointer; font-size: 0.76rem;
+}
+.report-reasons label.is-on {
+  border-color: rgba(96, 165, 250, 0.5); background: rgba(96, 165, 250, 0.12); color: #60a5fa;
+  font-weight: 600;
+}
+.report-reasons input { position: absolute; opacity: 0; width: 0; height: 0; }
+.report-label { color: var(--text-color); font-size: 0.78rem; font-weight: 580; }
+.report-modal textarea {
+  width: 100%; padding: 0.6rem 0.7rem; box-sizing: border-box;
+  border: 1px solid var(--border-color); border-radius: 9px;
+  background: var(--bg-color); color: var(--text-color);
+  font-family: inherit; font-size: 0.8rem; line-height: 1.55; resize: vertical;
+}
+.report-error { margin: 0; color: #f87171; font-size: 0.76rem; }
+.report-foot { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.report-done { display: flex; flex-direction: column; align-items: flex-start; gap: 0.8rem; }
+.report-done p { margin: 0; color: var(--text-muted); font-size: 0.82rem; line-height: 1.6; }

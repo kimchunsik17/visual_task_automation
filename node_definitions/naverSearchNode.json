@@ -1,0 +1,313 @@
+{
+  "type": "naverSearchNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "네이버 검색",
+    "icon": "provider-naver-api-hub",
+    "color": "#03c75a"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "검색 대상",
+      "default": "blog",
+      "options": [
+        {
+          "value": "blog",
+          "label": "블로그"
+        },
+        {
+          "value": "cafe_article",
+          "label": "카페글"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(naverSearchNode)에 mode가 없다"
+        }
+      ]
+    },
+    {
+      "name": "query",
+      "kind": "text",
+      "label": "검색어",
+      "placeholder": "예: 부산 맛집",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(naverSearchNode)에 query가 없다"
+        }
+      ]
+    },
+    {
+      "name": "display",
+      "kind": "number",
+      "label": "가져올 개수",
+      "default": 10,
+      "validation": [
+        {
+          "rule": "number",
+          "message": "{node_id}(naverSearchNode)의 display는 숫자여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "sort",
+      "kind": "select",
+      "label": "정렬",
+      "default": "sim",
+      "options": [
+        {
+          "value": "sim",
+          "label": "정확도순"
+        },
+        {
+          "value": "date",
+          "label": "최신순"
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "name": "naver_api_hub",
+      "provider": "naver_api_hub",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "naverSearchNode",
+  "connector": {
+    "service": "네이버 검색",
+    "role": "action",
+    "modes": [
+      "blog",
+      "cafe_article"
+    ],
+    "credentials": [
+      {
+        "provider": "naver_api_hub",
+        "scopes": []
+      }
+    ],
+    "baseUrl": "https://naverapihub.apigw.ntruss.com/search/v1",
+    "timeoutSeconds": 15.0,
+    "rateLimit": {
+      "requestsPerMinute": 60
+    },
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "blog": "external-read",
+      "cafe_article": "external-read"
+    },
+    "outputSchemaByMode": {
+      "blog": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "link": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "author": {
+                  "type": "string"
+                },
+                "publishedAt": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "cafe_article": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "link": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "author": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "docsUrl": "https://api.ncloud-docs.com/docs/naver-api-hub-overview",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/search/v1/blog"
+            },
+            "status": 200,
+            "body": {
+              "lastBuildDate": "Sun, 30 Aug 2026 14:47:16 +0900",
+              "total": 20829413,
+              "start": 1,
+              "display": 2,
+              "items": [
+                {
+                  "title": "[코딩<b>테스트</b>] 구현 알고리즘",
+                  "link": "https://blog.example.com/1",
+                  "description": "<b>테스트</b> 준비 글입니다.",
+                  "bloggername": "예시 블로그",
+                  "bloggerlink": "https://blog.example.com",
+                  "postdate": "20260829"
+                },
+                {
+                  "title": "두 번째 결과",
+                  "link": "https://blog.example.com/2",
+                  "description": "설명 &amp; 요약",
+                  "bloggername": "다른 블로그",
+                  "bloggerlink": "https://blog2.example.com",
+                  "postdate": "20260828"
+                }
+              ]
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/search/v1/cafearticle"
+            },
+            "status": 200,
+            "body": {
+              "lastBuildDate": "Sun, 30 Aug 2026 14:47:17 +0900",
+              "total": 10162808,
+              "start": 1,
+              "display": 1,
+              "items": [
+                {
+                  "title": "카페 <b>테스트</b> 글",
+                  "link": "https://cafe.naver.com/example/1",
+                  "description": "카페 본문 요약",
+                  "cafename": "예시 카페",
+                  "cafeurl": "https://cafe.naver.com/example"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "error": {
+                "errorCode": "200",
+                "message": "Authentication Failed",
+                "details": "Invalid authentication information."
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "30"
+            },
+            "body": {
+              "error": {
+                "errorCode": "429",
+                "message": "Too Many Requests"
+              }
+            }
+          }
+        ]
+      },
+      "invalid_query": {
+        "responses": [
+          {
+            "status": 400,
+            "body": {
+              "errorMessage": "Incorrect query request (잘못된 쿼리요청입니다.)",
+              "errorCode": "SE01"
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "네이버에서 블로그 글이나 카페 글을 검색해서 결과 목록을 가져온다.\n                   data.mode(문자열): \"blog\"(블로그 검색 · 기본값) 또는 \"cafe_article\"(카페글 검색).\n                   data.query(문자열, 필수 — 검색어), data.display(숫자, 선택 — 기본 10, 최대 100),\n                   data.sort(문자열, 선택 — \"sim\" 정확도순 기본값 또는 \"date\" 최신순).\n                   출력은 JSON 문자열이고 items 배열의 각 항목은 title/link/description/author/publishedAt 이다\n                   (제목의 <b> 강조 태그는 제거된 상태다. 카페글에는 publishedAt이 없다).\n                   API 센터에 'NAVER API HUB 키'가 등록되어 있어야 한다.\n                   ⚠️ 이 노드는 검색만 한다 — 네이버 블로그에 글을 쓰는 기능은 2020년에 종료되어 제공하지 않는다.\n                   \"새 글이 올라오면 알려줘\" 처럼 주기적으로 감시하는 것은 이 노드가 아니라 별도 트리거 노드를 쓴다.\n"
+  }
+}

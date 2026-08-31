@@ -1,0 +1,311 @@
+{
+  "type": "naverSearchTriggerNode",
+  "version": 1,
+  "category": "trigger",
+  "display": {
+    "label": "네이버 새 검색결과 (시작)",
+    "icon": "provider-naver-api-hub",
+    "color": "#03c75a"
+  },
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "감시할 대상",
+      "default": "blog",
+      "options": [
+        {
+          "value": "blog",
+          "label": "블로그"
+        },
+        {
+          "value": "cafe_article",
+          "label": "카페글"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(naverSearchNode)에 mode가 없다"
+        }
+      ]
+    },
+    {
+      "name": "query",
+      "kind": "text",
+      "label": "검색어",
+      "placeholder": "예: 부산 맛집",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(naverSearchNode)에 query가 없다"
+        }
+      ]
+    },
+    {
+      "name": "pollInterval",
+      "kind": "select",
+      "label": "확인 주기",
+      "default": "10m",
+      "options": [
+        {
+          "value": "10m",
+          "label": "10분마다"
+        },
+        {
+          "value": "30m",
+          "label": "30분마다"
+        },
+        {
+          "value": "1h",
+          "label": "1시간마다"
+        },
+        {
+          "value": "6h",
+          "label": "6시간마다"
+        },
+        {
+          "value": "1d",
+          "label": "하루에 한 번"
+        }
+      ]
+    },
+    {
+      "name": "maxResults",
+      "kind": "number",
+      "label": "한 번에 확인할 개수",
+      "default": 20,
+      "validation": [
+        {
+          "rule": "number",
+          "message": "{node_id}(naverSearchTriggerNode)의 maxResults는 숫자여야 한다"
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "name": "naver_api_hub",
+      "provider": "naver_api_hub",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "naverSearchTriggerNode",
+  "connector": {
+    "service": "네이버 검색",
+    "role": "trigger",
+    "modes": [
+      "new_blog_result",
+      "new_cafe_result"
+    ],
+    "credentials": [
+      {
+        "provider": "naver_api_hub",
+        "scopes": []
+      }
+    ],
+    "baseUrl": "https://naverapihub.apigw.ntruss.com/search/v1",
+    "timeoutSeconds": 15.0,
+    "rateLimit": {
+      "requestsPerMinute": 60
+    },
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "new_blog_result": "external-read",
+      "new_cafe_result": "external-read"
+    },
+    "outputSchemaByMode": {
+      "new_blog_result": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "link": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "author": {
+                  "type": "string"
+                },
+                "publishedAt": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "first_run": {
+            "type": "boolean"
+          }
+        }
+      },
+      "new_cafe_result": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "link": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "author": {
+                  "type": "string"
+                },
+                "publishedAt": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "first_run": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "docsUrl": "https://api.ncloud-docs.com/docs/naver-api-hub-overview",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/search/v1/blog"
+            },
+            "status": 200,
+            "body": {
+              "lastBuildDate": "Sun, 30 Aug 2026 14:47:16 +0900",
+              "total": 20829413,
+              "start": 1,
+              "display": 2,
+              "items": [
+                {
+                  "title": "[코딩<b>테스트</b>] 구현 알고리즘",
+                  "link": "https://blog.example.com/1",
+                  "description": "<b>테스트</b> 준비 글입니다.",
+                  "bloggername": "예시 블로그",
+                  "bloggerlink": "https://blog.example.com",
+                  "postdate": "20260829"
+                },
+                {
+                  "title": "두 번째 결과",
+                  "link": "https://blog.example.com/2",
+                  "description": "설명 &amp; 요약",
+                  "bloggername": "다른 블로그",
+                  "bloggerlink": "https://blog2.example.com",
+                  "postdate": "20260828"
+                }
+              ]
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/search/v1/cafearticle"
+            },
+            "status": 200,
+            "body": {
+              "lastBuildDate": "Sun, 30 Aug 2026 14:47:17 +0900",
+              "total": 10162808,
+              "start": 1,
+              "display": 1,
+              "items": [
+                {
+                  "title": "카페 <b>테스트</b> 글",
+                  "link": "https://cafe.naver.com/example/1",
+                  "description": "카페 본문 요약",
+                  "cafename": "예시 카페",
+                  "cafeurl": "https://cafe.naver.com/example"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "error": {
+                "errorCode": "200",
+                "message": "Authentication Failed",
+                "details": "Invalid authentication information."
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "30"
+            },
+            "body": {
+              "error": {
+                "errorCode": "429",
+                "message": "Too Many Requests"
+              }
+            }
+          }
+        ]
+      },
+      "invalid_query": {
+        "responses": [
+          {
+            "status": 400,
+            "body": {
+              "errorMessage": "Incorrect query request (잘못된 쿼리요청입니다.)",
+              "errorCode": "SE01"
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "네이버 블로그·카페글에 **새 글이 올라오면** 실행되는 플로우의 시작점이다. startNode 대신 쓴다.\n                   data.mode(문자열): \"blog\" 또는 \"cafe_article\". data.query(문자열, 필수 — 감시할 검색어).\n                   data.pollInterval(문자열, 선택 — \"10m\" 기본값, \"30m\"·\"1h\"·\"6h\"·\"1d\").\n                   data.maxResults(숫자, 선택 — 기본 20).\n                   출력은 새 항목 배열의 JSON 문자열이고 각 항목은 title/link/description/author/publishedAt 이다.\n                   **첫 실행은 기준점만 잡고 아무것도 알리지 않는다** — 다음 새 글부터 알린다.\n                   API 센터에 'NAVER API HUB 키'가 등록되어 있어야 한다.\n"
+  }
+}

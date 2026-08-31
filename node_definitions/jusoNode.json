@@ -1,0 +1,302 @@
+{
+  "type": "jusoNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "도로명주소",
+    "icon": "provider-juso",
+    "color": "#0b6bcb"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "keyword",
+      "kind": "text",
+      "label": "찾을 주소",
+      "placeholder": "예: 부산대학로63번길 2",
+      "validation": [],
+      "ui": {
+        "help": "비워두면 직전 노드가 준 값을 주소로 씁니다."
+      }
+    },
+    {
+      "name": "count",
+      "kind": "number",
+      "label": "가져올 개수",
+      "default": 10,
+      "validation": [
+        {
+          "rule": "number",
+          "message": "{node_id}(jusoNode)의 count는 숫자여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "includeHistory",
+      "kind": "checkbox",
+      "label": "옛 주소도 함께 찾기",
+      "default": false,
+      "ui": {
+        "help": "행정구역 개편 전 주소로 검색해야 할 때 켭니다."
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "juso",
+      "provider": "juso",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "jusoNode",
+  "connector": {
+    "service": "도로명주소",
+    "role": "action",
+    "modes": [
+      "search"
+    ],
+    "credentials": [
+      {
+        "provider": "juso",
+        "scopes": []
+      }
+    ],
+    "baseUrl": "https://business.juso.go.kr/addrlink/addrLinkApi.do",
+    "timeoutSeconds": 15.0,
+    "rateLimit": {
+      "requestsPerMinute": 60
+    },
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "search": "external-read"
+    },
+    "errorStyle": "body",
+    "outputSchemaByMode": {
+      "search": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "countPerPage": {
+            "type": "number"
+          },
+          "attribution": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "roadAddress": {
+                  "type": "string"
+                },
+                "roadAddressPart1": {
+                  "type": "string"
+                },
+                "roadAddressPart2": {
+                  "type": "string"
+                },
+                "jibunAddress": {
+                  "type": "string"
+                },
+                "englishAddress": {
+                  "type": "string"
+                },
+                "zipCode": {
+                  "type": "string"
+                },
+                "buildingName": {
+                  "type": "string"
+                },
+                "sido": {
+                  "type": "string"
+                },
+                "sigungu": {
+                  "type": "string"
+                },
+                "eupmyeondong": {
+                  "type": "string"
+                },
+                "roadName": {
+                  "type": "string"
+                },
+                "raw": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "docsUrl": "https://business.juso.go.kr/addrlink/openApi/apiExprn.do",
+    "verifiedAt": null
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "addrLinkApi.do"
+            },
+            "status": 200,
+            "body": {
+              "results": {
+                "common": {
+                  "totalCount": "2",
+                  "currentPage": "1",
+                  "countPerPage": "10",
+                  "errorCode": "0",
+                  "errorMessage": "정상"
+                },
+                "juso": [
+                  {
+                    "roadAddr": "부산광역시 금정구 부산대학로63번길 2 (장전동)",
+                    "roadAddrPart1": "부산광역시 금정구 부산대학로63번길 2",
+                    "roadAddrPart2": "(장전동)",
+                    "jibunAddr": "부산광역시 금정구 장전동 30",
+                    "engAddr": "2, Busandaehak-ro 63beon-gil, Geumjeong-gu, Busan",
+                    "zipNo": "46241",
+                    "admCd": "2641010300",
+                    "rnMgtSn": "264103007001",
+                    "bdMgtSn": "2641010300100300000000001",
+                    "bdNm": "부산대학교",
+                    "detBdNmList": "",
+                    "siNm": "부산광역시",
+                    "sggNm": "금정구",
+                    "emdNm": "장전동",
+                    "liNm": "",
+                    "rn": "부산대학로63번길",
+                    "udrtYn": "0",
+                    "buldMnnm": "2",
+                    "buldSlno": "0"
+                  },
+                  {
+                    "roadAddr": "부산광역시 금정구 부산대학로 49 (장전동)",
+                    "roadAddrPart1": "부산광역시 금정구 부산대학로 49",
+                    "roadAddrPart2": "(장전동)",
+                    "jibunAddr": "부산광역시 금정구 장전동 40-1",
+                    "engAddr": "2, Busandaehak-ro 63beon-gil, Geumjeong-gu, Busan",
+                    "zipNo": "46287",
+                    "admCd": "2641010300",
+                    "rnMgtSn": "264103007001",
+                    "bdMgtSn": "2641010300100300000000001",
+                    "bdNm": "",
+                    "detBdNmList": "",
+                    "siNm": "부산광역시",
+                    "sggNm": "금정구",
+                    "emdNm": "장전동",
+                    "liNm": "",
+                    "rn": "부산대학로",
+                    "udrtYn": "0",
+                    "buldMnnm": "49",
+                    "buldSlno": "0"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 200,
+            "body": {
+              "results": {
+                "common": {
+                  "totalCount": "0",
+                  "currentPage": "1",
+                  "countPerPage": "10",
+                  "errorCode": "E0001",
+                  "errorMessage": "승인되지 않은 KEY 입니다."
+                },
+                "juso": []
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 200,
+            "body": {
+              "results": {
+                "common": {
+                  "totalCount": "0",
+                  "currentPage": "1",
+                  "countPerPage": "10",
+                  "errorCode": "E0014",
+                  "errorMessage": "개발승인키 기간이 만료되어 서비스를 이용하실 수 없습니다."
+                },
+                "juso": []
+              }
+            }
+          }
+        ]
+      },
+      "not_found": {
+        "responses": [
+          {
+            "status": 200,
+            "body": {
+              "results": {
+                "common": {
+                  "totalCount": "0",
+                  "currentPage": "1",
+                  "countPerPage": "10",
+                  "errorCode": "0",
+                  "errorMessage": "정상"
+                },
+                "juso": []
+              }
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "사람이 쓴 주소 문자열을 행정안전부 도로명주소로 정규화해서 도로명·지번·우편번호·영문주소를 함께 가져온다.\n                   data.keyword(문자열, 선택 — 비우면 직전 노드의 출력을 주소로 쓴다),\n                   data.count(숫자, 선택 — 기본 10, 최대 100), data.includeHistory(참/거짓, 선택 —\n                   행정구역 개편 전 옛 주소로도 찾을지, 기본 거짓).\n                   출력은 JSON 문자열이고 items 배열의 각 항목은 roadAddress/jibunAddress/englishAddress/\n                   zipCode/buildingName/sido/sigungu/eupmyeondong/roadName 이다. 원본 응답은 각 항목의 raw 에 남는다.\n                   API 센터에 '도로명주소 승인키'가 등록되어 있어야 한다.\n                   ⚠️ 좌표(위도·경도)는 주지 않는다 — 지도에 찍는 것이 목적이면 이 노드가 아니다.\n                   \"주소 정리해줘\", \"우편번호 채워줘\", \"영문주소로 바꿔줘\" 같은 요청에 쓴다.\n"
+  }
+}

@@ -384,7 +384,7 @@
   border-radius: 6px;
   background: var(--btn-active-bg);
   color: var(--text-color);
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 1rem;
 }
 
@@ -448,14 +448,7 @@
   gap: 1rem;
 }
 
-.logs-container::-webkit-scrollbar {
-  width: 6px;
-}
-
-.logs-container::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
+/* 스크롤바는 index.css 의 전역 규칙을 따른다(페이지별 override 제거). */
 
 .no-logs {
   text-align: center;

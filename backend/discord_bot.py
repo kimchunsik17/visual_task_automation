@@ -1,15 +1,50 @@
 import discord
+from usage_tracking import EVENT_WORKFLOW_EXECUTION, outcome_from_result, record_usage
 import asyncio
-import re
-import os
+import io
 from sqlalchemy.orm import Session
 from database import SessionLocal
 import models
 from graph import run_workflow
+from credential_crypto import decrypt_secret
 
-# posterGeneratorNode/fileModifierNode 등이 결과에 남기는 생성 파일 경로를 찾는다
-# (AppViewerPage.jsx의 FILE_PATH_REGEX, integration_nodes.py의 discordNode와 동일한 패턴).
-_UPLOADS_FILE_RE = re.compile(r'uploads/[^\s"\'<>]+')
+def _reply_attachments(logs, project_id):
+    """자동 답장에 붙일 파일. 실행 로그의 artifactId 를 공통 resolver 로 확인한다(ADR-0018).
+
+    예전에는 결과 문자열에서 `uploads/...` 를 정규식으로 찾아 그 경로를 그대로 열었다 —
+    소유자·프로젝트·만료를 확인하지 않는 경로였고, 발송 노드와 규칙이 따로 놀았다. 이제
+    discordNode 와 **같은** 정책·검증을 쓴다.
+    """
+    artifact_ids = []
+    for entry in logs or []:
+        for ref in (entry or {}).get('artifacts') or []:
+            aid = ref.get('artifactId') if isinstance(ref, dict) else ref
+            if aid and aid not in artifact_ids:
+                artifact_ids.append(aid)
+    if not artifact_ids:
+        return []
+
+    import delivery_attachments
+    if not delivery_attachments.connector_enabled('discord'):
+        return []
+
+    db = SessionLocal()
+    try:
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+        owner_user_id = project.user_id if project else 0
+        resolved = delivery_attachments.validate_attachments(
+            db, artifact_ids, owner_user_id=owner_user_id, project_id=project_id,
+            policy=delivery_attachments.policy_for('discord'),
+            node_type='discordTriggerNode',
+        )
+        # 답장은 별도 프로세스(discord.py 의 이벤트 루프)에서 보내므로 handle 을 넘기지 않고
+        # 바이트를 읽어 둔다 — descriptor 를 이벤트 루프 너머로 들고 다니지 않기 위해서다.
+        return [(item.filename, item.read_bytes()) for item in resolved]
+    except Exception as exc:
+        print(f"[discord-bot] 첨부 준비 실패: {exc}")
+        return []
+    finally:
+        db.close()
 
 # Store active bots by project_id
 _active_bots = {}
@@ -42,7 +77,7 @@ def resolve_discord_token(graph_data: dict, owner_user_id: int, db) -> str:
             .filter(models.UserApiKey.user_id == owner_user_id, models.UserApiKey.provider == "discord")
             .first()
         )
-        return key_row.api_key if key_row else ""
+        return decrypt_secret(key_row.api_key) if key_row else ""
     return raw_token
 
 def start_discord_bot(project_id: int, token: str):
@@ -144,7 +179,13 @@ def start_discord_bot(project_id: int, token: str):
         # generate_discord_node 참고). 예전엔 여기서 print 전용 영어 문구를 찾고 있어서 이 체크가
         # 항상 False가 되어, 발송이 실패해도 무조건 "처리 중..." placeholder를 지워버리는 바람에
         # 사용자에게는 답장이 통째로 사라지는 것처럼 보이는 버그가 있었다.
-        is_discord_failure = "⚠️ Discord 발송" in result_text or "⚠️ Discord 봇 토큰" in result_text
+        # 이제 discordNode 는 실패를 구조화 오류(NodeError v1)로 실행 로그에 남기므로 그것을 먼저 본다.
+        # 문자열 검색은 legacy fallback(ADR-0016).
+        from node_errors import runtime as _node_error_runtime
+        is_discord_failure = (
+            _node_error_runtime.has_node_error(logs, "discordNode")
+            or "⚠️ Discord 발송" in result_text or "⚠️ Discord 봇 토큰" in result_text
+        )
         if ends_in_discord_send and not is_discord_failure:
             # 실제 내용은 discordNode가 이미 채널에 직접 보냈으므로, "처리 중..." placeholder를
             # 다시 그 내용으로 덮어쓰면 중복으로 남으니 그냥 지운다. 발송이 실패/스킵된 경우는
@@ -154,9 +195,8 @@ def start_discord_bot(project_id: int, token: str):
             except Exception:
                 pass
         else:
-            _file_match = _UPLOADS_FILE_RE.search(result_text)
-            _file_path = _file_match.group(0) if _file_match and os.path.exists(_file_match.group(0)) else None
-            if _file_path:
+            _files = await asyncio.to_thread(_reply_attachments, logs, project_id)
+            if _files:
                 # 메시지 편집으로는 첨부파일을 깔끔하게 붙일 수 없어서, placeholder는 지우고
                 # 파일이 첨부된 새 메시지를 보낸다(discordNode의 파일 첨부 처리와 동일한 이유).
                 try:
@@ -164,7 +204,12 @@ def start_discord_bot(project_id: int, token: str):
                 except Exception:
                     pass
                 try:
-                    await message.channel.send(file=discord.File(_file_path))
+                    # 본문은 첨부가 있어도 함께 보낸다 — 예전 경로는 파일만 보내고 결과 텍스트를
+                    # 통째로 버렸다(§4.10 "메일 본문과 Discord 캡션은 첨부 유무와 관계없이 유지").
+                    await message.channel.send(
+                        content=result_text,
+                        files=[discord.File(io.BytesIO(data), filename=name) for name, data in _files],
+                    )
                 except Exception as e:
                     await message.channel.send(f"⚠️ 파일 전송 실패: {e}")
             else:
@@ -185,21 +230,18 @@ def start_discord_bot(project_id: int, token: str):
                 )
                 db.add(log)
 
-                total_tokens = tokens.get('total_tokens', 0) if isinstance(tokens, dict) else 0
-                if total_tokens > 0:
-                    user = db.query(models.User).filter(models.User.id == owner_id).first()
-                    if user:
-                        user.token_balance -= total_tokens
-
-                    exec_log = models.FlowExecutionLog(
-                        user_id=owner_id,
-                        project_id=project_id,
-                        payload=json.dumps({"discord_user": str(message.author), "content": content}, ensure_ascii=False),
-                        result=result_text,
-                        total_tokens=total_tokens,
-                        token_usage_details=tokens
-                    )
-                    db.add(exec_log)
+                record_usage(
+                    db,
+                    billable_user_id=owner_id,
+                    actor_user_id=None,
+                    project_id=project_id,
+                    token_usage=tokens if isinstance(tokens, dict) else None,
+                    payload=json.dumps({"discord_user": str(message.author), "content": content}, ensure_ascii=False),
+                    result=result_text,
+                    event_type=EVENT_WORKFLOW_EXECUTION,
+                    outcome=outcome_from_result(result_text),
+                    trigger_type="discord",
+                )
 
                 db.commit()
             except Exception as e:

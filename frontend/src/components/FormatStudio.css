@@ -1,0 +1,441 @@
+/* 포맷 스튜디오 (계획 §4.4) — DeployModal 계열 풀스크린 모달. 도구 화면이므로 tool-shell 없이
+   전역 토큰만 쓴다. 3열: 시작점 | 편집기 | 미리보기 */
+
+.fstudio-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  background: rgba(2, 6, 23, 0.66);
+  backdrop-filter: blur(3px);
+}
+
+.fstudio {
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, 100%);
+  height: min(860px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+
+.fstudio-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--card-bg);
+}
+
+.fstudio-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.fstudio-ai {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-radius: 9px;
+  background: rgba(167, 139, 250, 0.08);
+}
+
+.fstudio-ai select {
+  border: 0;
+  background: transparent;
+  color: #a78bfa;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.fstudio-ai input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+}
+
+.fstudio-ai > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #7c3aed;
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fstudio-spin { animation: fstudio-rotate 0.9s linear infinite; }
+@keyframes fstudio-rotate { to { transform: rotate(360deg); } }
+
+.fstudio-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.fstudio-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 205px minmax(0, 1fr) 360px;
+}
+
+/* ── 좌: 시작점 ── */
+.fstudio-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 10px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-color);
+  background: var(--card-bg);
+}
+
+.fstudio-side-label {
+  margin: 8px 4px 4px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.fstudio-side > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fstudio-side > button:hover { background: var(--btn-active-bg); }
+.fstudio-side > button em {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-style: normal;
+}
+
+.fstudio-block-palette { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 4px; }
+.fstudio-block-palette button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.fstudio-block-palette button:hover { border-color: rgba(13, 148, 136, 0.6); color: #2dd4bf; }
+
+/* ── 중: 편집기 ── */
+.fstudio-editor {
+  min-width: 0;
+  padding: 14px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fstudio-name-row { display: flex; align-items: center; gap: 10px; }
+.fstudio-name-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.fstudio-layout-badge {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.fstudio-layout-badge.document { background: rgba(13, 148, 136, 0.14); color: #2dd4bf; }
+.fstudio-layout-badge.design { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+
+.fstudio-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fstudio-section-head strong { font-size: 0.86rem; }
+.fstudio-section-head > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.fstudio-hint { margin: 2px 0 0; color: var(--text-muted); font-size: 0.8rem; }
+
+.fstudio-fields, .fstudio-blocks, .fstudio-design {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+
+.fstudio-field-row {
+  display: grid;
+  grid-template-columns: 110px 110px 104px 52px minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.fstudio-field-row input, .fstudio-field-row select,
+.fstudio-block-body input, .fstudio-block-body select,
+.fstudio-block textarea, .fstudio-design textarea, .fstudio-theme-grid input[type="text"],
+.fstudio-theme-grid input[type="number"] {
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.82rem;
+  min-width: 0;
+}
+
+.fstudio .mono { font-family: var(--font-mono); font-size: 0.78rem; }
+.fstudio-req { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 0.74rem; }
+
+.fstudio-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.fstudio-icon-btn:hover { background: var(--btn-active-bg); color: var(--text-color); }
+
+.fstudio-block {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+.fstudio-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 6px 5px 10px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.fstudio-block-body { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 8px 8px; }
+.fstudio-block-body input { flex: 1; }
+.fstudio-block > textarea { width: calc(100% - 16px); margin: 0 8px 8px; box-sizing: border-box; resize: vertical; }
+
+.fstudio-table-edit { flex-direction: column; align-items: stretch; }
+.fstudio-grid { display: flex; flex-direction: column; gap: 4px; }
+.fstudio-grid-row { display: flex; gap: 4px; }
+.fstudio-grid-row input { flex: 1; min-width: 0; }
+.fstudio-grid-row input.head { font-weight: 700; background: var(--btn-active-bg); }
+.fstudio-add-row {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.fstudio-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid rgba(13, 148, 136, 0.5);
+  border-radius: 6px;
+  background: rgba(13, 148, 136, 0.08);
+  color: #2dd4bf;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.fstudio-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.fstudio-theme-grid label { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 0.76rem; }
+.fstudio-theme-grid input[type="color"] {
+  width: 100%;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-color);
+  cursor: pointer;
+}
+.fstudio-size { display: flex; align-items: center; gap: 5px; color: var(--text-muted); }
+.fstudio-size input { width: 70px; }
+.fstudio-code-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 0.76rem; }
+.fstudio-code-label { color: var(--text-muted); font-size: 0.74rem; }
+
+/* ── 우: 미리보기 ── */
+.fstudio-preview {
+  padding: 12px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border-color);
+  background: var(--card-bg);
+}
+.fstudio-preview .fstudio-side-label { display: block; }
+.fstudio-preview .fstudio-side-label em { font-weight: 400; font-style: normal; letter-spacing: 0; }
+
+.fstudio-doc-preview {
+  padding: 22px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
+.fstudio-doc-preview h1 { margin: 0 0 10px; font-size: 1.25rem; }
+.fstudio-doc-preview h2 { margin: 14px 0 6px; font-size: 1.02rem; }
+.fstudio-doc-preview h3 { margin: 10px 0 5px; font-size: 0.92rem; }
+.fstudio-doc-preview p { margin: 0 0 8px; white-space: pre-wrap; }
+.fstudio-doc-preview table { width: 100%; margin: 6px 0 12px; border-collapse: collapse; }
+.fstudio-doc-preview th, .fstudio-doc-preview td {
+  border: 1px solid #9ca3af;
+  padding: 4px 7px;
+  font-size: 0.76rem;
+  text-align: left;
+}
+.fstudio-doc-preview th { background: #f3f4f6; }
+.fstudio-image-slot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 6px 0 10px;
+  padding: 12px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 0.76rem;
+}
+.fstudio-image-slot img { max-height: 90px; border-radius: 6px; }
+.fstudio-pagebreak { margin: 10px 0; color: #94a3b8; font-size: 0.72rem; text-align: center; }
+
+.fstudio-design-preview { overflow: hidden; border-radius: 8px; }
+.fstudio-design-preview iframe {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  transform-origin: top left;
+  background: #fff;
+  pointer-events: none;
+}
+
+/* ── 하단 ── */
+.fstudio-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--card-bg);
+}
+
+.fstudio-notice { min-width: 0; font-size: 0.84rem; }
+.fstudio-notice.error { color: #f87171; }
+.fstudio-notice.success { color: #4ade80; }
+
+.fstudio-actions { display: flex; gap: 8px; margin-left: auto; }
+.fstudio-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.fstudio-save { border: 1px solid var(--border-color); background: transparent; color: var(--text-color); }
+.fstudio-save:hover { background: var(--btn-active-bg); }
+.fstudio-apply { border: 0; background: #0d9488; color: #fff; }
+.fstudio-actions button:disabled { opacity: 0.6; cursor: default; }
+
+@media (max-width: 1080px) {
+  .fstudio-body { grid-template-columns: 180px minmax(0, 1fr); }
+  .fstudio-preview { display: none; }
+}

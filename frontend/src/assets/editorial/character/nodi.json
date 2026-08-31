@@ -1,0 +1,43 @@
+{
+  "id": "nodi",
+  "version": 1,
+  "name": "노디",
+  "role": "workflow_helper",
+  "style": "minimal_2_5d_geometric",
+  "proportions": {
+    "bodyShape": "single_vertical_rounded_capsule",
+    "heightToWidth": 1.15,
+    "arms": 2,
+    "legs": 2,
+    "antennae": 1
+  },
+  "colors": {
+    "body": "#3b82f6",
+    "faceScreen": "#0f172a",
+    "eyes": "#e0f2fe",
+    "antennaNode": "#10b981",
+    "limbs": "#334155"
+  },
+  "face": {
+    "eyes": "two_small_circles",
+    "mouthDefault": "none",
+    "mouthCelebration": "single_short_curve"
+  },
+  "material": "soft_matte_plastic",
+  "outline": "none",
+  "shadow": "short_soft_contact_shadow",
+  "forbidden": [
+    "hair",
+    "clothing",
+    "glasses",
+    "human_fingers",
+    "nose",
+    "ears",
+    "teeth",
+    "tongue",
+    "blush",
+    "extra_antenna",
+    "extra_limb",
+    "brand_mark"
+  ]
+}

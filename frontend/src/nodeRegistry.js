@@ -1,6 +1,7 @@
 export const NodeRegistry = {
   slackNode: {
     type: 'slackNode',
+    icon: 'node-slack',
     label: 'Slack 메세지',
     category: 'integration',
     color: '#0ea5e9', // e.g., skyblue for Slack
@@ -12,6 +13,7 @@ export const NodeRegistry = {
   },
   paymentLinkNode: {
     type: 'paymentLinkNode',
+    icon: 'node-payment-link',
     label: '결제 링크 생성',
     category: 'integration',
     color: '#03c75a', // default green for Naver, or mixed
@@ -21,8 +23,30 @@ export const NodeRegistry = {
       { name: 'orderData', type: 'textarea', label: '주문 정보 데이터 (JSON, 텍스트 가능)', placeholder: '{{last_result}}' }
     ]
   },
+  // 결제 "조회" 노드 (paymentLinkNode 는 "생성"). 전에는 Sidebar 팔레트에만 하드코딩돼 있고
+  // 캔버스 컴포넌트도 EditorPage 의 nodeTypes 등록도 없어서, 끌어놓거나 AI가 생성하면
+  // ReactFlow 기본 노드(라벨만 있는 빈 상자)로 떨어져 아래 필드를 입력할 수가 없었다.
+  // 여기로 옮겨서 DynamicNode 가 처리하게 한다. 필드는 backend/node_generators/integration_nodes.py
+  // 의 generate_toss_node() 가 읽는 키와 정확히 일치해야 한다.
+  tossNode: {
+    type: 'tossNode',
+    icon: 'node-toss-payments',
+    label: '토스페이먼츠',
+    category: 'integration',
+    color: '#3b82f6',
+    headerColor: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+    fields: [
+      { name: 'secretKey', type: 'password', label: '시크릿 키 (Secret Key)', placeholder: 'test_sk_... 또는 live_sk_...' },
+      { name: 'searchType', type: 'select', label: '조회 기준', options: [
+        { value: 'paymentKey', label: 'paymentKey (결제 키로 조회)' },
+        { value: 'orderId', label: 'orderId (주문 번호로 조회)' }
+      ] },
+      { name: 'searchValue', type: 'text', label: '조회 값 (선택 — 비우면 직전 노드 출력을 사용)', placeholder: '비워두면 직전 노드 결과로 조회' }
+    ]
+  },
   googleSheetsNode: {
     type: 'googleSheetsNode',
+    icon: 'node-google-sheets',
     label: '구글 시트',
     category: 'integration',
     color: '#0f9d58',
@@ -40,6 +64,7 @@ export const NodeRegistry = {
   },
   googleCalendarNode: {
     type: 'googleCalendarNode',
+    icon: 'node-google-calendar',
     label: '구글 캘린더',
     category: 'integration',
     color: '#4285f4',
@@ -56,8 +81,18 @@ export const NodeRegistry = {
       { name: 'maxResults', type: 'number', label: '최대 조회 개수 (선택, 조회 모드에서만 사용)', placeholder: '10' }
     ]
   },
+  imageGenerationNode: {
+    type: 'imageGenerationNode',
+    icon: 'node-poster-generator',
+    label: 'AI 이미지 생성·수정',
+    category: 'ai',
+    color: '#06b6d4',
+    headerColor: 'linear-gradient(135deg, #0891b2, #7c3aed)',
+    fields: []
+  },
   posterGeneratorNode: {
     type: 'posterGeneratorNode',
+    icon: 'node-poster-generator',
     label: '포스터/이미지 생성',
     category: 'action',
     color: '#f59e0b',
@@ -66,6 +101,21 @@ export const NodeRegistry = {
       { name: 'outputFormat', type: 'select', label: '출력 형식', options: [
         { value: 'png', label: 'PNG (이미지)' },
         { value: 'pdf', label: 'PDF' }
+      ] },
+      { name: 'backgroundPreset', type: 'select', label: '배경 프리셋', options: [
+        { value: 'none', label: '사용 안 함 (HTML 배경 유지)' },
+        { value: 'poster-01-midnight-grid', label: '01 · 미드나이트 그리드' },
+        { value: 'poster-02-cobalt-orbits', label: '02 · 코발트 오빗' },
+        { value: 'poster-03-violet-arches', label: '03 · 바이올렛 아치' },
+        { value: 'poster-04-emerald-flow', label: '04 · 에메랄드 플로우' },
+        { value: 'poster-05-layered-paper', label: '05 · 레이어드 페이퍼' },
+        { value: 'poster-06-dot-matrix', label: '06 · 도트 매트릭스 (밝음)' },
+        { value: 'poster-07-blueprint-lines', label: '07 · 블루프린트 라인' },
+        { value: 'poster-08-diagonal-blocks', label: '08 · 다이애거널 블록 (밝음)' },
+        { value: 'poster-09-emerald-wave', label: '09 · 에메랄드 웨이브' },
+        { value: 'poster-10-neutral-editorial', label: '10 · 뉴트럴 에디토리얼 (밝음)' },
+        { value: 'poster-11-concentric-frames', label: '11 · 컨센트릭 프레임' },
+        { value: 'poster-12-sparse-geometry', label: '12 · 스파스 지오메트리' }
       ] },
       { name: 'width', type: 'number', label: '가로 (px)', placeholder: '900' },
       { name: 'height', type: 'number', label: '세로 (px)', placeholder: '1200' },

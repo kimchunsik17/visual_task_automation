@@ -1,18 +1,37 @@
-import React, { useState } from 'react';
-import { Play, MessageSquare, BrainCircuit, Box, Terminal, Shuffle, LogOut, SplitSquareHorizontal, FileCode, Search, Variable, Network, Repeat, Keyboard, Globe, Mail, MessageCircle, Clock, Braces, Merge, ArrowRightLeft, Database, UserCheck, Users, ChevronDown, ChevronRight, Puzzle, CreditCard, Send, StickyNote } from 'lucide-react';
-import { NodeRegistry } from './nodeRegistry';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, ChevronRight, Puzzle, X, Shapes } from 'lucide-react';
+import { Icon } from './icons';
+import { EDITOR_NODE_CATALOG, NODE_CATEGORY_LABELS } from './editorNodeCatalog';
 
-const Sidebar = () => {
+/**
+ * 노드 팔레트.
+ *
+ * 노드 목록은 editorNodeCatalog.js 하나에서 온다. 예전에는 이 파일에 40여 개 목록이 따로 있어
+ * 카탈로그와 색·카테고리가 어긋났다(rssTriggerNode 가 팔레트에서는 'trigger', 카탈로그에서는
+ * 'input'). 명령 팔레트·노드 피커·교체 후보·미니맵이 이미 카탈로그를 쓰므로 팔레트도 같은 곳을 본다.
+ *
+ * 카테고리 접힘 상태는 localStorage 에 기억한다 — 새로 고칠 때마다 접혀 있던 목록이 다시 펼쳐지지 않게.
+ */
+const CATEGORY_ORDER = ['core', 'input', 'ai', 'logic', 'code', 'integration', 'document', 'advanced'];
+const DEFAULT_EXPANDED = { core: true, input: true, ai: true, logic: false, code: false, integration: false, document: false, advanced: false };
+const STORAGE_KEY = 'editor.palette.categories';
+
+const readExpanded = () => {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw ? { ...DEFAULT_EXPANDED, ...JSON.parse(raw) } : DEFAULT_EXPANDED;
+  } catch {
+    return DEFAULT_EXPANDED;
+  }
+};
+
+const Sidebar = ({ isMobileOpen, onClose, onNodeTap }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [expandedCategories, setExpandedCategories] = useState({
-    core: true,
-    input: true,
-    ai: true,
-    logic: false,
-    code: false,
-    integration: false,
-    advanced: false
-  });
+  const [expandedCategories, setExpandedCategories] = useState(readExpanded);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(expandedCategories)); } catch { /* 저장 불가 환경은 무시 */ }
+  }, [expandedCategories]);
 
   const onDragStart = (event, nodeType, label) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
@@ -20,142 +39,101 @@ const Sidebar = () => {
     event.dataTransfer.effectAllowed = 'move';
   };
 
-  const nodeTypes = [
-    { type: 'startNode', label: '시작', icon: <Play size={16} />, color: '#10b981', category: 'core' },
-    { type: 'scheduleNode', label: '스케줄 (시작)', icon: <Clock size={16} />, color: '#8b5cf6', category: 'core' },
-    { type: 'outputNode', label: '결과 출력', icon: <LogOut size={16} />, color: '#f97316', category: 'core' },
-    
-    { type: 'dynamicInputNode', label: '동적 입력', icon: <Keyboard size={16} />, color: '#d946ef', category: 'input' },
-    { type: 'webhookNode', label: '웹훅 수신', icon: <Globe size={16} />, color: '#0ea5e9', category: 'input' },
-    { type: 'discordTriggerNode', label: '디스코드 봇 (시작)', icon: <MessageCircle size={16} />, color: '#5865F2', category: 'input' },
-    { type: 'telegramTriggerNode', label: '텔레그램 봇 (시작)', icon: <Send size={16} />, color: '#26A5E4', category: 'input' },
-    { type: 'valueNode', label: '변수 (값)', icon: <Variable size={16} />, color: '#ec4899', category: 'input' },
-    
-    { type: 'promptNode', label: '프롬프트', icon: <MessageSquare size={16} />, color: '#3b82f6', category: 'ai' },
-          { type: 'llmNode', label: 'LLM', icon: <BrainCircuit size={16} />, color: '#8b5cf6', category: 'ai' },
-      { type: 'multiAgentNode', label: 'Multi-Agent', icon: <Users size={16} />, color: '#6366f1', category: 'ai' },
-    
-    { type: 'conditionNode', label: '조건 분기', icon: <SplitSquareHorizontal size={16} />, color: '#0ea5e9', category: 'logic' },
-    { type: 'loopNode', label: '반복 (Loop)', icon: <Repeat size={16} />, color: '#ca8a04', category: 'logic' },
-    { type: 'breakNode', label: '반복 종료', icon: <LogOut size={16} style={{transform: 'rotate(180deg)'}}/>, color: '#dc2626', category: 'logic' },
-    { type: 'delayNode', label: 'Delay (대기)', icon: <Clock size={16} />, color: '#3b82f6', category: 'logic' },
-    { type: 'mergeNode', label: 'Merge (병합)', icon: <Merge size={16} />, color: '#ec4899', category: 'logic' },
-    
-    { type: 'pythonNode', label: '파이썬', icon: <Terminal size={16} />, color: '#eab308', category: 'code' },
-    { type: 'jsonParserNode', label: 'JSON 파서', icon: <Braces size={16} />, color: '#eab308', category: 'code' },
-    { type: 'tokenizerNode', label: '토크나이저', icon: <Box size={16} />, color: '#14b8a6', category: 'code' },
-    { type: 'distributorNode', label: '분배기', icon: <Network size={16} />, color: '#6366f1', category: 'code' },
-    { type: 'databaseNode', label: '데이터베이스', icon: <Database size={16} />, color: '#059669', category: 'code' },
-    
-    { type: 'webCrawlerNode', label: '웹 크롤러', icon: <Globe size={16} />, color: '#0ea5e9', category: 'integration' },
-    { type: 'emailNode', label: '이메일 전송', icon: <Mail size={16} />, color: '#f43f5e', category: 'integration' },
-    { type: 'kakaoNode', label: '카카오 알림톡', icon: <MessageCircle size={16} />, color: '#facc15', category: 'integration' },
-    { type: 'discordNode', label: '디스코드 발송', icon: <MessageCircle size={16} />, color: '#5865F2', category: 'integration' },
-    { type: 'telegramNode', label: '텔레그램 발송', icon: <Send size={16} />, color: '#26A5E4', category: 'integration' },
-    { type: 'notionNode', label: 'Notion', icon: <StickyNote size={16} />, color: '#9B9B9B', category: 'integration' },
-    { type: 'tossNode', label: '토스페이먼츠', icon: <CreditCard size={16} />, color: '#3b82f6', category: 'integration' },
-    { type: 'httpRequestNode', label: 'HTTP Request', icon: <ArrowRightLeft size={16} />, color: '#0ea5e9', category: 'integration' },
-    
-    { type: 'fileModifierNode', label: '자동 완성', icon: <FileCode size={16} />, color: '#f43f5e', category: 'advanced' },
-    { type: 'templateAnalyzerNode', label: '템플릿 분석', icon: <FileCode size={16} />, color: '#8b5cf6', category: 'advanced' },
-    { type: 'humanApprovalNode', label: '사용자 승인 (대기)', icon: <UserCheck size={16} />, color: '#f43f5e', category: 'advanced' },
-  ];
-
-  // Append dynamic nodes from registry
-  Object.values(NodeRegistry).forEach(meta => {
-    nodeTypes.push({
-      type: meta.type,
-      label: meta.label,
-      icon: <Puzzle size={16} />, // Default icon for dynamic nodes
-      color: meta.color,
-      category: meta.category || 'integration'
-    });
-  });
-
-  const categories = [
-    { id: 'core', title: '기본 (Core)' },
-    { id: 'input', title: '입력 (Input)' },
-    { id: 'ai', title: 'AI 모델 (AI)' },
-    { id: 'logic', title: '제어 로직 (Logic)' },
-    { id: 'code', title: '코드 & 데이터 (Code & Data)' },
-    { id: 'integration', title: '외부 연동 (Integration)' },
-    { id: 'advanced', title: '고급 기능 (Advanced)' },
-  ];
-
-  const toggleCategory = (catId) => {
-    setExpandedCategories(prev => ({...prev, [catId]: !prev[catId]}));
+  const toggleCategory = (categoryId) => {
+    setExpandedCategories((prev) => ({ ...prev, [categoryId]: !prev[categoryId] }));
   };
 
-  const isSearching = searchTerm.trim() !== '';
+  const needle = searchTerm.trim().toLowerCase();
+  const isSearching = needle !== '';
+  const visibleNodes = useMemo(() => (
+    isSearching
+      ? EDITOR_NODE_CATALOG.filter((node) => node.label.toLowerCase().includes(needle) || node.type.toLowerCase().includes(needle))
+      : EDITOR_NODE_CATALOG
+  ), [isSearching, needle]);
 
-  const renderNode = (node) => (
+  const renderNode = (node, showCategory = false) => (
     <div
       key={node.type}
       className="dnd-node"
-      onDragStart={(event) => onDragStart(event, node.type, node.label)}
       draggable
+      onDragStart={(event) => onDragStart(event, node.type, node.label)}
+      onClick={() => onNodeTap && onNodeTap(node.type, node.label)}
+      title={`${node.label} — 캔버스로 드래그`}
     >
-      <div className="dnd-node-icon" style={{ backgroundColor: `${node.color}20`, color: node.color }}>
-        {node.icon}
-      </div>
+      <span className="dnd-node-icon" style={{ '--node-color': node.color }}>
+        {node.icon ? <Icon name={node.icon} size={15} /> : <Puzzle size={15} />}
+      </span>
       <span className="dnd-node-label">{node.label}</span>
+      {showCategory && <span className="dnd-node-category">{node.categoryLabel}</span>}
     </div>
   );
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-header">
-        <h2 className="sidebar-title">노드 목록</h2>
-      </div>
-      
-      <div className="sidebar-search">
-        <Search size={14} color="#64748b" />
-        <input 
-          type="text" 
-          placeholder="노드 검색..." 
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-      </div>
+    <>
+      {isMobileOpen && <div className="mobile-palette-overlay" onClick={onClose}></div>}
+      <aside className={`sidebar ${isMobileOpen ? 'mobile-open' : ''}`} aria-label="노드 팔레트">
+        <div className="sidebar-header">
+          <h2 className="sidebar-title">
+            <Shapes size={14} /> 노드
+            <span className="sidebar-count">{EDITOR_NODE_CATALOG.length}</span>
+          </h2>
+          <button className="mobile-palette-close-btn editor-icon-button" onClick={onClose} aria-label="노드 팔레트 닫기">
+            <X size={18} />
+          </button>
+        </div>
 
-      <div className="node-list">
-        {isSearching ? (
-          // 검색 중일 때는 카테고리 구분 없이 일치하는 모든 노드를 보여줌
-          nodeTypes
-            .filter(n => n.label.toLowerCase().includes(searchTerm.toLowerCase()))
-            .map(renderNode)
-        ) : (
-          // 검색 중이 아닐 때는 카테고리별 아코디언으로 보여줌
-          categories.map(cat => {
-            const catNodes = nodeTypes.filter(n => n.category === cat.id);
-            if (catNodes.length === 0) return null;
-            
-            const isExpanded = expandedCategories[cat.id];
-            
-            return (
-              <div key={cat.id} className="sidebar-category">
-                <div 
-                  className="sidebar-category-header" 
-                  onClick={() => toggleCategory(cat.id)}
-                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px 4px', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: '600', userSelect: 'none' }}
-                >
-                  {isExpanded ? <ChevronDown size={14} style={{ marginRight: '4px' }}/> : <ChevronRight size={14} style={{ marginRight: '4px' }}/>}
-                  {cat.title}
+        <div className="sidebar-search">
+          <Search size={14} />
+          <input
+            type="text"
+            placeholder="노드 검색"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            aria-label="노드 검색"
+          />
+          {isSearching && (
+            <button type="button" className="sidebar-search-clear" onClick={() => setSearchTerm('')} aria-label="검색 지우기">
+              <X size={12} />
+            </button>
+          )}
+        </div>
+
+        <div className="node-list">
+          {isSearching ? (
+            // 검색 중에는 카테고리 구분 없이 일치하는 노드를 보여주고, 카테고리는 항목 옆 캡션으로
+            visibleNodes.length === 0
+              ? <div className="node-list-empty">일치하는 노드가 없습니다</div>
+              : visibleNodes.map((node) => renderNode(node, true))
+          ) : (
+            CATEGORY_ORDER.map((categoryId) => {
+              const categoryNodes = visibleNodes.filter((node) => node.category === categoryId);
+              if (categoryNodes.length === 0) return null;
+              const isExpanded = expandedCategories[categoryId] !== false;
+              return (
+                <div key={categoryId} className="sidebar-category">
+                  <button
+                    type="button"
+                    className="sidebar-category-header"
+                    onClick={() => toggleCategory(categoryId)}
+                    aria-expanded={isExpanded}
+                  >
+                    <ChevronRight size={13} className="chevron" />
+                    {NODE_CATEGORY_LABELS[categoryId]}
+                    <span className="sidebar-count">{categoryNodes.length}</span>
+                  </button>
+                  {isExpanded && (
+                    <div className="sidebar-category-nodes">
+                      {categoryNodes.map((node) => renderNode(node))}
+                    </div>
+                  )}
                 </div>
-                {isExpanded && (
-                  <div className="sidebar-category-nodes" style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '8px' }}>
-                    {catNodes.map(renderNode)}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-    </aside>
+              );
+            })
+          )}
+        </div>
+      </aside>
+    </>
   );
 };
 
 export default Sidebar;
-
-

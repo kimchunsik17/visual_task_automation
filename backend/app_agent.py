@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -11,7 +11,7 @@ load_dotenv()
 
 class UIComponent(BaseModel):
     id: str
-    type: str = Field(description="Valid types: container, text, input, button, textarea, dropdown, checkbox, divider, image")
+    type: str = Field(description="Valid types: container, text, input, button, textarea, dropdown, checkbox, radio, slider, file, divider, image, link, markdown, table, progress")
     props: dict
     children: Optional[List['UIComponent']] = None
 
@@ -48,6 +48,15 @@ class AppGeneratorResult(BaseModel):
     logic_nodes: List[LogicNode] = Field(description="Blueprint logic nodes (triggerNode, valueNode, actionNode, workflowNode).")
     logic_edges: List[LogicEdge] = Field(description="Edges connecting the logic nodes.")
     workflow_mappings: dict = Field(default_factory=dict, description="If a workflow is needed, map a button's component ID to 'NEW_WORKFLOW_ID'.")
+    _token_usage: dict = PrivateAttr(default_factory=dict)
+
+    @property
+    def token_usage(self) -> dict:
+        return self._token_usage
+
+    @token_usage.setter
+    def token_usage(self, value: dict) -> None:
+        self._token_usage = value or {}
 
     @model_validator(mode='before')
     @classmethod
@@ -59,6 +68,26 @@ class AppGeneratorResult(BaseModel):
                 data['logic_edges'] = []
         return data
 
+def _usage_from_message(message: Any) -> dict:
+    usage = getattr(message, "usage_metadata", None) or {}
+    if not usage:
+        metadata = getattr(message, "response_metadata", None) or {}
+        usage = metadata.get("token_usage") or metadata.get("usage") or {}
+    input_tokens = int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)
+    output_tokens = int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)
+    total_tokens = int(usage.get("total_tokens", input_tokens + output_tokens) or 0)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+def _merge_token_usage(*usages: dict) -> dict:
+    return {
+        key: sum(int((usage or {}).get(key, 0) or 0) for usage in usages)
+        for key in ("input_tokens", "output_tokens", "total_tokens")
+    }
+
 SYSTEM_PROMPT = """\
 당신은 최고의 AI 앱 빌더입니다. 사용자의 요청(자연어)과 현재 앱 상태를 분석하여 앱의 UI와 클라이언트 로직을 생성합니다.
 
@@ -68,11 +97,28 @@ SYSTEM_PROMPT = """\
 3. 앱이 데이터를 저장하거나 백엔드 통신이 필요한지 파악 (requires_backend_workflow)
 
 [UI 구조 제약]
-지원하는 컴포넌트 타입: text, input, button, textarea, dropdown, checkbox, divider, image
-각 컴포넌트는 id, type, props 필드를 가집니다. children은 사용하지 마세요.
-매우 중요: container 타입은 사용하지 마세요. 모든 컴포넌트를 최상위 배열에 나열하세요.
-매우 중요: 컴포넌트의 위치는 자동 레이아웃 엔진이 처리합니다. props 안에 절대 position 필드를 넣지 마세요.
-매우 중요: props.style에 적절한 width (예: "300px")와 height (예: "50px")를 명시하세요.
+지원하는 컴포넌트 타입: container, text, input, button, textarea, dropdown, checkbox, radio, slider, file, divider, image, link, markdown, table, progress
+입력 컴포넌트(input, textarea, dropdown, checkbox, radio, slider, file)는 props.label 과 props.inputKey(워크플로우 payload 의 필드 이름)를 가진다.
+- input 은 props.inputType 으로 종류를 정한다: 'text' | 'number' | 'email' | 'password' | 'date' | 'time' | 'url'.
+- dropdown 과 radio 는 props.options 에 쉼표로 구분한 선택지를 쓴다(radio 는 props.direction 'column' | 'row').
+- slider 는 숫자 범위 입력이다 — props.min, props.max, props.step, props.defaultValue.
+- file 은 파일 업로드 입력이다 — props.fileKind('document' | 'video'). 값은 업로드된 파일의 서버 경로이며 워크플로우에 그대로 전달된다(문서 요약·서식 채우기처럼 파일을 읽는 워크플로우의 입력, 영상 업로드 앱이면 fileKind 를 'video' 로).
+출력·표시 컴포넌트:
+- markdown 은 props.text 의 마크다운을 서식 있는 문서로 그린다. LLM 이 만든 요약·설명처럼 서식이 있는 결과를 보여줄 때 text 대신 이것을 쓴다.
+- table 은 값이 JSON 배열(객체 배열)이면 표로 그린다. 목록·검색 결과처럼 행이 여러 개인 결과에 쓴다. props.columns(쉼표 구분)로 열 순서를 고정할 수 있고 props.emptyText 는 데이터가 없을 때 문구다.
+- progress 는 0~props.max(기본 100) 사이의 값을 진행 막대로 보인다 — props.label, props.value.
+- link 는 props.text 와 props.href 를 가진 하이퍼링크다(새 탭으로 열린다).
+워크플로우 결과를 표시할 때: 서식 있는 글이면 markdown, 행 목록이면 table, 그 외 짧은 값은 text 나 읽기 전용 textarea(props.readOnly true)를 쓴다.
+각 컴포넌트는 id, type, props 필드를 가지며 container만 children을 가질 수 있습니다.
+Current State의 page_settings와 ui_graph_data.canvas에 있는 실제 캔버스 너비, 높이, 자동 높이 및 rootStyle을 페이지 제약으로 사용하세요.
+사용자가 페이지 설정 변경을 명시하지 않았다면 현재 캔버스와 rootStyle을 유지하고, 모든 최상위 컴포넌트를 현재 캔버스 안에 배치하세요.
+최상위 컴포넌트의 props.position은 {{"x": 숫자, "y": 숫자}} 형식으로 지정하세요.
+container 내부 children의 position은 container 기준 로컬 좌표입니다.
+container는 props.layoutMode를 absolute, row, column, grid 중 하나로 지정하세요. 편집 가능한 자유 배치를 기본으로 absolute를 사용하고, 사용자가 반응형 흐름 배치를 요구한 경우에만 row, column, grid를 사용하세요.
+props.style에 픽셀 단위 width와 height를 반드시 명시하고 컴포넌트끼리 겹치거나 캔버스 밖으로 나가지 않게 하세요.
+위치는 props.position 하나로만 지정합니다. props.style 에 position, left, top, right, bottom 을 절대 넣지 마세요 — 렌더러가 props.position 과 합산해 컴포넌트가 어긋납니다.
+container 의 height 는 자식들의 (position.y + height) 최대값보다 크게 잡아 자식이 컨테이너 밖으로 나가지 않게 하세요.
+terminal은 앱 UI 컴포넌트가 아니라 App Builder의 별도 실행 로그 패널이므로 절대 생성하지 마세요. 실행 결과는 text 또는 읽기 전용 textarea로 표시하세요.
 
 [로직 노드 제약]
 - triggerNode: 이벤트(예: onClick) 시작점
@@ -106,11 +152,28 @@ SYSTEM_PROMPT_CODE = """\
 4. 백엔드 통신이 필요한지 파악 (requires_backend_workflow)
 
 [UI 구조 제약]
-지원하는 컴포넌트 타입: text, input, button, textarea, dropdown, checkbox, divider, image
-각 컴포넌트는 id, type, props 필드를 가집니다. children은 사용하지 마세요.
-매우 중요: container 타입은 사용하지 마세요. 모든 컴포넌트를 최상위 배열에 나열하세요. 예를 들어 타이머 앱이면 [text, button, button] 형태로 만드세요.
-매우 중요: 컴포넌트의 위치는 자동 레이아웃 엔진이 처리합니다. props 안에 절대 position 필드를 넣지 마세요.
-매우 중요: props.style에 적절한 width (예: "300px")와 height (예: "50px")를 명시하세요.
+지원하는 컴포넌트 타입: container, text, input, button, textarea, dropdown, checkbox, radio, slider, file, divider, image, link, markdown, table, progress
+입력 컴포넌트(input, textarea, dropdown, checkbox, radio, slider, file)는 props.label 과 props.inputKey(워크플로우 payload 의 필드 이름)를 가진다.
+- input 은 props.inputType 으로 종류를 정한다: 'text' | 'number' | 'email' | 'password' | 'date' | 'time' | 'url'.
+- dropdown 과 radio 는 props.options 에 쉼표로 구분한 선택지를 쓴다(radio 는 props.direction 'column' | 'row').
+- slider 는 숫자 범위 입력이다 — props.min, props.max, props.step, props.defaultValue.
+- file 은 파일 업로드 입력이다 — props.fileKind('document' | 'video'). 값은 업로드된 파일의 서버 경로이며 워크플로우에 그대로 전달된다(문서 요약·서식 채우기처럼 파일을 읽는 워크플로우의 입력, 영상 업로드 앱이면 fileKind 를 'video' 로).
+출력·표시 컴포넌트:
+- markdown 은 props.text 의 마크다운을 서식 있는 문서로 그린다. LLM 이 만든 요약·설명처럼 서식이 있는 결과를 보여줄 때 text 대신 이것을 쓴다.
+- table 은 값이 JSON 배열(객체 배열)이면 표로 그린다. 목록·검색 결과처럼 행이 여러 개인 결과에 쓴다. props.columns(쉼표 구분)로 열 순서를 고정할 수 있고 props.emptyText 는 데이터가 없을 때 문구다.
+- progress 는 0~props.max(기본 100) 사이의 값을 진행 막대로 보인다 — props.label, props.value.
+- link 는 props.text 와 props.href 를 가진 하이퍼링크다(새 탭으로 열린다).
+워크플로우 결과를 표시할 때: 서식 있는 글이면 markdown, 행 목록이면 table, 그 외 짧은 값은 text 나 읽기 전용 textarea(props.readOnly true)를 쓴다.
+각 컴포넌트는 id, type, props 필드를 가지며 container만 children을 가질 수 있습니다.
+Current State의 page_settings와 ui_graph_data.canvas에 있는 실제 캔버스 너비, 높이, 자동 높이 및 rootStyle을 페이지 제약으로 사용하세요.
+사용자가 페이지 설정 변경을 명시하지 않았다면 현재 캔버스와 rootStyle을 유지하고, 모든 최상위 컴포넌트를 현재 캔버스 안에 배치하세요.
+최상위 컴포넌트의 props.position은 {{"x": 숫자, "y": 숫자}} 형식으로 지정하세요.
+container 내부 children의 position은 container 기준 로컬 좌표입니다.
+container는 props.layoutMode를 absolute, row, column, grid 중 하나로 지정하세요. 편집 가능한 자유 배치를 기본으로 absolute를 사용하고, 사용자가 반응형 흐름 배치를 요구한 경우에만 row, column, grid를 사용하세요.
+props.style에 픽셀 단위 width와 height를 반드시 명시하고 컴포넌트끼리 겹치거나 캔버스 밖으로 나가지 않게 하세요.
+위치는 props.position 하나로만 지정합니다. props.style 에 position, left, top, right, bottom 을 절대 넣지 마세요 — 렌더러가 props.position 과 합산해 컴포넌트가 어긋납니다.
+container 의 height 는 자식들의 (position.y + height) 최대값보다 크게 잡아 자식이 컨테이너 밖으로 나가지 않게 하세요.
+terminal은 앱 UI 컴포넌트가 아니라 App Builder의 별도 실행 로그 패널이므로 절대 생성하지 마세요. 실행 결과는 text 또는 읽기 전용 textarea로 표시하세요.
 
 [JavaScript 코드 생성 규칙 (매우 중요)]
 - 모든 로직은 반드시 `global_js` 필드에 작성합니다.
@@ -120,14 +183,15 @@ SYSTEM_PROMPT_CODE = """\
 - 상태 업데이트가 필요한 경우 `setAppState(compId, propertyKey, value)`를 사용합니다.
 - `appState[compId]?.[propertyKey]` 를 통해 다른 컴포넌트의 상태를 읽을 수 있습니다.
 - `inputs[inputKey]` 를 통해 input 컴포넌트들의 값을 읽을 수 있습니다.
-- `runWorkflow(projectId, payload)`: 백엔드 워크플로우 비동기 실행 함수 (결과 반환)
+- `runWorkflow(projectId, payload)`: 백엔드 워크플로우 비동기 실행 함수. **주의: 반환값은 객체가 아니라 단순 텍스트 문자열(String)입니다.** (예: `const resultText = await runWorkflow(...)`)
+- 실행 결과를 표시하려면 text 컴포넌트를 만들고 `setAppState('결과컴포넌트ID', 'text', '출력할 내용')` 을 사용하세요.
 
 예시 (global_js 작성법):
 "let count = 0;
 return {{
   onSaveClick: async () => {{
-    const result = await runWorkflow('NEW_WORKFLOW_ID', {{ name: inputs['nameInput'] }});
-    setAppState('statusText', 'text', '저장 완료!');
+    const resultText = await runWorkflow('NEW_WORKFLOW_ID', {{ name: inputs['nameInput'] }});
+    setAppState('statusText', 'text', resultText);
   }},
   onNameChange: (val) => {{
     console.log(val);
@@ -147,29 +211,51 @@ workflow_mappings는 {{"버튼ID": "NEW_WORKFLOW_ID"}} 로 지정합니다.
 반드시 JSON 형태로 응답하세요.
 """
 
-def get_llm(provider: str = "openai", complexity_level: str = "medium"):
+def get_llm(provider: str = "openai", complexity_level: str = "low"):
     if provider == "gemini":
         model_name = "gemini-1.5-pro" if complexity_level == "high" else "gemini-1.5-flash"
         return ChatGoogleGenerativeAI(model=model_name, temperature=0.1).with_structured_output(AppGeneratorResult)
     else:
-        model_name = "gpt-4o" if complexity_level == "high" else "gpt-4o-mini"
-        return ChatOpenAI(model=model_name, temperature=0.1).bind(response_format={"type": "json_object"})
+        if complexity_level == "low":
+            model_name = "gpt-5.4-mini"
+        elif complexity_level == "high":
+            model_name = "gpt-5.6-sol"
+        else:
+            model_name = "gpt-5.6-terra"
 
-async def generate_app(prompt: str, current_state: dict = None, provider: str = "openai", complexity_level: str = "medium", generate_mode: str = "code") -> AppGeneratorResult:
+        kwargs = {}
+        if "gpt-5" not in model_name:
+            kwargs["temperature"] = 0.1
+        else:
+            kwargs["model_kwargs"] = {"reasoning_effort": "none"}
+
+        return ChatOpenAI(model=model_name, **kwargs).bind(response_format={"type": "json_object"})
+
+async def generate_app(prompt: str, current_state: dict = None, provider: str = "openai", complexity_level: str = "low", generate_mode: str = "code") -> AppGeneratorResult:
     if current_state is None:
         current_state = {}
     llm = get_llm(provider=provider, complexity_level=complexity_level)
     
     sys_prompt = SYSTEM_PROMPT_CODE if generate_mode == "code" else SYSTEM_PROMPT
+    current_ui = current_state.get("ui_graph_data") or {}
+    page_context = current_state.get("page_settings") or {
+        "canvas": current_ui.get("canvas") or {"width": 1024, "height": 768, "autoHeight": True},
+        "rootStyle": current_ui.get("rootStyle") or {},
+    }
     
     if provider == "gemini":
         chat_prompt = ChatPromptTemplate.from_messages([
             ("system", sys_prompt),
-            ("human", "Current State:\n{current_state}\n\nUser Request: {prompt}")
+            ("human", "Current Page Settings (must be respected):\n{page_context}\n\nCurrent State:\n{current_state}\n\nUser Request: {prompt}")
         ])
         chain = chat_prompt | llm
         state_str = json.dumps(current_state, ensure_ascii=False, indent=2)
-        response = await chain.ainvoke({"current_state": state_str, "prompt": prompt})
+        response = await chain.ainvoke({
+            "page_context": json.dumps(page_context, ensure_ascii=False, indent=2),
+            "current_state": state_str,
+            "prompt": prompt,
+        })
+        response.token_usage = _usage_from_message(response)
         return response
     else:
         from langchain_core.output_parsers import PydanticOutputParser
@@ -177,15 +263,18 @@ async def generate_app(prompt: str, current_state: dict = None, provider: str = 
         
         chat_prompt = ChatPromptTemplate.from_messages([
             ("system", sys_prompt + "\n\n{format_instructions}"),
-            ("human", "Current State:\n{current_state}\n\nUser Request: {prompt}")
+            ("human", "Current Page Settings (must be respected):\n{page_context}\n\nCurrent State:\n{current_state}\n\nUser Request: {prompt}")
         ])
-        chain = chat_prompt | llm | parser
+        chain = chat_prompt | llm
         state_str = json.dumps(current_state, ensure_ascii=False, indent=2)
-        response = await chain.ainvoke({
+        raw_response = await chain.ainvoke({
+            "page_context": json.dumps(page_context, ensure_ascii=False, indent=2),
             "current_state": state_str, 
             "prompt": prompt,
             "format_instructions": parser.get_format_instructions()
         })
+        response = parser.invoke(raw_response)
+        response.token_usage = _usage_from_message(raw_response)
         return response
 
 def validate_app(app_data: AppGeneratorResult, generate_mode: str = "code") -> tuple[bool, List[str]]:
@@ -230,6 +319,13 @@ def validate_app(app_data: AppGeneratorResult, generate_mode: str = "code") -> t
             errors.append(f"엣지 '{edge.id}'의 source '{edge.source}'가 존재하지 않습니다.")
         if edge.target not in valid_logic_node_ids:
             errors.append(f"엣지 '{edge.id}'의 target '{edge.target}'가 존재하지 않습니다.")
+        is_control_edge = edge.sourceHandle in {"trigger", "triggerOut"} and edge.targetHandle == "triggerIn"
+        is_data_edge = edge.sourceHandle == "dataOut" and edge.targetHandle in {"dataIn", "payloadIn"}
+        if not is_control_edge and not is_data_edge:
+            errors.append(
+                f"엣지 '{edge.id}'의 핸들 연결이 올바르지 않습니다: "
+                f"{edge.sourceHandle} -> {edge.targetHandle}"
+            )
             
     # 4. Check workflow mappings
     for comp_id, workflow_id in app_data.workflow_mappings.items():
@@ -238,8 +334,47 @@ def validate_app(app_data: AppGeneratorResult, generate_mode: str = "code") -> t
             
     return (len(errors) == 0, errors)
 
-async def generate_app_safely(prompt: str, current_state: dict = None, provider: str = "openai", complexity_level: str = "medium", max_retries: int = 1, generate_mode: str = "code") -> AppGeneratorResult:
+_LAYOUT_STYLE_KEYS = ("position", "left", "top", "right", "bottom")
+
+
+def _pixel_value(value):
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and value.strip().endswith("px"):
+        try:
+            return float(value.strip()[:-2])
+        except ValueError:
+            return None
+    return None
+
+
+def normalize_generated_components(components: List[UIComponent]) -> None:
+    for component in components:
+        # 위치는 props.position 하나여야 한다. LLM 이 style.left/top 을 함께 내면(CSS 로 생각하므로
+        # 흔하다) 프론트가 둘을 합산해 계단처럼 어긋난다. style 쪽이 의도한 레이아웃이므로 그것을
+        # position 으로 옮기고 style 에서는 지운다. 프론트 normalizeComponents 도 같은 규칙을 갖지만
+        # 응답이 저장되기 전에 서버에서 먼저 정리한다.
+        component.props = component.props or {}
+        style = component.props.get("style")
+        if isinstance(style, dict):
+            left = _pixel_value(style.get("left"))
+            top = _pixel_value(style.get("top"))
+            if left is not None and top is not None:
+                component.props["position"] = {"x": left, "y": top}
+            for key in _LAYOUT_STYLE_KEYS:
+                style.pop(key, None)
+        if component.type == "terminal":
+            component.type = "text"
+            component.props = component.props or {}
+            component.props.setdefault("text", "실행 결과가 여기에 표시됩니다.")
+            component.props.pop("logs", None)
+        if component.children:
+            normalize_generated_components(component.children)
+
+async def generate_app_safely(prompt: str, current_state: dict = None, provider: str = "openai", complexity_level: str = "low", max_retries: int = 1, generate_mode: str = "code") -> AppGeneratorResult:
     app_data = await generate_app(prompt, current_state, provider, complexity_level, generate_mode)
+    total_usage = dict(app_data.token_usage or {})
+    normalize_generated_components(app_data.ui_components)
     ok, errs = validate_app(app_data, generate_mode)
     
     retries = 0
@@ -248,6 +383,8 @@ async def generate_app_safely(prompt: str, current_state: dict = None, provider:
         retries += 1
         retry_prompt = f"{prompt}\n\n(직전 생성이 아래 이유로 잘못됐다. 고쳐서 다시 생성해라: {'; '.join(errs)})"
         app_data = await generate_app(retry_prompt, current_state, provider, complexity_level, generate_mode)
+        total_usage = _merge_token_usage(total_usage, app_data.token_usage)
+        normalize_generated_components(app_data.ui_components)
         ok, errs = validate_app(app_data, generate_mode)
         
     if not ok:
@@ -257,14 +394,14 @@ async def generate_app_safely(prompt: str, current_state: dict = None, provider:
     if generate_mode == "code":
         app_data.logic_nodes = []
         app_data.logic_edges = []
-        
+
+    app_data.token_usage = _merge_token_usage(total_usage)
     return auto_layout_app(app_data)
 
 def auto_layout_app(app_data: AppGeneratorResult) -> AppGeneratorResult:
     # 1. UI Components Auto Layout (prevent overlapping at 0,0)
-    current_y = 20
-    def layout_ui(components: List[UIComponent], start_x: int):
-        nonlocal current_y
+    def layout_ui(components: List[UIComponent], start_x: int = 20, start_y: int = 20):
+        current_y = start_y
         for c in components:
             if "position" not in c.props or (c.props["position"].get("x") == 0 and c.props["position"].get("y") == 0):
                 c.props["position"] = {"x": start_x, "y": current_y}
@@ -273,9 +410,9 @@ def auto_layout_app(app_data: AppGeneratorResult) -> AppGeneratorResult:
                 current_y = max(current_y, c.props["position"].get("y", 0) + 80)
             
             if c.children:
-                layout_ui(c.children, start_x + 20)
+                layout_ui(c.children, 20, 20)
                 
-    layout_ui(app_data.ui_components, 20)
+    layout_ui(app_data.ui_components)
 
     # 2. Logic Nodes Auto Layout (Topological sort)
     from collections import defaultdict, deque

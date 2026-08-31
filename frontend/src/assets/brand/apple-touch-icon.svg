@@ -1,0 +1,12 @@
+<!-- apple-touch-icon 소스. iOS 가 자체 스퀘어클 마스크로 모서리를 잘라내므로
+     라운드를 넣지 않고 풀블리드 불투명 배경 + 넉넉한 여백(마크 66%)으로 그린다. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="180" height="180">
+  <rect width="32" height="32" fill="#0f172a"/>
+  <g transform="translate(5.25 6.1) scale(0.66)" fill="none" stroke="#ffffff"
+     stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 13.5 L9.5 25.5 L16 10.5 L22.5 25.5 L28 6.5"/>
+    <path d="M12 19.5 H20"/>
+    <circle cx="4" cy="13.5" r="3" fill="#ffffff" stroke="none"/>
+    <circle cx="28" cy="6.5" r="3.5" fill="#ffffff" stroke="none"/>
+  </g>
+</svg>

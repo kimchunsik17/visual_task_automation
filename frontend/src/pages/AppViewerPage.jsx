@@ -119,8 +119,16 @@ const AppViewerPage = () => {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      // 이 화면은 로그인 없이도 쓸 수 있다. 익명 업로드는 공개된 앱에 한해 허용되고
+      // 용량은 앱 소유자 몫으로 계산되므로, 어느 앱에서 올리는지 함께 보낸다(ADR-0010).
+      formData.append('project_id', String(projectId));
+      formData.append('purpose', 'app');
+      const token = localStorage.getItem('token');
       const res = await axios.post('/api/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
       });
       setFormInputs(prev => ({ ...prev, [nodeId]: res.data.file_path }));
     } catch (err) {
@@ -136,8 +144,16 @@ const AppViewerPage = () => {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      // 이 화면은 로그인 없이도 쓸 수 있다. 익명 업로드는 공개된 앱에 한해 허용되고
+      // 용량은 앱 소유자 몫으로 계산되므로, 어느 앱에서 올리는지 함께 보낸다(ADR-0010).
+      formData.append('project_id', String(projectId));
+      formData.append('purpose', 'app');
+      const token = localStorage.getItem('token');
       const res = await axios.post('/api/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
       });
       setAttachedFile({ path: res.data.file_path, name: file.name });
     } catch (err) {
@@ -213,7 +229,7 @@ const AppViewerPage = () => {
   if (!project) return <div style={{ color: 'var(--text-color)', padding: '2rem' }}>프로젝트를 찾을 수 없습니다.</div>;
 
   return (
-    <div style={{ backgroundColor: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column', color: 'var(--text-color)' }}>
+    <div style={{ backgroundColor: 'var(--bg-color)', minHeight: '100dvh', display: 'flex', flexDirection: 'column', color: 'var(--text-color)' }}>
       <header style={{ padding: '1rem 2rem', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--card-bg)' }}>
         <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>{project.title}</h1>
         {project.description && <p style={{ margin: '0.5rem 0 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>{project.description}</p>}
@@ -275,7 +291,7 @@ const AppViewerPage = () => {
           <div 
             style={{ 
               width: '100%', maxWidth: '800px', backgroundColor: 'var(--card-bg)', border: `2px ${isDragging ? 'dashed #3b82f6' : 'solid var(--border-color)'}`, 
-              borderRadius: '12px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 150px)', position: 'relative', transition: 'border 0.2s ease'
+              borderRadius: '12px', display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 150px)', position: 'relative', transition: 'border 0.2s ease'
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}

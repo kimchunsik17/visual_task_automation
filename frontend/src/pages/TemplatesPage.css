@@ -1,0 +1,114 @@
+/* 커뮤니티 템플릿 (ADR-0023). */
+.tpl-wrap { width: 100%; max-width: 1000px; margin: 0 auto; padding-bottom: 3rem; }
+.tpl-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.tpl-head h1 { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 1.5rem; color: var(--text-color); }
+.tpl-sub { margin: 0.4rem 0 0; color: var(--text-muted); font-size: 0.88rem; max-width: 60ch; }
+.tpl-head .btn-primary { display: flex; align-items: center; gap: 0.4rem; white-space: nowrap; padding: 0.55rem 1rem; }
+
+.tpl-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 1.25rem 0; }
+.tpl-filters button { padding: 0.35rem 0.8rem; border: 1px solid var(--border-color); border-radius: 999px;
+  background: transparent; color: var(--text-muted); font-size: 0.83rem; cursor: pointer; }
+.tpl-filters button.active { background: var(--accent-color, #3b82f6); border-color: transparent; color: #fff; }
+.tpl-search { display: flex; align-items: center; gap: 0.35rem; margin-left: auto;
+  padding: 0.3rem 0.7rem; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-muted); }
+.tpl-search input { border: 0; background: transparent; color: var(--text-color); outline: none; width: 170px; }
+
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.8rem; }
+.tpl-card { display: flex; flex-direction: column; gap: 0.4rem; padding: 1rem;
+  border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-color); }
+.tpl-card h3 { margin: 0; font-size: 1rem; color: var(--text-color); }
+.tpl-desc { margin: 0; font-size: 0.83rem; color: var(--text-muted); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tpl-card .btn-primary { display: flex; align-items: center; justify-content: center; gap: 0.3rem;
+  margin-top: auto; padding: 0.45rem; font-size: 0.85rem; }
+
+/* 품질 신호 — 설치 수가 아니라 첫 실행 성공률이 1차 기준이다. */
+.tpl-signal { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.76rem;
+  color: var(--text-muted); }
+.tpl-signal.good { color: #6ee7b7; }
+.tpl-signal.muted { font-style: italic; }
+.tpl-signal-sub { color: var(--text-muted); font-style: normal; }
+.tpl-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.75rem; color: var(--text-muted); }
+.tpl-need { margin: 0; font-size: 0.75rem; color: var(--text-muted); }
+.tpl-risk { display: flex; align-items: center; gap: 0.25rem; margin: 0; font-size: 0.75rem; color: #fbbf24; }
+
+.tpl-modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
+.tpl-modal { width: min(560px, 100%); max-height: 88vh; overflow-y: auto; padding: 1.25rem;
+  border-radius: 12px; background: var(--card-bg, #111827); border: 1px solid var(--border-color); }
+.tpl-modal-head { display: flex; justify-content: space-between; align-items: center; }
+.tpl-modal-head h2 { margin: 0; font-size: 1.1rem; color: var(--text-color); }
+.tpl-modal-head button { background: none; border: 0; color: var(--text-muted); cursor: pointer; }
+.tpl-modal label { display: block; margin: 0.85rem 0 0.3rem; font-size: 0.8rem; color: var(--text-muted); }
+.tpl-modal input, .tpl-modal select, .tpl-modal textarea { width: 100%; padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-color);
+  color: var(--text-color); outline: none; font-family: inherit; font-size: 0.88rem; }
+.tpl-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.tpl-submit { width: 100%; margin-top: 1.1rem; padding: 0.6rem; }
+
+.tpl-gate { list-style: none; margin: 0.8rem 0 0; padding: 0.7rem 0.85rem;
+  border-radius: 8px; background: rgba(148, 163, 184, 0.08); font-size: 0.82rem; }
+.tpl-gate li { display: flex; align-items: flex-start; gap: 0.35rem; padding: 0.15rem 0; }
+.tpl-gate li.ok { color: #6ee7b7; }
+.tpl-gate li.bad { color: #fca5a5; }
+.tpl-gate li.review { color: #fbbf24; }
+.tpl-gate-detail { display: block; color: var(--text-muted); font-size: 0.78rem; }
+
+.tpl-empty { color: var(--text-muted); font-size: 0.88rem; padding: 1rem 0; }
+.tpl-error { color: #ef4444; font-size: 0.85rem; margin: 0.5rem 0; }
+
+/* 공식 템플릿 표시 — 실행 이력 대신 운영자 검수를 거쳤다는 뜻이다. */
+.tpl-official {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  vertical-align: middle;
+  color: #fff;
+  background: var(--primary-color);
+}
+
+/* ── 한 줄에 하나씩 (내 워크플로우와 같은 행 카드) ──
+   예전에는 그리드 카드라 열 개가 한 화면에 쏟아져 무엇부터 볼지 정하기 어려웠다. */
+.management-card.tpl-row {
+  grid-template-columns: 128px minmax(0, 1fr) 190px;
+  align-items: stretch;
+  cursor: pointer;
+}
+.tpl-row-thumb {
+  width: calc(100% - 12px); height: auto; min-height: 0; aspect-ratio: 4 / 3;
+  align-self: center; justify-self: center; object-fit: cover;
+  border: 1px solid var(--border-color);
+  border-radius: 9px; background: var(--bg-color);
+}
+.tpl-row-thumb.is-empty { display: grid; place-items: center; color: var(--text-muted); }
+.tpl-row .management-card-tools { flex-wrap: wrap; justify-content: flex-end; }
+.tpl-row .management-meta-item strong {
+  display: inline-flex; align-items: center; gap: 0.22rem;
+}
+/* 메타 항목이 여덟 개를 넘으면 줄이 넘어간다. 넘어간 줄이 위에 딱 붙으면 앞 줄의 값과
+   섞여 읽히므로 간격을 준다. */
+.tpl-row .management-meta-grid { row-gap: 0.55rem; }
+.tpl-row .tpl-risk { margin: 0.55rem 0 0; }
+.tpl-row .management-card-actions { align-content: center; }
+
+/* 정렬 버튼 — 분류 필터와 같은 모양이되 한 단계 약하게. */
+.tpl-sorts { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.tpl-sorts button {
+  padding: 0.26rem 0.6rem; border: 1px solid var(--border-color); border-radius: 999px;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  font-family: inherit; font-size: 0.66rem;
+}
+.tpl-sorts button:hover { color: var(--text-color); }
+.tpl-sorts button.active {
+  border-color: rgba(96, 165, 250, 0.5); background: rgba(96, 165, 250, 0.12); color: #60a5fa;
+  font-weight: 620;
+}
+
+@media (max-width: 900px) {
+  .management-card.tpl-row { grid-template-columns: 92px minmax(0, 1fr); }
+  .tpl-row-thumb { width: calc(100% - 10px); min-height: 0; border-radius: 8px; }
+  .tpl-row .management-card-actions { grid-column: 1 / -1; }
+}

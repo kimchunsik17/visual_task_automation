@@ -1,0 +1,131 @@
+{
+  "type": "rssTriggerNode",
+  "version": 1,
+  "category": "trigger",
+  "display": {
+    "label": "RSS 새 글 (시작)",
+    "icon": "node-webhook",
+    "color": "#f97316"
+  },
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "feedUrl",
+      "kind": "text",
+      "label": "피드 주소 (RSS/Atom)",
+      "placeholder": "https://blog.example.com/rss.xml",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(rssTriggerNode)에 feedUrl이 없다"
+        }
+      ]
+    },
+    {
+      "name": "maxItems",
+      "kind": "number",
+      "label": "한 번에 통지할 최대 항목",
+      "default": 10
+    }
+  ],
+  "credentials": [],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "rssTriggerNode",
+  "connector": {
+    "service": "RSS",
+    "role": "trigger",
+    "modes": [
+      "new_item"
+    ],
+    "credentials": [],
+    "timeoutSeconds": 15.0,
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "new_item": "external-read"
+    },
+    "outputSchemaByMode": {
+      "new_item": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "link": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "published_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "first_run": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "docsUrl": "https://www.rssboard.org/rss-specification",
+    "verifiedAt": "2026-08-30"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET"
+            },
+            "status": 200,
+            "body": "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>목업 블로그</title><item><guid>post-2</guid><title>두 번째 글</title><link>https://blog.example/2</link><description>요약 2</description><pubDate>Wed, 27 Aug 2026 09:00:00 GMT</pubDate></item><item><guid>post-1</guid><title>첫 글</title><link>https://blog.example/1</link><description>요약 1</description><pubDate>Tue, 26 Aug 2026 09:00:00 GMT</pubDate></item></channel></rss>"
+          }
+        ]
+      },
+      "invalid_feed": {
+        "responses": [
+          {
+            "match": {
+              "method": "GET"
+            },
+            "status": 200,
+            "body": "<html><body>피드 아님</body></html>"
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "RSS/Atom 피드에 새 글이 올라오면 실행되는 플로우의 시작점. data.feedUrl(문자열, 피드 주소),\n                   data.maxItems(숫자, 선택 — 기본 10). startNode 대신 사용하며 자격증명이 필요 없다.\n                   출력은 새 항목 배열의 JSON 문자열(각 항목: id/title/link/summary/published_at).\n                   첫 실행은 기준점만 잡고 통지하지 않는다.\n"
+  }
+}

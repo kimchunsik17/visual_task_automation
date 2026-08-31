@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Folder, X, Play, Info } from 'lucide-react';
+import { Icon } from './icons';
 import { customConfirm } from './CustomConfirm';
 import './TemplateModal.css';
 
 const BUILT_IN_TEMPLATES = [
   {
     id: 'builtin-1',
-    name: '📝 문서 자동 채우기 (이력서)',
+    name: '문서 자동 채우기 (이력서)',
+    icon: 'node-file-modifier',
+    iconColor: '#f43f5e',
     description: '비정형 텍스트에서 데이터를 추출하여 HWP/Excel/PPT 템플릿을 자동으로 채웁니다.',
     usage: '1. "템플릿 분석기" 노드에서 사용할 문서 파일(.hwp, .docx 등)을 업로드하세요.\n2. "지원자 정보" 노드에 처리할 비정형 텍스트를 입력하세요.\n3. [Deploy] 버튼을 눌러 실행 결과를 확인하세요.',
     url: 'https://github.com/your-repo/docs/template-filling',
@@ -30,7 +33,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-2',
-    name: '🌐 단순 번역 파이프라인',
+    name: '단순 번역 파이프라인',
+    icon: 'node-llm',
+    iconColor: '#8b5cf6',
     description: '입력 텍스트를 다른 언어로 번역하는 기본적인 파이프라인입니다.',
     data: {
       nodes: [
@@ -48,7 +53,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-3',
-    name: '🤖 동적 챗봇 템플릿',
+    name: '동적 챗봇 템플릿',
+    icon: 'node-dynamic-input',
+    iconColor: '#d946ef',
     description: '동적 입력 노드와 LLM을 사용하여 반응형 챗봇을 만드는 템플릿입니다.',
     data: {
       nodes: [
@@ -66,7 +73,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-4',
-    name: '📰 동적 뉴스 요약기',
+    name: '동적 뉴스 요약기',
+    icon: 'nav-patch-notes',
+    iconColor: '#f59e0b',
     description: '뉴스 기사의 URL을 입력하면 웹을 크롤링하고, 3줄로 요약한 후 이메일로 전송합니다.',
     data: {
       nodes: [
@@ -88,7 +97,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-5',
-    name: '❓ 조건부 자동 응답기',
+    name: '조건부 자동 응답기',
+    icon: 'node-condition',
+    iconColor: '#0ea5e9',
     description: '고객 메시지를 분류합니다. 불만 접수면 매니저에게 카카오톡 알림을, 일반 문의면 LLM이 답변합니다.',
     data: {
       nodes: [
@@ -113,7 +124,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-6',
-    name: '🌐 API 데이터 가져오기',
+    name: 'API 데이터 가져오기',
+    icon: 'node-http-request',
+    iconColor: '#0ea5e9',
     description: '공개 API에서 데이터를 가져오고 특정 키의 값을 추출합니다.',
     data: {
       nodes: [
@@ -133,7 +146,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-7',
-    name: '💬 웹훅 알리미',
+    name: '웹훅 알리미',
+    icon: 'nav-webhooks',
+    iconColor: '#0ea5e9',
     description: '동적 입력을 받아 슬랙이나 디스코드 같은 웹훅으로 전송합니다.',
     data: {
       nodes: [
@@ -153,7 +168,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-8',
-    name: '🔗 다중 소스 병합',
+    name: '다중 소스 병합',
+    icon: 'node-merge',
+    iconColor: '#ec4899',
     description: '두 개의 다른 동적 입력을 하나의 배열로 병합한 뒤 분석합니다.',
     data: {
       nodes: [
@@ -176,7 +193,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-9',
-    name: '📝 승인 기반 자동 발행',
+    name: '승인 기반 자동 발행',
+    icon: 'node-human-approval',
+    iconColor: '#f43f5e',
     description: '초안을 작성하면 LLM이 교정하고, 담당자의 승인을 거쳐 최종 발행합니다.',
     data: {
       nodes: [
@@ -196,7 +215,11 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-10',
-    name: '🚨 서버 상태 경고 알림',
+    name: '서버 상태 경고 알림',
+    icon: 'node-kakao-alimtalk',
+    // 노드 고유색 #facc15 는 라이트 테마 카드 위에서 대비가 죽는다 (사이드바는 색칩 배경이
+    // 받쳐주지만 카드 제목엔 칩이 없음). 같은 계열에서 한 단계 어두운 값으로 조정.
+    iconColor: '#eab308',
     description: '서버 상태를 확인하고, 200 OK가 아니면 카카오 알림톡을 전송합니다.',
     data: {
       nodes: [
@@ -216,12 +239,14 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-11',
-    name: '📊 고객 피드백 감정 분석',
+    name: '고객 피드백 감정 분석',
+    icon: 'node-database',
+    iconColor: '#059669',
     description: 'DB에서 피드백을 가져와 감정을 분석하고, 부정적일 경우 알림을 보냅니다.',
     data: {
       nodes: [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
-        { id: 'node_db', type: 'databaseNode', position: { x: 300, y: 150 }, data: { label: '피드백 가져오기', connectionString: 'sqlite:///feedbacks.db', query: 'SELECT content FROM feedback LIMIT 1;' } },
+        { id: 'node_db', type: 'databaseNode', position: { x: 300, y: 150 }, data: { label: '피드백 가져오기', connectionString: '{{API_CENTER:database}}', query: 'SELECT content FROM feedback ORDER BY created_at DESC LIMIT 1' } },
         { id: 'node_llm', type: 'llmNode', position: { x: 600, y: 150 }, data: { label: '감정 분석 LLM', model: 'gpt-4o-mini', systemPrompt: '감정을 분석하여 반드시 "NEGATIVE" 또는 "POSITIVE" 라고만 답변하세요.' } },
         { id: 'node_cond', type: 'conditionNode', position: { x: 900, y: 150 }, data: { label: '부정적인가?', condition: 'Contains', value: 'NEGATIVE' } },
         { id: 'node_kakao', type: 'kakaoNode', position: { x: 1200, y: 50 }, data: { label: '담당자 알림', receiver: '매니저' } },
@@ -238,7 +263,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-12',
-    name: '📈 자동화된 SEO 리포트',
+    name: '자동화된 SEO 리포트',
+    icon: 'nav-statistics',
+    iconColor: '#10b981',
     description: '경쟁사 사이트를 크롤링하여 키워드를 분석하고, 결과 리포트를 이메일로 전송합니다.',
     data: {
       nodes: [
@@ -256,25 +283,29 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-13',
-    name: '🧹 데이터 클렌징 파이프라인',
-    description: '정제되지 않은 데이터를 가져와 Python 스크립트로 클렌징한 뒤, DB에 저장합니다.',
+    name: '데이터 클렌징 파이프라인',
+    icon: 'node-python',
+    iconColor: '#eab308',
+    description: 'DB에서 원본 데이터를 조회해 Python 스크립트로 클렌징하고, 정제 결과를 출력합니다. (데이터베이스 노드는 조회 전용입니다)',
     data: {
       nodes: [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
-        { id: 'node_db_in', type: 'databaseNode', position: { x: 300, y: 150 }, data: { label: '원본 데이터 추출', connectionString: 'sqlite:///test.db', query: 'SELECT name FROM users;' } },
+        { id: 'node_db_in', type: 'databaseNode', position: { x: 300, y: 150 }, data: { label: '원본 데이터 추출', connectionString: '{{API_CENTER:database}}', query: 'SELECT name FROM users' } },
         { id: 'node_py', type: 'pythonNode', position: { x: 600, y: 150 }, data: { label: '클렌징 스크립트', code: 'output_data = str(input_data).replace("null", "Unknown")' } },
-        { id: 'node_db_out', type: 'databaseNode', position: { x: 900, y: 150 }, data: { label: '정제 데이터 저장', connectionString: 'sqlite:///test.db', query: '-- UPDATE test ...' } }
+        { id: 'node_out', type: 'outputNode', position: { x: 900, y: 150 }, data: { label: '정제 결과' } }
       ],
       edges: [
         { id: 'e_s-d', source: 'node_start', target: 'node_db_in', sourceHandle: 'out', targetHandle: 'in' },
         { id: 'e_d-p', source: 'node_db_in', target: 'node_py', sourceHandle: 'out', targetHandle: 'in' },
-        { id: 'e_p-do', source: 'node_py', target: 'node_db_out', sourceHandle: 'out', targetHandle: 'in' }
+        { id: 'e_p-o', source: 'node_py', target: 'node_out', sourceHandle: 'out', targetHandle: 'in' }
       ]
     }
   },
   {
     id: 'builtin-14',
-    name: '⏲️ 지연 리마인더',
+    name: '지연 리마인더',
+    icon: 'node-delay',
+    iconColor: '#3b82f6',
     description: '지정된 시간 동안 대기한 후 카카오톡으로 리마인더 알림을 보냅니다.',
     data: {
       nodes: [
@@ -292,7 +323,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-15',
-    name: '🧠 복합 이벤트 프로세서',
+    name: '복합 이벤트 프로세서',
+    icon: 'nav-workflows',
+    iconColor: '#8b5cf6',
     description: '뉴스 크롤링 -> 정보 추출 -> 요약 -> 담당자 승인 -> 이메일 발송 파이프라인입니다.',
     data: {
       nodes: [
@@ -314,7 +347,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-16',
-    name: '🤖 디스코드 AI 챗봇',
+    name: '디스코드 AI 챗봇',
+    icon: 'node-discord-trigger',
+    iconColor: '#5865F2',
     description: '디스코드 채널의 메시지를 받아 LLM이 답변하는 상호작용형 봇 템플릿입니다.',
     usage: '1. 디스코드 개발자 포털에서 봇 토큰을 발급받으세요. (Message Content Intent 활성화 필수)\n2. [Deploy] 모달에서 "디스코드 봇" 배포 모드를 선택하고 토큰을 입력하세요.\n3. 디스코드에서 봇을 역할이 아닌 유저로 직접 멘션하여 대화를 시작하세요.',
     url: 'https://discord.com/developers/applications',
@@ -335,7 +370,9 @@ const BUILT_IN_TEMPLATES = [
   ,
   {
     id: 'builtin-ma-1',
-    name: '👨‍💼 멀티에이전트 - Supervisor 모드',
+    name: '멀티에이전트 - Supervisor 모드',
+    icon: 'node-multi-agent',
+    iconColor: '#6366f1',
     description: '매니저가 사용자의 질문을 분석하여, 연결된 전문가 중 알맞은 사람에게 작업을 지시합니다.',
     data: {
       nodes: [
@@ -357,7 +394,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-ma-2',
-    name: '🗣️ 멀티에이전트 - Group Chat 모드',
+    name: '멀티에이전트 - Group Chat 모드',
+    icon: 'node-prompt',
+    iconColor: '#3b82f6',
     description: '여러 LLM이 모여 지정된 횟수만큼 토론하며 의견을 조율합니다.',
     data: {
       nodes: [
@@ -379,7 +418,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-ma-3',
-    name: '🛠️ 멀티에이전트 - Tool Agent 모드',
+    name: '멀티에이전트 - Tool Agent 모드',
+    icon: 'node-web-crawler',
+    iconColor: '#0ea5e9',
     description: '에이전트가 스스로 판단하여 웹 검색 등 주어진 도구를 사용합니다.',
     data: {
       nodes: [
@@ -397,7 +438,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-hackathon-1',
-    name: '🛍️ 스마트스토어 -> 카카오 알림톡 자동화 (해커톤 시연용)',
+    name: '스마트스토어 -> 카카오 알림톡 자동화 (해커톤 시연용)',
+    icon: 'node-webhook',
+    iconColor: '#0ea5e9',
     description: '웹훅으로 들어온 스마트스토어 주문 정보를 바탕으로 구매자에게 카카오 알림톡을 발송합니다.',
     usage: 'Mock 서버(포트 3001)의 대시보드에서 가짜 주문 웹훅을 트리거하면, 이 워크플로우가 데이터를 받아 알림톡을 전송하게 됩니다.',
     data: {
@@ -418,7 +461,9 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-hackathon-2',
-    name: '🏢 B2B 고객 리드(Lead) 분석 및 슬랙 알림',
+    name: 'B2B 고객 리드(Lead) 분석 및 슬랙 알림',
+    icon: 'node-slack',
+    iconColor: '#0ea5e9',
     description: '고객 문의가 접수되면 LLM이 중요도를 분석하고, 긴급 건인 경우 즉시 슬랙으로 알림을 전송합니다.',
     data: {
       nodes: [
@@ -441,8 +486,10 @@ const BUILT_IN_TEMPLATES = [
     }
   },
   {
-    id: 'builtin-14',
-    name: '💳 AI 챗봇 동적 결제 시스템',
+    id: 'builtin-17',
+    name: 'AI 챗봇 동적 결제 시스템',
+    icon: 'node-payment-link',
+    iconColor: '#03c75a',
     description: '고객과 대화하며 상품을 추천하고, 구매가 확정되면 조건 분기를 통해 결제 링크를 생성합니다.',
     data: {
       nodes: [
@@ -561,7 +608,10 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
                 {BUILT_IN_TEMPLATES.map(t => (
                   <div key={t.id} className="template-card">
                     <div className="template-card-header">
-                      <h4>{t.name}</h4>
+                      <h4>
+                        {t.icon && <Icon name={t.icon} size={18} color={t.iconColor} className="template-title-icon" />}
+                        {t.name}
+                      </h4>
                       <button className="btn-icon info-btn" onClick={() => setInfoTemplate(t)} title="사용 가이드"><Info size={16} /></button>
                     </div>
                     <p className="template-desc">{t.description}</p>
@@ -608,7 +658,10 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
         <div className="info-popup-overlay" onClick={() => setInfoTemplate(null)}>
           <div className="info-popup-content" onClick={e => e.stopPropagation()}>
             <div className="info-popup-header">
-              <h3>{infoTemplate.name} 사용법</h3>
+              <h3>
+                {infoTemplate.icon && <Icon name={infoTemplate.icon} size={18} color={infoTemplate.iconColor} className="template-title-icon" />}
+                {infoTemplate.name} 사용법
+              </h3>
               <button className="btn-icon" onClick={() => setInfoTemplate(null)}><X size={20} /></button>
             </div>
             <div className="info-popup-body">

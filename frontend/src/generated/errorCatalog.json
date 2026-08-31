@@ -1,0 +1,677 @@
+{
+  "version": 1,
+  "categories": {
+    "credential": {
+      "label": "자격증명",
+      "icon": "key-round",
+      "description": "API 센터의 연결·권한·갱신이 필요한 오류"
+    },
+    "validation": {
+      "label": "입력 검증",
+      "icon": "alert-circle",
+      "description": "외부 호출 전에 노드 입력이 잘못된 오류"
+    },
+    "artifact": {
+      "label": "파일",
+      "icon": "file-warning",
+      "description": "생성·업로드 파일 참조가 유효하지 않은 오류"
+    },
+    "database": {
+      "label": "데이터베이스",
+      "icon": "database",
+      "description": "Database Query 연결·쿼리 오류"
+    },
+    "delivery": {
+      "label": "발송",
+      "icon": "send",
+      "description": "Discord·이메일 등 외부 발송 오류 — effectState 확인 뒤 재시도"
+    },
+    "connector": {
+      "label": "연동",
+      "icon": "plug",
+      "description": "공식 연동 서비스 호출 오류"
+    },
+    "timeout": {
+      "label": "시간 초과",
+      "icon": "history",
+      "description": "응답을 제한 시간 안에 받지 못한 오류"
+    },
+    "runtime": {
+      "label": "실행",
+      "icon": "bug",
+      "description": "실행 엔진 내부 오류 — 요청 ID 로 진단"
+    }
+  },
+  "resolutions": {
+    "open_api_center": {
+      "label": "API 센터에서 연결",
+      "kind": "navigate",
+      "target": "/settings/api-center"
+    },
+    "focus_field": {
+      "label": "해당 입력으로 이동",
+      "kind": "focus_field",
+      "target": null
+    },
+    "reselect_file": {
+      "label": "파일 다시 선택",
+      "kind": "focus_field",
+      "target": null
+    },
+    "diagnose_connection": {
+      "label": "연결 정보 확인",
+      "kind": "navigate",
+      "target": "/settings/api-center"
+    },
+    "retry": {
+      "label": "다시 시도",
+      "kind": "retry",
+      "target": null
+    },
+    "verify_then_retry": {
+      "label": "발송 결과 확인 뒤 수동 재시도",
+      "kind": "manual",
+      "target": null
+    },
+    "wait_then_retry": {
+      "label": "잠시 뒤 다시 시도",
+      "kind": "retry",
+      "target": null
+    },
+    "contact_support": {
+      "label": "요청 ID 로 문의",
+      "kind": "copy_request_id",
+      "target": null
+    },
+    "none": {
+      "label": "조치 없음",
+      "kind": "none",
+      "target": null
+    }
+  },
+  "codes": {
+    "CREDENTIAL_MISSING": {
+      "category": "credential",
+      "messageKey": "credential.missing",
+      "userMessage": "필요한 자격증명이 등록되어 있지 않습니다. API 센터에서 먼저 연결해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CREDENTIAL_INVALID": {
+      "category": "credential",
+      "messageKey": "credential.invalid",
+      "userMessage": "인증에 실패했습니다. API 센터에 등록한 값이 만료됐거나 잘못됐습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CREDENTIAL_FORBIDDEN": {
+      "category": "credential",
+      "messageKey": "credential.forbidden",
+      "userMessage": "접근 권한이 없습니다. 필요한 권한(scope)이 있는지, 대상이 이 계정과 공유되어 있는지 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CREDENTIAL_EXPIRED": {
+      "category": "credential",
+      "messageKey": "credential.expired",
+      "userMessage": "자격증명이 만료됐습니다. API 센터에서 다시 연결해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "VALIDATION_REQUIRED": {
+      "category": "validation",
+      "messageKey": "validation.required",
+      "userMessage": "필수 입력이 비어 있습니다. 노드 설정을 채워주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "VALIDATION_INVALID_TYPE": {
+      "category": "validation",
+      "messageKey": "validation.invalid_type",
+      "userMessage": "입력 값의 형식이 맞지 않습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "VALIDATION_OUT_OF_RANGE": {
+      "category": "validation",
+      "messageKey": "validation.out_of_range",
+      "userMessage": "입력 값이 허용 범위를 벗어났습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "ARTIFACT_NOT_FOUND": {
+      "category": "artifact",
+      "messageKey": "artifact.not_found",
+      "userMessage": "첨부할 파일을 찾지 못했습니다. 파일을 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "ARTIFACT_FORBIDDEN": {
+      "category": "artifact",
+      "messageKey": "artifact.forbidden",
+      "userMessage": "이 파일에 접근할 권한이 없습니다. 현재 프로젝트에서 만든 파일만 첨부할 수 있습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "ARTIFACT_EXPIRED": {
+      "category": "artifact",
+      "messageKey": "artifact.expired",
+      "userMessage": "파일 보존 기간이 지났습니다. 파일을 다시 만들거나 업로드해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "ARTIFACT_TOO_LARGE": {
+      "category": "artifact",
+      "messageKey": "artifact.too_large",
+      "userMessage": "파일이 허용 크기를 넘습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "ARTIFACT_UNSUPPORTED_TYPE": {
+      "category": "artifact",
+      "messageKey": "artifact.unsupported_type",
+      "userMessage": "이 채널이 지원하지 않는 파일 형식입니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DATABASE_DRIVER_MISSING": {
+      "category": "database",
+      "messageKey": "database.driver_missing",
+      "userMessage": "이 데이터베이스 종류를 실행할 드라이버가 서버에 없습니다. 현재는 PostgreSQL 만 지원합니다.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "diagnose_connection",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DATABASE_CONNECTION_FAILED": {
+      "category": "database",
+      "messageKey": "database.connection_failed",
+      "userMessage": "데이터베이스에 연결하지 못했습니다. 호스트·포트·네트워크와 접속 정보를 확인해주세요.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "diagnose_connection",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DATABASE_AUTH_FAILED": {
+      "category": "database",
+      "messageKey": "database.auth_failed",
+      "userMessage": "데이터베이스 인증에 실패했습니다. API 센터의 Database 접속 정보(사용자·비밀번호)를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "diagnose_connection",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DATABASE_TIMEOUT": {
+      "category": "database",
+      "messageKey": "database.timeout",
+      "userMessage": "쿼리가 제한 시간 안에 끝나지 않았습니다. 조회 범위를 줄이거나 제한 시간을 늘려주세요.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DATABASE_QUERY_REJECTED": {
+      "category": "database",
+      "messageKey": "database.query_rejected",
+      "userMessage": "이 노드는 읽기 전용 조회(SELECT/WITH) 하나만 실행합니다. 쿼리를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DATABASE_QUERY_FAILED": {
+      "category": "database",
+      "messageKey": "database.query_failed",
+      "userMessage": "데이터베이스가 쿼리를 실행하지 못했습니다. 테이블·컬럼 이름과 문법을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DELIVERY_INVALID_RECIPIENT": {
+      "category": "delivery",
+      "messageKey": "delivery.invalid_recipient",
+      "userMessage": "수신 대상을 찾지 못했습니다. 채널 ID·웹훅·수신자 주소를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DELIVERY_AUTH_FAILED": {
+      "category": "delivery",
+      "messageKey": "delivery.auth_failed",
+      "userMessage": "발송 채널 인증에 실패했습니다. 봇 토큰·웹훅·SMTP 계정 정보를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DELIVERY_FORBIDDEN": {
+      "category": "delivery",
+      "messageKey": "delivery.forbidden",
+      "userMessage": "이 채널에 보낼 권한이 없습니다. 봇이 채널에 초대되어 있고 쓰기 권한이 있는지 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "open_api_center",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DELIVERY_RATE_LIMITED": {
+      "category": "delivery",
+      "messageKey": "delivery.rate_limited",
+      "userMessage": "발송 채널의 호출 한도에 걸렸습니다. 잠시 뒤 다시 시도해주세요.",
+      "retryable": true,
+      "effectStateDefault": "not_started",
+      "resolution": "wait_then_retry",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DELIVERY_TIMEOUT": {
+      "category": "delivery",
+      "messageKey": "delivery.timeout",
+      "userMessage": "전송 결과를 확인하지 못했습니다. 중복 발송을 막기 위해 자동으로 다시 보내지 않았습니다 — 채널에서 도착 여부를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "verify_then_retry",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DELIVERY_PROVIDER_REJECTED": {
+      "category": "delivery",
+      "messageKey": "delivery.provider_rejected",
+      "userMessage": "발송 채널이 요청을 거절했습니다. 본문 길이·형식과 첨부 조건을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "DELIVERY_RESULT_UNKNOWN": {
+      "category": "delivery",
+      "messageKey": "delivery.result_unknown",
+      "userMessage": "발송 채널에 일시적인 문제가 있어 전송 결과를 알 수 없습니다. 채널에서 도착 여부를 확인한 뒤 필요하면 다시 보내주세요.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "verify_then_retry",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONNECTOR_NOT_FOUND": {
+      "category": "connector",
+      "messageKey": "connector.not_found",
+      "userMessage": "연동 서비스에서 대상을 찾지 못했습니다. 입력한 ID나 주소를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONNECTOR_INVALID_REQUEST": {
+      "category": "connector",
+      "messageKey": "connector.invalid_request",
+      "userMessage": "연동 서비스가 요청을 거절했습니다. 노드에 입력한 값을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONNECTOR_RATE_LIMITED": {
+      "category": "connector",
+      "messageKey": "connector.rate_limited",
+      "userMessage": "연동 서비스 호출 한도에 걸렸습니다. 잠시 뒤 다시 시도됩니다.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "wait_then_retry",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONNECTOR_QUOTA_EXCEEDED": {
+      "category": "connector",
+      "messageKey": "connector.quota_exceeded",
+      "userMessage": "연동 서비스 사용 한도를 초과했습니다. 요금제나 할당량을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "none",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONNECTOR_TIMEOUT": {
+      "category": "timeout",
+      "messageKey": "connector.timeout",
+      "userMessage": "연동 서비스 응답이 제한 시간 안에 오지 않았습니다.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "retry",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONNECTOR_NETWORK_ERROR": {
+      "category": "connector",
+      "messageKey": "connector.network_error",
+      "userMessage": "연동 서비스에 연결하지 못했습니다. 네트워크 상태를 확인해주세요.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "retry",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONNECTOR_PROVIDER_ERROR": {
+      "category": "connector",
+      "messageKey": "connector.provider_error",
+      "userMessage": "연동 서비스 쪽에 일시적인 문제가 있습니다. 잠시 뒤 다시 시도됩니다.",
+      "retryable": true,
+      "effectStateDefault": "not_applicable",
+      "resolution": "wait_then_retry",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "RUNTIME_RESOURCE_EXCEEDED": {
+      "category": "runtime",
+      "messageKey": "runtime.resource_exceeded",
+      "userMessage": "코드가 허용된 실행 시간 또는 메모리를 넘어 중단했습니다. 처리량을 줄이거나 반복 범위를 좁혀주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "RUNTIME_USER_CODE_FAILED": {
+      "category": "runtime",
+      "messageKey": "runtime.user_code_failed",
+      "userMessage": "코드 노드에서 오류가 났습니다. 들어온 데이터의 모양이 코드가 기대한 것과 다를 수 있습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "RUNTIME_CANCELLED": {
+      "category": "runtime",
+      "messageKey": "runtime.cancelled",
+      "userMessage": "실행이 취소됐습니다.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "none",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "RUNTIME_OUTPUT_TOO_LARGE": {
+      "category": "runtime",
+      "messageKey": "runtime.output_too_large",
+      "userMessage": "노드 출력이 허용 크기를 넘어 일부만 저장됐습니다.",
+      "retryable": false,
+      "effectStateDefault": "applied",
+      "resolution": "none",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "RUNTIME_SERIALIZATION_FAILED": {
+      "category": "runtime",
+      "messageKey": "runtime.serialization_failed",
+      "userMessage": "노드 출력을 저장 가능한 형식으로 바꾸지 못했습니다.",
+      "retryable": false,
+      "effectStateDefault": "applied",
+      "resolution": "contact_support",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "INTERNAL_UNKNOWN": {
+      "category": "runtime",
+      "messageKey": "runtime.internal_unknown",
+      "userMessage": "예상하지 못한 오류가 발생했습니다. 요청 ID 와 함께 문의해주세요.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "contact_support",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "LEGACY_NODE_ERROR": {
+      "category": "runtime",
+      "messageKey": "runtime.legacy_node_error",
+      "userMessage": "노드가 오류 문구를 결과에 남겼습니다.",
+      "retryable": false,
+      "effectStateDefault": "unknown",
+      "resolution": "none",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": true
+    },
+    "POINTING_TARGET_NOT_FOUND": {
+      "category": "validation",
+      "messageKey": "validation.pointing_target_not_found",
+      "userMessage": "지목한 대상을 찾을 수 없습니다. 삭제됐을 수 있으니 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "POINTING_TARGET_STALE": {
+      "category": "validation",
+      "messageKey": "validation.pointing_target_stale",
+      "userMessage": "지목한 뒤 대상이 바뀌었습니다. 다시 첨부해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "POINTING_SCOPE_VIOLATION": {
+      "category": "validation",
+      "messageKey": "validation.pointing_scope_violation",
+      "userMessage": "지목하지 않은 항목이 함께 바뀌어 적용하지 않았습니다. 편집 범위를 넓히려면 범위를 다시 골라주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "verify_then_retry",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "POINTING_CONTEXT_TOO_LARGE": {
+      "category": "validation",
+      "messageKey": "validation.pointing_context_too_large",
+      "userMessage": "한 번에 다루기에 지목한 범위가 너무 넓습니다. 선택을 줄여주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "POINTING_FORBIDDEN": {
+      "category": "validation",
+      "messageKey": "validation.pointing_forbidden",
+      "userMessage": "이 대상을 수정할 권한이 없습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "contact_support",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "POINTING_INVALID_CONTEXT": {
+      "category": "validation",
+      "messageKey": "validation.pointing_invalid_context",
+      "userMessage": "지목 정보를 읽지 못했습니다. 대상을 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "FORMAT_NOT_FOUND": {
+      "category": "validation",
+      "messageKey": "validation.format_not_found",
+      "userMessage": "선택한 문서 포맷을 찾을 수 없습니다. 노드에서 포맷을 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "FORMAT_SPEC_INVALID": {
+      "category": "validation",
+      "messageKey": "validation.format_spec_invalid",
+      "userMessage": "문서 포맷 정의가 잘못되어 렌더링할 수 없습니다. 포맷 스튜디오에서 포맷을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "FORMAT_FIELD_MISSING": {
+      "category": "validation",
+      "messageKey": "validation.format_field_missing",
+      "userMessage": "문서의 필수 빈칸이 채워지지 않았습니다. 앞 노드의 출력이나 값 설정을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "FORMAT_OUTPUT_UNSUPPORTED": {
+      "category": "validation",
+      "messageKey": "validation.format_output_unsupported",
+      "userMessage": "이 포맷이 지원하지 않는 출력 형식입니다. 출력 형식을 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "FORMAT_IMAGE_FORBIDDEN": {
+      "category": "artifact",
+      "messageKey": "artifact.format_image_forbidden",
+      "userMessage": "이미지를 문서에 넣지 못했습니다. 업로드한 파일이거나 앞 노드가 만든 이미지만 넣을 수 있습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "reselect_file",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "BINDING_SOURCE_NOT_RUN": {
+      "category": "validation",
+      "messageKey": "validation.binding_source_not_run",
+      "userMessage": "연결한 값의 출처 노드가 이번 실행에서 실행되지 않았습니다. 분기 경로를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "BINDING_PATH_MISSING": {
+      "category": "validation",
+      "messageKey": "validation.binding_path_missing",
+      "userMessage": "연결한 값이 출처 노드의 결과에 없습니다. 경로를 다시 선택해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "BINDING_SOURCE_FAILED": {
+      "category": "validation",
+      "messageKey": "validation.binding_source_failed",
+      "userMessage": "연결한 값의 출처 노드가 오류로 끝나 값을 가져올 수 없습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    }
+  }
+}

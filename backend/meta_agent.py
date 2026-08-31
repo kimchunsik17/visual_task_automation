@@ -25,10 +25,26 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
+import uuid
 from typing import Literal, List, Dict, Any, Optional, Tuple, Callable
 from collections import defaultdict, deque
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from rag_utils import retrieve_chat_context
+from llm.task_spec import (
+    TaskSpec,
+    build_task_spec_context,
+    normalize_task_spec,
+    should_normalize_task_spec,
+    task_coverage_issues,
+)
+import generation_plan
+import node_bindings
+import workflow_patterns
+import node_definition
+import node_knowledge
+from flow_validation import ValidationIssue, issue_signature, validation_issues
+from generation_trace import build_generation_trace
 
 
 # httpRequestNode/webCrawlerNode의 url을 실제로 모를 때 쓰는 채움 표시자. validate_flow는
@@ -39,123 +55,26 @@ PLACEHOLDER_URL = "REPLACE_WITH_ACTUAL_URL"
 
 # ── ① 노드 카탈로그 (핵심 11종) ────────────────────────────────────────────
 # 여기에 노드를 한 줄씩 추가하면 챗봇이 다룰 수 있는 노드가 늘어난다(P2 확장).
-NODE_CATALOG = """\
-[사용 가능한 노드 — 이 32종만 사용한다]
+_NODE_CATALOG_TEMPLATE = """\
+[사용 가능한 노드 — 이 51종만 사용한다]
 - startNode      : 플로우 시작점. data 없음. 모든 플로우는 이 노드에서 시작한다.
-- scheduleNode   : 주기적으로 자동 실행되는 플로우의 시작점. data.cronExpression(문자열, 예: "0 7 * * *"). startNode 대신 사용한다.
+- scheduleNode   : {{NODE_DEFINITION}}
 - promptNode     : 사용자 프롬프트. data.userPrompt(문자열).
-- llmNode        : LLM 호출. data.model(gemini-3.5-flash | gpt-4o-mini | claude-3-5-sonnet-20240620),
-                   data.systemPrompt(문자열). 사용자가 모델을 특정하지 않으면 gpt-4o-mini를 기본값으로 쓴다.
-                   data.useStructuredOutput(불리언, 선택)+data.jsonSchema(문자열, 선택) — 이 노드의
-                   출력이 반드시 유효한 JSON이어야 하는 경우(예: jsonParserNode/fileModifierNode로
-                   이어지거나, conditionNode가 특정 키 값을 검사하는 경우) systemPrompt에 "JSON으로만
-                   답해"라고 글로만 지시하지 말고, useStructuredOutput을 true로 하고 jsonSchema에
-                   기대하는 출력 구조를 표준 JSON Schema 문자열로 채워라 — 모델이 그 스키마를 반드시
-                   따르도록 강제되므로 프롬프트 지시만 쓸 때보다 훨씬 안정적이다(파싱 실패 방지).
-                   ⚠️ jsonSchema는 반드시 최상위에 "title" 키를 포함해야 한다(예: "title":"Result") —
-                   OpenAI 구조적 출력이 이 스키마를 함수로 등록할 때 title을 함수 이름으로 쓰기 때문에,
-                   title이 없으면 "Unsupported function" 오류로 실행이 즉시 실패한다.
-                   ⚠️ OpenAI 구조적 출력은 "properties"에 미리 나열되지 않은 키는 절대 만들어내지
-                   못한다 — "additionalProperties"만 열어두고 "properties"를 비워두면(필드를 미리 모를
-                   때 쓰고 싶은 유혹이 있지만) 모델이 빈 객체만 반환한다. 그래서 fileModifierNode 앞에서
-                   templateAnalyzerNode가 찾아낸 빈칸처럼 필드 이름이 실행 전엔 알 수 없고 개수도
-                   가변적인 경우에는 이 노드에 useStructuredOutput을 쓰지 말고, systemPrompt에 "반드시
-                   유효한 JSON 객체 하나만 답하고 다른 텍스트는 절대 넣지 마라"라고 명확히 글로 지시해서
-                   일반 프롬프트 방식으로 JSON을 받아라.
+- llmNode        : {{NODE_DEFINITION}}
 - tokenizerNode  : 업로드 문서(PDF/PPTX/Excel/HWP)에서 텍스트 추출. data.method(extract_text | chunk_pages).
                    '문서/PDF/회의록 기반' 작업이면 llmNode 앞에 둔다. 직전 노드의 출력이 파일 경로여야 한다.
-- templateAnalyzerNode: 서식 파일(.docx/.xlsx/.pptx/.hwpx/텍스트) 안의 빈칸을 스캔해서 채워야 할 항목을
-                   뽑아낸다(값은 안 채움, 빈칸 목록만). 출력은 "[채워야 할 빈칸 목록]: {...}"과
-                   "[사용 가능한 실제 데이터]: ..."(직전 노드가 갖고 있던 원본 데이터, 예: 사용자의
-                   자기소개 원문을 분석해 만든 이름/경력/지원동기 JSON)를 함께 담은 텍스트다 — 순수
-                   JSON이 아니므로 이 노드 바로 뒤에 jsonParserNode를 연결하지 마라. 대신 promptNode로
-                   "위 빈칸 목록과 실제 데이터를 참고해서 빈칸을 채운 JSON을 만들어줘" 식으로 안내한
-                   뒤 llmNode(useStructuredOutput 없이, 반드시 JSON만 답하라고 프롬프트로 지시)로
-                   이어서 fileModifierNode에 넘긴다. data.template_path(문자열, 파일 경로 —
-                   사용자가 실제로 업로드하지 않았어도 "계약서_템플릿.docx"처럼 그럴싸한 이름을 그냥
-                   지어내도 된다. 그 경로에 실제 파일이 없으면, 파일명으로 문서 종류를 추측해 생성형
-                   LLM이 알맞은 빈칸 필드 이름들을 스스로 만들고 그 자리에 진짜 .hwpx/.docx 파일을
-                   즉석에서 생성해 넣는다 — 사용자가 파일을 미리 준비/업로드할 필요가 없다).
-                   "{{이름}}" 같은 표시를 자동으로 찾는다. ⚠️ 구버전 .hwp(바이너리)는 지원하지 않는다
-                   (서버가 리눅스라 한글과컴퓨터 프로그램을 원격 조종하는 COM 방식을 못 쓴다) — 사용자가
-                   .hwp 서식을 요청하면 .hwpx(한글 최신 버전으로 저장 시 선택 가능)나 .docx로 변환해서
-                   올려달라고 안내하고, 이 노드는 만들지 마라. .hwpx는 정상 지원한다(자동 생성 포함).
-- fileModifierNode: templateAnalyzerNode가 찾아낸 빈칸을 실제 값으로 채워서 파일을 완성한다.
-                   ⚠️ 이 노드도 구버전 .hwp는 지원하지 않는다(위와 동일한 이유). .hwpx/.docx는 템플릿이
-                   없어도 자동 생성되므로(위 templateAnalyzerNode와 동일한 원리 — 여기서는 실제 채울
-                   값의 키 이름을 그대로 써서 만들기 때문에 LLM 호출도 필요 없다) 항상 안전하게 쓸 수
-                   있다. data.template_path(문자열, 원본 서식 파일 경로 — templateAnalyzerNode와 동일),
-                   data.output_path(문자열, 선택 — 비우면 template_path의 이름을 따서 자동으로 지어지므로
-                   비워도 되지만, 문서 내용상 더 적합한 이름을 알고 있으면(예: "김민준_자기소개서.hwpx")
-                   직접 채워도 좋다). ⚠️ data.output_path를 ".pdf"로
-                   끝나게 설정하면 template_path는 아예 무시하고 채울 값(JSON)을 곧바로 새 PDF 문서로
-                   렌더링한다 — "PDF로 출력해줘/PDF로 만들어줘" 같은 요청엔 별도 서식 파일 없이 이
-                   방식을 쓴다. 채울 값은 자기 data가 아니라 직전 노드의 출력(JSON)에서 가져오므로,
-                   반드시 그 JSON을 만들어주는 노드(templateAnalyzerNode → llmNode/promptNode 조합이
-                   일반적) 바로 뒤에 연결해야 한다 — 그렇지 않으면 에러 없이 빈칸이 하나도 안 채워진
-                   원본이 그대로 저장된다.
-- posterGeneratorNode: 포스터/전단지/카드뉴스처럼 자유로운 디자인의 이미지나 PDF를 만든다. 반드시
-                   직전 노드가 완성된 HTML+CSS 코드(문자열) 하나를 통째로 만들어서 넘겨줘야 한다 —
-                   이 노드 자신은 디자인을 하지 않고 받은 HTML을 그대로 그려서 저장만 한다. 그래서
-                   앞에 promptNode → llmNode를 연결하고, llmNode의 systemPrompt를 아래 지침을 그대로
-                   반영해서 작성해야 한다 — 지침이 헐거우면 모델이 흰 배경에 검은 텍스트만 나열하는
-                   "밋밋한" 결과를 낼 때가 많으므로, 구체적인 디자인 지시를 빠짐없이 넣는 게 중요하다:
-                   "너는 전문 그래픽 디자이너다. 완성된 HTML 문서 하나만 답하라(설명 텍스트나
-                   코드펜스 없이, <html>로 시작해서 </html>로 끝나야 한다). <style> 태그 안에 모든
-                   CSS를 인라인으로 작성한다. 절대 단순한 흰 배경에 텍스트만 나열하지 마라 — 반드시
-                   다음을 모두 포함해라: (1) 배경 — 선명한 그라데이션(예: #6a11cb→#2575fc 보라-파랑,
-                   #f857a6→#ff5858 핑크-빨강, #11998e→#38ef7d 청록-라임, #ee0979→#ff6a00 마젠타-주황처럼
-                   채도 높은 두 색 조합) 또는 선명한 색상 블록/도형(예: 반투명 원, 대각선 밴드)으로 화면을
-                   채운다. 흰색이나 #f5f5f5 같은 흰색에 가까운 옅은 파스텔만으로는 채우지 마라(사실상 흰
-                   화면처럼 보인다) — 반드시 눈에 띄게 채도 있는 색을 쓴다. ⚠️ 이
-                   배경은 반드시 포스터 전체(900x1200 등 지정된 크기)를 덮는 가장 바깥 컨테이너 자체에
-                   직접 입혀야 한다 — 그 안에 같은 크기의 불투명한 흰색/단색 카드를 겹쳐서 배경을
-                   가리는 실수를 절대 하지 마라(실제로 이렇게 만들어서 포스터가 사실상 흰 화면으로
-                   보이는 문제가 있었다). 카드형 레이아웃을 쓰고 싶다면 카드를 캔버스보다 작게 만들어
-                   바깥 배경이 테두리에 드러나 보이게 하거나, 카드 자체를 반투명(rgba)이나 그 배경과
-                   어울리는 색으로 칠해라. (2) 타이포그래피 위계 — 제목은 크고 굵게(48~72px,
-                   font-weight:800 이상), 부제는 중간 크기(20~28px)로 톤을 낮추고, 본문/세부 정보는
-                   16~20px로 읽기 쉽게. (3) 시각적 강조 요소 최소 1개 — 둥근 배지/필(pill) 라벨, 구분선,
-                   아이콘이나 이모지, 그림자(box-shadow)나 테두리 중 하나 이상. (4) 여백 — 안쪽에 넉넉한
-                   padding(40px 이상)을 둬서 답답해 보이지 않게 한다. (5) 색 대비 — 배경이 어두우면 흰
-                   계열 글자, 밝으면 어두운 계열 글자로 가독성을 확실히 확보한다. (6) 세로 배치 — 내용을
-                   위쪽에만 몰아넣고 캔버스 아래 절반을 텅 비워두지 마라. 가장 바깥 컨테이너에
-                   display:flex; flex-direction:column; justify-content:space-between(또는
-                   space-evenly/center)을 써서 제목·본문·하단 정보(연락처, 로고, 마무리 문구 등)가
-                   세로 전체에 고르게 분산되게 하고, 내용이 적으면 장식 요소(큰 도형, 아이콘, 여백
-                   블록)를 추가해서라도 캔버스를 채워라. 외부 이미지 URL이나
-                   웹폰트 링크는 절대 쓰지 마라(네트워크 접근이 없어 깨진다) — 시스템 기본 폰트만
-                   사용한다."
-                   data.outputFormat("png"|"pdf", 기본 png), data.width/data.height(정수, 픽셀,
-                   기본 900x1200 — llmNode 프롬프트에도 이 크기를 알려줘서 HTML의 실제 크기와
-                   맞추게 하는 게 좋다), data.output_path(문자열, 선택 — 비우면 자동 생성).
-                   ⚠️ templateAnalyzerNode/fileModifierNode를 이 체인에 끼워넣지 마라 — 그 둘은
-                   .docx/.hwpx처럼 "빈칸이 있는 서식 파일"을 스캔해서 채우는 노드지, 이미 완성된
-                   HTML 문서를 다루는 게 아니다(실제로 존재하지도 않는 "포스터_HTML_템플릿.html"
-                   같은 파일을 스캔하려다 매번 실패해서 그때까지 쌓인 실제 입력 내용이 전부 사라지고
-                   완전히 딴 내용의 포스터가 나온 적이 있다). 포스터/전단지 체인은 promptNode →
-                   llmNode(HTML 생성) → posterGeneratorNode처럼 단순하게 유지하고, 내용을 다듬고
-                   싶으면 그 사이에 promptNode → llmNode를 몇 번 더 이어서 "위 HTML을 검토하고 수정한
-                   최종 HTML만 답해라"는 식으로 반복하면 된다(항상 HTML을 HTML로 주고받게 하라).
-- conditionNode  : 조건 분기. data.rules=[{"id":"r1", "operator":"=="|"Contains"|">"|"<"|">="|"<=", "value":"문자열"}].
-                   분기 엣지는 sourceHandle에 해당 rule의 id(조건 통과) 또는 "else"(다 안 맞을 때)를 넣는다.
-                   ⚠️ 비교 대상은 직전 노드가 내놓은 텍스트/값 "전체"다 — JSON을 파싱해서 특정 키만 꺼내
-                   비교해주지 않는다. 그래서 llmNode(useStructuredOutput)가 {"isValid": false, ...} 같은
-                   여러 필드를 가진 JSON을 반환하고, 그중 isValid 하나만 "true"/"false"와 비교하고 싶다면
-                   llmNode → conditionNode를 바로 연결하면 안 된다(전체 JSON 문자열이 "true"/"false"와
-                   같을 리 없어 모든 rule이 항상 실패하고 else 엣지도 없으면 조용히 아무 일도 안 일어난 채
-                   흐름이 끊긴다). 반드시 그 사이에 pythonNode를 끼워서 JSON을 파싱한 뒤 검사하려는
-                   키 값을 뽑아내되, ⚠️ 분기 뒤(valid/invalid 양쪽 경로) 노드들이 원본 JSON의 다른
-                   필드(예: 사용자 이름, 자기소개 내용 등 실제 데이터)를 여전히 써야 한다면 output_data를
-                   "true"/"false" 같은 값으로만 덮어써서 원본을 통째로 버리면 안 된다 — 그 뒤에 오는
-                   모든 노드가 원본 데이터에 접근할 방법을 영영 잃는다(실제로 자기소개서 프로젝트에서,
-                   분기 이후의 템플릿 채우기 단계가 사용자가 입력한 실제 이름/경력 대신 아무 근거 없이
-                   지어낸 값을 채우는 문제로 나타났다). 이 경우 output_data는 "PYFLAG_VALID:true\\n" +
-                   input_data 처럼 판별 결과를 맨 앞에 마커로 붙이고 원본 JSON은 그대로 뒤에 이어붙여서
-                   보존하고, conditionNode의 operator는 "=="가 아니라 "Contains"로 "PYFLAG_VALID:true"
-                   / "PYFLAG_VALID:false" 문자열을 검사하게 하라(원본 JSON의 공백/줄바꿈 형식에 좌우되지
-                   않고, 뒤에 오는 노드들도 여전히 원본 데이터를 볼 수 있다). 원본 데이터가 분기 뒤에서
-                   전혀 필요 없는 단순한 경우에만 output_data를 "true"/"false" 하나로 단순화해도 된다.
+- templateAnalyzerNode: {{NODE_DEFINITION}}
+- fileModifierNode: {{NODE_DEFINITION}}
+- hwpxDocumentNode: {{NODE_DEFINITION}}
+- formatNode: {{NODE_DEFINITION}}
+- naverSearchNode: {{NODE_DEFINITION}}
+- jusoNode: {{NODE_DEFINITION}}
+- dataGoKrNode: {{NODE_DEFINITION}}
+- naverSearchTriggerNode: {{NODE_DEFINITION}}
+- naverCafeNode: {{NODE_DEFINITION}}
+- posterGeneratorNode: {{NODE_DEFINITION}}
+- imageGenerationNode: {{NODE_DEFINITION}}
+- conditionNode  : {{NODE_DEFINITION}}
 - distributorNode: 직전 노드의 출력을 리스트로 보고 하나씩 꺼내 뒤에 연결된 노드들을 항목 개수만큼
                    반복 실행시킨다(리스트가 아니면 1개짜리로 취급). data 없음. "각각에 대해",
                    "하나씩" 같은 요청에 쓴다. sourceHandle이 없는(기본) 엣지는 반복 "안"에서
@@ -185,6 +104,7 @@ NODE_CATALOG = """\
                    주지 않았다면 지어내지 말고 빈 문자열로 두거나 "{{API_CENTER:telegram}}"으로
                    채워라. 텔레그램 봇 토큰은 @BotFather에서 한 번 발급받으면 만료되지 않는다(카카오
                    access_token과 달리 자동 갱신이 필요 없다).
+- youtubeTriggerNode: {{NODE_DEFINITION}}
 - telegramNode   : 텔레그램 메시지 발송. data.botToken(문자열, telegramTriggerNode와 동일한 값 —
                    "{{API_CENTER:telegram}}"), data.chatId(문자열, 받을 사람/채널의 chat_id — 사용자가
                    실제 값을 안 줬으면 지어내지 말고 빈 문자열로 둔다. 숫자(음수 가능, 그룹/채널은
@@ -192,18 +112,9 @@ NODE_CATALOG = """\
                    발송한다. telegramTriggerNode로 시작한 흐름에서 받은 사람에게 그대로 답장하는
                    용도라면 이 노드 없이 outputNode로 끝내면 된다(discordNode와 동일한 이유) —
                    "다른" 특정 채팅방에 보내고 싶을 때만 추가로 쓴다.
-- httpRequestNode: 외부 API 호출. data.method(GET|POST|PUT|DELETE), data.url(문자열),
-                   data.headers(JSON 문자열, 생략 가능), data.body(JSON 문자열, 생략 가능).
-- jsonParserNode : JSON 파싱/변환. data.mode(parse|stringify|extract). extract일 때만 data.extractKey(문자열) 필요.
-                   parse=문자열→JSON, stringify=JSON→문자열, extract=특정 키 값 꺼내기.
-- databaseNode   : SQL 데이터베이스 **조회 전용**(실행/변경 아님). data.connectionString(문자열, DB
-                   접속정보 — 사용자가 실제로 준 값만 쓰고 없으면 지어내지 말고 빈 문자열로 둔다),
-                   data.query(문자열, 반드시 SELECT 또는 WITH로 시작해야 한다). ⚠️ INSERT/UPDATE/
-                   DELETE/DROP/TRUNCATE/ALTER/GRANT/REVOKE 등 SELECT·WITH가 아닌 쿼리는 전부
-                   검증기가 막는다(WHERE로 좁혀도 허용되지 않는다) — 데이터를 저장/변경해야 하는
-                   요청이면 databaseNode를 쓰지 말고, 그 사실을 답변에서 사용자에게 안내하라.
-                   connectionString이 비어있으면 실행 시 에러 대신 "값을 채워달라"는 안내로
-                   자동 대체된다(query는 여전히 있어야 한다).
+- httpRequestNode: {{NODE_DEFINITION}}
+- jsonParserNode : {{NODE_DEFINITION}}
+- databaseNode   : {{NODE_DEFINITION}}
 - googleSheetsNode: 구글 시트 읽기/쓰기. databaseNode처럼 별도 접속 정보가 필요 없다 — 서버가
                    서비스 계정으로 접근하므로, 사용자는 그 시트를 서비스 계정과 "공유"만 해두면
                    된다(이 노드의 data에 인증 정보를 채울 필요 없음). data.mode("read"|"append"|"write",
@@ -228,6 +139,11 @@ NODE_CATALOG = """\
                    비우면 timeMin은 지금부터), data.maxResults(숫자, 선택 — list일 때 최대 개수,
                    기본 10). list의 출력은 일정 목록(JSON 배열) 문자열이므로 활용하려면 뒤에
                    llmNode/jsonParserNode를 연결해라.
+- youtubeNode    : {{NODE_DEFINITION}}
+- rssTriggerNode : {{NODE_DEFINITION}}
+- gmailTriggerNode : {{NODE_DEFINITION}}
+- gmailNode      : {{NODE_DEFINITION}}
+- googleDriveNode: {{NODE_DEFINITION}}
 - notionNode     : Notion 페이지 생성/데이터베이스 조회. data.token(문자열) — 사용자가 토큰을
                    직접 주지 않았다면 지어내지 말고 빈 문자열로 두거나 "{{API_CENTER:notion}}"으로
                    채워라(사용자가 API 센터에 Notion Integration Token을 등록해뒀다면 자동으로
@@ -242,7 +158,7 @@ NODE_CATALOG = """\
                    정확한 속성 이름과 타입을 모르면 llmNode에 "다음 Notion 속성 형식에 맞는 JSON을
                    만들어라: {실제 속성 스키마}"처럼 구체적으로 지시해야 한다). query의 출력은 페이지
                    목록(JSON 배열) 문자열이므로 활용하려면 뒤에 llmNode/jsonParserNode를 연결해라.
-- delayNode      : 지정한 시간만큼 대기 후 다음 노드로 진행. data.seconds(숫자).
+- delayNode      : {{NODE_DEFINITION}}
 - dynamicInputNode: 실행할 때마다 외부(호출자·디스코드 봇 메시지 등)에서 값을 받는 자리.
                    data.inputLabel(문자열, 이 입력이 뭔지 설명 — 요청 맥락에서 유추해 채운다),
                    data.testValue(문자열, 선택 — 에디터에서 미리보기/테스트 실행할 때만 쓰이는 예시값.
@@ -254,23 +170,29 @@ NODE_CATALOG = """\
                    data.value(문자열, 선택 — 고정 텍스트) 중 하나를 쓴다. 파일 경로가 필요한 노드
                    (tokenizerNode 등) 앞에 "항상 이 파일" 식으로 붙이거나, 프롬프트에 고정 문구를
                    미리 넣어둘 때 쓴다.
-- webCrawlerNode : URL의 웹페이지를 크롤링해 텍스트만 추출한다(5000자 제한). data.url(문자열, 선택 —
-                   비워두면 직전 노드의 출력을 URL로 그대로 쓴다). 크롤링에 실패해도 워크플로우가
-                   멈추지 않고 "Crawling failed: ..." 같은 에러 문자열이 다음 노드로 그냥 전달된다.
-- emailNode      : 이메일 전송. data.toEmail(문자열, 받는사람), data.subject(문자열, 선택 — 기본값은
-                   "Auto Flow 알림"). 본문은 직전 노드의 출력을 그대로 쓴다. SMTP 크리덴셜은 서버
-                   배포 시점 .env 설정이 필요하다(챗봇이 채울 필드 아님) — 없으면 실행 시 실패한다.
+- webCrawlerNode : URL의 웹페이지를 읽어 제목·발행일·본문·링크로 갈라서 넘긴다. 메뉴·광고·푸터는
+                   빼고 본문만 남긴다. data.url(문자열, 선택 — 비워두면 직전 노드의 출력을 URL로
+                   그대로 쓴다), data.output("text" 기본 — 제목/발행/본문을 사람이 읽는 글로 |
+                   "structured" — 전체를 JSON으로 | "links" — 페이지의 링크 목록만 JSON으로),
+                   data.maxChars(숫자, 기본 5000). 목록 페이지에서 링크를 모아 상세로 넘어갈 때는
+                   output="links"를 쓴다. robots.txt를 지키고 호스트당 하루 요청 수에 상한이 있어서
+                   같은 사이트를 대량으로 훑는 워크플로우는 도중에 막힌다. 실패해도 워크플로우가
+                   멈추지 않고 "수집하지 않았습니다: ..." 같은 문자열이 다음 노드로 그냥 전달된다.
+- emailNode      : {{NODE_DEFINITION}}
 - loopNode       : 반복을 제어한다. data.maxIterations(숫자, 기본 5). 하류 엣지는 sourceHandle을 쓴다:
                    'loop_start' (매 반복마다 실행할 흐름 시작), 'done' (반복이 모두 끝난 뒤 실행).
 - multiAgentNode : 여러 에이전트를 조율한다. data.mode("supervisor" | "group_chat"). 
                    연결될 서브 에이전트(llmNode)는 엣지의 targetHandle을 "tools"로 설정하여 들어와야 한다.
-- pythonNode     : 파이썬 코드를 실행한다. data.code(문자열, 파이썬 코드). 직전 노드의 출력이 'input_data' 변수에 담기며, 처리 결과를 'output_data' 변수에 할당해야 한다.
-- discordNode    : 디스코드 메시지 발송. data.botToken(문자열), data.channelId(문자열, 선택). 직전 노드의
-                   출력을 본문으로 발송한다. ⚠️ 직전 노드의 출력이 "uploads/파일명" 형태의 생성 파일
-                   경로(posterGeneratorNode/fileModifierNode의 결과 등)면, 그 텍스트를 그대로 보내지
-                   않고 자동으로 실제 파일을 첨부해서 보낸다 — 별도 설정 없이 그냥 그 노드 뒤에
-                   discordNode를 연결하기만 하면 된다("포스터 만들어서 디스코드로 보내줘" 같은 요청에
-                   이 조합을 쓴다). discordTriggerNode로 시작하는 봇의 자동 답장도 동일하게 동작한다.
+- pythonNode     : 제한된 파이썬으로 데이터를 변환한다. data.code(문자열). 직전 노드의 출력이 'input_data'
+                   변수에 담기며, 처리 결과를 'output_data' 변수에 할당해야 한다. ⚠️ 격리된 환경에서 돌아서
+                   **쓸 수 있는 것이 매우 제한적이다** — import·def·lambda·while·try·open·eval 은 전부 금지이고,
+                   파일·네트워크·환경변수·DB 에 접근할 수 없다. 쓸 수 있는 것은 변수 대입, if, for, 컴프리헨션,
+                   사칙연산, f-string, 그리고 len/str/int/float/list/dict/set/sorted/sum/min/max/range/enumerate/
+                   zip/map/filter/any/all/abs/round 같은 기본 함수와 문자열·리스트·딕셔너리의 흔한 메서드
+                   (split/join/strip/replace/upper/lower/get/keys/items/values/append/sort 등)뿐이다.
+                   실행 시간 1초·메모리 256MB 제한이 있으니 큰 반복을 만들지 마라. 파일을 읽거나 외부를
+                   호출해야 하면 pythonNode 가 아니라 전용 노드(fileModifierNode/httpRequestNode 등)를 써라.
+- discordNode    : {{NODE_DEFINITION}}
 - kakaoNode      : 카카오톡 메시지 발송. data.accessToken(문자열) — 사용자가 프롬프트에서 직접 토큰 값을
                    알려주지 않는 한 항상 리터럴 문자열 "{{API_CENTER:kakao_token}}"으로 채운다(API 센터에
                    등록해둔 카카오 access_token을 실행 시점에 자동으로 대입하며, 6시간마다 만료되어도
@@ -281,14 +203,8 @@ NODE_CATALOG = """\
                    기본 'toss'), data.orderData(문자열, 선택 — 채울 주문 정보를 JSON 문자열로 직접
                    써도 되고, 비워두면 직전 노드의 출력을 그대로 주문 데이터로 쓴다). "주문/결제 링크
                    만들어줘" 같은 요청에 쓴다. 직전 노드의 출력을 그대로 쓸 거면 orderData는 비워둔다.
-- slackNode      : 슬랙 메시지 발송. data.channel(문자열, 예: "#general"), data.message(문자열, 선택 — 직전 노드 출력과 함께 전송할 추가 메시지).
-- humanApprovalNode : 사람의 승인 대기. data.message(문자열, 승인 요청 메시지). 승인/거절에 따라 다르게
-                   처리하고 싶으면 conditionNode를 뒤에 붙이지 말고(값이 "승인" 같은 리터럴 문자열이
-                   되지 않아서 항상 틀리게 분기한다) 이 노드 자체의 sourceHandle을 "approved"(승인 시)
-                   / "rejected" 또는 "else"(거절 시)로 나눠서 연결한다(conditionNode와 동일한 방식).
-                   sourceHandle 없이 하나만 연결하면(기존 단순 방식) 승인 시에만 진행하고 거절되면
-                   워크플로우가 즉시 중단된다(예외 발생). 어느 방식이든 승인/거절과 무관하게 직전
-                   노드의 출력(예: LLM이 만든 답변 초안)이 그대로 다음 노드로 전달된다.
+- slackNode      : {{NODE_DEFINITION}}
+- humanApprovalNode : {{NODE_DEFINITION}}
 - mergeNode      : 여러 흐름의 결과를 하나로 병합한다. data.mergeStrategy("join_newline" | "join_comma" | "array"). 여러 갈래의 엣지가 이 노드로 모일 수 있다.
 - outputNode     : 결과 출력(종료). data 없음. 흐름의 최종 결과를 사용자/호출자에게 텍스트로 돌려줘야
   할 때 이 노드로 끝난다. 단, emailNode/discordNode/kakaoNode/slackNode처럼 그 자체로 외부에 결과를
@@ -364,6 +280,7 @@ NODE_CATALOG = """\
 - promptNode는 항상 인접한 llmNode와 짝으로 사용한다.
 - llmNode의 model은 사용자가 특정 모델을 요청하지 않는 한 기본값 gpt-4o-mini를 쓴다.
 - (미세수정 시) 기존 노드로 이미 처리 가능하면 새 노드를 추가하지 말고 update_node로 기존 노드를 고친다.
+- **노드 종류를 바꿀 때도 update_node(node_id, data, node_type=...)를 쓴다.** delete_node + add_node 를 쓰면 그 노드에 붙어 있던 연결이 전부 끊기고 id 도 새로 생긴다 — 사용자가 잡아 둔 배선을 잃는다.
 - **불필요한 중복 엣지(Edge) 연결 금지.** 목적지가 같은데 불필요하게 직행 경로와 우회 경로를 동시에 만들지 않는다(예: llm→output과 llm→delay→output을 동시에 연결하지 마라 — delay를 거치는 하나만 남긴다).
 - **적극적인 비선형 구조 활용.** 조건 분기(conditionNode), 병렬 처리(하나의 노드에서 여러 노드로 동시에 분기), 반복 분배(distributorNode, loopNode) 등을 적극 활용하여 프로덕트급 파이프라인을 구축한다. 
 - 여러 갈래로 병렬 처리된 흐름이 나중에 다시 합쳐져야 할 때는 반드시 `mergeNode`를 사용하여 안전하게 병합한다. (conditionNode의 조건 분기도 추후 합류 시 mergeNode 사용)
@@ -381,6 +298,12 @@ NODE_CATALOG = """\
     나중에 다시 모일 때는 반드시 mergeNode를 통해 합쳐야 한다. mergeNode 없이 임의의 노드(예: llmNode)로
     여러 갈래가 바로 합류하게 만들면 그 노드가 중복 실행되므로 절대 금지한다.
 """
+
+# 위 템플릿의 {{NODE_DEFINITION}} 자리는 저장소 루트 node_definitions/<type>.json 에서 채운다
+# (ADR-0005). 노드 설명·허용값·필수 필드가 카탈로그와 validator와 프론트 UI 세 곳에 따로 적혀
+# 있어 서로 어긋나던 문제를 없애기 위한 것이다. 조립 결과는 이전 원문과 완전히 같다 —
+# backend/test_node_definitions.py 가 testdata/node_catalog_snapshot.txt 와 대조한다.
+NODE_CATALOG = node_definition.inject_catalog_entries(_NODE_CATALOG_TEMPLATE)
 
 
 # ── ①-b 카탈로그 트리밍 (생성 품질 개선) ────────────────────────────────────
@@ -426,17 +349,46 @@ NODE_CATALOG_CONNECTION_RULES = _extract_section(NODE_CATALOG, "[연결 규칙]"
 # 노드가 뭐가 됐든 거의 모든 흐름에 등장하는 기본형이라 선별과 무관하게 항상 포함한다.
 _ALWAYS_INCLUDE_NODE_TYPES = ["startNode", "outputNode", "promptNode", "llmNode"]
 
+# 문서 요청이면 formatNode 를 **함께** 보여준다.
+#
+# 선별 LLM 은 문서 요청에서 구형 경로(templateAnalyzer→llm→fileModifier, hwpxDocumentNode,
+# posterGeneratorNode)만 고르는 일이 잦다 — 2026-08-31 측정에서 "시말서를 작성해서 한글 파일로
+# 만들고 이메일로" 요청 3회 모두 formatNode 가 선별에서 빠졌다. 카탈로그에 항목이 아예 없으면
+# 노드 설명을 어떻게 고쳐도 생성이 그 노드를 쓸 방법이 없다(설명은 프롬프트에 들어가지도 않는다).
+# 그래서 이 넷 중 하나라도 골랐으면 formatNode 를 결정론적으로 끼워 넣고, 선택은 생성 LLM 이
+# 두 설명을 나란히 보고 하게 한다. 문서와 무관한 요청에는 발동하지 않는다.
+_DOCUMENT_COSELECT_TRIGGERS = {
+    "templateAnalyzerNode", "fileModifierNode", "hwpxDocumentNode", "posterGeneratorNode",
+}
+_DOCUMENT_COSELECT_ADDITIONS = ["formatNode"]
+
+
+def apply_selection_augmentation(selected_types: List[str]) -> List[str]:
+    """선별 결과에 결정론적 보강을 적용한다(순서 유지, 중복 없음)."""
+    result = list(selected_types)
+    if set(result) & _DOCUMENT_COSELECT_TRIGGERS:
+        for node_type in _DOCUMENT_COSELECT_ADDITIONS:
+            if node_type not in result:
+                result.append(node_type)
+    return result
+
 
 class NodeTypeSelection(BaseModel):
     node_types: List[str] = Field(description="이 요청을 구현하는 워크플로우에 실제로 쓰일 가능성이 있는 노드 타입 이름들")
 
 
-def select_relevant_node_types(user_request: str, complexity_level: str = "low") -> List[str]:
-    """가벼운 1차 선별 — 실패하거나 결과가 부실하면 빈 리스트를 돌려주고, 호출부(build_trimmed_catalog)가
-    그걸 보고 전체 카탈로그로 안전하게 폴백한다(즉, 이 단계가 잘못돼도 트리밍 이전과 동일하게만
-    동작할 뿐 더 나빠지지는 않는다)."""
+def _llm_select_node_types(user_request: str) -> Tuple[List[str], Optional[str], Optional[dict], int]:
+    """LLM 선별 한 번을 실행하고 (선별 타입, 오류, 토큰 사용량, 지연 ms)를 돌려준다.
+
+    include_raw=True로 같은 호출에서 토큰 사용량까지 회수한다 — 이 selector 호출 자체가
+    hybrid retrieval(node_knowledge)로 없애려는 비용이라, 전환 판단을 위해 크기를 재둔다
+    (ADR-0013, RAG Phase A 계측)."""
+    started = time.perf_counter()
+    token_usage: Optional[dict] = None
     try:
-        llm = get_llm(complexity_level="low").with_structured_output(NodeTypeSelection, method="function_calling")
+        llm = get_llm(complexity_level="low").with_structured_output(
+            NodeTypeSelection, method="function_calling", include_raw=True,
+        )
         type_list = ", ".join(NODE_CATALOG_ENTRIES.keys())
         messages = [
             ("system",
@@ -449,10 +401,28 @@ def select_relevant_node_types(user_request: str, complexity_level: str = "low")
             ("user", f'요청: "{user_request}"'),
         ]
         result = llm.invoke(messages)
-        return [t for t in result.node_types if t in NODE_CATALOG_ENTRIES]
+        usage = getattr(result.get("raw"), "usage_metadata", None)
+        if usage:
+            token_usage = {
+                "input_tokens": int(usage.get("input_tokens", 0) or 0),
+                "output_tokens": int(usage.get("output_tokens", 0) or 0),
+                "total_tokens": int(usage.get("total_tokens", 0) or 0),
+            }
+        if result.get("parsed") is None:
+            raise ValueError(f"구조화 출력 파싱 실패: {result.get('parsing_error')}")
+        latency_ms = round((time.perf_counter() - started) * 1000)
+        selected = [t for t in result["parsed"].node_types if t in NODE_CATALOG_ENTRIES]
+        return selected, None, token_usage, latency_ms
     except Exception as e:
         print(f"[select_relevant_node_types] 선별 실패, 전체 카탈로그로 폴백: {e}")
-        return []
+        return [], f"{type(e).__name__}: {e}", token_usage, round((time.perf_counter() - started) * 1000)
+
+
+def select_relevant_node_types(user_request: str, complexity_level: str = "low") -> List[str]:
+    """가벼운 1차 선별 — 실패하거나 결과가 부실하면 빈 리스트를 돌려주고, 호출부(build_trimmed_catalog)가
+    그걸 보고 전체 카탈로그로 안전하게 폴백한다(즉, 이 단계가 잘못돼도 트리밍 이전과 동일하게만
+    동작할 뿐 더 나빠지지는 않는다)."""
+    return _llm_select_node_types(user_request)[0]
 
 
 def build_trimmed_catalog(selected_types: Optional[List[str]]) -> str:
@@ -460,7 +430,7 @@ def build_trimmed_catalog(selected_types: Optional[List[str]]) -> str:
     그대로 돌려준다 — 트리밍이 실패해도 절대 원래보다 못한 결과를 내지 않는다."""
     if not selected_types or len(set(selected_types) & set(NODE_CATALOG_ENTRIES)) < 3:
         return NODE_CATALOG
-    want = set(selected_types) | set(_ALWAYS_INCLUDE_NODE_TYPES)
+    want = set(apply_selection_augmentation(selected_types)) | set(_ALWAYS_INCLUDE_NODE_TYPES)
     header = (
         "[사용 가능한 노드 — 이번 요청과 관련 있을 법한 노드만 추려서 아래에 나열했다. "
         "이 목록에 없는 노드 타입이 정말 필요하다고 판단되면 이름을 지어내지 말고, "
@@ -468,6 +438,45 @@ def build_trimmed_catalog(selected_types: Optional[List[str]]) -> str:
     )
     body = "".join(NODE_CATALOG_ENTRIES[t] for t in NODE_CATALOG_ENTRIES if t in want)
     return header + body + "\n" + NODE_CATALOG_PRINCIPLES + "\n" + NODE_CATALOG_CONNECTION_RULES
+
+
+def _select_and_trim_catalog(user_request: str, complexity_level: str, stage: str) -> str:
+    """LLM 선별 → 카탈로그 트리밍을 실행하고, 같은 요청으로 hybrid retrieval(node_knowledge)을
+    shadow로 함께 돌려 두 선별 결과와 실제 제공된 카탈로그 구성을 선별 트레이스에 기록한다
+    (ADR-0013). 생성 프롬프트에 쓰이는 것은 변함없이 LLM 선별 결과다 — shadow 결과는 기록만
+    되고, Recall 기준을 데이터로 통과하기 전에는 기본 경로를 바꾸지 않는다."""
+    selected_types, llm_error, llm_usage, llm_latency = _llm_select_node_types(user_request)
+    trimmed_catalog = build_trimmed_catalog(selected_types)
+    fallback = trimmed_catalog == NODE_CATALOG
+    offered_types = (
+        sorted(NODE_CATALOG_ENTRIES) if fallback
+        else sorted((set(selected_types) | set(_ALWAYS_INCLUDE_NODE_TYPES)) & set(NODE_CATALOG_ENTRIES))
+    )
+    event: Dict[str, Any] = {
+        "stage": stage,
+        "complexity_level": complexity_level,
+        "llm": {
+            "selected_types": selected_types,
+            "error": llm_error,
+            "token_usage": llm_usage,
+            "latency_ms": llm_latency,
+        },
+        "catalog": {
+            "fallback_full_catalog": fallback,
+            "offered_types": offered_types,
+            # 프롬프트에 들어간 카탈로그 크기(문자 수). 토큰 절감 지표("전체 대비 50% 감소")의
+            # 근사 proxy다 — 정확한 토큰 수는 provider마다 달라 문자 수로 비교한다.
+            "trimmed_chars": len(trimmed_catalog),
+            "full_chars": len(NODE_CATALOG),
+        },
+    }
+    if node_knowledge.shadow_mode_enabled():
+        try:
+            event["shadow"] = node_knowledge.hybrid_select_node_types(user_request)
+        except Exception as e:
+            event["shadow"] = {"selected_types": [], "source": "error", "error": f"{type(e).__name__}: {e}"}
+    node_knowledge.record_selection_event(event)
+    return trimmed_catalog
 
 
 # ── ② 출력 스키마 (형식 강제) ────────────────────────────────────────────
@@ -479,9 +488,36 @@ NodeType = Literal[
     "outputNode", "valueNode", "distributorNode", "breakNode", "templateAnalyzerNode", "fileModifierNode",
     "emailNode", "databaseNode", "loopNode", "multiAgentNode", "scheduleNode", "pythonNode", "discordNode",
     "kakaoNode", "slackNode", "humanApprovalNode", "mergeNode", "tossNode", "webhookNode", "paymentLinkNode",
-    "posterGeneratorNode", "discordTriggerNode", "telegramTriggerNode", "telegramNode", "googleSheetsNode",
-    "googleCalendarNode", "notionNode"
+    "posterGeneratorNode", "imageGenerationNode", "discordTriggerNode", "telegramTriggerNode", "telegramNode", "googleSheetsNode",
+    "googleCalendarNode", "notionNode", "youtubeNode", "youtubeTriggerNode",
+    "rssTriggerNode", "gmailTriggerNode", "gmailNode", "googleDriveNode",
+    # 한국형 노드 계획 Phase 1~3.
+    #
+    # ⚠️ 2026-08-30 에 이 다섯이 **빠져 있었다.** 카탈로그는 LLM 에게 쓰라고 알려주는데
+    # 출력 스키마가 거부해서, 이 노드를 쓴 그래프는 생성·dry-run·커뮤니티 게시가 전부
+    # 깨졌다(발견 경위: 새 노드로 템플릿을 만들다가 구조 검사에서 걸렸다).
+    # 같은 일이 반복되지 않도록 `test_node_definitions.py` 가 이 목록과 카탈로그를 대조한다.
+    "naverSearchNode", "naverSearchTriggerNode", "naverCafeNode", "hwpxDocumentNode",
+    "jusoNode", "dataGoKrNode",
+    # 문서 포맷(포맷 스튜디오 계획 Phase 1) — 빈칸 선언된 포맷에 값을 채워 파일 생성.
+    "formatNode",
+    # memoNode는 캔버스 주석(스티키 노트)이다 — 실행/검증에서 제외되지만, 사용자가 그래프에
+    # 남긴 메모가 저장된 graph_data를 FlowGraph로 파싱할 때 깨지지 않도록 스키마에는 포함한다.
+    "memoNode",
 ]
+
+
+# 워크플로우를 **시작할 수 있는** 노드. 하드코딩하지 않고 정의에서 파생시킨다(ADR-0008,
+# `dry_run.TRIGGER_NODE_TYPES` 와 같은 방식).
+#
+# ⚠️ 2026-08-30 까지 손으로 적은 5종이었고, 그 사이에 늘어난 rssTriggerNode·youtubeTriggerNode·
+# gmailTriggerNode·naverSearchTriggerNode 가 빠져 있었다. 그래서 이 트리거로 시작하는 그래프가
+# 전부 "시작 노드는 정확히 1개여야 한다 (현재 0개)" 로 거부됐다. 목록에 넣는 걸 잊는 실수를
+# 구조적으로 막는다.
+_LEGACY_START_NODE_TYPES = frozenset({
+    "startNode", "scheduleNode", "webhookNode", "discordTriggerNode", "telegramTriggerNode",
+})
+START_NODE_TYPES = _LEGACY_START_NODE_TYPES | frozenset(node_definition.trigger_types())
 
 
 class FlowNode(BaseModel):
@@ -509,6 +545,48 @@ class FlowGraph(BaseModel):
     nodes: List[FlowNode]
     edges: List[FlowEdge]
 
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_missing_edge_ids(cls, values):
+        """엣지 id 누락 보충. 프론트가 실행 계열 API로 그래프를 보낼 때 엣지를
+        {source, target, sourceHandle, targetHandle}로만 직렬화해 왔다 — 실행기
+        (compile_workflow)는 id를 안 읽어서 문제가 없었지만, 이 그래프를 FlowGraph로
+        재파싱하는 경로(dry_run 문제 검사, evaluation)에서는 id 필수 검증에 걸렸다.
+        mode="before" 검증기는 LLM structured output 의 JSON 스키마에는 나타나지 않으므로
+        생성 계약(id 필수)은 그대로 유지되고, 파싱 관용만 넓어진다."""
+        if isinstance(values, dict) and isinstance(values.get("edges"), list):
+            edges = values["edges"]
+            taken = {str(e.get("id")) for e in edges if isinstance(e, dict) and e.get("id")}
+            counter = 1
+            filled = []
+            for e in edges:
+                if isinstance(e, dict) and not e.get("id"):
+                    while f"e{counter}" in taken:
+                        counter += 1
+                    e = {**e, "id": f"e{counter}"}
+                    taken.add(f"e{counter}")
+                filled.append(e)
+            values = {**values, "edges": filled}
+        return values
+
+
+class FlowNodePatch(BaseModel):
+    id: str
+    type: Optional[NodeType] = None
+    data: Optional[Dict[str, Any]] = None
+
+
+class FlowRepairPlan(BaseModel):
+    reason: str = ""
+    update_nodes: List[FlowNodePatch] = Field(default_factory=list)
+    add_nodes: List[FlowNode] = Field(default_factory=list)
+    remove_node_ids: List[str] = Field(default_factory=list)
+    add_edges: List[FlowEdge] = Field(default_factory=list)
+    remove_edge_ids: List[str] = Field(default_factory=list)
+
+
+FLOW_REPAIR_PROMPT_VERSION = "flow-repair-v1"
+
 
 import os
 has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))
@@ -516,33 +594,31 @@ if has_langfuse:
     from langfuse.langchain import CallbackHandler
 
 # ── LLM 준비 (제공자 교체 지점) ──────────────────────────────────────────
-def get_llm(session_id=None, tags=None, complexity_level="low", langfuse_handler=None):
-    """메타 agent가 쓸 LLM. 현재 OpenAI. 제공자 교체는 여기만 바꾸면 된다.
-    gpt-5 계열 reasoning 모델은 temperature 파라미터를 거부/무시하므로 넘기지 않는다."""
-    from langchain_openai import ChatOpenAI
-    
-    if complexity_level == "high":
-        model_name = "gpt-5.3-chat-latest"
-    elif complexity_level == "medium":
-        model_name = "gpt-5.4-mini"
-    else:
-        model_name = "gpt-4o-mini"
-        
-    if "gpt-5" in model_name:
-        llm = ChatOpenAI(model=model_name)
-    else:
-        llm = ChatOpenAI(model=model_name, temperature=0)
+def get_llm(
+    session_id=None,
+    tags=None,
+    complexity_level="low",
+    langfuse_handler=None,
+    generation_trace_id=None,
+):
+    """메타 agent용 모델을 공통 provider 설정에서 생성한다."""
+    from llm.providers import create_chat_model
+
+    llm = create_chat_model(
+        profile=complexity_level,
+        temperature=0,
+        required_capabilities={"structured_output", "tool_calling"},
+    )
     if has_langfuse and langfuse_handler:
         if tags is None:
             tags = ["agent_generation"]
         metadata = {}
         if session_id:
             metadata["langfuse_session_id"] = f"generation-{session_id}"
+        if generation_trace_id:
+            metadata["generation_trace_id"] = generation_trace_id
         llm = llm.with_config(callbacks=[langfuse_handler], metadata=metadata, tags=tags)
     return llm
-    # Gemini로 되돌리려면 위 두 줄 대신:
-    # from langchain_google_genai import ChatGoogleGenerativeAI
-    # return ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0)
 
 
 SYSTEM = (
@@ -556,6 +632,8 @@ SYSTEM = (
     "과도하게 확장하거나 풍부하게 만들려고 하지 마라. 최소한의 노드로 요청을 그대로 구현하는 "
     "것이 목표다.\n\n"
     + NODE_CATALOG
+    + workflow_patterns.PATTERN_CATALOG
+    + node_bindings.BINDING_CATALOG
 )
 
 # Medium 모드 전용 시스템 프롬프트 — 템플릿 구조를 유지하면서 파라미터만 수정
@@ -575,6 +653,8 @@ MEDIUM_SYSTEM = (
     "요청과 완전히 무관한 노드는 제거해도 된다.\n"
     "5. 노드 id(n1, n2...), 엣지 id(e1, e2...)는 다시 매길 수 있다.\n\n"
     + NODE_CATALOG
+    + workflow_patterns.PATTERN_CATALOG
+    + node_bindings.BINDING_CATALOG
 )
 
 # few-shot 예시 — 생성 품질을 좌우하는 핵심. 실패 사례를 여기에 계속 보강한다(팀원 C).
@@ -681,7 +761,7 @@ FEWSHOT_FAST = """\
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.docx"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"위 JSON의 각 키에 대해 문맥에 맞는 값을 채워서 같은 형식의 JSON으로만 답해"}},
-  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다","useStructuredOutput":true,"jsonSchema":"{\"title\":\"FilledFields\",\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}}"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다","useStructuredOutput":true,"jsonSchema":"{\\"title\\":\\"FilledFields\\",\\"type\\":\\"object\\",\\"additionalProperties\\":{\\"type\\":\\"string\\"}}"}},
   {"id":"n5","type":"fileModifierNode","data":{"template_path":"계약서_템플릿.docx"}},
   {"id":"n6","type":"outputNode","data":{}}
 ],"edges":[
@@ -713,13 +793,15 @@ FEWSHOT_FAST = """\
 [예시8] 요청: "customers 테이블에서 이메일만 뽑아서 보여줘 (DB 접속정보: postgresql://user:pass@localhost:5432/shop)"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
-  {"id":"n2","type":"databaseNode","data":{"connectionString":"postgresql://user:pass@localhost:5432/shop","query":"SELECT email FROM customers"}},
+  {"id":"n2","type":"databaseNode","data":{"connectionString":"{{API_CENTER:database}}","query":"SELECT email FROM customers"}},
   {"id":"n3","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"}
 ]}
-# ↑ connectionString은 요청에 실제로 준 값을 그대로 쓴다 — 안 주면 지어내지 말고 물어본다.
+# ↑ 사용자가 접속 정보를 대화에 적어줬어도 connectionString에는 절대 원문을 넣지 않는다 —
+#   항상 "{{API_CENTER:database}}"로 두고, 답변에서 "API 센터에 등록해달라"고 안내한다
+#   (그래프는 저장·공유·이력이 남는 곳이라 비밀번호가 들어가면 안 된다).
 
 [예시9] 요청: "사용자 요청을 번역, 요약, 감성 분석 에이전트에게 보내서 알아서 처리하게 해주는 매니저 봇을 만들어줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -854,7 +936,7 @@ FEWSHOT_FAST = """\
   {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 외부 API 상태를 판별하는 모니터링 담당자다. 출력 첫 줄은 반드시 STATUS: DOWN 또는 STATUS: UP 이어야 한다."}},
   {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"down","operator":"Contains","value":"STATUS: DOWN"}]}},
   {"id":"n6","type":"slackNode","data":{"channel":"#alerts","message":"외부 API 장애 감지"}},
-  {"id":"n7","type":"valueNode","data":{"value":"STATUS: UP\n정기 점검 결과 정상입니다."}},
+  {"id":"n7","type":"valueNode","data":{"value":"STATUS: UP\\n정기 점검 결과 정상입니다."}},
   {"id":"n8","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
   {"id":"n9","type":"outputNode","data":{}}
 ],"edges":[
@@ -887,6 +969,38 @@ FEWSHOT_FAST = """\
 # ↑ posterGeneratorNode(n5)는 디자인을 스스로 하지 않는다 — 바로 앞 llmNode(n4)가 만든 HTML 문자열을
 # 그대로 받아 실제 Chromium으로 렌더링해서 저장할 뿐이다. 포스터 생성 자체로 흐름이 끝나는 저장형
 # 결과이므로 outputNode를 붙이지 않는다.
+
+[예시18] 요청: "직원 지각 사건 시말서를 작성해서 한글 파일로 만들고 팀장 이메일로 보내줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"사건 경위 메모","testValue":"2026-08-30 14:20, 김워크 사원이 30분 지각. 알람 미작동이 원인."}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"위 메모를 근거로 시말서 빈칸을 채워라. 메모에 없는 값은 지어내지 말고 빈 문자열로 둔다."}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 빈칸 채우기 도우미다. 시말서 포맷의 빈칸을 채운 JSON만 답한다.","useStructuredOutput":true,"jsonSchema":"{\\"title\\": \\"IncidentReportValues\\", \\"type\\": \\"object\\", \\"properties\\": {\\"department\\": {\\"type\\": \\"string\\"}, \\"authorName\\": {\\"type\\": \\"string\\"}, \\"incidentAt\\": {\\"type\\": \\"string\\"}, \\"summary\\": {\\"type\\": \\"string\\"}, \\"cause\\": {\\"type\\": \\"string\\"}, \\"prevention\\": {\\"type\\": \\"string\\"}}, \\"required\\": [\\"department\\", \\"authorName\\", \\"incidentAt\\", \\"summary\\", \\"cause\\", \\"prevention\\"]}"}},
+  {"id":"n5","type":"formatNode","data":{"formatId":"incident-report","output":"hwpx"}},
+  {"id":"n6","type":"emailNode","data":{"toEmail":"","subject":"시말서 제출"}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+(포맷의 빈칸을 채우는 흐름이다. formatNode 는 LLM 을 부르지 않으므로 값은 앞 llmNode 가
+ useStructuredOutput 으로 만들고, 스키마의 키 이름은 포맷의 빈칸 이름과 같아야 한다.
+ jsonSchema 의 title 은 영문·숫자·밑줄만 쓴다(한글 제목은 OpenAI 가 거부한다).
+ 완성 파일은 자동으로 첨부되므로 emailNode 뒤에 outputNode 를 붙이지 않는다.
+ toEmail 은 사용자가 실제 주소를 주지 않았으므로 빈 문자열로 두고 답변에서 안내한다.)
+
+[예시19] 요청: "웹훅으로 문의가 들어오면 문의한 사람 이메일로 접수 확인 메일 보내줘. 본문에 email, name 키가 들어와"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"webhookNode","data":{"method":"POST","path":"/inquiry"}},
+  {"id":"n2","type":"emailNode","data":{"toEmail":"","subject":"문의 접수 확인","bindings":{"toEmail":{"source":"n1","path":"email"}}}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"}
+]}
+(값을 옮기기만 하는 자리다 — jsonParserNode 나 llmNode 를 두지 않는다. 요청이 키 이름(email)을
+ 알려줬으므로 path 에 그대로 쓰고, 키 이름을 모르는 요청이면 path 를 빈 문자열로 둔다.
+ bindings 의 source 는 실행 경로상 앞선 노드여야 한다.)
 """
 
 # 정밀 모드용 — 빠름과 달리 "요청에 없어도 필요해 보이면 보조 노드를 알아서 추가"하는 게
@@ -989,7 +1103,7 @@ FEWSHOT_PRECISE = """\
   {"id":"n1","type":"startNode","data":{}},
   {"id":"n2","type":"templateAnalyzerNode","data":{"template_path":"계약서_템플릿.docx"}},
   {"id":"n3","type":"promptNode","data":{"userPrompt":"위 JSON의 각 키에 대해 문맥에 맞는 값을 채워서 같은 형식의 JSON으로만 답해"}},
-  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다","useStructuredOutput":true,"jsonSchema":"{\"title\":\"FilledFields\",\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}}"}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 양식을 채우는 도우미다. 반드시 JSON 형식으로만 답한다","useStructuredOutput":true,"jsonSchema":"{\\"title\\":\\"FilledFields\\",\\"type\\":\\"object\\",\\"additionalProperties\\":{\\"type\\":\\"string\\"}}"}},
   {"id":"n5","type":"fileModifierNode","data":{"template_path":"계약서_템플릿.docx"}},
   {"id":"n6","type":"outputNode","data":{}}
 ],"edges":[
@@ -1021,13 +1135,15 @@ FEWSHOT_PRECISE = """\
 [예시8] 요청: "customers 테이블에서 이메일만 뽑아서 보여줘 (DB 접속정보: postgresql://user:pass@localhost:5432/shop)"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
   {"id":"n1","type":"startNode","data":{}},
-  {"id":"n2","type":"databaseNode","data":{"connectionString":"postgresql://user:pass@localhost:5432/shop","query":"SELECT email FROM customers"}},
+  {"id":"n2","type":"databaseNode","data":{"connectionString":"{{API_CENTER:database}}","query":"SELECT email FROM customers"}},
   {"id":"n3","type":"outputNode","data":{}}
 ],"edges":[
   {"id":"e1","source":"n1","target":"n2"},
   {"id":"e2","source":"n2","target":"n3"}
 ]}
-# ↑ connectionString은 요청에 실제로 준 값을 그대로 쓴다 — 안 주면 지어내지 말고 물어본다.
+# ↑ 사용자가 접속 정보를 대화에 적어줬어도 connectionString에는 절대 원문을 넣지 않는다 —
+#   항상 "{{API_CENTER:database}}"로 두고, 답변에서 "API 센터에 등록해달라"고 안내한다
+#   (그래프는 저장·공유·이력이 남는 곳이라 비밀번호가 들어가면 안 된다).
 
 [예시9] 요청: "사용자 요청을 번역, 요약, 감성 분석 에이전트에게 보내서 알아서 처리하게 해주는 매니저 봇을 만들어줘"
 {"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
@@ -1197,7 +1313,7 @@ FEWSHOT_PRECISE = """\
   {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 외부 API 상태를 모니터링하는 SRE다. 첫 줄은 반드시 STATUS: DOWN 또는 STATUS: UP 이어야 하고, 둘째 줄에는 점검 요약만 쓴다."}},
   {"id":"n5","type":"conditionNode","data":{"rules":[{"id":"down","operator":"Contains","value":"STATUS: DOWN"}]}},
   {"id":"n6","type":"slackNode","data":{"channel":"#ops-alerts","message":"외부 API 장애가 감지되었습니다"}},
-  {"id":"n7","type":"valueNode","data":{"value":"STATUS: UP\n정기 점검 결과 정상입니다."}},
+  {"id":"n7","type":"valueNode","data":{"value":"STATUS: UP\\n정기 점검 결과 정상입니다."}},
   {"id":"n8","type":"mergeNode","data":{"mergeStrategy":"join_newline"}},
   {"id":"n9","type":"outputNode","data":{}}
 ],"edges":[
@@ -1230,6 +1346,47 @@ FEWSHOT_PRECISE = """\
 # ↑ posterGeneratorNode(n5)는 디자인을 스스로 하지 않는다 — 바로 앞 llmNode(n4)가 만든 HTML 문자열을
 # 그대로 받아 실제 Chromium으로 렌더링해서 저장할 뿐이다. 그래서 HTML을 실제로 "잘 만들게" 하는 책임은
 # n4의 systemPrompt에 있다. 포스터 생성 자체로 흐름이 끝나는 저장형 결과이므로 outputNode를 붙이지 않는다.
+[예시18] 요청: "직원 지각 사건 시말서를 작성해서 한글 파일로 만들고 팀장 이메일로 보내줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"dynamicInputNode","data":{"inputLabel":"사건 경위 메모","testValue":"2026-08-30 14:20, 김워크 사원이 30분 지각. 알람 미작동이 원인."}},
+  {"id":"n3","type":"promptNode","data":{"userPrompt":"위 메모를 근거로 시말서 빈칸을 채워라. 메모에 없는 값은 지어내지 말고 빈 문자열로 둔다."}},
+  {"id":"n4","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 문서 빈칸 채우기 도우미다. 시말서 포맷의 빈칸을 채운 JSON만 답한다.","useStructuredOutput":true,"jsonSchema":"{\\"title\\": \\"IncidentReportValues\\", \\"type\\": \\"object\\", \\"properties\\": {\\"department\\": {\\"type\\": \\"string\\"}, \\"authorName\\": {\\"type\\": \\"string\\"}, \\"incidentAt\\": {\\"type\\": \\"string\\"}, \\"summary\\": {\\"type\\": \\"string\\"}, \\"cause\\": {\\"type\\": \\"string\\"}, \\"prevention\\": {\\"type\\": \\"string\\"}}, \\"required\\": [\\"department\\", \\"authorName\\", \\"incidentAt\\", \\"summary\\", \\"cause\\", \\"prevention\\"]}"}},
+  {"id":"n5","type":"formatNode","data":{"formatId":"incident-report","output":"hwpx"}},
+  {"id":"n6","type":"emailNode","data":{"toEmail":"","subject":"시말서 제출"}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+(포맷의 빈칸을 채우는 흐름이다. formatNode 는 LLM 을 부르지 않으므로 값은 앞 llmNode 가
+ useStructuredOutput 으로 만들고, 스키마의 키 이름은 포맷의 빈칸 이름과 같아야 한다.
+ jsonSchema 의 title 은 영문·숫자·밑줄만 쓴다(한글 제목은 OpenAI 가 거부한다).
+ 완성 파일은 자동으로 첨부되므로 emailNode 뒤에 outputNode 를 붙이지 않는다.
+ toEmail 은 사용자가 실제 주소를 주지 않았으므로 빈 문자열로 두고 답변에서 안내한다.)
+
+[예시19] 요청: "네이버 블로그에서 '전기차 보조금' 검색해서 첫 글 본문을 크롤링해 요약해줘"
+{"title": "예시 워크플로우", "description": "이 워크플로우는 사용자의 요청에 따라 생성되었습니다.", "nodes":[
+  {"id":"n1","type":"startNode","data":{}},
+  {"id":"n2","type":"naverSearchNode","data":{"mode":"blog","query":"전기차 보조금","display":5}},
+  {"id":"n3","type":"webCrawlerNode","data":{"url":"","output":"text","bindings":{"url":{"source":"n2","path":"items[0].link"}}}},
+  {"id":"n4","type":"promptNode","data":{"userPrompt":"다음 글을 한국어로 요약해줘"}},
+  {"id":"n5","type":"llmNode","data":{"model":"gpt-4o-mini","systemPrompt":"너는 요약 전문가다"}},
+  {"id":"n6","type":"outputNode","data":{}}
+],"edges":[
+  {"id":"e1","source":"n1","target":"n2"},
+  {"id":"e2","source":"n2","target":"n3"},
+  {"id":"e3","source":"n3","target":"n4"},
+  {"id":"e4","source":"n4","target":"n5"},
+  {"id":"e5","source":"n5","target":"n6"}
+]}
+(검색 결과에서 URL 하나를 꺼내 다음 노드의 필드에 넣는 자리다 — jsonParserNode 를 두지 않고
+ bindings 로 직접 꽂는다. naverSearchNode 는 출력 형식이 카탈로그에 적혀 있어서 path
+ (items[0].link)를 쓸 수 있다. 출력 형식이 적혀 있지 않은 노드라면 path 를 비워 둔다.
+ 요약은 실제로 생각이 필요한 일이므로 llmNode 를 그대로 둔다.)
+
 """
 
 
@@ -1247,8 +1404,7 @@ def generate_flow(user_request: str, complexity_level: str = "low") -> FlowGraph
     llm = get_llm(complexity_level=complexity_level).with_structured_output(FlowGraph, method="function_calling")   # 출력을 FlowGraph 형식으로 강제
     # 요청과 관련 있을 법한 노드만 추려서 카탈로그를 줄인다(선별 실패 시 build_trimmed_catalog가
     # 알아서 전체 NODE_CATALOG로 폴백하므로 최악의 경우도 트리밍 이전과 동일하다).
-    selected_types = select_relevant_node_types(user_request, complexity_level=complexity_level)
-    trimmed_catalog = build_trimmed_catalog(selected_types)
+    trimmed_catalog = _select_and_trim_catalog(user_request, complexity_level, stage="generate_flow")
     system_prompt = SYSTEM.replace(NODE_CATALOG, trimmed_catalog, 1)
     messages = [
         ("system", system_prompt + "\n\n" + FEWSHOT_FAST),
@@ -1286,6 +1442,8 @@ PRECISE_SYSTEM = (
     "2. 단, 카탈로그에 없는 노드 타입을 상상해서 만들지 말고, 항상 아래 노드 목록 안에서만 조합하라.\n"
     "3. 단순 선형 구조로 뭉뚱그리지 말고, 요청 성격에 맞으면 분기/병합/반복 구조를 적극 활용하라.\n\n"
     + NODE_CATALOG
+    + workflow_patterns.PATTERN_CATALOG
+    + node_bindings.BINDING_CATALOG
 )
 
 
@@ -1293,8 +1451,7 @@ def generate_flow_precise(user_request: str, complexity_level: str = "high") -> 
     """정밀 모드 전용: 템플릿 검색 없이, 사용자 요청을 더 꼼꼼히 해석해서
     프로덕트급 수준으로 살을 붙여 생성한다."""
     llm = get_llm(complexity_level=complexity_level).with_structured_output(FlowGraph, method="function_calling")
-    selected_types = select_relevant_node_types(user_request, complexity_level=complexity_level)
-    trimmed_catalog = build_trimmed_catalog(selected_types)
+    trimmed_catalog = _select_and_trim_catalog(user_request, complexity_level, stage="generate_flow_precise")
     system_prompt = PRECISE_SYSTEM.replace(NODE_CATALOG, trimmed_catalog, 1)
     messages = [
         ("system", system_prompt + "\n\n" + FEWSHOT_PRECISE),
@@ -1317,21 +1474,21 @@ def modify_flow(existing: FlowGraph, user_request: str) -> FlowGraph:
 
 # ── ⑤ Validator (품질 게이트) ────────────────────────────────────────────
 # 계약(§3, 계약_Flow_JSON.md)에서 고정된 허용값. 여기 값이 바뀌면 계약 문서도 같이 고친다.
-ALLOWED_MODELS = {
-    "gemini-3.5-flash", "gemini-1.5-pro", "gpt-4o-mini", "gpt-4o",
-    "claude-3-haiku-20240307", "claude-3-5-sonnet-20240620",
-}
-ALLOWED_OPERATORS = {"==", "Contains", ">", "<", ">=", "<="}
+# NodeDefinition으로 이전한 노드의 허용값은 정의 파일의 select options에서 파생시킨다 —
+# 에디터 드롭다운에 뜨는 선택지와 검증기가 통과시키는 값이 구조적으로 같아진다(ADR-0005).
+ALLOWED_MODELS = node_definition.option_values("llmNode", "model")
+ALLOWED_OPERATORS = node_definition.option_values("conditionNode", "rules.operator")
+ALLOWED_HTTP_METHODS = node_definition.option_values("httpRequestNode", "method")
+# 아직 이전하지 않은 노드의 허용값은 여기 그대로 둔다.
 ALLOWED_METHODS = {"extract_text", "chunk_pages"}
-ALLOWED_HTTP_METHODS = {"GET", "POST", "PUT", "DELETE"}
-ALLOWED_JSON_PARSER_MODES = {"parse", "stringify", "extract"}
+ALLOWED_JSON_PARSER_MODES = node_definition.option_values("jsonParserNode", "mode")
 LOOP_PRODUCING_NODE_TYPES = {"distributorNode"}  # breakNode가 유효하려면 상류에 이 중 하나가 있어야 한다(추후 loopNode 등 추가 시 여기에 더한다)
 # 그 자체로 외부에 결과를 발송/전달하거나 영구 반영(저장)하는 노드 — 이걸로 흐름이 끝나면
 # outputNode 없이도 완결로 인정한다. databaseNode는 검증기가 SELECT/WITH만 허용하고
 # INSERT/UPDATE/DELETE는 전부 차단하므로(_validate_node_data 참고) 항상 "조회" 결과가 나오고,
 # 그 결과는 반드시 사용자에게 보여줘야 하므로 여기 포함하지 않는다(포함하면 조회 결과가
 # outputNode 없이 조용히 버려지는 흐름을 허용하게 된다).
-TERMINAL_ACTION_NODE_TYPES = {"emailNode", "discordNode", "telegramNode", "kakaoNode", "slackNode", "fileModifierNode", "posterGeneratorNode"}
+TERMINAL_ACTION_NODE_TYPES = {"emailNode", "discordNode", "telegramNode", "kakaoNode", "slackNode", "fileModifierNode", "posterGeneratorNode", "imageGenerationNode"}
 # googleSheetsNode/googleCalendarNode/notionNode는 databaseNode와 달리 "쓰기"도 할 수 있는
 # 노드라, 위 TERMINAL_ACTION_NODE_TYPES처럼 타입만으로 무조건 통과시키면 read/list/query
 # 모드로 흐름이 끝날 때도 결과가 조용히 버려지는 걸 허용하게 된다(원래 outputNode를 강제한
@@ -1397,10 +1554,10 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
 
     # 1~2) 시작/종료 — 완성본 검사일 때만
     if require_complete:
-        start_count = (types.count("startNode") + types.count("scheduleNode") + types.count("webhookNode")
-                       + types.count("discordTriggerNode") + types.count("telegramTriggerNode"))
+        start_count = sum(types.count(t) for t in START_NODE_TYPES)
         if start_count != 1:
-            errors.append(f"시작 노드(startNode, scheduleNode, webhookNode, discordTriggerNode 또는 telegramTriggerNode)는 정확히 1개여야 한다 (현재 {start_count}개)")
+            names = ", ".join(sorted(START_NODE_TYPES))
+            errors.append(f"시작 노드({names} 중 하나)는 정확히 1개여야 한다 (현재 {start_count}개)")
 
         has_output_node = "outputNode" in types
         # tools/template 핸들은 실제 제어 흐름이 아니라 배선(서브에이전트/템플릿 연결)이므로 제외
@@ -1523,7 +1680,7 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
 
     reported_diamonds: set = set()
     for n in g.nodes:
-        if n.type == "conditionNode":
+        if n.type in ("conditionNode", "loopNode"):
             continue
         children = forward.get(n.id, [])
         if len(children) < 2:
@@ -1610,7 +1767,11 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
             )
 
     # 3) 순환(cycle)
-    has_cycle, stuck = _has_cycle(ids, g.edges)
+    # loopNode로 돌아오는 엣지는 반복 제어의 정상적인 back-edge다. 컴파일러가
+    # maxIterations로 종료를 보장하므로 일반 DAG 순환 검사에서는 제외한다.
+    loop_ids = {node.id for node in g.nodes if node.type == "loopNode"}
+    cycle_edges = [edge for edge in g.edges if edge.target not in loop_ids]
+    has_cycle, stuck = _has_cycle(ids, cycle_edges)
     if has_cycle:
         errors.append(f"순환(cycle)이 있다 — 관련 노드: {', '.join(stuck)} (노드는 앞으로만 연결해야 한다)")
 
@@ -1627,11 +1788,12 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
     # 14) 고아 노드 — 시작 노드가 아닌데 들어오는 엣지가 하나도 없음(require_complete일 때만:
     # add_node 등으로 그리는 중에는 아직 안 이어진 노드가 정상적으로 있을 수 있다)
     if require_complete:
-        start_types = {"startNode", "scheduleNode", "webhookNode", "discordTriggerNode", "telegramTriggerNode"}
+        start_types = {"startNode", "scheduleNode", "webhookNode", "discordTriggerNode", "telegramTriggerNode"} | node_definition.trigger_types()
         targets_with_incoming = {e.target for e in g.edges}
         tool_or_template_sources = {e.source for e in g.edges if e.targetHandle in ("tools", "template")}
         for n in g.nodes:
-            if n.type in start_types or n.id in tool_or_template_sources:
+            # memoNode는 실행 그래프의 일부가 아닌 캔버스 주석 — 연결이 없는 게 정상이다.
+            if n.type in start_types or n.id in tool_or_template_sources or n.type == "memoNode":
                 continue
             if n.id not in targets_with_incoming:
                 errors.append(
@@ -1673,7 +1835,693 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
                 )
                 break
 
+    # 12) 필드 데이터 바인딩(계획 DATA_FLOW_SEPARATION_PLAN §3) — 지원하지 않는 필드,
+    #     없는/상류가 아닌 소스, 잘못된 경로를 실행 전에 거부한다. 조용히 무시하면 사용자는
+    #     "연결했는데 값이 안 온다"만 겪는다.
+    import node_bindings
+    errors.extend(node_bindings.validate_bindings(
+        [n.model_dump() for n in g.nodes],
+        [e.model_dump() for e in g.edges],
+    ))
+
     return (len(errors) == 0, errors)
+
+
+def validate_flow_detailed(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, List[ValidationIssue]]:
+    ok, messages = validate_flow(g, require_complete=require_complete)
+    return ok, validation_issues(messages)
+
+
+def repair_disconnected_flow(g: FlowGraph) -> Tuple[FlowGraph, List[str]]:
+    """Remove only graph elements that cannot be reached or executed.
+
+    This repair is deliberately conservative. It does not invent nodes, fields, or
+    business logic; semantic repair remains the model's job.
+    """
+    repaired = g.model_copy(deep=True)
+    repairs: List[str] = []
+    node_ids = {node.id for node in repaired.nodes}
+
+    def next_unique_id(prefix: str, existing: set[str]) -> str:
+        index = 1
+        while f"{prefix}{index}" in existing:
+            index += 1
+        value = f"{prefix}{index}"
+        existing.add(value)
+        return value
+
+    valid_edges = []
+    seen_connections = set()
+    for edge in repaired.edges:
+        if edge.source not in node_ids or edge.target not in node_ids:
+            repairs.append(f"고아 엣지 {edge.id} 제거")
+            continue
+        connection = (edge.source, edge.target, edge.sourceHandle, edge.targetHandle)
+        if connection in seen_connections:
+            repairs.append(f"중복 연결 엣지 {edge.id} 제거")
+            continue
+        seen_connections.add(connection)
+        valid_edges.append(edge)
+    repaired.edges = valid_edges
+
+    output_ids = {node.id for node in repaired.nodes if node.type == "outputNode"}
+    without_dead_edges = []
+    for edge in repaired.edges:
+        if edge.source in output_ids:
+            repairs.append(f"outputNode 뒤의 죽은 엣지 {edge.id} 제거")
+            continue
+        without_dead_edges.append(edge)
+    repaired.edges = without_dead_edges
+
+    edge_ids = {edge.id for edge in repaired.edges}
+    start_types = {"startNode", "scheduleNode", "webhookNode", "discordTriggerNode", "telegramTriggerNode"} | node_definition.trigger_types()
+    if repaired.nodes and not any(node.type in start_types for node in repaired.nodes):
+        incoming_ids = {
+            edge.target for edge in repaired.edges if edge.targetHandle not in ("tools", "template")
+        }
+        roots = [node for node in repaired.nodes if node.id not in incoming_ids]
+        if roots:
+            if len(roots) > 1:
+                existing_forward: Dict[str, List[str]] = defaultdict(list)
+                for edge in repaired.edges:
+                    if edge.targetHandle not in ("tools", "template"):
+                        existing_forward[edge.source].append(edge.target)
+
+                def distances_from(root_id: str) -> Dict[str, int]:
+                    distances = {root_id: 0}
+                    queue = [root_id]
+                    while queue:
+                        current = queue.pop(0)
+                        for target in existing_forward.get(current, []):
+                            if target not in distances:
+                                distances[target] = distances[current] + 1
+                                queue.append(target)
+                    return distances
+
+                root_distances = [distances_from(root.id) for root in roots]
+                common = set.intersection(*(set(values) for values in root_distances))
+                if common:
+                    convergence_id = min(
+                        common,
+                        key=lambda node_id: (max(values[node_id] for values in root_distances), node_id),
+                    )
+                    convergence = next(node for node in repaired.nodes if node.id == convergence_id)
+                    if convergence.type != "mergeNode":
+                        merge_id = next_unique_id("n", node_ids)
+                        repaired.nodes.append(FlowNode(
+                            id=merge_id, type="mergeNode", data={"mergeStrategy": "join_newline"},
+                        ))
+                        branch_nodes = set().union(*(set(values) for values in root_distances))
+                        for edge in repaired.edges:
+                            if edge.target == convergence_id and edge.source in branch_nodes:
+                                edge.target = merge_id
+                        repaired.edges.append(FlowEdge(
+                            id=next_unique_id("e", edge_ids), source=merge_id, target=convergence_id,
+                        ))
+                        repairs.append(f"다중 입력 합류 노드 {merge_id} 추가")
+            start_id = next_unique_id("n", node_ids)
+            repaired.nodes.append(FlowNode(id=start_id, type="startNode", data={}))
+            for root in roots:
+                repaired.edges.append(FlowEdge(
+                    id=next_unique_id("e", edge_ids), source=start_id, target=root.id,
+                ))
+            repairs.append(f"누락된 시작 노드 {start_id} 추가")
+
+    real_sources = {
+        edge.source for edge in repaired.edges if edge.targetHandle not in ("tools", "template")
+    }
+    has_output = any(node.type == "outputNode" for node in repaired.nodes)
+    has_terminal_action = any(
+        node.id not in real_sources and (
+            node.type in TERMINAL_ACTION_NODE_TYPES
+            or (node.type in MODE_AWARE_TERMINAL_NODE_TYPES
+                and (node.data or {}).get("mode") in MODE_AWARE_TERMINAL_NODE_TYPES[node.type])
+        )
+        for node in repaired.nodes
+    )
+    if repaired.nodes and not has_output and not has_terminal_action:
+        leaves = [
+            node for node in repaired.nodes
+            if node.id not in real_sources and node.type not in start_types
+        ]
+        if leaves:
+            output_id = next_unique_id("n", node_ids)
+            repaired.nodes.append(FlowNode(id=output_id, type="outputNode", data={}))
+            if len(leaves) == 1:
+                terminal_source = leaves[0].id
+            else:
+                merge_id = next_unique_id("n", node_ids)
+                repaired.nodes.append(FlowNode(
+                    id=merge_id, type="mergeNode", data={"mergeStrategy": "join_newline"},
+                ))
+                for leaf in leaves:
+                    repaired.edges.append(FlowEdge(
+                        id=next_unique_id("e", edge_ids), source=leaf.id, target=merge_id,
+                    ))
+                terminal_source = merge_id
+            repaired.edges.append(FlowEdge(
+                id=next_unique_id("e", edge_ids), source=terminal_source, target=output_id,
+            ))
+            repairs.append(f"누락된 종료 노드 {output_id} 추가")
+
+    # distributor 본문에서 output으로 가면 첫 항목에서 전체 실행이 끝난다. 해당 연결은
+    # 끊고 같은 output을 done 경로에서 한 번만 실행하도록 옮긴다.
+    forward: Dict[str, List[str]] = defaultdict(list)
+    for edge in repaired.edges:
+        if edge.targetHandle not in ("tools", "template"):
+            forward[edge.source].append(edge.target)
+    output_ids = {node.id for node in repaired.nodes if node.type == "outputNode"}
+    for distributor in [node for node in repaired.nodes if node.type == "distributorNode"]:
+        body_starts = [
+            edge.target for edge in repaired.edges
+            if edge.source == distributor.id and edge.sourceHandle != "done"
+        ]
+        body_reachable = set()
+        stack = list(body_starts)
+        while stack:
+            current = stack.pop()
+            if current in body_reachable:
+                continue
+            body_reachable.add(current)
+            stack.extend(forward.get(current, []))
+        reached_outputs = body_reachable & output_ids
+        for output_id in reached_outputs:
+            removed = [
+                edge for edge in repaired.edges
+                if edge.target == output_id and edge.source in body_reachable
+            ]
+            if not removed:
+                continue
+            repaired.edges = [edge for edge in repaired.edges if edge not in removed]
+            done_edges = [
+                edge for edge in repaired.edges
+                if edge.source == distributor.id and edge.sourceHandle == "done"
+            ]
+            if done_edges:
+                done_edges[0].target = output_id
+                repaired.edges = [edge for edge in repaired.edges if edge not in done_edges[1:]]
+            else:
+                repaired.edges.append(FlowEdge(
+                    id=next_unique_id("e", edge_ids),
+                    source=distributor.id,
+                    target=output_id,
+                    sourceHandle="done",
+                ))
+            repairs.append(f"{distributor.id} 반복 출력을 done 경로로 이동")
+
+    roots = [node.id for node in repaired.nodes if node.type in start_types]
+    forward = defaultdict(list)
+    for edge in repaired.edges:
+        if edge.targetHandle not in ("tools", "template"):
+            forward[edge.source].append(edge.target)
+
+    reachable = set()
+    stack = list(roots)
+    while stack:
+        current = stack.pop()
+        if current in reachable:
+            continue
+        reachable.add(current)
+        stack.extend(forward.get(current, []))
+
+    # Tool and template source nodes are executable wiring even though control flow
+    # intentionally does not reach them.
+    wired_sources = {
+        edge.source for edge in repaired.edges
+        if edge.targetHandle in ("tools", "template") and edge.target in reachable
+    }
+    keep_ids = reachable | wired_sources
+    if roots and keep_ids:
+        removed_ids = [node.id for node in repaired.nodes if node.id not in keep_ids]
+        if removed_ids:
+            repairs.append(f"시작점에서 도달 불가능한 노드 제거: {', '.join(removed_ids)}")
+            repaired.nodes = [node for node in repaired.nodes if node.id in keep_ids]
+            repaired.edges = [
+                edge for edge in repaired.edges if edge.source in keep_ids and edge.target in keep_ids
+            ]
+
+    # 실행될 수 없는 데이터 바인딩 정리(계획 §6). 생성 모델이 다른 노드의 필드 이름을 옮겨 적거나
+    # (예: formatNode 에 toEmail) 없는 노드를 소스로 쓰면, 그 바인딩은 생성 코드가 읽지 않으므로
+    # 실행에 아무 영향이 없는데 검증만 실패시킨다 — 도달 불가능한 엣지와 같은 부류다.
+    # 사용자가 에디터에서 직접 만든 바인딩은 이 경로를 타지 않는다(그쪽은 validate_bindings 가 거부한다).
+    live_ids = {node.id for node in repaired.nodes}
+    for node in repaired.nodes:
+        bindings = (node.data or {}).get("bindings")
+        if not isinstance(bindings, dict):
+            continue
+        allowed = node_bindings.bindable_fields(str(node.type))
+        kept = {}
+        for field, spec in bindings.items():
+            if field not in allowed:
+                repairs.append(f"{node.id}({node.type})가 지원하지 않는 '{field}' 바인딩 제거")
+                continue
+            if not isinstance(spec, dict) or spec.get("source") not in live_ids:
+                repairs.append(f"{node.id}({node.type})의 '{field}' 바인딩 소스가 없어 제거")
+                continue
+            kept[field] = spec
+        if kept != bindings:
+            node.data = {**node.data, "bindings": kept}
+            if not kept:
+                node.data.pop("bindings")
+
+    return repaired, repairs
+
+
+def apply_flow_repair_plan(g: FlowGraph, plan: FlowRepairPlan) -> Tuple[FlowGraph, List[str]]:
+    operation_count = (
+        len(plan.update_nodes) + len(plan.add_nodes) + len(plan.remove_node_ids)
+        + len(plan.add_edges) + len(plan.remove_edge_ids)
+    )
+    max_operations = int(os.getenv("LLM_REPAIR_MAX_OPERATIONS", "12"))
+    if operation_count == 0:
+        raise ValueError("repair plan에 적용할 작업이 없습니다.")
+    if operation_count > max_operations:
+        raise ValueError(f"repair plan 작업 수가 제한을 초과했습니다: {operation_count}/{max_operations}")
+
+    repaired = g.model_copy(deep=True)
+    notes: List[str] = []
+    remove_nodes = set(plan.remove_node_ids)
+    remove_edges = set(plan.remove_edge_ids)
+
+    if remove_nodes:
+        known = {node.id for node in repaired.nodes}
+        unknown = remove_nodes - known
+        if unknown:
+            raise ValueError(f"존재하지 않는 노드 제거 요청: {', '.join(sorted(unknown))}")
+        repaired.nodes = [node for node in repaired.nodes if node.id not in remove_nodes]
+        repaired.edges = [
+            edge for edge in repaired.edges
+            if edge.source not in remove_nodes and edge.target not in remove_nodes
+        ]
+        notes.append(f"노드 제거: {', '.join(sorted(remove_nodes))}")
+
+    if remove_edges:
+        known = {edge.id for edge in repaired.edges}
+        unknown = remove_edges - known
+        if unknown:
+            raise ValueError(f"존재하지 않는 엣지 제거 요청: {', '.join(sorted(unknown))}")
+        repaired.edges = [edge for edge in repaired.edges if edge.id not in remove_edges]
+        notes.append(f"엣지 제거: {', '.join(sorted(remove_edges))}")
+
+    nodes_by_id = {node.id: node for node in repaired.nodes}
+    for patch in plan.update_nodes:
+        node = nodes_by_id.get(patch.id)
+        if node is None:
+            raise ValueError(f"존재하지 않는 노드 수정 요청: {patch.id}")
+        if patch.type is not None:
+            node.type = patch.type
+        if patch.data is not None:
+            node.data = {**(node.data or {}), **patch.data}
+        notes.append(f"노드 수정: {patch.id}")
+
+    for node in plan.add_nodes:
+        if node.id in nodes_by_id:
+            raise ValueError(f"이미 존재하는 노드 추가 요청: {node.id}")
+        repaired.nodes.append(node)
+        nodes_by_id[node.id] = node
+        notes.append(f"노드 추가: {node.id}")
+
+    edges_by_id = {edge.id: edge for edge in repaired.edges}
+    for edge in plan.add_edges:
+        if edge.id in edges_by_id:
+            raise ValueError(f"이미 존재하는 엣지 추가 요청: {edge.id}")
+        if edge.source not in nodes_by_id or edge.target not in nodes_by_id:
+            raise ValueError(f"새 엣지 {edge.id}의 source/target 노드가 존재하지 않습니다.")
+        repaired.edges.append(edge)
+        edges_by_id[edge.id] = edge
+        notes.append(f"엣지 추가: {edge.id}")
+
+    return repaired, notes
+
+
+def repair_flow_partially(
+    g: FlowGraph,
+    user_request: str,
+    issues: List[ValidationIssue],
+    complexity_level: str = "low",
+) -> Tuple[FlowGraph, FlowRepairPlan, List[str]]:
+    llm = get_llm(complexity_level=complexity_level).with_structured_output(
+        FlowRepairPlan, method="function_calling",
+    )
+    repairable_ids = sorted({issue.node_id for issue in issues if issue.node_id})
+    repairable_edge_ids = sorted({issue.edge_id for issue in issues if issue.edge_id})
+    messages = [
+        ("system", (
+            "너는 워크플로우 그래프의 부분 수정기다. 전체 그래프를 새로 만들지 말고 validator issue를 "
+            "해결하는 최소 작업만 FlowRepairPlan으로 반환한다. 요청에 없던 기능을 추가하지 않는다. "
+            "update_nodes.data는 기존 data와 병합되므로 바꿀 필드만 넣는다. add_nodes/add_edges에는 "
+            "기존과 겹치지 않는 id를 쓴다. 오류와 무관한 노드나 엣지는 절대 제거하거나 수정하지 않는다. "
+            "필수 설정값을 모르면 빈 문자열 대신 REPLACE_WITH_ACTUAL_URL, REPLACE_WITH_RECIPIENT_EMAIL처럼 "
+            "용도를 알 수 있는 placeholder를 넣는다. "
+            f"수정 대상으로 우선 고려할 node id: {repairable_ids or '(없음)'}, edge id: {repairable_edge_ids or '(없음)'}."
+        )),
+        ("user", (
+            f"원래 사용자 요청:\n{user_request}\n\n"
+            f"현재 그래프:\n{g.model_dump_json()}\n\n"
+            f"validator issues:\n{json.dumps([issue.model_dump() for issue in issues], ensure_ascii=False)}\n\n"
+            "이 issue들만 해결하는 최소 repair plan을 반환해라."
+        )),
+    ]
+    plan = llm.invoke(messages)
+    repaired, notes = apply_flow_repair_plan(g, plan)
+    return repaired, plan, notes
+
+
+def repair_task_coverage_deterministically(
+    g: FlowGraph,
+    spec: TaskSpec,
+    issues: List[ValidationIssue],
+) -> Tuple[FlowGraph, List[str]]:
+    repaired = g.model_copy(deep=True)
+    notes: List[str] = []
+    codes = {issue.code for issue in issues}
+
+    def next_id(prefix: str, existing: set[str]) -> str:
+        index = 1
+        while f"{prefix}{index}" in existing:
+            index += 1
+        return f"{prefix}{index}"
+
+    node_ids = {node.id for node in repaired.nodes}
+    edge_ids = {edge.id for edge in repaired.edges}
+
+    def insert_before(node_type: str, data: Dict[str, Any], target_types: set[str]) -> Optional[str]:
+        targets = [node for node in repaired.nodes if node.type in target_types]
+        if not targets:
+            return None
+        target = targets[0]
+        incoming = [
+            edge for edge in repaired.edges
+            if edge.target == target.id and edge.targetHandle not in ("tools", "template")
+        ]
+        if not incoming:
+            return None
+        inserted_id = next_id("n", node_ids)
+        for edge in incoming:
+            edge.target = inserted_id
+        final_edge_id = next_id("e", edge_ids)
+        repaired.nodes.append(FlowNode(id=inserted_id, type=node_type, data=data))
+        repaired.edges.append(FlowEdge(id=final_edge_id, source=inserted_id, target=target.id))
+        node_ids.add(inserted_id)
+        edge_ids.add(final_edge_id)
+        return inserted_id
+
+    def insert_after_approval(node_type: str, data: Dict[str, Any]) -> Optional[str]:
+        approvals = [node for node in repaired.nodes if node.type == "humanApprovalNode"]
+        if not approvals:
+            return None
+        outgoing = [
+            edge for edge in repaired.edges
+            if edge.source == approvals[0].id and edge.sourceHandle in ("approved", "approve")
+        ]
+        if not outgoing:
+            return None
+        original = outgoing[0]
+        inserted_id = next_id("n", node_ids)
+        bridge_id = next_id("e", edge_ids)
+        original.source = inserted_id
+        original.sourceHandle = None
+        repaired.nodes.append(FlowNode(id=inserted_id, type=node_type, data=data))
+        repaired.edges.append(FlowEdge(
+            id=bridge_id,
+            source=approvals[0].id,
+            target=inserted_id,
+            sourceHandle="approved",
+        ))
+        node_ids.add(inserted_id)
+        edge_ids.add(bridge_id)
+        return inserted_id
+
+    trigger_issues = [issue for issue in issues if issue.code == "INTENT_TRIGGER_MISSING"]
+    for issue in trigger_issues:
+        expected = set(issue.details.get("expected_node_types") or [])
+        starts = [node for node in repaired.nodes if node.type == "startNode"]
+        if len(starts) != 1:
+            continue
+        start = starts[0]
+        if "webhookNode" in expected:
+            start.type = "webhookNode"
+            start.data = {"method": "POST", "path": "/webhook"}
+            notes.append(f"TaskSpec webhook 트리거로 {start.id} 교체")
+        elif "scheduleNode" in expected:
+            trigger_text = spec.trigger or spec.goal
+            minute_match = re.search(r"(\d+)\s*분마다", trigger_text)
+            hour_match = re.search(r"(?:매일\s*)?(\d{1,2})\s*시", trigger_text)
+            cron = (
+                f"*/{minute_match.group(1)} * * * *" if minute_match
+                else f"0 {hour_match.group(1)} * * *" if hour_match
+                else "0 9 * * *"
+            )
+            start.type = "scheduleNode"
+            start.data = {"cronExpression": cron}
+            notes.append(f"TaskSpec 정기 트리거로 {start.id} 교체")
+
+    if "INTENT_RUNTIME_INPUT_MISSING" in codes:
+        starts = [node for node in repaired.nodes if node.type == "startNode"]
+        if len(starts) == 1:
+            start = starts[0]
+            input_id = next_id("n", node_ids)
+            labels = spec.inputs or [
+                item.description for item in spec.missing_information if item.category == "runtime_input"
+            ]
+            input_node = FlowNode(
+                id=input_id,
+                type="dynamicInputNode",
+                data={"inputLabel": ", ".join(labels) or "실행 입력", "testValue": ""},
+            )
+            outgoing = [
+                edge for edge in repaired.edges
+                if edge.source == start.id and edge.targetHandle not in ("tools", "template")
+            ]
+            for edge in outgoing:
+                edge.source = input_id
+            bridge_id = next_id("e", edge_ids)
+            repaired.nodes.append(input_node)
+            repaired.edges.append(FlowEdge(id=bridge_id, source=start.id, target=input_id))
+            node_ids.add(input_id)
+            edge_ids.add(bridge_id)
+            notes.append(f"TaskSpec 실행 입력 노드 {input_id} 삽입")
+
+    integration_issues = [issue for issue in issues if issue.code == "INTENT_INTEGRATION_MISSING"]
+    integration_defaults = {
+        "emailNode": {"toEmail": "REPLACE_WITH_RECIPIENT_EMAIL", "subject": "자동화 알림"},
+        "slackNode": {"channel": "REPLACE_WITH_SLACK_CHANNEL", "message": "자동화 결과"},
+        "discordNode": {"botToken": "", "channelId": ""},
+        "kakaoNode": {"accessToken": "{{API_CENTER:kakao_token}}", "receiver": ""},
+        "telegramNode": {"botToken": "", "chatId": ""},
+        "googleCalendarNode": {"mode": "create"},
+        "googleSheetsNode": {"mode": "append"},
+        "notionNode": {"mode": "create"},
+    }
+    existing_types = {node.type for node in repaired.nodes}
+    for issue in integration_issues:
+        expected = issue.details.get("expected_node_types") or []
+        node_type = next((value for value in expected if value not in existing_types), None)
+        outputs = [node for node in repaired.nodes if node.type == "outputNode"]
+        if not node_type or not outputs:
+            continue
+        output = outputs[0]
+        incoming = [edge for edge in repaired.edges if edge.target == output.id]
+        if not incoming:
+            continue
+        action_id = next_id("n", node_ids)
+        action = FlowNode(id=action_id, type=node_type, data=integration_defaults.get(node_type, {}))
+        for edge in incoming:
+            edge.target = action_id
+        final_edge_id = next_id("e", edge_ids)
+        repaired.nodes.append(action)
+        repaired.edges.append(FlowEdge(id=final_edge_id, source=action_id, target=output.id))
+        node_ids.add(action_id)
+        edge_ids.add(final_edge_id)
+        existing_types.add(node_type)
+        notes.append(f"TaskSpec 연동 노드 {action_id}({node_type}) 삽입")
+
+    semantic_insertions = {
+        "INTENT_HTTP_REQUEST_MISSING": (
+            "httpRequestNode", {"method": "POST", "url": "REPLACE_WITH_ACTUAL_URL"}, {"outputNode"},
+        ),
+        "INTENT_JSON_PARSER_MISSING": ("jsonParserNode", {"mode": "parse"}, {"outputNode"}),
+        "INTENT_TEMPLATE_ANALYZER_MISSING": (
+            "templateAnalyzerNode", {"template_path": "REPLACE_WITH_TEMPLATE_FILE"}, {"llmNode"},
+        ),
+        "INTENT_FILE_MODIFIER_MISSING": (
+            "fileModifierNode", {"template_path": "REPLACE_WITH_TEMPLATE_FILE"}, {"outputNode"},
+        ),
+        "INTENT_MERGE_MISSING": (
+            "mergeNode", {"mergeStrategy": "join_newline"}, {"outputNode"},
+        ),
+    }
+    existing_types = {node.type for node in repaired.nodes}
+    for issue in issues:
+        insertion = semantic_insertions.get(issue.code)
+        if not insertion:
+            continue
+        node_type, data, target_types = insertion
+        if node_type in existing_types:
+            continue
+        inserted_id = (
+            insert_after_approval(node_type, data)
+            if issue.code == "INTENT_HTTP_REQUEST_MISSING"
+            else None
+        )
+        inserted_id = inserted_id or insert_before(node_type, data, target_types)
+        if inserted_id:
+            existing_types.add(node_type)
+            notes.append(f"TaskSpec 의미 노드 {inserted_id}({node_type}) 삽입")
+
+    issue_codes = {issue.code for issue in issues}
+    document_pipeline_missing = (
+        "INTENT_TEMPLATE_ANALYZER_MISSING" in issue_codes
+        and "INTENT_ACTION_MISSING" in issue_codes
+        and "templateAnalyzerNode" not in existing_types
+        and "llmNode" not in existing_types
+    )
+    if document_pipeline_missing:
+        targets = [node for node in repaired.nodes if node.type == "fileModifierNode"]
+        if targets:
+            target = targets[0]
+            incoming = [
+                edge for edge in repaired.edges
+                if edge.target == target.id and edge.targetHandle not in ("tools", "template")
+            ]
+            if incoming:
+                analyzer_id = next_id("n", node_ids)
+                node_ids.add(analyzer_id)
+                prompt_id = next_id("n", node_ids)
+                node_ids.add(prompt_id)
+                llm_id = next_id("n", node_ids)
+                node_ids.add(llm_id)
+                for edge in incoming:
+                    edge.target = analyzer_id
+                repaired.nodes.extend([
+                    FlowNode(
+                        id=analyzer_id,
+                        type="templateAnalyzerNode",
+                        data={"template_path": "REPLACE_WITH_TEMPLATE_FILE"},
+                    ),
+                    FlowNode(
+                        id=prompt_id,
+                        type="promptNode",
+                        data={"userPrompt": "서식 필드에 맞춰 지원자 정보를 JSON 값으로 작성해줘"},
+                    ),
+                    FlowNode(
+                        id=llm_id,
+                        type="llmNode",
+                        data={
+                            "model": "gpt-4o-mini",
+                            "systemPrompt": "문서 서식의 필드를 채우는 JSON만 생성한다.",
+                            "useStructuredOutput": True,
+                            "jsonSchema": json.dumps({
+                                "title": "FilledTemplateFields",
+                                "type": "object",
+                                "additionalProperties": {"type": "string"},
+                            }),
+                        },
+                    ),
+                ])
+                for source, destination in (
+                    (analyzer_id, prompt_id),
+                    (prompt_id, llm_id),
+                    (llm_id, target.id),
+                ):
+                    repaired.edges.append(FlowEdge(
+                        id=next_id("e", edge_ids), source=source, target=destination,
+                    ))
+                    edge_ids.add(repaired.edges[-1].id)
+                notes.append(
+                    f"TaskSpec 문서 파이프라인 {analyzer_id}->{prompt_id}->{llm_id}->{target.id} 삽입"
+                )
+
+    return repaired, notes
+
+
+async def repair_flow_after_agent(
+    g: FlowGraph,
+    user_request: str,
+    complexity_level: str = "low",
+    task_spec: Optional[TaskSpec] = None,
+) -> Tuple[FlowGraph, List[str], List[ValidationIssue]]:
+    def combined_issues(graph: FlowGraph) -> Tuple[bool, List[ValidationIssue]]:
+        structural_ok, current_issues = validate_flow_detailed(graph)
+        if structural_ok and task_spec is not None:
+            current_issues.extend(task_coverage_issues(task_spec, graph.model_dump()))
+        return not current_issues, current_issues
+
+    candidate, notes = repair_disconnected_flow(g)
+    ok, issues = combined_issues(candidate)
+    if ok:
+        return candidate, notes, []
+
+    if task_spec is not None:
+        semantic_candidate, semantic_notes = repair_task_coverage_deterministically(candidate, task_spec, issues)
+        semantic_candidate, cleanup_notes = repair_disconnected_flow(semantic_candidate)
+        semantic_ok, semantic_issues = combined_issues(semantic_candidate)
+        if semantic_notes and (semantic_ok or len(semantic_issues) < len(issues)):
+            candidate, issues, ok = semantic_candidate, semantic_issues, semantic_ok
+            notes.extend(semantic_notes)
+            notes.extend(cleanup_notes)
+            if ok:
+                return candidate, notes, []
+
+    max_attempts = max(0, min(int(os.getenv("LLM_FINAL_REPAIR_MAX_ATTEMPTS", "2")), 2))
+    timeout_seconds = float(os.getenv("LLM_FINAL_REPAIR_TIMEOUT_SECONDS", "30"))
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    seen_signatures = set()
+
+    for _ in range(max_attempts):
+        signature = issue_signature(issues)
+        if signature in seen_signatures:
+            notes.append("최종 repair에서 동일 validator 오류가 반복되어 중단")
+            break
+        seen_signatures.add(signature)
+        if not any(issue.repairable for issue in issues):
+            break
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            notes.append(f"최종 repair 시간 제한({timeout_seconds:g}초) 도달")
+            break
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    repair_flow_partially, candidate, user_request, issues,
+                    complexity_level=complexity_level,
+                ),
+                timeout=remaining,
+            )
+        except asyncio.TimeoutError:
+            notes.append(f"최종 repair 시간 제한({timeout_seconds:g}초) 도달")
+            break
+        except Exception as exc:
+            notes.append(f"최종 부분 수정 실패: {exc}")
+            break
+
+        repaired, _plan, applied_notes = result
+        repaired, cleanup_notes = repair_disconnected_flow(repaired)
+        applied_notes.extend(cleanup_notes)
+        repaired_ok, repaired_issues = combined_issues(repaired)
+        if not repaired_ok and task_spec is not None:
+            semantic_repaired, semantic_notes = repair_task_coverage_deterministically(
+                repaired, task_spec, repaired_issues,
+            )
+            semantic_repaired, semantic_cleanup = repair_disconnected_flow(semantic_repaired)
+            semantic_ok, semantic_issues = combined_issues(semantic_repaired)
+            if semantic_notes and (semantic_ok or len(semantic_issues) < len(repaired_issues)):
+                repaired, repaired_ok, repaired_issues = semantic_repaired, semantic_ok, semantic_issues
+                applied_notes.extend(semantic_notes)
+                applied_notes.extend(semantic_cleanup)
+        notes.extend(applied_notes)
+        if repaired_ok:
+            return repaired, notes, []
+        if issue_signature(repaired_issues) == signature:
+            notes.append("최종 부분 수정 후 동일 validator 오류가 반복되어 중단")
+            break
+        if len(repaired_issues) <= len(issues):
+            candidate, issues = repaired, repaired_issues
+        else:
+            notes.append("최종 부분 수정이 오류를 늘려 후보를 폐기")
+            break
+
+    return candidate, notes, issues
 
 
 def _validate_node_data(n: FlowNode) -> List[str]:
@@ -1681,84 +2529,26 @@ def _validate_node_data(n: FlowNode) -> List[str]:
     errors: List[str] = []
     d = n.data or {}
 
+    # NodeDefinition으로 이전한 노드는 정의 파일에 선언된 규칙으로 검증한다(ADR-0005).
+    # 메시지 문구는 이전 하드코딩 구현과 한 글자도 다르지 않게 옮겼다 — flow_validation.py의
+    # 정규식 분류와 repair 로직이 문구에 의존하기 때문이다. 규칙 DSL로 표현할 수 없는
+    # 잔여 검사(databaseNode의 SQL 가드 등)는 아래 분기에서 이어서 수행한다(하이브리드).
+    if node_definition.get_definition(n.type) is not None:
+        errors.extend(node_definition.validate_node_data(n.type, n.id, d))
+
     if n.type == "promptNode":
         if not d.get("userPrompt"):
             errors.append(f"{n.id}(promptNode)에 userPrompt가 없다")
-
-    elif n.type == "llmNode":
-        model = d.get("model")
-        if not model:
-            errors.append(f"{n.id}(llmNode)에 model이 없다")
-        elif model not in ALLOWED_MODELS:
-            errors.append(f"{n.id}(llmNode)의 model '{model}'은 허용되지 않는다 (허용: {', '.join(sorted(ALLOWED_MODELS))})")
-        if not d.get("systemPrompt"):
-            errors.append(f"{n.id}(llmNode)에 systemPrompt가 없다")
-        if d.get("useStructuredOutput"):
-            json_schema_str = d.get("jsonSchema")
-            if not json_schema_str:
-                errors.append(f"{n.id}(llmNode)는 useStructuredOutput이 true인데 jsonSchema가 없다")
-            else:
-                try:
-                    parsed_schema = json.loads(json_schema_str)
-                    if isinstance(parsed_schema, dict) and not parsed_schema.get("title"):
-                        errors.append(
-                            f"{n.id}(llmNode)의 jsonSchema에 최상위 'title' 키가 없다 — OpenAI 구조적 "
-                            "출력이 title을 함수 이름으로 쓰기 때문에 없으면 'Unsupported function' "
-                            "오류로 실행이 즉시 실패한다. 예: \"title\":\"Result\"를 추가하라"
-                        )
-                except (json.JSONDecodeError, TypeError):
-                    errors.append(f"{n.id}(llmNode)의 jsonSchema가 유효한 JSON이 아니다 — 실행 시 파싱에서 그대로 실패한다")
 
     elif n.type == "tokenizerNode":
         method = d.get("method")
         if method not in ALLOWED_METHODS:
             errors.append(f"{n.id}(tokenizerNode)의 method는 extract_text 또는 chunk_pages여야 한다 (현재: {method!r})")
 
-    elif n.type == "conditionNode":
-        rules = d.get("rules")
-        if not rules:
-            errors.append(f"{n.id}(conditionNode)에 rules가 없다")
-        else:
-            seen_rule_ids = set()
-            for i, r in enumerate(rules):
-                rid = r.get("id")
-                op = r.get("operator")
-                val = r.get("value")
-                label = rid or f"#{i}"
-                if not rid:
-                    errors.append(f"{n.id}(conditionNode)의 rule {label}에 id가 없다")
-                elif rid in seen_rule_ids:
-                    errors.append(f"{n.id}(conditionNode)의 rule id '{rid}'가 중복된다")
-                else:
-                    seen_rule_ids.add(rid)
-                if op not in ALLOWED_OPERATORS:
-                    errors.append(f"{n.id}(conditionNode)의 rule {label} operator '{op}'는 허용되지 않는다 (허용: {', '.join(sorted(ALLOWED_OPERATORS))})")
-                # value=""는 "비어있는지 검사"하는 정상적인 규칙이다(예: 텍스트 추출 실패 시 결과가
-                # 빈 문자열인지 확인) — value 필드 자체가 아예 없는 경우(None)만 오류로 본다.
-                if "value" not in r or r.get("value") is None:
-                    errors.append(f"{n.id}(conditionNode)의 rule {label}에 value가 없다")
-
     elif n.type == "pythonNode":
         if "code" not in d:
             errors.append(f"{n.id}(pythonNode)에 code가 없다")
             
-    elif n.type == "discordNode":
-        if "botToken" not in d:
-            errors.append(f"{n.id}(discordNode)에 botToken이 없다")
-        elif d.get("botToken") and not d.get("botToken", "").startswith("http"):
-            if not d.get("channelId"):
-                errors.append(f"{n.id}(discordNode)가 Webhook이 아닌 봇 토큰 방식일 때는 channelId가 필수다")
-        # 실제 디스코드 채널 ID는 숫자로만 된 스노우플레이크 하나다(예: "1234567890123456789").
-        # 사용자가 채널을 안 알려줬는데도 지어낸 값(자리표시자 문자열, "길드ID/채널ID"처럼 "/"로
-        # 이어붙인 값 등)을 넣는 경우가 실제로 있었다 — 형식이 이상하면 지어낸 값일 가능성이 높으니
-        # 여기서 걸러서 재시도하게 만든다(빈 문자열은 "아직 모른다"는 정상 상태라 통과).
-        channel_id = d.get("channelId", "")
-        if channel_id and not channel_id.isdigit():
-            errors.append(
-                f"{n.id}(discordNode)의 channelId({channel_id!r})가 실제 디스코드 채널 ID 형식(숫자로만 된 스노우플레이크)이 "
-                "아니다 — 사용자가 채널을 알려주지 않았다면 지어내지 말고 빈 문자열로 둬라"
-            )
-
     elif n.type == "telegramNode":
         # 텔레그램 chat_id는 디스코드 channelId와 달리 형식이 여러 개다 — 개인 채팅은 양수,
         # 그룹/슈퍼그룹은 보통 음수(예: "-1001234567890"), 공개 채널은 "@channel_username"도
@@ -1787,28 +2577,10 @@ def _validate_node_data(n: FlowNode) -> List[str]:
                 "'{{API_CENTER:kakao_token}}'으로 바꿔라"
             )
 
-    elif n.type == "slackNode":
-        if "channel" not in d:
-            errors.append(f"{n.id}(slackNode)에 channel이 없다")
-            
     elif n.type == "mergeNode":
         strategy = d.get("mergeStrategy")
         if strategy and strategy not in ["join_newline", "join_comma", "array"]:
             errors.append(f"{n.id}(mergeNode)의 mergeStrategy '{strategy}'는 허용되지 않는다")
-
-    elif n.type == "httpRequestNode":
-        method = d.get("method")
-        if method not in ALLOWED_HTTP_METHODS:
-            errors.append(f"{n.id}(httpRequestNode)의 method는 GET/POST/PUT/DELETE 중 하나여야 한다 (현재: {method!r})")
-        if not d.get("url"):
-            errors.append(f"{n.id}(httpRequestNode)에 url이 없다")
-
-    elif n.type == "jsonParserNode":
-        mode = d.get("mode")
-        if mode not in ALLOWED_JSON_PARSER_MODES:
-            errors.append(f"{n.id}(jsonParserNode)의 mode는 parse/stringify/extract 중 하나여야 한다 (현재: {mode!r})")
-        if mode == "extract" and not d.get("extractKey"):
-            errors.append(f"{n.id}(jsonParserNode)는 mode가 extract일 때 extractKey가 필요하다")
 
     elif n.type == "googleSheetsNode":
         mode = d.get("mode", "read")
@@ -1825,29 +2597,6 @@ def _validate_node_data(n: FlowNode) -> List[str]:
         if mode not in ("create", "query"):
             errors.append(f"{n.id}(notionNode)의 mode는 create/query 중 하나여야 한다 (현재: {mode!r})")
 
-    elif n.type == "delayNode":
-        seconds = d.get("seconds")
-        if seconds is None:
-            errors.append(f"{n.id}(delayNode)에 seconds가 없다")
-        else:
-            try:
-                if float(seconds) < 0:
-                    errors.append(f"{n.id}(delayNode)의 seconds는 0 이상이어야 한다 (현재: {seconds!r})")
-            except (TypeError, ValueError):
-                errors.append(f"{n.id}(delayNode)의 seconds는 숫자여야 한다 (현재: {seconds!r})")
-
-    elif n.type == "templateAnalyzerNode":
-        if not d.get("template_path"):
-            errors.append(f"{n.id}(templateAnalyzerNode)에 template_path가 없다")
-
-    elif n.type == "fileModifierNode":
-        if not d.get("template_path"):
-            errors.append(f"{n.id}(fileModifierNode)에 template_path가 없다")
-
-    elif n.type == "emailNode":
-        if not d.get("toEmail"):
-            errors.append(f"{n.id}(emailNode)에 toEmail이 없다")
-
     elif n.type == "loopNode":
         max_iter = d.get("maxIterations", 5)
         try:
@@ -1855,42 +2604,36 @@ def _validate_node_data(n: FlowNode) -> List[str]:
         except (TypeError, ValueError):
             errors.append(f"{n.id}(loopNode)의 maxIterations는 숫자여야 한다 (현재: {max_iter!r})")
 
-    elif n.type == "scheduleNode":
-        if not d.get("cronExpression"):
-            errors.append(f"{n.id}(scheduleNode)에 cronExpression이 없다")
-
     elif n.type == "multiAgentNode":
         mode = d.get("mode")
         if mode not in ("supervisor", "group_chat"):
             errors.append(f"{n.id}(multiAgentNode)의 mode는 'supervisor' 또는 'group_chat'이어야 한다 (현재: {mode!r})")
 
     elif n.type == "databaseNode":
-        # connectionString은 httpRequestNode의 PLACEHOLDER_URL과 같은 성격의 필드다 — 사용자가
-        # 실제 값을 아직 안 줬으면 비워두는 게 맞고(지어내면 안 됨), 실행 시 친절한 안내로
-        # 대체되도록 이미 처리되어 있다(data_nodes.py). 그래서 이걸 없다고 검증 실패로 막으면
-        # 정상적인 "아직 credential 안 채워짐" 템플릿까지 구조 검증에서 통째로 걸러진다 — query만
-        # 검사한다.
+        # query 존재 검사는 정의 파일이 담당한다. SQL 가드(세미콜론 분해 + SELECT/WITH 강제)는
+        # 규칙 DSL로 표현할 수 없어 잔여 하드코딩으로 남긴다(하이브리드 검증).
         query = d.get("query", "")
-        if not query:
-            errors.append(f"{n.id}(databaseNode)에 query가 없다")
-        else:
-            # 가드레일: 데이터베이스 보호를 위해 SELECT(또는 WITH) 쿼리만 허용합니다.
-            # INSERT, UPDATE, DELETE, DROP 등 파괴적 쿼리나 데이터 변경 쿼리는 차단합니다.
-            allowed_starts = {"SELECT", "WITH"}
-            for stmt in query.split(";"):
-                stmt = stmt.strip()
-                if not stmt:
-                    continue
-                stmt_upper = stmt.upper()
-                m = re.match(r"^(\w+)", stmt_upper)
-                first_word = m.group(1) if m else ""
-                
-                if first_word not in allowed_starts:
-                    errors.append(
-                        f"{n.id}(databaseNode)의 query에 '{first_word}' 명령어는 허용되지 않습니다. "
-                        "보안 및 무결성을 위해 이 노드에서는 오직 SELECT 쿼리만 실행할 수 있습니다."
-                    )
-                    break # 한 문장이라도 위반하면 차단
+        if query:
+            # 가드레일: 실행기와 같은 판별기(sql_guard, ADR-0017)를 쓴다 — AST 허용 목록으로 단일
+            # SELECT/WITH 만 통과시키고 DML/DDL/락/파일 함수/허용되지 않은 schema 를 막는다. 생성 시점과
+            # 실행 시점의 판정이 같아야 "에디터에선 통과인데 실행에서 막히는" 일이 없다.
+            try:
+                from db_query_runtime import parse_allowed_schemas
+                from sql_guard import QueryRejected, analyze_read_query
+                analysis = analyze_read_query(query, allowed_schemas=parse_allowed_schemas(d.get("allowedSchemas")))
+            except QueryRejected as exc:
+                errors.append(
+                    f"{n.id}(databaseNode)의 query: {exc.message} "
+                    "보안 및 무결성을 위해 이 노드에서는 오직 SELECT 쿼리만 실행할 수 있습니다."
+                )
+            else:
+                declared = {str((p or {}).get("name") or "").strip() for p in (d.get("parameters") or []) if isinstance(p, dict)}
+                for placeholder in analysis.placeholders:
+                    if placeholder not in declared:
+                        errors.append(
+                            f"{n.id}(databaseNode)의 query가 파라미터 :{placeholder} 를 쓰는데 data.parameters 에 정의가 없다 "
+                            "— {\"name\": \"" + placeholder + "\", \"source\": \"value\"|\"input\", \"value\"|\"path\": ..., \"type\": ...} 를 추가하라"
+                        )
 
     # startNode·outputNode·valueNode·distributorNode·breakNode는 data가 없어도(또는 비어있어도)
     # 실행이 깨지지 않으므로 필수 필드 에러로 보진 않는다.
@@ -2016,7 +2759,10 @@ def generate_safely(user_request: str, complexity_level: str = "low") -> dict:
 #     스냅샷 → 변경 적용 → validate_flow → 실패하면 스냅샷으로 자동 롤백 + 에러 문자열 반환,
 #     성공하면 그대로 커밋. 반환 문자열은 항상 사람이 읽는 한국어 → 에이전트의 자기수정 재료.
 #   - update_node는 data를 "병합"(merge)한다 — 넘긴 필드만 덮어쓰고 나머지는 유지.
-#     type은 여기서 못 바꾼다(구조상 data만 받으므로) — 바꾸려면 delete_node 후 add_node.
+#     node_type 을 함께 주면 **종류를 그 자리에서 바꾼다**(2026-08-30 추가). 이때는 병합하지 않고
+#     data 를 통째로 교체한다 — 이전 종류의 설정은 새 종류에서 의미가 없다.
+#     예전에는 delete_node + add_node 로만 가능했는데, 그러면 연결이 전부 끊기고 id 도 바뀐다.
+#     시맨틱 포인팅(백로그 28)에서는 그 둘이 편집 범위 밖이라 종류 변경 자체가 불가능했다.
 #   - position(x,y)은 그릇 안에서는 안 다룬다. 에이전트가 끝난 뒤 auto_layout()에서 한 번만 채운다.
 
 def _next_id(prefix: str, existing_ids: List[str]) -> str:
@@ -2054,7 +2800,9 @@ def _summarize_node_data(node_type: str, data: Dict[str, Any]) -> str:
         )
     if node_type == "webCrawlerNode":
         url = data.get("url", "")
-        return f"url={url!r}" + (" (비어있음 — 직전 노드 출력을 URL로 사용)" if not url else "")
+        out = data.get("output") or "text"
+        return (f"url={url!r}, output={out!r}"
+                + (" (url 비어있음 — 직전 노드 출력을 URL로 사용)" if not url else ""))
     if node_type == "valueNode":
         file_path = data.get("file_path", "")
         return f"file_path={file_path!r}" if file_path else f"value={data.get('value', '')!r}"
@@ -2063,7 +2811,9 @@ def _summarize_node_data(node_type: str, data: Dict[str, Any]) -> str:
     if node_type == "fileModifierNode":
         return f"template_path={data.get('template_path', '')!r}, output_path={data.get('output_path', '')!r}"
     if node_type == "posterGeneratorNode":
-        return f"outputFormat={data.get('outputFormat', 'png')!r}, width={data.get('width', 900)!r}, height={data.get('height', 1200)!r}"
+        return f"outputFormat={data.get('outputFormat', 'png')!r}, width={data.get('width', 900)!r}, height={data.get('height', 1200)!r}, backgroundPreset={data.get('backgroundPreset', 'none')!r}"
+    if node_type == "imageGenerationNode":
+        return f"action={data.get('action', 'auto')!r}, model={data.get('model', 'gpt-5.6')!r}, size={data.get('size', 'auto')!r}, quality={data.get('quality', 'auto')!r}"
     if node_type == "emailNode":
         return f"toEmail={data.get('toEmail', '')!r}, subject={data.get('subject', '')!r}"
     if node_type == "databaseNode":
@@ -2160,7 +2910,7 @@ def _verify_url(url: str) -> str:
         return f"접속 실패: {e} — 이 URL은 유효하지 않을 수 있으니 다른 후보를 확인해라."
 
 
-def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None) -> Tuple[List, Callable[[], FlowGraph], Callable[[], Optional[Dict[str, Any]]]]:
+def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None):
     """요청 하나(=대화 한 턴)마다 호출. (도구 리스트, 현재 그래프를 꺼내는 함수, 확인 질문을 꺼내는 함수) 튜플을 반환한다.
 
     두 번째 값 get_current_graph()가 필요한 이유: 도구들이 참조하는 그릇(state)은 클로저 안에
@@ -2182,7 +2932,14 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
     """
     from langchain_core.tools import tool
 
-    state: Dict[str, Any] = {"graph": initial_graph, "fail_streak": 0, "last_errors": [], "clarification": None}
+    initial_ok, _ = validate_flow(initial_graph)
+    state: Dict[str, Any] = {
+        "graph": initial_graph,
+        "last_valid_graph": initial_graph.model_copy(deep=True) if initial_ok else None,
+        "fail_streak": 0,
+        "last_errors": [],
+        "clarification": None,
+    }
 
     def _snapshot() -> FlowGraph:
         return state["graph"].model_copy(deep=True)
@@ -2217,6 +2974,9 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
             state["graph"] = before  # 자동 롤백
             state["last_errors"] = new_errs
             return _fail(f"실패(변경 취소됨 - 새 오류 발생): {'; '.join(new_errs)}")
+        complete_ok, _ = validate_flow(state["graph"])
+        if complete_ok:
+            state["last_valid_graph"] = state["graph"].model_copy(deep=True)
         return _succeed(success_msg)
 
     def _render_flow() -> str:
@@ -2256,8 +3016,8 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         아니면 실행이 SyntaxError로 깨짐), templateAnalyzerNode→template_path(문자열),
         fileModifierNode→template_path(문자열)+output_path(문자열, 선택) — 반드시 JSON을 만들어주는
         노드(templateAnalyzerNode→llmNode 조합 등) 바로 뒤에 연결해야 한다(직전 노드 의존).
-        emailNode→toEmail(문자열)+subject(문자열, 선택), databaseNode→connectionString(문자열,
-        사용자가 준 값만 사용)+query(문자열, SQL — DROP/TRUNCATE/ALTER 등은 검증기가 막고,
+        emailNode→toEmail(문자열)+subject(문자열, 선택), databaseNode→connectionString(항상
+        "{{API_CENTER:database}}" — 접속 정보 원문 금지)+query(문자열, SQL — DROP/TRUNCATE/ALTER 등은 검증기가 막고,
         DELETE/UPDATE는 WHERE 없이 쓰면 막힌다. 그 안에서만 자유롭게 사용).
         startNode·outputNode는 data가 필요 없다.
         실패하면 사유가 반환되니 data를 고쳐서 이 도구를 다시 호출한다."""
@@ -2285,20 +3045,73 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         return _commit_or_rollback(before, f"엣지 {new_id}: {source} → {target}{handle_note}")
 
     @tool
-    def update_node(node_id: str, data: Dict[str, Any]) -> str:
-        """기존 노드의 data를 수정한다. 넘긴 필드만 기존 값 위에 병합되고 나머지 필드는 그대로 유지된다.
-        노드의 type은 여기서 바꿀 수 없다 — type을 바꾸려면 delete_node 후 add_node를 쓴다."""
+    def update_node(node_id: str, data: Dict[str, Any],
+                    node_type: Optional[NodeType] = None) -> str:
+        """기존 노드를 수정한다. data는 넘긴 필드만 기존 값 위에 병합된다.
+
+        node_type을 함께 주면 **노드 종류를 그 자리에서 바꾼다.** 이때 data는 병합하지 않고
+        통째로 교체한다 — 이전 종류의 설정은 새 종류에서 의미가 없기 때문이다. 그러므로
+        새 종류의 필수 필드를 data에 모두 담아 보내야 한다(add_node와 같은 요구사항).
+
+        ⚠️ 종류를 바꿀 때 delete_node + add_node를 쓰지 마라. 그러면 **연결이 전부 끊기고**
+        id도 새로 생긴다. 이 도구는 id와 연결을 그대로 두고 종류만 바꾼다.
+        """
         g = state["graph"]
         node = next((n for n in g.nodes if n.id == node_id), None)
         if node is None:
             return _fail(f"실패: 노드 {node_id}를 찾을 수 없다")
         before = _snapshot()
+        if node_type and node_type != node.type:
+            old_type = node.type
+            node.type = node_type
+            node.data = dict(data)          # 이전 종류의 설정을 끌고 가지 않는다
+            msg = f"노드 {node_id} 종류 변경됨: {old_type} → {node_type}"
+            return _commit_or_rollback(before, msg)
         node.data = {**node.data, **data}
         msg = f"노드 {node_id} 갱신됨: {list(data.keys())}"
         if "testValue" in data:
             note = _dynamic_input_note(node)
             if note:
                 msg += f"\n{note}"
+        return _commit_or_rollback(before, msg)
+
+    @tool
+    def bind_field(node_id: str, field: str, source_node_id: str, path: str = "") -> str:
+        """노드의 입력 필드를 **앞 노드의 출력값에 직접 연결**한다(데이터 바인딩).
+
+        "웹훅으로 온 이메일을 수신자로 써줘", "검색 결과 첫 링크를 크롤링해줘" 처럼 값을
+        옮기기만 하는 요청에 쓴다 — 그런 일에 llmNode 나 jsonParserNode 를 새로 넣지 마라.
+
+        path 는 JSON 경로(a.b[0].c)이고, 비우면 그 노드의 출력 전체다. 출력 형식이
+        카탈로그에 적혀 있지 않은 노드(webhookNode 요청 본문 등)는 사용자가 키 이름을
+        직접 말한 경우에만 경로를 쓰고, 아니면 비워 둔다.
+
+        source_node_id 를 빈 문자열로 주면 그 필드의 연결을 **해제**한다.
+        지원하지 않는 필드나 실행 경로상 앞이 아닌 소스는 실패 사유가 돌아온다."""
+        g = state["graph"]
+        node = next((n for n in g.nodes if n.id == node_id), None)
+        if node is None:
+            return _fail(f"실패: 노드 {node_id}를 찾을 수 없다")
+        allowed = node_bindings.bindable_fields(str(node.type))
+        if field not in allowed:
+            return _fail(
+                f"실패: {node.type}의 '{field}' 필드는 데이터 바인딩을 지원하지 않는다"
+                f" (지원: {', '.join(allowed) if allowed else '없음'})")
+        before = _snapshot()
+        bindings = dict(node.data.get("bindings") or {})
+        if not source_node_id:
+            if field not in bindings:
+                return _fail(f"실패: {node_id}의 '{field}' 에는 연결된 값이 없다")
+            bindings.pop(field)
+            msg = f"노드 {node_id}의 '{field}' 값 연결 해제됨"
+        else:
+            bindings[field] = {"source": source_node_id, "path": path}
+            where = f" -> {path}" if path else " (출력 전체)"
+            msg = f"노드 {node_id}의 '{field}' <- {source_node_id}{where}"
+        new_data = {**node.data, "bindings": bindings}
+        if not bindings:
+            new_data.pop("bindings")
+        node.data = new_data
         return _commit_or_rollback(before, msg)
 
     @tool
@@ -2327,6 +3140,24 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         "~봇 만들어줘"처럼 처음부터 새로 만드는 요청에만 쓴다.
         기존 flow에 노드를 붙이거나 일부만 고치는 요청에는 add_node/connect_nodes/update_node를 쓴다."""
 
+        generation_timeout = float(os.getenv("LLM_GENERATION_TIMEOUT_SECONDS", "75"))
+        generation_deadline = asyncio.get_running_loop().time() + generation_timeout
+        generation_timed_out = False
+
+        async def _call_generation(fn, *args, **kwargs):
+            nonlocal generation_timed_out
+            remaining = generation_deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                generation_timed_out = True
+                return None
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(fn, *args, **kwargs), timeout=remaining,
+                )
+            except asyncio.TimeoutError:
+                generation_timed_out = True
+                return None
+
         g = None
         template = None
         mode_label = "빠름 생성"
@@ -2339,7 +3170,7 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         # 재발할 수 있었다). asyncio.to_thread로 스레드에 넘겨서 이벤트 루프를 막지 않게 한다.
         if complexity_level == "high":
             # ── 정밀 모드: 템플릿 검색 없이, 요청을 더 꼼꼼히 해석해서 살을 붙여 생성 ──
-            g = await asyncio.to_thread(generate_flow_precise, request, complexity_level=complexity_level)
+            g = await _call_generation(generate_flow_precise, request, complexity_level=complexity_level)
             mode_label = "정밀 생성"
 
         elif complexity_level == "medium":
@@ -2361,36 +3192,117 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         # 확장 모드에서 템플릿을 못 찾았을 때
         if not g:
             if template:
-                g = await asyncio.to_thread(generate_flow_from_template, request, template, complexity_level=complexity_level)
+                g = await _call_generation(generate_flow_from_template, request, template, complexity_level=complexity_level)
             else:
                 if complexity_level == "medium":
                     # 템플릿 검색이 빗나가도 low few-shot으로 급락시키지 않고,
                     # 구조를 적극 활용하는 확장 생성 경로를 유지한다.
-                    g = await asyncio.to_thread(generate_flow_precise, request, complexity_level=complexity_level)
+                    g = await _call_generation(generate_flow_precise, request, complexity_level=complexity_level)
                     mode_label = "확장 생성"
                 else:
-                    g = await asyncio.to_thread(generate_flow, request, complexity_level=complexity_level)
+                    _plan = generation_plan.current_plan()
+                    if (
+                        _plan is not None and _plan.adaptive and _plan.candidate_count >= 2
+                        and generation_plan.adaptive_candidates_enabled()
+                    ):
+                        # adaptive fan-out(§4.4): 같은 요청을 빠름/정밀 두 관점으로 생성해
+                        # LLM judge 없이 결정론 기준(구조→커버리지→dry-run→복잡도)으로 고른다.
+                        candidates = await asyncio.gather(
+                            _call_generation(generate_flow, request, complexity_level=complexity_level),
+                            _call_generation(generate_flow_precise, request, complexity_level=complexity_level),
+                        )
+                        labels = ["fast", "precise"]
+                        alive = [(index, candidate) for index, candidate in enumerate(candidates) if candidate is not None]
+                        if alive:
+                            # 랭킹은 결정론 리페어를 거친 상태에서 한다 — 리페어 전 상태로 고르면
+                            # 최종 그래프와 어긋난다(1차 게이트 비교의 악화 사례 ②). LLM 리페어는
+                            # 비용이 있어 선택된 후보만 기존 경로에서 받는다.
+                            repaired = [repair_disconnected_flow(candidate)[0] for _, candidate in alive]
+                            best, scores = generation_plan.rank_candidates(
+                                repaired,
+                                getattr(_plan, "_task_spec", None),
+                                labels=[labels[index] for index, _ in alive],
+                                user_request=request,
+                            )
+                            generation_plan.record_candidates(_plan, scores, best)
+                            g = repaired[best]
+                            mode_label = f"적응형 생성 ({scores[best]['label']} 후보 선택)"
+                    else:
+                        g = await _call_generation(generate_flow, request, complexity_level=complexity_level)
 
-        # ── Validation + 재시도 (최대 5회 시도 — LLM이 검증 에러 메시지를 보고도 매번
-        # 고치는 건 아니라서, 1회만으로는 실패율이 꽤 있었다) ──
-        MAX_ATTEMPTS = 5
-        ok, errs = validate_flow(g)
+        if generation_timed_out or g is None:
+            return _fail(f"생성 시간 제한({generation_timeout:g}초)을 초과했습니다. 기존 flow를 유지합니다.")
+
+        # 검증 실패 시 전체 재생성보다 오류가 난 노드/엣지만 먼저 고친다. 같은 오류 signature가
+        # 반복되면 즉시 중단하고, 부분 수정으로 다룰 수 없는 오류만 전체 재생성으로 폴백한다.
+        MAX_ATTEMPTS = max(1, min(int(os.getenv("LLM_GENERATION_MAX_ATTEMPTS", "3")), 3))
+        ok, issues = validate_flow_detailed(g)
         attempt = 1
-        while not ok and attempt < MAX_ATTEMPTS:
-            attempt += 1
-            retry = f'{request}\n\n(직전 생성이 아래 이유로 잘못됐다. 고쳐서 다시: {"; ".join(errs)})'
-            if mode_label == "정밀 생성":
-                g = await asyncio.to_thread(generate_flow_precise, retry, complexity_level=complexity_level)
-            elif template:
-                g = await asyncio.to_thread(generate_flow_from_template, retry, template, complexity_level=complexity_level)
-            elif mode_label == "확장 생성":
-                g = await asyncio.to_thread(generate_flow_precise, retry, complexity_level=complexity_level)
-            else:
-                g = await asyncio.to_thread(generate_flow, retry, complexity_level=complexity_level)
-            ok, errs = validate_flow(g)
+        partial_repair_count = 0
+        repair_notes: List[str] = []
+        seen_signatures = set()
 
         if not ok:
-            return _fail(f"생성 실패(기존 flow 유지, {attempt}회 시도): {errs}")
+            deterministic_graph, deterministic_notes = repair_disconnected_flow(g)
+            deterministic_ok, deterministic_issues = validate_flow_detailed(deterministic_graph)
+            if deterministic_ok or len(deterministic_issues) < len(issues):
+                g, issues = deterministic_graph, deterministic_issues
+                ok = deterministic_ok
+                repair_notes.extend(deterministic_notes)
+
+        while not ok and attempt < MAX_ATTEMPTS:
+            signature = issue_signature(issues)
+            if signature in seen_signatures:
+                repair_notes.append("동일 validator 오류 반복으로 수정 중단")
+                break
+            seen_signatures.add(signature)
+            attempt += 1
+
+            candidate_graph = None
+            if any(issue.repairable for issue in issues):
+                try:
+                    repair_result = await _call_generation(
+                        repair_flow_partially, g, request, issues, complexity_level=complexity_level,
+                    )
+                    if repair_result is not None:
+                        candidate_graph, _repair_plan, applied_notes = repair_result
+                        partial_repair_count += 1
+                        repair_notes.extend(applied_notes)
+                except Exception as exc:
+                    repair_notes.append(f"부분 수정 계획 적용 실패: {exc}")
+                    break
+            else:
+                issue_text = "; ".join(f"[{issue.code}] {issue.message}" for issue in issues)
+                retry = f"{request}\n\n직전 생성 오류를 고쳐 전체 그래프를 다시 생성해라: {issue_text}"
+                if mode_label == "정밀 생성":
+                    candidate_graph = await _call_generation(generate_flow_precise, retry, complexity_level=complexity_level)
+                elif template:
+                    candidate_graph = await _call_generation(generate_flow_from_template, retry, template, complexity_level=complexity_level)
+                elif mode_label == "확장 생성":
+                    candidate_graph = await _call_generation(generate_flow_precise, retry, complexity_level=complexity_level)
+                else:
+                    candidate_graph = await _call_generation(generate_flow, retry, complexity_level=complexity_level)
+
+            if candidate_graph is None:
+                break
+            candidate_ok, candidate_issues = validate_flow_detailed(candidate_graph)
+            candidate_signature = issue_signature(candidate_issues)
+            if candidate_ok:
+                g, issues, ok = candidate_graph, [], True
+                break
+            if candidate_signature == signature:
+                repair_notes.append("부분 수정 후 동일 validator 오류가 반복되어 중단")
+                break
+            if len(candidate_issues) <= len(issues):
+                g, issues = candidate_graph, candidate_issues
+            else:
+                repair_notes.append("부분 수정이 오류를 늘려 후보를 폐기")
+                break
+
+        if not ok:
+            timeout_note = f", {generation_timeout:g}초 시간 제한 도달" if generation_timed_out else ""
+            issue_text = "; ".join(f"[{issue.code}] {issue.message}" for issue in issues)
+            return _fail(f"생성 실패(기존 flow 유지, {attempt}회 시도{timeout_note}): {issue_text}")
 
         # ── 정밀 모드 전용 품질 게이트: 구조 검증을 통과해도 실제 품질이 낮을 수 있으므로,
         # 평가 기능(evaluator)으로 채점해서 기준 점수 미달이면 개선 제안을 반영해 재생성한다.
@@ -2426,9 +3338,11 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
                     + "\n".join(f"- {s}" for s in suggestions)
                 )
                 if template:
-                    candidate = await asyncio.to_thread(generate_flow_from_template, retry_request, template, complexity_level=complexity_level)
+                    candidate = await _call_generation(generate_flow_from_template, retry_request, template, complexity_level=complexity_level)
                 else:
-                    candidate = await asyncio.to_thread(generate_flow_precise, retry_request, complexity_level=complexity_level)
+                    candidate = await _call_generation(generate_flow_precise, retry_request, complexity_level=complexity_level)
+                if candidate is None:
+                    break
                 cand_ok, _ = validate_flow(candidate)
                 if cand_ok:
                     g = candidate
@@ -2437,7 +3351,10 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
                     break
 
         state["graph"] = g
+        state["last_valid_graph"] = g.model_copy(deep=True)
         msg = f"새 플로우 생성됨 ({mode_label}): 노드 {len(g.nodes)}개, 엣지 {len(g.edges)}개"
+        if partial_repair_count or repair_notes:
+            msg += f"\n부분 수정 {partial_repair_count}회: {'; '.join(repair_notes)}"
         if quality_score is not None:
             msg += f"\n자동 품질 평가: {quality_score}/100점 ({quality_attempts}회 시도)"
         notes = [n for n in (_dynamic_input_note(node) for node in g.nodes) if n]
@@ -2476,12 +3393,16 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
         """컨테이너의 최신 그래프를 반환. Phase 3/4가 에이전트 실행 후 최종 결과를 읽을 때 쓴다."""
         return state["graph"]
 
+    def get_last_valid_graph() -> Optional[FlowGraph]:
+        graph = state.get("last_valid_graph")
+        return graph.model_copy(deep=True) if graph is not None else None
+
     def get_clarification() -> Optional[Dict[str, Any]]:
         """ask_clarification이 이번 턴에 호출됐으면 {question, options}를, 아니면 None을 반환한다."""
         return state["clarification"]
 
-    tools = [show_flow, add_node, connect_nodes, update_node, delete_node, _generate_flow_tool, ask_clarification, web_search, verify_url]
-    return tools, get_current_graph, get_clarification
+    tools = [show_flow, add_node, connect_nodes, update_node, bind_field, delete_node, _generate_flow_tool, ask_clarification, web_search, verify_url]
+    return tools, get_current_graph, get_clarification, get_last_valid_graph
 
 
 # ── ⑨ Phase 3: create_agent 조립 + 한 턴 실행 ───────────────────────────────
@@ -2500,7 +3421,9 @@ def make_tools(initial_graph: FlowGraph, complexity_level: str = "low", db=None)
 AGENT_SYSTEM_PROMPT = (
     "너는 노코드 agent 빌더의 대화형 편집 도우미다. 사용자가 말로 flow(워크플로우)를 만들거나 "
     "고쳐달라고 하면 아래 도구를 써서 실제로 graph_data를 편집한다.\n\n"
-    + NODE_CATALOG +
+    + NODE_CATALOG
+    + workflow_patterns.PATTERN_CATALOG
+    + node_bindings.BINDING_CATALOG +
     "\n[도구 사용 지침]\n"
     '- 완전히 새로 만드는 요청("~봇 만들어줘")에는 반드시 `generate_flow` 하나만 호출한다. 절대 여러 번의 `add_node`를 병렬로 호출해서 직접 조립하지 마라.\n'
     '- ⚠️ `generate_flow`는 캔버스의 노드를 통째로 지우고 완전히 새로 대체한다 — 캔버스에 이미 노드가 있는데 '
@@ -2511,6 +3434,7 @@ AGENT_SYSTEM_PROMPT = (
     '비어있거나, 사용자가 "처음부터 다시/완전히 새로" 만들어달라고 명시적으로 요청했을 때만 쓴다. '
     '애매하면 지우지 말고 먼저 "기존 워크플로우를 그대로 두고 일부만 고칠까요, 아니면 처음부터 새로 만들까요?"라고 되묻는다.\n'
     '- 기존 flow에 붙이거나 일부만 고치는 요청에는 add_node/connect_nodes/update_node/delete_node를 쓴다.\n'
+    '- "앞 노드의 ~을 이 필드에 써줘" 처럼 값을 옮기기만 하는 요청에는 bind_field를 쓴다. 값을 옮기려고 llmNode/jsonParserNode를 추가하지 마라 — 노드도 토큰도 쓰지 않는 쪽이 맞다.\n'
     '- 노드 id가 뭔지 확실하지 않으면 먼저 show_flow로 현재 상태를 확인하고 나서 편집한다.\n'
     '- 그래프 편집과 무관한 잡담(인사, 이 앱이 뭔지 설명 등)에는 도구를 부르지 말고 그냥 대화로 답한다.\n'
     '- 요청이 너무 모호해서 어떤 노드가 필요한지 판단할 수 없으면, 임의로 짐작해서 도구를 부르지 말고 '
@@ -2565,7 +3489,7 @@ AGENT_SYSTEM_PROMPT = (
     '사용자가 "디스코드"라고 답하면(또는 칩을 클릭하면) 그 답을 반영해서 '
     'generate_flow("매일 아침 뉴스 요약해서 디스코드로 알려줘") 호출\n'
     '- 사용자: "요약 뒤에 번역 추가해줘" → show_flow로 현재 노드 확인 → add_node로 promptNode·llmNode 추가 → connect_nodes로 연결\n'
-    '- 사용자: "모델을 gpt-4o로 바꿔줘" → show_flow로 llmNode id 확인 → update_node(그 id, {"model": "gpt-4o"})\n'
+    '- 사용자: "모델을 gpt-5.4-mini로 바꿔줘" → show_flow로 llmNode id 확인 → update_node(그 id, {"model": "gpt-5.4-mini"})\n'
     '- 사용자: "매번 다른 문장을 입력받아서 번역해주는 봇 만들어줘" → generate_flow 호출 → 도구 응답에 '
     '"n2(dynamicInputNode)의 testValue를 예시로 \'Hello, how are you?\'로 채웠다..." 같은 note가 붙으면, '
     '답변에서 "테스트용으로 \'Hello, how are you?\'라는 예시 문장을 넣어뒀어요. 실제로 실행할 때는 그때 '
@@ -2597,11 +3521,21 @@ def _get_default_checkpointer():
     return _default_checkpointer
 
 
-def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpointer=None, thread_id: str = "", langfuse_handler=None, db=None):
+def build_agent(
+    graph_data: FlowGraph,
+    complexity_level: str = "low",
+    checkpointer=None,
+    thread_id: str = "",
+    langfuse_handler=None,
+    db=None,
+    generation_trace_id: Optional[str] = None,
+):
     """이번 요청 전용 에이전트 + get_current_graph 접근자를 만든다. (tools, agent 둘 다 요청마다 새로 만듦.)"""
     from langchain.agents import create_agent
 
-    tools, get_current_graph, get_clarification = make_tools(graph_data, complexity_level=complexity_level, db=db)
+    tools, get_current_graph, get_clarification, get_last_valid_graph = make_tools(
+        graph_data, complexity_level=complexity_level, db=db,
+    )
     
     prompt = AGENT_SYSTEM_PROMPT
     if complexity_level == "high":
@@ -2617,18 +3551,37 @@ def build_agent(graph_data: FlowGraph, complexity_level: str = "low", checkpoint
         prompt += (
             '\n- ⚠️ [빠름 모드 주의] 사용자가 짧게 요청하면, 상상해서 살을 붙이지 말고 최대한 단순하고 직관적으로 '
             '요청된 필수 기능만 포함하여 `generate_flow`에 넘겨라. 복잡한 예외 처리나 알림 노드를 임의로 추가하지 마라.\n'
+            '- 사용자 메시지에 `[정규화된 TaskSpec]`과 `[결정론적 실행 정책]`이 있으면 그 정책을 최우선으로 '
+            '따른다. `즉시 생성`이면 URL, API key, channel ID, database ID, 이메일, 파일 경로, 실행 시 입력값이 '
+            '빠져 있어도 절대 되묻지 말고 placeholder 또는 dynamicInputNode를 사용해 generate_flow를 호출한다. '
+            '`질문 필요`일 때만 TaskSpec의 질문으로 ask_clarification을 한 번 호출한다.\n'
         )
 
     agent = create_agent(
-        get_llm(session_id=thread_id, complexity_level=complexity_level, langfuse_handler=langfuse_handler),
+        get_llm(
+            session_id=thread_id,
+            complexity_level=complexity_level,
+            langfuse_handler=langfuse_handler,
+            generation_trace_id=generation_trace_id,
+        ),
         tools=tools,
         system_prompt=prompt,
         checkpointer=checkpointer or _get_default_checkpointer(),
     )
-    return agent, get_current_graph, get_clarification
+    return agent, get_current_graph, get_clarification, get_last_valid_graph
 
 
-async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complexity_level: str = "low", checkpointer=None, db=None) -> Tuple[str, dict, dict, Optional[Dict[str, Any]]]:
+async def run_agent_turn(
+    graph_data: dict,
+    message: str,
+    thread_id: str,
+    complexity_level: str = "low",
+    checkpointer=None,
+    db=None,
+    trace_id: Optional[str] = None,
+    training_consent: bool = False,
+    pointing_instruction: Optional[str] = None,
+) -> Tuple[str, dict, dict, Optional[Dict[str, Any]]]:
     """대화 한 턴을 실행한다. /api/chat은 이 함수를 그대로 감싸기만 하면 된다.
 
     흐름: graph_data(raw dict, 프론트가 보낸 것) → FlowGraph로 파싱 → 이번 요청 전용 에이전트 조립
@@ -2642,6 +3595,11 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     ask_clarification 도구가 이번 턴에 호출됐을 때만 {question, options}로 채워진다(그 외엔 None).
     API 응답 {reply, graph_data, token_usage, clarification}에 그대로 매핑된다.
     """
+    trace_started = time.perf_counter()
+    trace_id = trace_id or str(uuid.uuid4())
+    # 이번 턴의 노드 선별 이벤트(LLM 선별 + hybrid shadow)를 모을 수집기. 생성 함수는
+    # asyncio.to_thread로 돌아도 같은 컨텍스트 사본을 받아 같은 수집기 객체에 기록한다.
+    node_knowledge.begin_selection_trace()
     g = FlowGraph(
         title=graph_data.get("title", ""),
         description=graph_data.get("description", ""),
@@ -2654,17 +3612,45 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     if has_langfuse:
         handler = CallbackHandler()
 
-    agent, get_current_graph, get_clarification = build_agent(g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id, langfuse_handler=handler, db=db)
-
     # 사용자 문서 기반 RAG 컨텍스트 주입 — retrieve_chat_context는 임베딩 API 호출을 포함한
     # 동기(blocking) 함수라, 대화할 때마다(생성 요청이 아니어도) 이벤트 루프를 막을 수 있었다.
     # generate_flow* 계열과 동일한 이유로 asyncio.to_thread로 넘긴다.
     project_id = thread_id.replace("project-", "") if thread_id.startswith("project-") else ""
-    context = await asyncio.to_thread(retrieve_chat_context, project_id, message) if project_id else ""
+    context_task = (
+        asyncio.to_thread(retrieve_chat_context, project_id, message) if project_id
+        else asyncio.sleep(0, result="")
+    )
+    task_spec_task = (
+        normalize_task_spec(message)
+        if should_normalize_task_spec(message, has_existing_graph=bool(g.nodes))
+        else asyncio.sleep(0, result=None)
+    )
+    context, task_spec_result = await asyncio.gather(context_task, task_spec_task)
+
+    # GenerationPlan(백로그 10번, §4.4): 요청·TaskSpec에서 결정론적으로 후보 수/평가 정책을
+    # 정한다. adaptive 경로가 꺼져 있어도 계획은 만들어 trace에 남긴다 — 전환 판단의 데이터.
+    generation_plan.begin_plan(
+        message, complexity_level,
+        task_spec=task_spec_result.spec if task_spec_result else None,
+        has_existing_graph=bool(g.nodes),
+    )
+
+    agent, get_current_graph, get_clarification, get_last_valid_graph = build_agent(
+        g, complexity_level=complexity_level, checkpointer=checkpointer, thread_id=thread_id,
+        langfuse_handler=handler, db=db, generation_trace_id=trace_id,
+    )
     
     final_message = message
+    # 지목한 대상은 **맨 앞**에 둔다(백로그 28 POINT-1). 뒤에 붙이면 앞쪽 문맥에 묻힌다.
+    # 이 지시가 지켜질 거라고 믿지는 않는다 — 서버가 결과를 직접 비교해 거부한다.
+    if pointing_instruction:
+        final_message = f"{pointing_instruction}\n\n[사용자 요청]\n{message}"
     if context:
-        final_message = f"{message}\n\n{context}"
+        final_message = f"{final_message}\n\n{context}"
+    if task_spec_result and task_spec_result.spec:
+        final_message = f"{final_message}\n\n{build_task_spec_context(task_spec_result.spec)}"
+    elif task_spec_result and task_spec_result.error:
+        print(f"[task_spec] 정규화 실패, 기존 agent 판단으로 폴백: {task_spec_result.error}")
 
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": final_message}]},
@@ -2673,7 +3659,12 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
     reply = result["messages"][-1].content
 
     # LangChain AIMessage 응답에서 토큰 사용량 추출
-    token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    task_spec_usage = task_spec_result.token_usage if task_spec_result else {}
+    token_usage = {
+        "input_tokens": int(task_spec_usage.get("input_tokens", 0) or 0),
+        "output_tokens": int(task_spec_usage.get("output_tokens", 0) or 0),
+        "total_tokens": int(task_spec_usage.get("total_tokens", 0) or 0),
+    }
     for msg in reversed(result["messages"]):
         usage = getattr(msg, "usage_metadata", None)
         if usage:
@@ -2681,26 +3672,189 @@ async def run_agent_turn(graph_data: dict, message: str, thread_id: str, complex
             token_usage["output_tokens"] += usage.get("output_tokens", 0)
             token_usage["total_tokens"] += usage.get("total_tokens", 0)
             break  # 마지막 AI 메시지 한 번만 집계
+    if task_spec_result:
+        token_usage["task_spec"] = {
+            "prompt_version": task_spec_result.prompt_version,
+            "latency_ms": task_spec_result.latency_ms,
+            "error": task_spec_result.error,
+            **task_spec_usage,
+        }
 
     final_graph = get_current_graph()
     clarification = get_clarification()
+    active_task_spec = task_spec_result.spec if task_spec_result and task_spec_result.spec else None
+    fallback_notes: List[str] = []
 
-    # If the AI did not modify the graph in this turn, just return as is without warnings.
+    def attach_trace(
+        output_graph: dict,
+        *,
+        outcome: str,
+        status: str,
+        issues: Optional[List[Any]] = None,
+        notes: Optional[List[str]] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        issue_payload = []
+        for issue in issues or []:
+            if hasattr(issue, "model_dump"):
+                issue_payload.append(issue.model_dump())
+            elif isinstance(issue, dict):
+                issue_payload.append(issue)
+            else:
+                issue_payload.append({"code": "UNKNOWN", "message": str(issue)})
+        from dry_run import dry_run_workflow
+
+        dry_run = dry_run_workflow(output_graph).model_dump() if outcome == "graph" else None
+        # 이번 턴의 선별 이벤트를 회수해 최종 그래프에 실제로 쓰인 노드와 비교한다(ADR-0013).
+        selection_trace = node_knowledge.collect_selection_trace()
+        node_selection = None
+        if selection_trace:
+            final_types = [str(node.get("type") or "") for node in (output_graph.get("nodes") or [])]
+            node_selection = node_knowledge.summarize_selection(selection_trace["events"], final_types)
+        plan_record = generation_plan.collect_plan()
+        trace = build_generation_trace(
+            trace_id=trace_id,
+            thread_id=thread_id,
+            message=message,
+            complexity_level=complexity_level,
+            graph_data=output_graph,
+            token_usage=token_usage,
+            task_spec=active_task_spec.model_dump() if active_task_spec else None,
+            validation_issues=issue_payload,
+            repair_notes=notes,
+            outcome=outcome,
+            status=status,
+            latency_ms=round((time.perf_counter() - trace_started) * 1000),
+            error_message=error_message,
+            repair_prompt_version=FLOW_REPAIR_PROMPT_VERSION,
+            dry_run_result=dry_run,
+            training_consent=training_consent,
+            node_selection=node_selection,
+            generation_plan=plan_record,
+        )
+        token_usage["trace_id"] = trace_id
+        token_usage["_generation_trace"] = trace
+
+    # TaskSpec이 즉시 생성을 결정했는데 상위 agent가 도구 호출을 놓치거나 잘못 질문한 경우,
+    # 같은 결정을 다시 LLM 라우팅에 맡기지 않고 생성기를 한 번 직접 호출한다.
+    if initial_dump == final_graph.model_dump():
+        should_fallback_generate = (
+            not initial_dump.get("nodes")
+            and active_task_spec is not None
+            and active_task_spec.request_kind == "create"
+            and not active_task_spec.clarification_required
+        )
+        if should_fallback_generate:
+            fallback_timeout = float(os.getenv("LLM_GENERATION_FALLBACK_TIMEOUT_SECONDS", "75"))
+            fallback_request = f"{message}\n\n{build_task_spec_context(active_task_spec)}"
+            try:
+                generated = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        generate_flow, fallback_request, complexity_level=complexity_level,
+                    ),
+                    timeout=fallback_timeout,
+                )
+                final_graph, fallback_notes, fallback_issues = await repair_flow_after_agent(
+                    generated,
+                    message,
+                    complexity_level=complexity_level,
+                    task_spec=active_task_spec,
+                )
+                clarification = None
+                if not fallback_issues:
+                    reply = "워크플로우를 생성했습니다."
+                    if not fallback_notes:
+                        fallback_notes.append("TaskSpec에 따라 직접 생성")
+                else:
+                    reply += (
+                        "\n\n(자동 생성 폴백 후 남은 문제: "
+                        + "; ".join(issue.message for issue in fallback_issues)
+                        + ")"
+                    )
+            except asyncio.TimeoutError:
+                clarification = None
+                reply += f"\n\n(자동 생성 폴백이 {fallback_timeout:g}초 시간 제한에 도달했습니다.)"
+            except Exception as exc:
+                clarification = None
+                reply += f"\n\n(자동 생성 폴백 실패: {exc})"
+
+    # 대화이거나 폴백 생성도 그래프를 만들지 못했다면 원본을 유지한다.
     if initial_dump == final_graph.model_dump():
         if handler and hasattr(handler, 'flush'):
             handler.flush()
+        if clarification:
+            outcome, trace_status, trace_issues = "clarification", "completed", []
+        elif active_task_spec is not None and active_task_spec.request_kind == "create":
+            outcome, trace_status = "no_graph", "failed"
+            trace_issues = [{
+                "code": "NO_GRAPH",
+                "message": "생성 요청이 그래프를 반환하지 않았다.",
+                "repairable": True,
+            }]
+        else:
+            outcome, trace_status, trace_issues = "chat", "completed", []
+        attach_trace(
+            graph_data,
+            outcome=outcome,
+            status=trace_status,
+            issues=trace_issues,
+            notes=fallback_notes,
+        )
         return reply, graph_data, token_usage, clarification
 
-    ok, errs = validate_flow(final_graph, require_complete=False)  # 에디터 편집 중일 수 있으므로 완결성 검증은 완화
+    is_new_generation = not initial_dump.get("nodes") and bool(final_graph.nodes)
+    ok, errs = validate_flow(final_graph, require_complete=is_new_generation)
+    trace_issue_models: List[Any] = validation_issues(errs)
+    coverage_issues = (
+        task_coverage_issues(active_task_spec, final_graph.model_dump())
+        if ok and is_new_generation and active_task_spec is not None else []
+    )
+    if coverage_issues:
+        ok = False
+        errs = [issue.message for issue in coverage_issues]
+        trace_issue_models = coverage_issues
+
+    repair_notes = list(fallback_notes)
+    if not ok and is_new_generation:
+        repaired_graph, repair_notes, repaired_issues = await repair_flow_after_agent(
+            final_graph, message, complexity_level=complexity_level, task_spec=active_task_spec,
+        )
+        if not repaired_issues:
+            final_graph = repaired_graph
+            ok, errs = True, []
+            trace_issue_models = []
+        else:
+            final_graph = repaired_graph
+            trace_issue_models = repaired_issues
+            last_valid_graph = get_last_valid_graph()
+            has_intent_issues = any(issue.code.startswith("INTENT_") for issue in repaired_issues)
+            if last_valid_graph is not None and not has_intent_issues:
+                final_graph = last_valid_graph
+                ok, errs = True, []
+                trace_issue_models = []
+                repair_notes.append("마지막 검증 통과 그래프로 복원")
+            else:
+                errs = [issue.message for issue in repaired_issues]
     
     # 캔버스에는 항상 반영 (에러가 있어도 사용자가 눈으로 보고 수정할 수 있도록)
     response_graph_data = auto_layout(final_graph)
+
+    if repair_notes and ok:
+        reply += f"\n\n(자동 구조 수정: {'; '.join(repair_notes)})"
     
     if not ok:
         reply += f"\n\n(⚠️ 일부 구조적 문제가 있어 확인이 필요합니다: {'; '.join(errs)})"
 
     if handler and hasattr(handler, 'flush'):
         handler.flush()
+
+    attach_trace(
+        response_graph_data,
+        outcome="graph",
+        status="completed" if ok else "failed",
+        issues=[] if ok else trace_issue_models,
+        notes=repair_notes,
+    )
 
     return reply, response_graph_data, token_usage, clarification
 

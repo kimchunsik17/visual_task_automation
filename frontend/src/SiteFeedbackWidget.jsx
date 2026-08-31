@@ -1,101 +1,108 @@
-import React, { useState, useEffect } from 'react';
-import { Star, X, MessageSquarePlus, CheckCircle2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ArrowRight, Send, Star, X, MessageSquarePlus } from 'lucide-react';
+import { Icon } from './icons';
 import axios from 'axios';
+import './SiteFeedbackWidget.css';
 
-const CATEGORIES = [
-  {
-    title: 'LLM 기반 워크플로우 생성 퀄리티',
-    questions: [
-      ['gen_intent_match', '프롬프트 입력 시 사용자가 의도한 대로 워크플로우가 정확하게 생성되는가'],
-      ['gen_logic_match', 'LLM이 제안한 자동화 단계가 실제 업무 로직과 잘 일치하는가'],
-      ['gen_edit_convenience', '자동 생성된 워크플로우를 사용자가 상황에 맞게 수정하고 편집하기 편리한가'],
-      ['gen_detail_completeness', '복잡한 조건을 요구했을 때 누락 없이 디테일한 부분까지 잘 반영하여 생성하는가'],
-    ],
-  },
-  {
-    title: 'UI/UX 및 사용 편의성',
-    questions: [
-      ['ux_intuitiveness', '전반적인 인터페이스가 직관적이고 처음 접속해도 적응하기 쉬운가'],
-      ['ux_visual_clarity', '복잡한 자동화 흐름을 시각적으로 쉽게 파악할 수 있도록 화면이 구성되었는가'],
-      ['ux_menu_layout', '메뉴 및 기능 버튼의 배치가 업무 흐름을 방해하지 않고 자연스러운가'],
-      ['ux_customization', '다크모드 지원이나 화면 분할 등 작업 환경을 커스터마이징하기 좋은가'],
-    ],
-  },
-  {
-    title: '시스템 성능 및 안정성',
-    questions: [
-      ['perf_speed', '워크플로우가 실행될 때 지연 없이 빠른 속도로 처리되는가'],
-      ['perf_stability', '작업 실행 중 원인을 알 수 없는 오류나 멈춤 현상이 발생하지 않는가'],
-      ['perf_error_clarity', '에러가 발생했을 때 어디서 문제가 생겼는지 명확하고 쉽게 안내해 주는가'],
-    ],
-  },
-  {
-    title: '외부 서비스 연동 및 확장성',
-    questions: [
-      ['integration_smoothness', '평소 자주 사용하는 외부 서비스나 앱과의 연동이 매끄럽게 이루어지는가'],
-      ['integration_extensibility', '새로운 API를 추가하거나 커스텀 기능을 설정하는 과정이 편리한가'],
-    ],
-  },
-];
+// 점수 옆에 말로 뜻을 붙인다 — 별 개수만 보고 "3점이 보통인가?" 를 고민하지 않게.
+const SCORE_LABELS = ['', '별로예요', '아쉬워요', '보통이에요', '좋아요', '아주 좋아요'];
+const SKIPPED = 'skip';
 
-const TOTAL_QUESTIONS = CATEGORIES.reduce((sum, c) => sum + c.questions.length, 0);
-
-const StarRating = ({ value, onChange }) => (
-  <div style={{ display: 'flex', gap: '0.25rem' }}>
-    {[1, 2, 3, 4, 5].map((n) => (
-      <button
-        key={n}
-        type="button"
-        onClick={() => onChange(n)}
-        title={`${n}점`}
-        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '0.15rem', display: 'flex' }}
-      >
-        <Star
-          size={20}
-          color={n <= value ? '#f59e0b' : 'var(--border-color)'}
-          fill={n <= value ? '#f59e0b' : 'none'}
-        />
-      </button>
-    ))}
+const StarRating = ({ value, onChange, questionTitle }) => (
+  <div className="feedback-stars" role="group" aria-label={`${questionTitle} 점수`}>
+    {[1, 2, 3, 4, 5].map((n) => {
+      const on = typeof value === 'number' && n <= value;
+      return (
+        <button
+          key={n}
+          type="button"
+          className={on ? 'is-on' : ''}
+          onClick={() => onChange(n)}
+          aria-label={`${n}점 ${SCORE_LABELS[n]}`}
+          aria-pressed={value === n}
+        >
+          <Star size={22} fill={on ? 'currentColor' : 'none'} />
+        </button>
+      );
+    })}
   </div>
 );
 
 const SiteFeedbackWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [scores, setScores] = useState({});
+  const [sections, setSections] = useState([]);
+  const [loadFailed, setLoadFailed] = useState(false);
+  // 값은 1~5 또는 SKIPPED('잘 모르겠어요'). 둘 다 "답했다"로 치되 SKIPPED 는 서버에 보내지 않는다.
+  const [answers, setAnswers] = useState({});
   const [comment, setComment] = useState('');
+  const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
 
-  useEffect(() => {
+  const authHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
-    if (!token) return;
-    axios.get('/api/site-feedback/me', { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => setAlreadySubmitted(!!res.data.submitted))
-      .catch((e) => console.error('Failed to check site feedback status', e));
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 
-  const answeredCount = Object.keys(scores).length;
-  const isComplete = answeredCount === TOTAL_QUESTIONS;
+  useEffect(() => {
+    if (!localStorage.getItem('token')) return;
+    axios.get('/api/site-feedback/me', { headers: authHeaders() })
+      .then((res) => setAlreadySubmitted(!!res.data.submitted))
+      .catch((e) => console.error('Failed to check site feedback status', e));
+  }, [authHeaders]);
 
-  const setScore = (key, val) => setScores((prev) => ({ ...prev, [key]: val }));
+  // 문항 정본은 서버에 있다. 여기에 같은 목록을 두면 한쪽만 고쳐졌을 때 조용히 갈라진다.
+  useEffect(() => {
+    if (!isOpen || sections.length > 0) return;
+    axios.get('/api/site-feedback/questions')
+      .then((res) => setSections(res.data?.sections || []))
+      .catch(() => setLoadFailed(true));
+  }, [isOpen, sections.length]);
+
+  // 마지막 한 걸음은 자유 의견이다 — 문항 구획 뒤에 붙는다.
+  const totalSteps = sections.length + 1;
+  const isCommentStep = step >= sections.length;
+  const currentSection = sections[step];
+
+  const allQuestions = useMemo(
+    () => sections.flatMap((section) => section.questions),
+    [sections],
+  );
+  const ratedCount = useMemo(
+    () => allQuestions.filter((q) => typeof answers[q.key] === 'number').length,
+    [allQuestions, answers],
+  );
+  const remainingHere = currentSection
+    ? currentSection.questions.filter((q) => answers[q.key] === undefined).length
+    : 0;
+
+  const setAnswer = (key, value) => setAnswers((prev) => ({ ...prev, [key]: value }));
+
+  const close = () => setIsOpen(false);
 
   const handleSubmit = async () => {
-    if (!isComplete || alreadySubmitted) return;
+    if (alreadySubmitted || isSubmitting) return;
+    const scores = Object.fromEntries(
+      Object.entries(answers).filter(([, value]) => typeof value === 'number'),
+    );
+    if (Object.keys(scores).length === 0) {
+      alert('점수를 매긴 문항이 하나도 없습니다. 한 문항이라도 별점을 남겨주세요.');
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      await axios.post('/api/site-feedback', { scores, comment: comment.trim() || null }, { headers });
-      alert('소중한 의견 감사합니다! 서비스 개선에 반영하겠습니다.');
-      setScores({});
+      await axios.post('/api/site-feedback', { scores, comment: comment.trim() || null },
+                       { headers: authHeaders() });
+      setAnswers({});
       setComment('');
+      setStep(0);
       setIsOpen(false);
       setAlreadySubmitted(true);
+      alert('소중한 의견 감사합니다! 서비스 개선에 반영하겠습니다.');
     } catch (error) {
       console.error(error);
       if (error.response?.status === 409) {
-        // 다른 탭 등에서 이미 제출한 경우 — 서버가 최종적으로 막아준다
+        // 다른 탭에서 이미 냈다. 막는 것은 서버이므로 화면 상태만 맞춰 준다.
         setAlreadySubmitted(true);
         setIsOpen(false);
       }
@@ -105,118 +112,155 @@ const SiteFeedbackWidget = () => {
     }
   };
 
+  const renderQuestion = (question, index) => {
+    const value = answers[question.key];
+    const skipped = value === SKIPPED;
+    return (
+      <div
+        key={question.key}
+        className={`feedback-question ${value !== undefined ? 'is-answered' : ''} ${skipped ? 'is-skipped' : ''}`}
+      >
+        <div className="feedback-question-copy">
+          <span className="feedback-question-no">{index + 1}.</span>
+          <span>
+            <strong>{question.title}</strong>
+            <span>{question.help}</span>
+          </span>
+        </div>
+        <div className="feedback-answer">
+          <StarRating
+            value={skipped ? 0 : value}
+            onChange={(n) => setAnswer(question.key, n)}
+            questionTitle={question.title}
+          />
+          <span className={`feedback-answer-label ${typeof value === 'number' ? '' : 'is-empty'}`}>
+            {typeof value === 'number' ? SCORE_LABELS[value] : skipped ? '건너뜀' : '선택 전'}
+          </span>
+          <button
+            type="button"
+            className={`feedback-skip ${skipped ? 'is-on' : ''}`}
+            onClick={() => setAnswer(question.key, skipped ? undefined : SKIPPED)}
+            aria-pressed={skipped}
+          >
+            잘 모르겠어요
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <button
+        type="button"
+        className={`feedback-fab ${alreadySubmitted ? 'is-done' : ''}`}
         onClick={() => setIsOpen(true)}
-        style={{
-          position: 'fixed',
-          right: '1.5rem',
-          bottom: '1.5rem',
-          zIndex: 900,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          padding: '0.75rem 1.1rem',
-          borderRadius: '999px',
-          background: alreadySubmitted ? 'var(--card-bg)' : 'var(--primary-color)',
-          color: alreadySubmitted ? 'var(--text-muted)' : '#fff',
-          border: alreadySubmitted ? '1px solid var(--border-color)' : 'none',
-          boxShadow: '0 6px 18px rgba(0, 0, 0, 0.3)',
-          cursor: 'pointer',
-          fontSize: '0.85rem',
-          fontWeight: 600,
-        }}
         title={alreadySubmitted ? '이미 평가를 제출하셨습니다' : '웹사이트 평가하기'}
       >
-        {alreadySubmitted ? <CheckCircle2 size={18} /> : <MessageSquarePlus size={18} />}
+        {alreadySubmitted ? <Icon name="status-success" size={17} /> : <MessageSquarePlus size={17} />}
         {alreadySubmitted ? '평가 완료' : '웹사이트 평가하기'}
       </button>
 
       {isOpen && (
-        <div
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
+        <div className="feedback-overlay" role="dialog" aria-modal="true" aria-label="웹사이트 평가">
           {alreadySubmitted ? (
-            <div
-              style={{
-                backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)',
-                borderRadius: '12px', width: '360px', maxWidth: '92vw',
-                padding: '2rem', position: 'relative', display: 'flex', flexDirection: 'column',
-                alignItems: 'center', textAlign: 'center', gap: '0.75rem',
-              }}
-            >
-              <button
-                onClick={() => setIsOpen(false)}
-                style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-              >
-                <X size={20} />
-              </button>
-              <CheckCircle2 size={40} color="#10b981" />
-              <h2 style={{ margin: 0, color: 'var(--text-color)', fontSize: '1.1rem' }}>이미 평가를 제출하셨습니다</h2>
-              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                소중한 의견 감사합니다! 평가는 계정당 한 번만 제출할 수 있어요.
-              </p>
+            <div className="feedback-done">
+              <button type="button" className="feedback-close" onClick={close} aria-label="닫기"><X size={18} /></button>
+              <Icon name="status-success" size={38} color="#10b981" />
+              <h2>이미 평가를 제출하셨습니다</h2>
+              <p>소중한 의견 감사합니다. 평가는 계정당 한 번만 남길 수 있어요.</p>
             </div>
           ) : (
-          <div
-            style={{
-              backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)',
-              borderRadius: '12px', width: '640px', maxWidth: '92vw', maxHeight: '85vh',
-              padding: '1.5rem', position: 'relative', display: 'flex', flexDirection: 'column',
-            }}
-          >
-            <button
-              onClick={() => setIsOpen(false)}
-              style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-            >
-              <X size={20} />
-            </button>
-
-            <h2 style={{ margin: '0 0 0.25rem 0', color: 'var(--text-color)', fontSize: '1.3rem' }}>⭐ 웹사이트 평가하기</h2>
-            <p style={{ margin: '0 0 1.25rem 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              각 문항을 1~5점으로 평가해주세요 ({answeredCount}/{TOTAL_QUESTIONS})
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto', paddingRight: '0.5rem', flex: 1 }}>
-              {CATEGORIES.map((cat) => (
-                <div key={cat.title} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-color)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-                    {cat.title}
-                  </h3>
-                  {cat.questions.map(([key, label]) => (
-                    <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-color)', lineHeight: 1.4 }}>{label}</span>
-                      <StarRating value={scores[key] || 0} onChange={(v) => setScore(key, v)} />
-                    </div>
-                  ))}
+            <div className="feedback-modal">
+              <header className="feedback-head">
+                <div className="feedback-head-copy">
+                  <h2>웹사이트 평가하기</h2>
+                  <p>{isCommentStep
+                    ? '마지막이에요. 하고 싶은 말이 있다면 자유롭게 남겨주세요.'
+                    : '네 문항씩 나눠서 여쭤볼게요. 편하게 느낀 대로 골라주세요.'}</p>
                 </div>
-              ))}
+                <button type="button" className="feedback-close" onClick={close} aria-label="닫기"><X size={18} /></button>
+              </header>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-color)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-                  추가 의견 (선택)
-                </h3>
-                <textarea
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="자유롭게 의견을 남겨주세요..."
-                  style={{ width: '100%', minHeight: '70px', padding: '0.6rem', borderRadius: '6px', background: 'var(--btn-active-bg)', color: 'var(--text-color)', border: '1px solid var(--border-color)', resize: 'vertical', fontFamily: 'inherit' }}
-                />
+              {sections.length > 0 && (
+                <div className="feedback-steps">
+                  <div className="feedback-steps-track" aria-hidden="true">
+                    {Array.from({ length: totalSteps }).map((unused, index) => (
+                      <i
+                        key={index}
+                        className={index < step ? 'is-done' : index === step ? 'is-current' : ''}
+                      />
+                    ))}
+                  </div>
+                  <small>{step + 1} / {totalSteps} 단계</small>
+                </div>
+              )}
+
+              <div className="feedback-body">
+                {loadFailed ? (
+                  <p className="feedback-loading">문항을 불러오지 못했습니다. 잠시 후 다시 열어주세요.</p>
+                ) : sections.length === 0 ? (
+                  <p className="feedback-loading">문항을 불러오는 중…</p>
+                ) : isCommentStep ? (
+                  <div className="feedback-comment">
+                    <label htmlFor="feedback-comment-input">더 하고 싶은 말 (선택)</label>
+                    <textarea
+                      id="feedback-comment-input"
+                      value={comment}
+                      onChange={(event) => setComment(event.target.value)}
+                      placeholder="불편했던 점, 있으면 좋겠는 기능 등 무엇이든 좋아요."
+                    />
+                    <div className="feedback-recap">
+                      <Icon name="status-success" size={16} />
+                      <span>
+                        전체 {allQuestions.length}문항 중 <strong>{ratedCount}문항</strong>에 점수를 남기셨어요.
+                        {ratedCount < allQuestions.length && ' 나머지는 ‘잘 모르겠어요’로 넘어갑니다.'}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h3 className="feedback-section-title">{currentSection.title}</h3>
+                    <p className="feedback-section-hint">{currentSection.hint}</p>
+                    {currentSection.questions.map(renderQuestion)}
+                  </>
+                )}
               </div>
-            </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border-color)' }}>
-              <button className="btn-secondary" onClick={() => setIsOpen(false)} disabled={isSubmitting}>취소</button>
-              <button className="btn-run" onClick={handleSubmit} disabled={isSubmitting || !isComplete}>
-                {isSubmitting ? '제출 중...' : isComplete ? '제출하기' : `${TOTAL_QUESTIONS - answeredCount}개 문항 남음`}
-              </button>
+              <footer className="feedback-foot">
+                {step > 0 && (
+                  <button type="button" className="feedback-btn" onClick={() => setStep((s) => s - 1)}>
+                    <ArrowLeft size={15} /> 이전
+                  </button>
+                )}
+                <span className="feedback-foot-note">
+                  {isCommentStep
+                    ? '제출하면 수정할 수 없어요.'
+                    : remainingHere > 0
+                      ? `이 단락에서 ${remainingHere}문항 남았어요.`
+                      : '다 고르셨어요. 다음으로 넘어가세요.'}
+                </span>
+                {isCommentStep ? (
+                  <button
+                    type="button"
+                    className="feedback-btn is-primary"
+                    onClick={handleSubmit}
+                    disabled={isSubmitting || ratedCount === 0}
+                  >
+                    <Send size={15} /> {isSubmitting ? '제출 중…' : '평가 제출하기'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="feedback-btn is-primary"
+                    onClick={() => setStep((s) => s + 1)}
+                    disabled={sections.length === 0 || remainingHere > 0}
+                  >
+                    {step === sections.length - 1 ? '마지막 단계로' : '다음 단락'} <ArrowRight size={15} />
+                  </button>
+                )}
+              </footer>
             </div>
-          </div>
           )}
         </div>
       )}

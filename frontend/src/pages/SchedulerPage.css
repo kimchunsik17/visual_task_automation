@@ -369,14 +369,7 @@
   gap: 1rem;
 }
 
-.logs-modal-body::-webkit-scrollbar {
-  width: 6px;
-}
-
-.logs-modal-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
+/* 스크롤바는 index.css 의 전역 규칙을 따른다(페이지별 override 제거). */
 
 .no-logs {
   text-align: center;

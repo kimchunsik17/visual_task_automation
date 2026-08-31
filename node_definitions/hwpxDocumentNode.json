@@ -1,0 +1,90 @@
+{
+  "type": "hwpxDocumentNode",
+  "version": 1,
+  "category": "document",
+  "display": {
+    "label": "HWPX 문서",
+    "icon": "node-template-analyzer",
+    "color": "#0ea5e9"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    },
+    {
+      "name": "source",
+      "dataType": "artifact",
+      "label": "살펴볼 파일"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "동작",
+      "default": "create",
+      "options": [
+        {
+          "value": "create",
+          "label": "새 문서 만들기"
+        },
+        {
+          "value": "inspect",
+          "label": "빈칸·구조 살펴보기"
+        },
+        {
+          "value": "validate",
+          "label": "문서 검사하기"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(hwpxDocumentNode)에 mode가 없다"
+        }
+      ]
+    },
+    {
+      "name": "output_path",
+      "kind": "text",
+      "label": "저장할 파일 이름",
+      "showWhen": {
+        "field": "mode",
+        "equals": "create"
+      },
+      "placeholder": "비우면 제목을 따서 자동으로 지어집니다"
+    },
+    {
+      "name": "source",
+      "kind": "attachments",
+      "label": "살펴볼 HWPX 파일",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "inspect",
+          "validate"
+        ]
+      },
+      "ui": {
+        "help": "앞 노드가 만든 .hwpx 를 자동으로 받거나, 올려둔 파일에서 직접 고를 수 있습니다."
+      }
+    }
+  ],
+  "credentials": [],
+  "capabilities": [
+    "filesystem"
+  ],
+  "sideEffect": "none",
+  "executor": "hwpxDocumentNode",
+  "mock": {},
+  "llm": {
+    "description": "한/글 문서(.hwpx)를 서식 파일 없이 처음부터 만든다. 서버에 한컴 오피스가 없어도 동작한다.\n                   data.mode(문자열): \"create\"(새 문서 만들기 · 기본값), \"inspect\"(기존 .hwpx의 빈칸과\n                   구조를 살펴보기), \"validate\"(문서가 열리는 상태인지 검사).\n                   create 모드는 직전 노드가 준 JSON(DocumentSpec)으로 문서를 만든다 — 그래서 보통\n                   llmNode 바로 뒤에 붙이고, 그 llmNode가 아래 형식의 JSON을 만들게 한다.\n                   {\"title\": \"제목\", \"blocks\": [{\"type\": \"heading\", \"level\": 1, \"text\": \"...\"},\n                   {\"type\": \"paragraph\", \"text\": \"...\"},\n                   {\"type\": \"table\", \"columns\": [\"열1\", \"열2\"], \"rows\": [[\"값1\", \"값2\"]]},\n                   {\"type\": \"page_break\"}]}.\n                   지원하는 블록은 heading·paragraph·table·image·page_break 다섯 가지뿐이고, 그 밖의\n                   것(도형·수식·차트)을 넣으면 조용히 빠지지 않고 오류가 난다.\n                   data.output_path(문자열, 선택 — 경로가 아니라 파일 이름이고, 비우면 제목을 따서 자동으로 지어진다).\n                   ⚠️ 이미 있는 서식의 빈칸을 채우는 것이라면 이 노드가 아니라\n                   templateAnalyzerNode → llmNode → fileModifierNode 를 쓴다.\n                   ⚠️ **프리셋이 있는 정형 문서면 이 노드가 아니라 formatNode 다** — 시말서·제안서·\n                   입사지원서·회의록·공문, 그리고 포스터·팜플렛은 빈칸만 채우면 되고 앞에서 llmNode 가\n                   DocumentSpec JSON 을 만들 필요가 없다(정형 데이터는 바인딩으로 곧바로 꽂는다).\n                   이 노드는 프리셋에 없는 **자유 구조 문서**를 만들 때만 쓴다.\n                   inspect/validate 모드는 살펴볼 파일이 필요한데, 경로가 아니라 **앞 노드가 만든 파일**을 받는다 —\n                   hwpxDocumentNode(create) 나 fileModifierNode 뒤에 이어 붙이면 자동으로 연결된다.\n"
+  }
+}

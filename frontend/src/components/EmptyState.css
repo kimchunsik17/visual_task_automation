@@ -1,0 +1,89 @@
+/*
+ * 공통 빈 상태 블록.
+ * DESIGN_SYSTEM_AUDIT_AND_MODERNIZATION_PLAN.md §7.2 의 EmptyState 사양 —
+ * illustration + title + description + primary action 1개.
+ *
+ * §3.2 지적("빈 상태가 큰 Card 안에 다시 버튼을 담는 방식이라 공간이 과도하게 비어 보인다")과
+ * §8 "Empty State 축소"에 따라 카드 배경/테두리를 두지 않는다.
+ * 일러스트 자체가 점선이라 dashed 카드를 한 겹 더 두르면 의미가 중복된다.
+ *
+ * 클래스 이름을 .empty-state 가 아니라 .wf-empty 로 둔 이유: .empty-state 는
+ * SchedulerPage/BotManagerPage/EvaluationPage/TemplateModal CSS 가 이미 쓰고 있다.
+ */
+.wf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 1rem 1rem 1.75rem;
+}
+
+/*
+ * max-width 는 <svg> 가 아니라 이 래퍼가 갖는다 — <svg> 에 인라인으로 주면
+ * 인라인 스타일이 아래 미디어 쿼리를 이겨서 모바일 축소가 동작하지 않는다.
+ * --wf-empty-art 는 EmptyState 가 artWidth prop 으로 넣어준다.
+ */
+.wf-empty__art {
+  width: 100%;
+  max-width: var(--wf-empty-art, 180px);
+  margin-bottom: 1rem;
+  color: var(--text-muted);
+}
+
+.wf-empty__art > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.wf-empty__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-color);
+}
+
+.wf-empty__desc {
+  margin: 0.4rem 0 0;
+  /* ch 는 라틴 글자폭 기준이라 한글에서 줄이 엉뚱하게 끊긴다. rem + keep-all 로 잡는다. */
+  max-width: 30rem;
+  word-break: keep-all;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.wf-empty__action {
+  margin-top: 1.125rem;
+}
+
+.wf-empty__action > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 모바일(390px)에서 일러스트가 화면을 잡아먹지 않게 축소한다. */
+@media (max-width: 640px) {
+  .wf-empty {
+    padding: 0.5rem 0.75rem 1.25rem;
+  }
+
+  .wf-empty__art {
+    max-width: min(var(--wf-empty-art, 180px), 132px);
+    margin-bottom: 0.875rem;
+  }
+
+  .wf-empty__title {
+    font-size: 0.98rem;
+  }
+
+  .wf-empty__desc {
+    font-size: 0.82rem;
+  }
+
+  .wf-empty__action {
+    margin-top: 1rem;
+  }
+}

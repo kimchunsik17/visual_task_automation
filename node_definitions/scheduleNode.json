@@ -1,0 +1,39 @@
+{
+  "type": "scheduleNode",
+  "version": 1,
+  "category": "trigger",
+  "display": {
+    "label": "스케줄 (시작)",
+    "icon": "node-schedule",
+    "color": "#8b5cf6"
+  },
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "cronExpression",
+      "kind": "text",
+      "label": "Cron 표현식",
+      "placeholder": "0 7 * * *",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(scheduleNode)에 cronExpression이 없다"
+        }
+      ]
+    }
+  ],
+  "credentials": [],
+  "capabilities": [],
+  "sideEffect": "none",
+  "executor": "scheduleNode",
+  "mock": {},
+  "llm": {
+    "description": "주기적으로 자동 실행되는 플로우의 시작점. data.cronExpression(문자열, 예: \"0 7 * * *\"). startNode 대신 사용한다.\n"
+  }
+}

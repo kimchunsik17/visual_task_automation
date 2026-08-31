@@ -1,0 +1,92 @@
+/* 템플릿 수정 창. 겉면과 로직을 시각적으로도 갈라 놓는다 — 두 가지의 결과가 다르다. */
+.tpledit-backdrop {
+  display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0; z-index: 1150; padding: 1.25rem;
+  background: rgba(2, 6, 23, 0.68); backdrop-filter: blur(2px); box-sizing: border-box;
+}
+.tpledit-modal {
+  display: flex; flex-direction: column;
+  width: min(100%, 660px); max-height: min(90vh, 900px);
+  border: 1px solid var(--border-color); border-radius: 16px;
+  background: var(--card-bg); box-shadow: 0 26px 70px rgba(2, 6, 23, 0.42); overflow: hidden;
+}
+.tpledit-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.1rem 1.25rem 0.8rem;
+}
+.tpledit-head h2 { margin: 0; color: var(--text-color); font-size: 1rem; font-weight: 670; }
+.tpledit-head button {
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 1px solid transparent; border-radius: 8px; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+}
+.tpledit-head button:hover { border-color: var(--border-color); color: var(--text-color); }
+
+.tpledit-body { flex: 1; min-height: 0; padding: 0 1.25rem 1rem; overflow-y: auto; }
+.tpledit-body section + section { margin-top: 1.4rem; }
+.tpledit-body h3 {
+  margin: 0 0 0.35rem; padding-bottom: 0.45rem; border-bottom: 1px solid var(--border-color);
+  color: var(--text-color); font-size: 0.86rem; font-weight: 650;
+}
+.tpledit-hint { margin: 0 0 0.9rem; color: var(--text-muted); font-size: 0.74rem; line-height: 1.6; }
+.tpledit-hint strong { color: var(--text-color); font-weight: 620; }
+.tpledit-body label {
+  display: block; margin: 0.75rem 0 0.3rem;
+  color: var(--text-color); font-size: 0.76rem; font-weight: 570;
+}
+.tpledit-body input, .tpledit-body select, .tpledit-body textarea {
+  width: 100%; padding: 0.5rem 0.62rem; box-sizing: border-box;
+  border: 1px solid var(--border-color); border-radius: 9px;
+  background: var(--bg-color); color: var(--text-color);
+  font-family: inherit; font-size: 0.8rem; line-height: 1.55;
+}
+.tpledit-body textarea { resize: vertical; }
+.tpledit-body #tpledit-intro { font-family: var(--font-mono, monospace); font-size: 0.76rem; }
+.tpledit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+
+.tpledit-images { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.3rem; }
+.tpledit-image {
+  position: relative; width: 92px; height: 68px; overflow: hidden;
+  border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-color);
+}
+.tpledit-image.is-thumb { border-color: #f59e0b; box-shadow: 0 0 0 1px #f59e0b inset; }
+.tpledit-image img { width: 100%; height: 100%; object-fit: cover; }
+.tpledit-image button {
+  display: grid; place-items: center; position: absolute; width: 20px; height: 20px; padding: 0;
+  border: 0; border-radius: 6px; background: rgba(2, 6, 23, 0.68); color: #fff; cursor: pointer;
+}
+.tpledit-image-star { top: 4px; left: 4px; }
+.tpledit-image.is-thumb .tpledit-image-star { color: #fbbf24; }
+.tpledit-image-remove { top: 4px; right: 4px; }
+.tpledit-image-add {
+  display: grid; place-items: center; gap: 0.2rem;
+  width: 92px; height: 68px; margin: 0;
+  border: 1px dashed var(--border-color); border-radius: 9px;
+  color: var(--text-muted); cursor: pointer; font-size: 0.64rem;
+}
+.tpledit-image-add input { display: none; }
+
+/* 워크플로우 구획은 눈에 띄어야 한다 — 노드를 고친 사람이 아래 '소개만 저장' 을 누르고
+   반영이 안 됐다고 여기는 일이 실제로 있었다. */
+.tpledit-revise {
+  padding: 0.9rem 1rem 1rem; margin-bottom: 1.4rem;
+  border: 1px solid rgba(96, 165, 250, 0.42); border-radius: 12px;
+  background: rgba(96, 165, 250, 0.06);
+}
+.tpledit-revise h3 {
+  display: flex; align-items: center; gap: 0.4rem;
+  border-bottom: 0; padding-bottom: 0; color: #60a5fa;
+}
+.tpledit-revise-submit { margin-top: 0.9rem; }
+
+.tpledit-error { margin: 0 1.25rem; color: #f87171; font-size: 0.76rem; }
+.tpledit-foot {
+  display: flex; justify-content: flex-end; gap: 0.5rem;
+  padding: 0.85rem 1.25rem; border-top: 1px solid var(--border-color);
+}
+
+@media (max-width: 620px) {
+  .tpledit-backdrop { padding: 0; }
+  .tpledit-modal { width: 100%; height: 100%; max-height: 100%; border: 0; border-radius: 0; }
+  .tpledit-row { grid-template-columns: 1fr; }
+}

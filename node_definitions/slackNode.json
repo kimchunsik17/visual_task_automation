@@ -1,0 +1,54 @@
+{
+  "type": "slackNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "Slack 메세지",
+    "icon": "node-slack",
+    "color": "#0ea5e9",
+    "headerColor": "linear-gradient(135deg, #0ea5e9, #0284c7)"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "channel",
+      "kind": "text",
+      "label": "채널명 (예: #general)",
+      "placeholder": "#general",
+      "validation": [
+        {
+          "rule": "present",
+          "message": "{node_id}(slackNode)에 channel이 없다"
+        }
+      ]
+    },
+    {
+      "name": "message",
+      "kind": "textarea",
+      "label": "메시지",
+      "placeholder": "보낼 메시지를 입력하세요",
+      "ui": {
+        "draggable": true
+      }
+    }
+  ],
+  "credentials": [],
+  "capabilities": [],
+  "sideEffect": "external-write",
+  "executor": "slackNode",
+  "mock": {},
+  "llm": {
+    "description": "슬랙 메시지 발송. data.channel(문자열, 예: \"#general\"), data.message(문자열, 선택 — 직전 노드 출력과 함께 전송할 추가 메시지).\n"
+  }
+}

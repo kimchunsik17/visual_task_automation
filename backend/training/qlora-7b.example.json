@@ -1,0 +1,17 @@
+{
+  "base_model": "",
+  "train_file": "training/datasets/workflow-sft-v1/generation-train.jsonl",
+  "validation_file": "training/datasets/workflow-sft-v1/generation-validation.jsonl",
+  "output_dir": "training/outputs/workflow-7b-v1",
+  "max_seq_length": 4096,
+  "lora_rank": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "batch_size": 1,
+  "gradient_accumulation_steps": 16,
+  "learning_rate": 0.0002,
+  "epochs": 2,
+  "eval_steps": 50,
+  "save_steps": 50,
+  "seed": 42
+}

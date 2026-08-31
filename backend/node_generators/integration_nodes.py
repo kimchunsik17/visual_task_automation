@@ -1,17 +1,23 @@
 import datetime
 from node_registry import node_registry
+from node_bindings import bound_expr
 
 @node_registry.register('emailNode')
 def generate_email_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
+    # 실행 로직은 delivery_runtime.send_smtp 에 있다(ADR-0018, 우선 백로그 20). 예전에는 여기서
+    # MIMEMultipart 컨테이너를 만들어 놓고 실제로는 text/plain 본문 하나만 붙였다 — 첨부를 표현할
+    # 자리가 아예 없었고, 수신자·제목이 헤더에 그대로 들어가 개행 하나로 헤더를 덧붙일 수 있었다.
+    from .delivery_support import attachments_config, upstream_artifacts_expr
+
     lines.append(f"{indent}# --- Email Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    to_email = node.get('data', {}).get('toEmail', '').replace('"', '\\"')
-    subject = node.get('data', {}).get('subject', 'Auto Flow 알림').replace('"', '\\"')
-    
-    lines.append(f"{indent}import smtplib")
-    lines.append(f"{indent}from email.mime.text import MIMEText")
-    lines.append(f"{indent}from email.mime.multipart import MIMEMultipart")
+    to_email = node.get('data', {}).get('toEmail', '').replace('\\', '\\\\').replace('"', '\\"')
+    subject = node.get('data', {}).get('subject', 'Auto Flow 알림').replace('\\', '\\\\').replace('"', '\\"')
     smtp_credentials = node.get('data', {}).get('smtp_credentials', '').replace("'", "\\'")
+    upstream = prev_res_var if prev_res_var else 'last_result'
+
+    # 자격증명 해석은 예전과 같다 — API 센터 reference 면 .env 의 SMTP_USER/PASSWORD 를, 노드에
+    # 직접 넣은 `user:password` 면 그 값을 쓴다.
     lines.append(f"{indent}import os")
     lines.append(f"{indent}smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')")
     lines.append(f"{indent}smtp_port = int(os.getenv('SMTP_PORT', '587'))")
@@ -24,52 +30,43 @@ def generate_email_node(node_id, node, indent, active_llm_id, prev_res_var, visi
     lines.append(f"{indent}else:")
     lines.append(f"{indent}    smtp_user = os.getenv('SMTP_USER', '')")
     lines.append(f"{indent}    smtp_password = os.getenv('SMTP_PASSWORD', '')")
-    lines.append(f"{indent}email_body_{node_id} = str({prev_res_var if prev_res_var else 'last_result'})")
-    lines.append(f"{indent}msg = MIMEMultipart()")
-    lines.append(f"{indent}msg['From'] = smtp_user")
-    lines.append(f"{indent}msg['To'] = '{to_email}'")
-    lines.append(f"{indent}msg['Subject'] = '{subject}'")
-    lines.append(f"{indent}msg.attach(MIMEText(email_body_{node_id}, 'plain', 'utf-8'))")
 
-    lines.append(f"{indent}try:")
-    lines.append(f"{indent}    if not smtp_user or not smtp_password:")
-    lines.append(f"{indent}        raise ValueError('SMTP credentials missing in API Center or .env')")
-    lines.append(f"{indent}    server = smtplib.SMTP(smtp_server, smtp_port)")
-    lines.append(f"{indent}    server.starttls()")
-    lines.append(f"{indent}    server.login(smtp_user, smtp_password)")
-    lines.append(f"{indent}    server.send_message(msg)")
-    lines.append(f"{indent}    server.quit()")
-    lines.append(f"{indent}    print(f'\\n[Email Successfully Sent to {to_email}]\\n')")
-    # 예전엔 성공 시 'Email Successfully Sent to ...' 상태 문자열로 last_result를 덮어써서,
-    # 평가 기능이 실제 메일 내용이 아니라 이 문구를 놓고 채점하는 버그가 있었다(discordNode에서
-    # 먼저 발견됨). 실제 발송한 본문을 그대로 결과로 남긴다.
-    lines.append(f"{indent}    res_text_{node_id} = email_body_{node_id}")
-    lines.append(f"{indent}except Exception as e:")
-    lines.append(f"{indent}    print(f'\\n[Email Sending Failed: {{str(e)}}]\\n')")
-    # SMTP 자격증명 누락 등으로 실제 발송에 실패해도 이미 작성된 본문은 버리지 않는다
-    # (discordNode/kakaoNode와 동일한 이유 — 성공 케이스는 이미 이렇게 처리하고 있었다).
-    lines.append(f"{indent}    res_text_{node_id} = email_body_{node_id} + f'\\n\\n[⚠️ 이메일 발송 실패: {{str(e)}}]'")
+    lines.append(f"{indent}from delivery_runtime import send_smtp as _send_smtp")
+    lines.append(f"{indent}email_body_{node_id} = str({upstream}) if {upstream} is not None else ''")
+    lines.append(f"{indent}_email_res_{node_id} = _send_smtp(")
+    lines.append(f"{indent}    smtp_server=smtp_server, smtp_port=smtp_port,")
+    lines.append(f"{indent}    smtp_user=smtp_user, smtp_password=smtp_password,")
+    # 바인딩된 필드는 리터럴이 아니라 런타임 조회다(계획 §4) — bound_expr 가 둘 중 맞는 표현식을
+    # 만들어 준다. 바인딩이 없으면 repr 리터럴이라 이스케이프 걱정도 없다.
+    lines.append(f"{indent}    to_email={bound_expr(node, node_id, 'toEmail')}, "
+                 f"subject={bound_expr(node, node_id, 'subject', 'Auto Flow 알림')}, body=email_body_{node_id},")
+    lines.append(f"{indent}    db=db, owner_user_id=__owner_user_id__, project_id=kwargs.get('project_id'),")
+    lines.append(f"{indent}    attachments_config={attachments_config(node)!r},")
+    lines.append(f"{indent}    upstream_artifact_ids={upstream_artifacts_expr(node_id, incoming_edges)},")
+    lines.append(f"{indent}    upstream_text=email_body_{node_id}, node_id='{node_id}')")
+    # 성공/실패 모두 실제 본문을 결과로 남긴다 — 상태 문구로 덮어쓰면 평가 기능이 그 문구를 놓고
+    # 채점하는 버그가 재발한다(discordNode 에서 먼저 발견됐던 것과 같은 이유).
+    lines.append(f"{indent}res_text_{node_id} = str(_email_res_{node_id})")
     lines.append(f"{indent}last_result = res_text_{node_id}")
-    
-    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_email_res_{node_id})")
     next_edges = forward_edges.get(node_id, [])
     for target_id, handle in next_edges:
-        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)
 
 
 @node_registry.register('kakaoNode')
 def generate_kakao_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Kakao Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    access_token = node.get('data', {}).get('accessToken', '').replace('"', '\\"')
-    receiver = node.get('data', {}).get('receiver', '').replace('"', '\\"')
+    access_token = node.get('data', {}).get('accessToken', '').replace('\\', '\\\\').replace('"', '\\"')
+    receiver = node.get('data', {}).get('receiver', '').replace('\\', '\\\\').replace('"', '\\"')
     
     lines.append(f"{indent}import requests")
     lines.append(f"{indent}import json")
     lines.append(f"{indent}kakao_token_{node_id} = \"{access_token}\"")
     lines.append(f"{indent}kakao_msg_{node_id} = str({prev_res_var if prev_res_var else 'last_result'})")
     lines.append(f"{indent}kakao_msg_{node_id} = kakao_msg_{node_id}[:190] + '...' if len(kakao_msg_{node_id}) > 190 else kakao_msg_{node_id}")
-    lines.append(f"{indent}kakao_receiver_{node_id} = \"{receiver}\"")
+    lines.append(f"{indent}kakao_receiver_{node_id} = {bound_expr(node, node_id, 'receiver')}")
     
     lines.append(f"{indent}if kakao_token_{node_id}:")
     lines.append(f"{indent}    try:")
@@ -113,77 +110,36 @@ def generate_kakao_node(node_id, node, indent, active_llm_id, prev_res_var, visi
 
 @node_registry.register('discordNode')
 def generate_discord_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
-    # 이전엔 data.webhookUrl/data.message를 읽었는데, NODE_CATALOG/validate_flow/프론트는
-    # 전부 data.botToken(+data.channelId)를 쓴다 — 실제로는 항상 빈 webhookUrl이라
-    # 무슨 값을 넣어도 조용히 "Discord Webhook Skipped"만 되던 버그. botToken/channelId로 통일하고,
-    # botToken이 http로 시작하면 Webhook URL로, 아니면 실제 봇 토큰(Bot API)으로 취급한다
-    # (_summarize_node_data가 이미 이 두 모드를 그렇게 구분해서 표시하고 있었다).
+    # 실행 로직은 delivery_runtime.send_discord 에 있다(ADR-0018, 우선 백로그 20). 예전에는 여기서
+    # requests 호출을 문자열로 조립했고, 첨부는 **앞 노드의 결과 문자열에서 `uploads/...` 를
+    # 정규식으로 찾아** 그 경로를 그대로 열었다. 그 방식은 파일 소유자를 확인하지 않았고, 첨부가
+    # 생기면 payload_json.content 를 빈 값으로 만들어 사용자가 쓴 본문까지 지웠다.
+    #
+    # 이제 첨부는 타입으로 이어진다 — 선행 노드가 등록한 artifactId 를 첨부 포트에서 읽고,
+    # 소유·프로젝트·만료·형식·크기를 외부 호출 전에 전부 확인한다.
+    from .delivery_support import attachments_config, upstream_artifacts_expr
+
     lines.append(f"{indent}# --- Discord Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    bot_token = node.get('data', {}).get('botToken', '').replace('"', '\\"')
-    channel_id = node.get('data', {}).get('channelId', '').replace('"', '\\"')
+    bot_token = node.get('data', {}).get('botToken', '').replace('\\', '\\\\').replace('"', '\\"')
+    channel_id = node.get('data', {}).get('channelId', '').replace('\\', '\\\\').replace('"', '\\"')
+    upstream = prev_res_var if prev_res_var else 'last_result'
 
-    lines.append(f"{indent}import requests")
-    lines.append(f"{indent}import re, os, json")
-    lines.append(f"{indent}discord_token_{node_id} = \"{bot_token}\"")
-    lines.append(f"{indent}discord_channel_{node_id} = \"{channel_id}\"")
-    lines.append(f"{indent}discord_msg_{node_id} = str({prev_res_var if prev_res_var else 'last_result'})")
-    # posterGeneratorNode/fileModifierNode 등의 결과 문자열에 uploads/로 시작하는 생성 파일
-    # 경로가 섞여 있으면(AppViewerPage.jsx의 FILE_PATH_REGEX와 동일한 패턴) 그 경로를 텍스트로
-    # 그냥 보내는 대신 실제 파일로 첨부해서 보낸다.
-    lines.append(f"{indent}_discord_file_match_{node_id} = re.search(r'uploads/[^\\s\"\\'<>]+', discord_msg_{node_id})")
-    lines.append(f"{indent}_discord_file_path_{node_id} = _discord_file_match_{node_id}.group(0) if _discord_file_match_{node_id} and os.path.exists(_discord_file_match_{node_id}.group(0)) else None")
-    lines.append(f"{indent}if discord_token_{node_id}:")
-    lines.append(f"{indent}    try:")
-    lines.append(f"{indent}        if _discord_file_path_{node_id}:")
-    lines.append(f"{indent}            _discord_files_{node_id} = {{'files[0]': (os.path.basename(_discord_file_path_{node_id}), open(_discord_file_path_{node_id}, 'rb'))}}")
-    lines.append(f"{indent}            _discord_form_{node_id} = {{'payload_json': json.dumps({{'content': ''}})}}")
-    lines.append(f"{indent}        else:")
-    lines.append(f"{indent}            _discord_files_{node_id} = None")
-    lines.append(f"{indent}            _discord_form_{node_id} = None")
-    lines.append(f"{indent}        if discord_token_{node_id}.startswith('http'):")
-    lines.append(f"{indent}            if _discord_files_{node_id}:")
-    lines.append(f"{indent}                resp_{node_id} = requests.post(discord_token_{node_id}, data=_discord_form_{node_id}, files=_discord_files_{node_id}, timeout=30)")
-    lines.append(f"{indent}            else:")
-    lines.append(f"{indent}                resp_{node_id} = requests.post(discord_token_{node_id}, json={{'content': discord_msg_{node_id}}}, timeout=10)")
-    lines.append(f"{indent}        else:")
-    lines.append(f"{indent}            if not discord_channel_{node_id}.strip():")
-    lines.append(f"{indent}                raise ValueError('Channel ID is required for Bot Token mode')")
-    lines.append(f"{indent}            _discord_url_{node_id} = f'https://discord.com/api/v10/channels/{{discord_channel_{node_id}.strip()}}/messages'")
-    lines.append(f"{indent}            _discord_auth_header_{node_id} = {{'Authorization': f'Bot {{discord_token_{node_id}.strip()}}'}}")
-    lines.append(f"{indent}            if _discord_files_{node_id}:")
-    # multipart/form-data로 보낼 땐 Content-Type을 직접 지정하면 안 된다(requests가 파일 경계값을
-    # 포함한 헤더를 자기가 알아서 만든다) — 그래서 JSON 모드와 헤더를 따로 둔다.
-    lines.append(f"{indent}                resp_{node_id} = requests.post(_discord_url_{node_id}, headers=_discord_auth_header_{node_id}, data=_discord_form_{node_id}, files=_discord_files_{node_id}, timeout=30)")
-    lines.append(f"{indent}            else:")
-    lines.append(f"{indent}                resp_{node_id} = requests.post(")
-    lines.append(f"{indent}                    _discord_url_{node_id},")
-    lines.append(f"{indent}                    headers={{**_discord_auth_header_{node_id}, 'Content-Type': 'application/json'}},")
-    lines.append(f"{indent}                    json={{'content': discord_msg_{node_id}}}, timeout=10,")
-    lines.append(f"{indent}                )")
-    lines.append(f"{indent}        if resp_{node_id}.status_code in [200, 204]:")
-    lines.append(f"{indent}            print(f'\\n[Discord Send Success]\\n')")
-    # 예전엔 성공 시 last_result를 'Discord Send Success'라는 상태 문자열로 덮어써서,
-    # 평가 기능(evaluator)이 이 문자열을 놓고 채점해 항상 낮은 점수가 나오는 버그와,
-    # 뒤에 노드가 이어지면 실제 내용 대신 상태 문구만 전달되는 문제가 있었다. 실제로
-    # 발송한 메시지 내용을 그대로 결과로 남긴다 — discord_bot.py의 멘션-답장 흐름은
-    # (문자열 매칭이 아니라) 그래프 구조로 "discordNode가 마지막 노드인지"를 판단해서
-    # 중복 표시를 막으므로, 여기서 실제 내용을 남겨도 중복 메시지가 재발하지 않는다.
-    lines.append(f"{indent}            res_text_{node_id} = discord_msg_{node_id}")
-    lines.append(f"{indent}        else:")
-    lines.append(f"{indent}            print(f'\\n[Discord Send Failed: {{resp_{node_id}.status_code}} {{resp_{node_id}.text}}]\\n')")
-    # 발송 실패/스킵 시에도 이미 생성된 실제 내용은 버리지 않는다 — 상태 문구로만 덮어쓰면
-    # 평가 기능이나 사용자 모두 "무엇이 만들어졌는지"를 볼 수 없게 된다(성공 케이스와 동일한 이유).
-    lines.append(f"{indent}            res_text_{node_id} = discord_msg_{node_id} + f'\\n\\n[⚠️ Discord 발송 실패: {{resp_{node_id}.status_code}}]'")
-    lines.append(f"{indent}    except Exception as e:")
-    lines.append(f"{indent}        print(f'\\n[Discord Error: {{str(e)}}]\\n')")
-    lines.append(f"{indent}        res_text_{node_id} = discord_msg_{node_id} + f'\\n\\n[⚠️ Discord 발송 오류: {{str(e)}}]'")
-    lines.append(f"{indent}else:")
-    lines.append(f"{indent}    print(f'\\n[Discord Skipped: No Bot Token/Webhook provided]\\n')")
-    lines.append(f"{indent}    res_text_{node_id} = discord_msg_{node_id} + '\\n\\n[⚠️ Discord 봇 토큰/웹훅이 설정되지 않아 실제 발송은 되지 않았습니다]'")
-
+    lines.append(f"{indent}from delivery_runtime import send_discord as _send_discord")
+    lines.append(f"{indent}discord_msg_{node_id} = str({upstream}) if {upstream} is not None else ''")
+    lines.append(f"{indent}_discord_res_{node_id} = _send_discord(")
+    lines.append(f"{indent}    token=\"{bot_token}\", channel_id={bound_expr(node, node_id, 'channelId')},")
+    lines.append(f"{indent}    body=discord_msg_{node_id}, db=db, owner_user_id=__owner_user_id__,")
+    lines.append(f"{indent}    project_id=kwargs.get('project_id'),")
+    lines.append(f"{indent}    attachments_config={attachments_config(node)!r},")
+    lines.append(f"{indent}    upstream_artifact_ids={upstream_artifacts_expr(node_id, incoming_edges)},")
+    lines.append(f"{indent}    upstream_text=discord_msg_{node_id}, node_id='{node_id}')")
+    # 성공해도 상태 문구로 덮어쓰지 않는다 — 예전에 'Discord Send Success' 로 last_result 를
+    # 바꿨더니 평가 기능이 그 문구를 놓고 채점했고, 뒤에 노드가 이어지면 실제 내용 대신 상태만
+    # 전달됐다. 실패해도 만들려던 본문은 그대로 남긴다(NodeResult.passthrough).
+    lines.append(f"{indent}res_text_{node_id} = str(_discord_res_{node_id})")
     lines.append(f"{indent}last_result = res_text_{node_id}")
-    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_discord_res_{node_id})")
     next_edges = forward_edges.get(node_id, [])
     for target_id, handle in next_edges:
         generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=f"res_text_{node_id}", visited=visited)
@@ -195,12 +151,12 @@ def generate_telegram_node(node_id, node, indent, active_llm_id, prev_res_var, v
     # 훨씬 단순해서(웹훅/봇API 구분 없이 항상 sendMessage 하나) discordNode보다 코드가 짧다.
     lines.append(f"{indent}# --- Telegram Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    bot_token = node.get('data', {}).get('botToken', '').replace('"', '\\"')
-    chat_id = node.get('data', {}).get('chatId', '').replace('"', '\\"')
+    bot_token = node.get('data', {}).get('botToken', '').replace('\\', '\\\\').replace('"', '\\"')
+    chat_id = node.get('data', {}).get('chatId', '').replace('\\', '\\\\').replace('"', '\\"')
 
     lines.append(f"{indent}import requests")
     lines.append(f"{indent}telegram_token_{node_id} = \"{bot_token}\"")
-    lines.append(f"{indent}telegram_chat_{node_id} = \"{chat_id}\"")
+    lines.append(f"{indent}telegram_chat_{node_id} = {bound_expr(node, node_id, 'chatId')}")
     lines.append(f"{indent}telegram_msg_{node_id} = str({prev_res_var if prev_res_var else 'last_result'})")
     lines.append(f"{indent}if telegram_token_{node_id} and telegram_chat_{node_id}:")
     lines.append(f"{indent}    try:")
@@ -241,12 +197,12 @@ def generate_slack_node(node_id, node, indent, active_llm_id, prev_res_var, visi
 
     lines.append(f"{indent}# --- Slack Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    lines.append(f"{indent}slack_channel_{node_id} = \"{safe_channel}\"")
+    lines.append(f"{indent}slack_channel_{node_id} = {bound_expr(node, node_id, 'channel', '#general')}")
 
     if prev_res_var:
-        lines.append(f"{indent}slack_msg_{node_id} = f\"{safe_message}\\n\\n\" + str({prev_res_var})")
+        lines.append(f"{indent}slack_msg_{node_id} = {bound_expr(node, node_id, 'message')} + \"\\n\\n\" + str({prev_res_var})")
     else:
-        lines.append(f"{indent}slack_msg_{node_id} = \"{safe_message}\"")
+        lines.append(f"{indent}slack_msg_{node_id} = {bound_expr(node, node_id, 'message')}")
 
     lines.append(f"{indent}print(f'Mocking Slack send to {{slack_channel_{node_id}}}: {{slack_msg_{node_id}}}')")
     # 실제 발송한 메시지 내용을 그대로 결과로 남긴다 (discordNode/emailNode/kakaoNode와 동일한 이유 —
@@ -262,9 +218,9 @@ def generate_slack_node(node_id, node, indent, active_llm_id, prev_res_var, visi
 def generate_toss_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Toss Payments Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    secret_key = node.get('data', {}).get('secretKey', '').replace('"', '\\"')
+    secret_key = node.get('data', {}).get('secretKey', '').replace('\\', '\\\\').replace('"', '\\"')
     search_type = node.get('data', {}).get('searchType', 'paymentKey')
-    search_value = node.get('data', {}).get('searchValue', '').replace('"', '\\"')
+    search_value = node.get('data', {}).get('searchValue', '').replace('\\', '\\\\').replace('"', '\\"')
     
     lines.append(f"{indent}import requests")
     lines.append(f"{indent}import base64")
@@ -306,7 +262,7 @@ def generate_payment_link_node(node_id, node, indent, active_llm_id, prev_res_va
     lines.append(f"{indent}# --- Payment Link Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     
-    provider = node.get('data', {}).get('provider', 'toss').replace('"', '\\"')
+    provider = node.get('data', {}).get('provider', 'toss').replace('\\', '\\\\').replace('"', '\\"')
     order_data = node.get('data', {}).get('orderData', '').strip()
     
     lines.append(f"{indent}import requests")
@@ -365,8 +321,8 @@ def generate_google_sheets_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     data = node.get('data', {})
     mode = data.get('mode', 'read')
-    spreadsheet_id = data.get('spreadsheetId', '').replace('"', '\\"')
-    range_str = data.get('range', '').replace('"', '\\"')
+    spreadsheet_id = data.get('spreadsheetId', '').replace('\\', '\\\\').replace('"', '\\"')
+    range_str = data.get('range', '').replace('\\', '\\\\').replace('"', '\\"')
     values_literal = data.get('values', '').strip()
 
     lines.append(f"{indent}import json")
@@ -389,7 +345,7 @@ def generate_google_sheets_node(node_id, node, indent, active_llm_id, prev_res_v
         # append/write 둘 다 "채울 값"이 필요하다 — data.values에 직접 JSON을 써놨으면 그걸 쓰고,
         # 비어있으면 fileModifierNode와 동일한 관례로 직전 노드의 출력(JSON)을 그대로 쓴다.
         if values_literal:
-            safe_values = values_literal.replace('"', '\\"').replace('\n', '\\n')
+            safe_values = values_literal.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"{indent}    _gs_raw_{node_id} = \"{safe_values}\"")
         else:
             lines.append(f"{indent}    _gs_raw_{node_id} = {prev_res_var if prev_res_var else 'last_result'}")
@@ -438,10 +394,10 @@ def generate_google_calendar_node(node_id, node, indent, active_llm_id, prev_res
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     data = node.get('data', {})
     mode = data.get('mode', 'create')
-    calendar_id = data.get('calendarId', '').replace('"', '\\"')
+    calendar_id = data.get('calendarId', '').replace('\\', '\\\\').replace('"', '\\"')
     event_data_literal = data.get('eventData', '').strip()
-    time_min = data.get('timeMin', '').replace('"', '\\"')
-    time_max = data.get('timeMax', '').replace('"', '\\"')
+    time_min = data.get('timeMin', '').replace('\\', '\\\\').replace('"', '\\"')
+    time_max = data.get('timeMax', '').replace('\\', '\\\\').replace('"', '\\"')
     max_results = data.get('maxResults', 10)
     try:
         max_results = int(max_results)
@@ -480,7 +436,7 @@ def generate_google_calendar_node(node_id, node, indent, active_llm_id, prev_res
         lines.append(f"{indent}    else:")
         lines.append(f"{indent}        _gc_upstream_dict_{node_id} = {{}}")
         if event_data_literal:
-            safe_event = event_data_literal.replace('"', '\\"').replace('\n', '\\n')
+            safe_event = event_data_literal.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"{indent}    _gc_template_{node_id} = \"{safe_event}\"")
             lines.append(f"{indent}    _gc_filled_{node_id} = _fill_template_placeholders(_gc_template_{node_id}, _gc_upstream_dict_{node_id})")
             lines.append(f"{indent}    _gc_event_{node_id} = json.loads(_gc_filled_{node_id})")
@@ -515,8 +471,8 @@ def generate_notion_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     data = node.get('data', {})
     mode = data.get('mode', 'create')
-    token = data.get('token', '').replace('"', '\\"')
-    database_id = data.get('databaseId', '').replace('"', '\\"')
+    token = data.get('token', '').replace('\\', '\\\\').replace('"', '\\"')
+    database_id = data.get('databaseId', '').replace('\\', '\\\\').replace('"', '\\"')
     properties_literal = data.get('properties', '').strip()
 
     lines.append(f"{indent}import requests")
@@ -557,7 +513,7 @@ def generate_notion_node(node_id, node, indent, active_llm_id, prev_res_var, vis
             # properties를 직접 써놨으면 그 안의 {{key}}를 직전 노드가 만든 값으로 채운 뒤
             # 파싱한다(fileModifierNode의 {{key}} 자리표시자 관례와 동일 — LLM이 자연스럽게
             # 이 문법을 그대로 재사용해서 properties를 짜는 경우가 실제로 있었다).
-            safe_props = properties_literal.replace('"', '\\"').replace('\n', '\\n')
+            safe_props = properties_literal.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
             lines.append(f"{indent}        _notion_props_template_{node_id} = \"{safe_props}\"")
             lines.append(f"{indent}        _notion_props_filled_{node_id} = _fill_template_placeholders(_notion_props_template_{node_id}, _notion_upstream_dict_{node_id})")
             lines.append(f"{indent}        _notion_props_{node_id} = json.loads(_notion_props_filled_{node_id})")

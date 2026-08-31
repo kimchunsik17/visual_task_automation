@@ -1,0 +1,129 @@
+{
+  "type": "posterGeneratorNode",
+  "version": 1,
+  "category": "action",
+  "display": {
+    "label": "포스터/이미지 생성",
+    "icon": "node-poster-generator",
+    "color": "#f59e0b",
+    "headerColor": "linear-gradient(135deg, #f59e0b, #ea580c)"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "outputFormat",
+      "kind": "select",
+      "label": "출력 형식",
+      "default": "png",
+      "options": [
+        {
+          "value": "png",
+          "label": "PNG (이미지)"
+        },
+        {
+          "value": "pdf",
+          "label": "PDF"
+        }
+      ]
+    },
+    {
+      "name": "backgroundPreset",
+      "kind": "select",
+      "label": "배경 프리셋",
+      "default": "none",
+      "options": [
+        {
+          "value": "none",
+          "label": "사용 안 함 (HTML 배경 유지)"
+        },
+        {
+          "value": "poster-01-midnight-grid",
+          "label": "01 · 미드나이트 그리드"
+        },
+        {
+          "value": "poster-02-cobalt-orbits",
+          "label": "02 · 코발트 오빗"
+        },
+        {
+          "value": "poster-03-violet-arches",
+          "label": "03 · 바이올렛 아치"
+        },
+        {
+          "value": "poster-04-emerald-flow",
+          "label": "04 · 에메랄드 플로우"
+        },
+        {
+          "value": "poster-05-layered-paper",
+          "label": "05 · 레이어드 페이퍼"
+        },
+        {
+          "value": "poster-06-dot-matrix",
+          "label": "06 · 도트 매트릭스 (밝음)"
+        },
+        {
+          "value": "poster-07-blueprint-lines",
+          "label": "07 · 블루프린트 라인"
+        },
+        {
+          "value": "poster-08-diagonal-blocks",
+          "label": "08 · 다이애거널 블록 (밝음)"
+        },
+        {
+          "value": "poster-09-emerald-wave",
+          "label": "09 · 에메랄드 웨이브"
+        },
+        {
+          "value": "poster-10-neutral-editorial",
+          "label": "10 · 뉴트럴 에디토리얼 (밝음)"
+        },
+        {
+          "value": "poster-11-concentric-frames",
+          "label": "11 · 컨센트릭 프레임"
+        },
+        {
+          "value": "poster-12-sparse-geometry",
+          "label": "12 · 스파스 지오메트리"
+        }
+      ]
+    },
+    {
+      "name": "width",
+      "kind": "number",
+      "label": "가로 (px)",
+      "placeholder": "900"
+    },
+    {
+      "name": "height",
+      "kind": "number",
+      "label": "세로 (px)",
+      "placeholder": "1200"
+    },
+    {
+      "name": "output_path",
+      "kind": "text",
+      "label": "저장 파일명 (선택)",
+      "placeholder": "비우면 자동 생성"
+    }
+  ],
+  "credentials": [],
+  "capabilities": [
+    "filesystem"
+  ],
+  "sideEffect": "none",
+  "executor": "posterGeneratorNode",
+  "mock": {},
+  "llm": {
+    "description": "포스터/전단지/카드뉴스처럼 자유로운 디자인의 이미지나 PDF를 만든다. 반드시\n                   직전 노드가 완성된 HTML+CSS 코드(문자열) 하나를 통째로 만들어서 넘겨줘야 한다 —\n                   이 노드 자신은 디자인을 하지 않고 받은 HTML을 그대로 그려서 저장만 한다. 그래서\n                   앞에 promptNode → llmNode를 연결하고, llmNode의 systemPrompt를 아래 지침을 그대로\n                   반영해서 작성해야 한다 — 지침이 헐거우면 모델이 흰 배경에 검은 텍스트만 나열하는\n                   \"밋밋한\" 결과를 낼 때가 많으므로, 구체적인 디자인 지시를 빠짐없이 넣는 게 중요하다:\n                   \"너는 전문 그래픽 디자이너다. 완성된 HTML 문서 하나만 답하라(설명 텍스트나\n                   코드펜스 없이, <html>로 시작해서 </html>로 끝나야 한다). <style> 태그 안에 모든\n                   CSS를 인라인으로 작성한다. 절대 단순한 흰 배경에 텍스트만 나열하지 마라 — 반드시\n                   다음을 모두 포함해라: (1) 배경 — 선명한 그라데이션(예: #6a11cb→#2575fc 보라-파랑,\n                   #f857a6→#ff5858 핑크-빨강, #11998e→#38ef7d 청록-라임, #ee0979→#ff6a00 마젠타-주황처럼\n                   채도 높은 두 색 조합) 또는 선명한 색상 블록/도형(예: 반투명 원, 대각선 밴드)으로 화면을\n                   채운다. 흰색이나 #f5f5f5 같은 흰색에 가까운 옅은 파스텔만으로는 채우지 마라(사실상 흰\n                   화면처럼 보인다) — 반드시 눈에 띄게 채도 있는 색을 쓴다. ⚠️ 이\n                   배경은 반드시 포스터 전체(900x1200 등 지정된 크기)를 덮는 가장 바깥 컨테이너 자체에\n                   직접 입혀야 한다 — 그 안에 같은 크기의 불투명한 흰색/단색 카드를 겹쳐서 배경을\n                   가리는 실수를 절대 하지 마라(실제로 이렇게 만들어서 포스터가 사실상 흰 화면으로\n                   보이는 문제가 있었다). 카드형 레이아웃을 쓰고 싶다면 카드를 캔버스보다 작게 만들어\n                   바깥 배경이 테두리에 드러나 보이게 하거나, 카드 자체를 반투명(rgba)이나 그 배경과\n                   어울리는 색으로 칠해라. (2) 타이포그래피 위계 — 제목은 크고 굵게(48~72px,\n                   font-weight:800 이상), 부제는 중간 크기(20~28px)로 톤을 낮추고, 본문/세부 정보는\n                   16~20px로 읽기 쉽게. (3) 시각적 강조 요소 최소 1개 — 둥근 배지/필(pill) 라벨, 구분선,\n                   아이콘이나 이모지, 그림자(box-shadow)나 테두리 중 하나 이상. (4) 여백 — 안쪽에 넉넉한\n                   padding(40px 이상)을 둬서 답답해 보이지 않게 한다. (5) 색 대비 — 배경이 어두우면 흰\n                   계열 글자, 밝으면 어두운 계열 글자로 가독성을 확실히 확보한다. (6) 세로 배치 — 내용을\n                   위쪽에만 몰아넣고 캔버스 아래 절반을 텅 비워두지 마라. 가장 바깥 컨테이너에\n                   display:flex; flex-direction:column; justify-content:space-between(또는\n                   space-evenly/center)을 써서 제목·본문·하단 정보(연락처, 로고, 마무리 문구 등)가\n                   세로 전체에 고르게 분산되게 하고, 내용이 적으면 장식 요소(큰 도형, 아이콘, 여백\n                   블록)를 추가해서라도 캔버스를 채워라. 외부 이미지 URL이나\n                   웹폰트 링크는 절대 쓰지 마라(네트워크 접근이 없어 깨진다) — 시스템 기본 폰트만\n                   사용한다.\"\n                   data.outputFormat(\"png\"|\"pdf\", 기본 png), data.width/data.height(정수, 픽셀,\n                   기본 900x1200 — llmNode 프롬프트에도 이 크기를 알려줘서 HTML의 실제 크기와\n                   맞추게 하는 게 좋다), data.backgroundPreset(선택 — \"none\" 또는\n                   \"poster-01-midnight-grid\"부터 \"poster-12-sparse-geometry\"까지의 내장 3:4 추상\n                   배경), data.output_path(문자열, 선택 — 비우면 자동 생성). backgroundPreset을\n                   사용하면 HTML의 body와 가장 바깥 컨테이너 배경을 transparent로 두고, 생성 배경의\n                   넓은 중앙/상단 여백 위에 텍스트가 놓이게 구성한다.\n                   ⚠️ templateAnalyzerNode/fileModifierNode를 이 체인에 끼워넣지 마라 — 그 둘은\n                   .docx/.hwpx처럼 \"빈칸이 있는 서식 파일\"을 스캔해서 채우는 노드지, 이미 완성된\n                   HTML 문서를 다루는 게 아니다(실제로 존재하지도 않는 \"포스터_HTML_템플릿.html\"\n                   같은 파일을 스캔하려다 매번 실패해서 그때까지 쌓인 실제 입력 내용이 전부 사라지고\n                   완전히 딴 내용의 포스터가 나온 적이 있다). 포스터/전단지 체인은 promptNode →\n                   llmNode(HTML 생성) → posterGeneratorNode처럼 단순하게 유지하고, 내용을 다듬고\n                   싶으면 그 사이에 promptNode → llmNode를 몇 번 더 이어서 \"위 HTML을 검토하고 수정한\n                   최종 HTML만 답해라\"는 식으로 반복하면 된다(항상 HTML을 HTML로 주고받게 하라).\n                   선택 기준: **매번 새로 디자인**해야 하는 자유 포스터는 이 노드가 맞다. 반대로\n                   \"양식/템플릿으로\" 반복 생성하는 요청(행사 포스터·3단 팜플렛 등 정해진 골격)이면\n                   formatNode 의 디자인 포맷이 낫다 — 골격이 고정돼 결과 편차가 없고 LLM 은 빈칸만\n                   채우므로 토큰도 덜 쓴다.\n"
+  }
+}

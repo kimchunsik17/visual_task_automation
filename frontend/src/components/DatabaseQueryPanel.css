@@ -1,0 +1,57 @@
+/* Database Query v2 노드 패널 (ADR-0017) — 노드 본문 안에서 쓰는 조밀한 스타일 */
+.dbq-panel { display: flex; flex-direction: column; gap: 6px; font-size: 0.74rem; }
+.dbq-panel label { font-size: 0.74rem; }
+.dbq-row { display: flex; gap: 6px; align-items: center; }
+.dbq-row select { flex: 1; min-width: 0; }
+.dbq-btn {
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border-color);
+  background: var(--btn-active-bg); color: var(--text-color); cursor: pointer; font-size: 0.72rem;
+}
+.dbq-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.dbq-link { display: inline-flex; align-items: center; gap: 3px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.72rem; padding: 0; }
+.dbq-link:hover { color: var(--text-color); }
+.dbq-icon-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; }
+.dbq-icon-btn:hover { color: #ef4444; }
+.dbq-muted { color: var(--text-muted); font-size: 0.7rem; line-height: 1.4; }
+.dbq-muted code { font-size: 0.68rem; }
+.dbq-ok { color: #10b981; font-size: 0.72rem; }
+.dbq-warning {
+  font-size: 0.72rem; border: 1px solid #f59e0b; border-radius: 4px; padding: 0.4rem 0.5rem; line-height: 1.5;
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+}
+.dbq-warning a { color: #f59e0b; }
+.dbq-section { border: 1px solid var(--border-color); border-radius: 4px; }
+.dbq-section-head {
+  display: flex; align-items: center; gap: 5px; padding: 4px 6px; cursor: pointer; user-select: none;
+  color: var(--text-muted); font-size: 0.72rem;
+}
+.dbq-section-head:hover { color: var(--text-color); }
+.dbq-section-right { margin-left: auto; display: inline-flex; }
+.dbq-section-body { padding: 6px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 6px; }
+.dbq-stages { display: flex; flex-direction: column; gap: 3px; }
+.dbq-stage { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; }
+.dbq-stage b { min-width: 92px; font-weight: 600; text-transform: none; }
+.dbq-stage-dot { width: 7px; height: 7px; border-radius: 50%; background: #64748b; flex: 0 0 7px; }
+.dbq-stage.ok .dbq-stage-dot { background: #10b981; }
+.dbq-stage.fail .dbq-stage-dot { background: #ef4444; }
+.dbq-table-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.dbq-columns { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 4px 14px; }
+.dbq-chip {
+  border: 1px solid var(--border-color); border-radius: 10px; padding: 1px 7px; background: var(--bg-color);
+  color: var(--text-color); font-size: 0.68rem; cursor: pointer;
+}
+.dbq-chip:hover { border-color: #059669; }
+.dbq-param { display: grid; grid-template-columns: 1fr 1fr 1.3fr 1fr auto auto; gap: 4px; align-items: center; }
+.dbq-param input, .dbq-param select { min-width: 0; width: 100%; font-size: 0.7rem; padding: 3px 4px; }
+.dbq-check { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-size: 0.68rem; color: var(--text-muted); }
+.dbq-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.dbq-grid label { display: flex; flex-direction: column; gap: 2px; color: var(--text-muted); }
+.dbq-grid input, .dbq-grid select { width: 100%; font-size: 0.72rem; padding: 3px 4px; }
+.dbq-test-values { display: flex; flex-direction: column; gap: 4px; }
+.dbq-test-values label { display: flex; align-items: center; gap: 6px; font-family: ui-monospace, monospace; }
+.dbq-test-values input { flex: 1; font-size: 0.72rem; padding: 3px 4px; }
+.dbq-table-wrap { max-height: 220px; overflow: auto; border: 1px solid var(--border-color); border-radius: 4px; }
+.dbq-result { border-collapse: collapse; font-size: 0.68rem; min-width: 100%; }
+.dbq-result th, .dbq-result td { padding: 2px 6px; border-bottom: 1px solid var(--border-color); text-align: left; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.dbq-result th { position: sticky; top: 0; background: var(--bg-color); color: var(--text-muted); font-weight: 600; }

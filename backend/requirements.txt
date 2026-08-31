@@ -1,6 +1,8 @@
 fastapi
 uvicorn
 sqlalchemy
+sqlglot
+alembic
 psycopg2-binary
 langgraph
 langchain>=0.3
@@ -11,10 +13,11 @@ langchain-community
 python-dotenv
 pydantic
 python-multipart
+cryptography>=41
 
 openpyxl
 python-pptx
-pywin32
+
 google-auth
 google-auth-oauthlib
 gspread
@@ -27,7 +30,7 @@ chromadb
 langchain-chroma
 PyMuPDF
 python-docx
-python-hwpx
+python-hwpx==3.4.1
 playwright
 langchain-text-splitters
 langfuse
