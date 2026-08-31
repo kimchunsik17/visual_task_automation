@@ -205,6 +205,28 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except jwt.PyJWTError:
         return None
 
+# 프로젝트 행위 권한을 강제하는 한 곳(ADR-0024). project_access 에 RUN/DEPLOY 가 선언돼 있는데
+# 강제하는 호출부가 0곳이어서, 정수 id 만으로 남의 워크플로우를 실행·배포할 수 있었다(2026-08-31).
+# 조회 권한조차 없으면 존재를 알리지 않는다 — project_access.require 의 주석이 요구하는 규약이다.
+def _require_project_action(db, user, project, action: str):
+    if project_access.can(db, user, project, action):
+        return project
+    if action != project_access.VIEW and not project_access.can(db, user, project, project_access.VIEW):
+        raise HTTPException(status_code=404, detail="Project not found")
+    raise HTTPException(status_code=403, detail=f"Not authorized to {action} this project")
+
+
+# 공개 앱은 로그아웃 방문자도 실행할 수 있어야 한다(링크를 받은 사람이 쓰는 것이 기능이다).
+# 그래서 실행 경로는 "공개면 익명 허용, 아니면 RUN 권한" 으로 판정한다 — project_access.can 은
+# 공개 범위에 VIEW 만 주므로(의도된 설계) 이 규칙을 여기서 따로 적는다.
+def _can_run_project(db, user, project) -> bool:
+    if project is None:
+        return False
+    if getattr(project, "visibility", "private") == "public":
+        return True
+    return project_access.can(db, user, project, project_access.RUN)
+
+
 def get_current_user_required(user: models.User = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
@@ -1667,11 +1689,16 @@ def get_custom_app(app_id: str, db: Session = Depends(get_db)):
     }
 
 @app.get("/api/apps/{share_token}")
-def get_app_info(share_token: str, db: Session = Depends(get_db)):
+def get_app_info(share_token: str, request: Request, db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.share_token == share_token).first()
     if not project:
         raise HTTPException(status_code=404, detail="App not found")
-    
+
+    # 바로 아래 /execute 는 공개 범위를 확인하는데 이 GET 은 하지 않아서, 링크만 있으면 누구나
+    # graph_data 전체(봇 토큰이 평문으로 사는 곳)를 받아갈 수 있었다 — 실행은 막고 열람은 열려
+    # 있던 비대칭이다. 같은 판정을 여기에도 적용한다.
+    _require_shared_app_visibility(db, request, project)
+
     return {
         "id": project.id,
         "title": project.title,
@@ -1684,27 +1711,40 @@ def get_app_info(share_token: str, db: Session = Depends(get_db)):
 class AppExecutePayload(BaseModel):
     inputs: dict = {}
 
+
+def _user_from_request(db, request: Request):
+    """Authorization 헤더가 있으면 사용자를 돌려준다(없거나 잘못되면 None). 공유 링크 경로는
+    익명 접근이 정상이라 의존성으로 강제하지 않고 여기서 옵션으로 읽는다."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    try:
+        payload_jwt = jwt.decode(auth_header.split(" ")[1], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except Exception:
+        return None
+    return db.query(models.User).filter(models.User.id == payload_jwt.get("user_id")).first()
+
+
+def _require_shared_app_visibility(db, request: Request, project):
+    """공유 링크로 열리는 앱의 공개 범위 판정. GET(조회)과 POST(실행)가 같은 규칙을 보게 한다."""
+    user = _user_from_request(db, request)
+    if project.visibility == 'private' and (not user or project.user_id != user.id):
+        raise HTTPException(status_code=403, detail="Authentication required for private app")
+    if project.visibility == 'friends':
+        if not user or (project.user_id != user.id and not db.query(models.Friendship).filter(
+                models.Friendship.user_id == project.user_id,
+                models.Friendship.friend_id == user.id).first()):
+            raise HTTPException(status_code=403, detail="Friends-only access required")
+    return user
+
 @app.post("/api/apps/{share_token}/execute")
 def execute_app(share_token: str, request: Request, payload: AppExecutePayload = None, db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.share_token == share_token).first()
     if not project:
         raise HTTPException(status_code=404, detail="App not found")
     
-    user = None
-    auth_header = request.headers.get('Authorization')
-    if auth_header and auth_header.startswith('Bearer '):
-        token = auth_header.split(" ")[1]
-        try:
-            payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            user = db.query(models.User).filter(models.User.id == payload_jwt.get("user_id")).first()
-        except:
-            pass
-            
-    if project.visibility == 'private' and (not user or project.user_id != user.id):
-        raise HTTPException(status_code=403, detail="Authentication required for private app")
-    elif project.visibility == 'friends':
-        if not user or (project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first()):
-            raise HTTPException(status_code=403, detail="Friends-only access required")
+    # GET /api/apps/{token} 과 같은 판정을 쓴다(두 곳이 갈라지면 한쪽이 다시 열린다).
+    user = _require_shared_app_visibility(db, request, project)
 
     owner = db.query(models.User).filter(models.User.id == project.user_id).first()
     if owner and owner.token_balance <= 0:
@@ -1770,6 +1810,14 @@ def run_project_workflow(project_id: int, request: Request, payload: Optional[Pr
             user = db.query(models.User).filter(models.User.id == payload_jwt.get("user_id")).first()
         except:
             pass
+
+    # 공개 앱은 링크를 받은 사람이 로그인 없이 실행하는 것이 기능이므로 익명을 허용하고,
+    # private/friends 는 RUN 권한을 요구한다. 검사가 없어서 정수 id 만으로 남의 워크플로우를
+    # 실행할 수 있었고(요금·발송·DB 변경이 소유자 몫으로 일어난다) 로그의 actor 도 비어 있었다.
+    if not _can_run_project(db, user, project):
+        if not project_access.can(db, user, project, project_access.VIEW):
+            raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=403, detail="Not authorized to run this project")
 
     owner = db.query(models.User).filter(models.User.id == project.user_id).first()
     if owner and owner.token_balance <= 0:
@@ -1861,13 +1909,24 @@ def estimate_tokens(payload: FlowPayload):
     }
 
 @app.post("/api/execute")
-def execute_flow(payload: FlowPayload, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def execute_flow(payload: FlowPayload, db: Session = Depends(get_db),
+                 user: models.User = Depends(get_current_user_required)):
     """
     Receives graph data from frontend, runs LangGraph logic,
     saves execution to DB, and returns the result.
     """
-    if user and user.token_balance <= 0:
+    if user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다. 토큰을 충전해 주세요.")
+
+    # payload.project_id 는 자유 입력이고, run_workflow 는 이 값으로 **프로젝트 소유자의 자격증명을
+    # 복호화**한다(graph.py 의 credential_owner). 검사가 없어서 비로그인 요청이 남의 project_id 를
+    # 실어 보내면 그 사람의 DB·카카오·메일 자격증명으로 실행됐다(2026-08-31).
+    # 권한이 없으면 조용히 익명 실행으로 강등하지 않고 거절한다 — 실패를 크게 내는 편이 안전하다.
+    if payload.project_id:
+        target = db.query(models.Project).filter(models.Project.id == payload.project_id).first()
+        if not target:
+            raise HTTPException(status_code=404, detail="Project not found")
+        _require_project_action(db, user, target, project_access.RUN)
 
     # 요청 자체가 잘못된 경우는 try 밖에서 막는다 — 아래 except 가 잡으면 400 이 200 + 오류
     # 문자열로 뭉개져 클라이언트가 "실행이 실패했다" 와 "요청이 틀렸다" 를 구분할 수 없다.
@@ -2881,10 +2940,15 @@ def delete_chat_session(session_id: int, user: models.User = Depends(get_current
     return {"status": "success"}
 
 @app.post("/api/deploy/{project_id}")
-async def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db)):
+async def deploy_project(project_id: int, payload: DeployPayload, db: Session = Depends(get_db),
+                         user: models.User = Depends(get_current_user_required)):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    # 이 라우트는 deploy_mode 를 바꾸고, mode 가 fastapi/mcp 면 **생성된 파이썬 소스를 응답에 담는다**.
+    # 그 소스에는 노드 data 가 컴파일 타임 리터럴로 굽혀 있어 봇 토큰·수신자·프롬프트가 평문으로 들어간다.
+    # 인증 의존성이 없어서 누구나 정수 id 만으로 남의 배포 설정을 바꾸고 그 소스를 받아갈 수 있었다.
+    _require_project_action(db, user, project, project_access.DEPLOY)
     
     # 디스코드 봇은 이제 이 "배포" 엔드포인트가 아니라 discordTriggerNode + 에디터의 "라이브 시작"
     # 토글로 켜고 끈다(webhookNode/scheduleNode와 동일한 방식) — 그래서 여기서 deploy_mode만
@@ -2946,7 +3010,13 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
+    # /api/projects/{id}/run 과 같은 규칙 — 공개 앱은 익명 허용, 그 밖은 RUN 권한.
+    if not _can_run_project(db, user, project):
+        if not project_access.can(db, user, project, project_access.VIEW):
+            raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=403, detail="Not authorized to run this project")
+
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다.")
 

@@ -5619,3 +5619,4 @@ Traceback (most recent call last):
     models.ApprovalRequest.user_id == user.id,
                                       ^^^^^^^
 AttributeError: 'NoneType' object has no attribute 'id'
+2026-08-31 14:17:14.717680 - POST /api/deploy/999999 - Validation Error: [{'type': 'missing', 'loc': ('body', 'mode'), 'msg': 'Field required', 'input': {}}]
