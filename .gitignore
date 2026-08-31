@@ -98,3 +98,6 @@ backend/chroma_db/
 
 # pytest 격리용 sqlite (conftest 가 생성)
 backend/test_run.db
+
+# 런타임 오류 로그 (전역 예외 핸들러가 씀)
+backend/error_log.txt
