@@ -354,6 +354,11 @@ def generate_tokenizer_node(node_id, node, indent, active_llm_id, prev_res_var, 
     lines.append(f"{indent}    file_path = match_{node_id}.group(1)")
     lines.append(f"{indent}else:")
     lines.append(f"{indent}    file_path = str(file_path_raw)")
+    # 경로를 업로드 루트 안으로 가둔다(2026-08-31 적대적 리뷰: tokenizer 가 valueNode 가드를
+    # 우회해 임의 파일을 읽었다). 루트 밖이면 아래 확장자 분기가 모두 '읽지 못함'으로 떨어지도록
+    # 존재할 수 없는 경로로 바꾼다 — open()/read 8곳을 개별로 고치지 않아도 전부 막힌다.
+    lines.append(f"{indent}_tok_ok_{node_id} = _safe_user_path(file_path)")
+    lines.append(f"{indent}file_path = str(_tok_ok_{node_id}) if _tok_ok_{node_id} is not None else str(_Path(_os.getenv('UPLOAD_DIR','uploads')).resolve() / '__blocked_path__')")
     lines.append(f"{indent}res_text_{node_id} = []")
     
     lines.append(f"{indent}if str(file_path).lower().endswith('.pdf'):")

@@ -42,10 +42,15 @@ def generate_value_node(node_id, node, indent, active_llm_id, prev_res_var, visi
         lines.append(f"{indent}except Exception as e:")
         lines.append(f"{indent}    file_content_{node_id} = f'Error reading file: {{str(e)}}'")
         
+        # 마커에는 원본(가두지 않은) 경로 대신 **가둔 경로(_vpath)** 를 런타임에 넣는다
+        # (2026-08-31 적대적 리뷰: 원본 경로가 출력에 실려 나가고 하류 tokenizer 가 재개봉했다).
+        # 정상 케이스(uploads/uuid.ext)는 유효한 경로가 그대로 들어가 tokenizer 연계가 살아 있고,
+        # 차단된 경우 _vpath 는 None 이라 tokenizer 가 다시 열 경로가 없다.
+        lines.append(f"{indent}_marker_path_{node_id} = str(_vpath_{node_id}) if _vpath_{node_id} is not None else '(차단됨)'")
         if prev_res_var:
-            lines.append(f"{indent}val_{node_id} = f\"{{{prev_res_var}}}\\n\\n[Attached File: {file_path}]:\\n{{file_content_{node_id}}}\"")
+            lines.append(f"{indent}val_{node_id} = f\"{{{prev_res_var}}}\\n\\n[Attached File: {{_marker_path_{node_id}}}]:\\n{{file_content_{node_id}}}\"")
         else:
-            lines.append(f"{indent}val_{node_id} = f\"[Attached File: {file_path}]:\\n{{file_content_{node_id}}}\"")
+            lines.append(f"{indent}val_{node_id} = f\"[Attached File: {{_marker_path_{node_id}}}]:\\n{{file_content_{node_id}}}\"")
     elif not val:
         # file_path와 value가 둘 다 비어있다 — 흔히 "아직 채워지지 않은 파일 placeholder"
         # (data.file_path, 초기값 빈 문자열)로 쓰이는 상태다. 여기서 "[Value]:\n"처럼 뭔가

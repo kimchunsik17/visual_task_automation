@@ -2154,7 +2154,7 @@ class EvaluatePayload(BaseModel):
     graph_data: Dict[str, Any]
 
 @app.post("/api/evaluate")
-async def evaluate_project(payload: EvaluatePayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def evaluate_project(payload: EvaluatePayload, user: models.User = Depends(get_current_staff_user), db: Session = Depends(get_db)):
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
     import evaluator
@@ -2179,7 +2179,7 @@ class EvaluateAutofixPayload(EvaluatePayload):
     max_attempts: int = 3
 
 @app.post("/api/evaluate/autofix")
-async def evaluate_project_with_autofix(payload: EvaluateAutofixPayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def evaluate_project_with_autofix(payload: EvaluateAutofixPayload, user: models.User = Depends(get_current_staff_user), db: Session = Depends(get_db)):
     """평가 -> 기준 미달 시 개선 제안을 메타 에이전트에 넣어 자동 수정 -> 재평가를 반복한다."""
     if user and user.token_balance <= 0:
         raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 AI를 사용할 수 없습니다.")
@@ -2224,7 +2224,7 @@ def get_eval_cases():
     return evaluation.get_evaluation_catalog()
 
 @app.get("/api/evaluate/run")
-async def run_eval(ids: str = None, profile: str = None, refresh: bool = False):
+async def run_eval(ids: str = None, profile: str = None, refresh: bool = False, user: models.User = Depends(get_current_staff_user)):
     import evaluation
     selected = ids.split(",") if ids else None
     return StreamingResponse(
@@ -2524,7 +2524,7 @@ def is_app_creation_intent(message: str, target_type: Optional[str] = "auto") ->
     return False
 
 @app.post("/api/chat")
-async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def chat_with_agent(payload: ChatPayload, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     """
     자연어로 flow(graph_data) 또는 커스텀 앱(UI + Blueprint Logic + Backend Workflow)을 생성/수정하는 챗봇.
     사용자의 요청이 '앱'을 구축하려는 의도인 경우 AI 앱 빌더 에이전트(app_agent)를 통해
@@ -3017,8 +3017,11 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
             raise HTTPException(status_code=404, detail="Project not found")
         raise HTTPException(status_code=403, detail="Not authorized to run this project")
 
-    if user and user.token_balance <= 0:
-        raise HTTPException(status_code=403, detail="토큰을 모두 소진하여 실행할 수 없습니다.")
+    # 공개 앱은 익명이 실행할 수 있으므로(user=None), 요청자 잔액이 아니라 **소유자 잔액**을 본다.
+    # 이 가드가 없으면 익명이 공개 앱을 무제한 실행해 소유자 크레딧을 태울 수 있다(2026-08-31 리뷰).
+    _owner = db.query(models.User).filter(models.User.id == project.user_id).first()
+    if _owner and _owner.token_balance <= 0:
+        raise HTTPException(status_code=403, detail="앱 소유자의 토큰이 모두 소진되었습니다.")
 
     inputs_dict = payload.inputs
     if inputs_dict and isinstance(inputs_dict, dict):
@@ -3089,18 +3092,23 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
         if project:
             break
             
-    # 2. Fallback to Project ID (backward compatibility)
+    # 2. 정수 project-id 폴백 (backward compatibility)
+    #    ⚠️ 위 endpoint 매칭 브랜치는 is_live 를 확인하지만(3064) 이 폴백은 확인하지 않아서,
+    #    비공개·라이브 꺼진 프로젝트를 정수 id 만으로 익명 실행할 수 있었다(2026-08-31 적대적 리뷰).
+    #    id 는 추측 가능하므로 endpoint 토큰 매칭과 같은 라이브 게이트를 여기에도 건다.
     if not project:
         try:
             project_id = int(endpoint_id)
-            project = db.query(models.Project).filter(models.Project.id == project_id).first()
-            if project:
-                graph_data = project.graph_data or {}
-                nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
-                for n in nodes:
-                    if isinstance(n, dict) and n.get('type') == 'webhookNode':
-                        webhook_node_id = n.get('id')
-                        break
+            candidate = db.query(models.Project).filter(models.Project.id == project_id).first()
+            if candidate:
+                graph_data = candidate.graph_data or {}
+                if isinstance(graph_data, dict) and graph_data.get('is_live', False):
+                    nodes = graph_data.get('nodes', [])
+                    for n in nodes:
+                        if isinstance(n, dict) and n.get('type') == 'webhookNode':
+                            project = candidate
+                            webhook_node_id = n.get('id')
+                            break
         except ValueError:
             pass
             
@@ -4194,6 +4202,14 @@ def publish_template_version(slug: str, payload: TemplateVersionPayload,
     project = db.query(models.Project).filter(models.Project.id == payload.projectId).first()
     if not template:
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다.")
+    # ⚠️ publish_version 은 **템플릿** 소유권만 보고 **프로젝트** 소유권은 보지 않았다. 그래서
+    # 자기 템플릿에 남의 projectId 로 새 버전을 올리면, 피해자의 비공개 그래프가 정화만 거쳐
+    # 공개 템플릿으로 게시됐다(2026-08-31 적대적 리뷰). 프로젝트 소유·조회 권한을 여기서 강제한다.
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+    _require_project_action(db, user, project, project_access.VIEW)
+    if project.user_id != user.id and not project_access.can(db, user, project, project_access.EDIT):
+        raise HTTPException(status_code=403, detail="본인 소유 워크플로우만 템플릿으로 게시할 수 있습니다.")
     try:
         version = community_templates.publish_version(
             db, user, template, project=project, version=payload.version,
@@ -5506,12 +5522,23 @@ if os.path.exists(FRONTEND_DIST):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
     # Catch-all route for SPA routing (returns index.html)
+    #
+    # ⚠️ os.path.join(FRONTEND_DIST, full_path) 는 full_path 에 '../' 가 있으면 dist 밖으로 나간다.
+    # nginx 는 경로를 정규화해 막지만 0.0.0.0:8000 이 직접 열려 있어(그리고 curl --path-as-is 는
+    # 정규화하지 않아) `/../../backend/.env` 로 DATABASE_URL·JWT_SECRET·OPENAI_API_KEY 가 인증 없이
+    # 유출됐다(2026-08-31 적대적 리뷰에서 실증). dist 루트 안으로 가둔 뒤에만 파일을 낸다.
+    _FRONTEND_ROOT = os.path.realpath(FRONTEND_DIST)
+
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
-        file_path = os.path.join(FRONTEND_DIST, full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+        index = os.path.join(_FRONTEND_ROOT, "index.html")
+        candidate = os.path.realpath(os.path.join(_FRONTEND_ROOT, full_path))
+        # 심볼릭 링크까지 푼 실제 경로가 dist 루트 안이어야 한다. 밖이면 SPA 라우팅으로 간주해 index.
+        if candidate != _FRONTEND_ROOT and not candidate.startswith(_FRONTEND_ROOT + os.sep):
+            return FileResponse(index)
+        if os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(index)
 
 @app.delete("/api/chat/sessions/{session_id}")
 def delete_chat_session(session_id: int, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):

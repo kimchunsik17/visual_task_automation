@@ -234,13 +234,17 @@ def generate_dynamic_input_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', \"{test_val}\" if \"{test_val}\" else '<<No input provided>>')")
 
     if input_type == 'file':
-        lines.append(f"{indent}import os")
+        # 파일 경로는 업로드 루트 안이어야 한다(2026-08-31 적대적 리뷰: 확장자·경로 제한이 없어
+        # 실행 payload 로 backend/.env 를 넘기면 그대로 읽혔다). _safe_user_path 가 밖이면 None.
         lines.append(f"{indent}file_content_{node_id} = ''")
+        lines.append(f"{indent}_dyn_path_{node_id} = _safe_user_path(str(dyn_input_{node_id}))")
         lines.append(f"{indent}try:")
-        lines.append(f"{indent}    if os.path.exists(str(dyn_input_{node_id})):")
-        lines.append(f"{indent}        with open(str(dyn_input_{node_id}), 'r', encoding='utf-8', errors='replace') as f:")
+        lines.append(f"{indent}    if _dyn_path_{node_id} is not None and _dyn_path_{node_id}.is_file():")
+        lines.append(f"{indent}        with open(_dyn_path_{node_id}, 'r', encoding='utf-8', errors='replace') as f:")
         lines.append(f"{indent}            file_content_{node_id} = f.read()")
         lines.append(f"{indent}        dyn_input_{node_id} = file_content_{node_id}")
+        lines.append(f"{indent}    elif _dyn_path_{node_id} is None:")
+        lines.append(f"{indent}        dyn_input_{node_id} = '허용되지 않은 파일 경로입니다(업로드한 파일만 읽을 수 있습니다)'")
         lines.append(f"{indent}except Exception as e:")
         lines.append(f"{indent}    dyn_input_{node_id} = f'Error reading file: {{str(e)}}'")
 
