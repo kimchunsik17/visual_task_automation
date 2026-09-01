@@ -270,6 +270,13 @@ def register_generated_file(
             .filter(models.UploadedFile.stored_name == resolved.name)
             .first()
         )
+        # 같은 stored_name 의 행이 **다른 사용자** 것이면 건드리지 않는다. stored_name 은 output_path
+        # 에서 오고 사용자가 고정할 수 있어(uploads/서식.hwpx), 남의 파일명과 충돌시키면 예전에는
+        # 그 행의 size·hash 를 덮어쓰고 남의 artifact_id 를 이 호출자에게 돌려줬다 — 남의 파일을
+        # 자기 산출물로 첨부할 수 있는 경로였다. 등록을 포기한다(파일은 이미 디스크에 있고,
+        # 등록이 없으면 첨부만 못 할 뿐이다).
+        if existing is not None and (owner_user_id or 0) not in (existing.owner_user_id, 0):
+            return None
         size_bytes = resolved.stat().st_size
         digest = sha256_of(resolved)
         display_name = safe_filename(original_name or resolved.name, fallback_extension=resolved.suffix)
