@@ -169,6 +169,41 @@ def test_unknown_api_routes_return_json_404_not_the_spa_shell():
         "SPA 라우팅이 깨졌다 — catch-all 이 index.html 을 내야 한다"
 
 
+def test_missing_api_routes_are_404_for_every_method():
+    """GET 만 고치면 반쪽이다. dist 가 있을 때 `GET /{full_path:path}` catch-all 이 /api 경로를
+    잡아버려, POST 는 '경로는 매칭됐는데 메서드가 없다' 가 되어 405 로 나갔다. 배포에서
+    라우트가 빠졌을 때 405 는 "있는데 메서드가 틀렸나?" 로 읽혀 추적을 엉뚱한 데로 보낸다."""
+    import os as _os
+    _os.environ.setdefault("DISABLE_SCHEDULER", "1")
+    from fastapi.testclient import TestClient
+    import main
+
+    client = TestClient(main.app, raise_server_exceptions=False)
+    for method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+        r = client.request(method, "/api/no-such-route-xyz")
+        assert r.status_code == 404, f"{method} 가 {r.status_code} 를 돌려줬다"
+        assert r.headers["content-type"].startswith("application/json")
+
+
+def test_wrong_method_on_a_real_api_route_still_says_405():
+    """없는 경로를 404 로 바꾸면서 진짜 405 까지 뭉개면 API 계약이 나빠진다 — 라우트가
+    실재하는데 메서드만 다른 경우는 405 와 Allow 헤더가 정확한 답이다."""
+    import os as _os
+    _os.environ.setdefault("DISABLE_SCHEDULER", "1")
+    from fastapi.testclient import TestClient
+    import main
+
+    client = TestClient(main.app, raise_server_exceptions=False)
+
+    r = client.request("POST", "/api/features")          # GET 전용 라우트
+    assert r.status_code == 405, r.text
+    assert "GET" in (r.headers.get("Allow") or "")
+
+    r = client.request("GET", "/api/auth/google")        # POST 전용 라우트
+    assert r.status_code == 405, r.text
+    assert "POST" in (r.headers.get("Allow") or "")
+
+
 # ── httpRequestNode SSRF (url_guard 배선) ──────────────────────────────────
 # 이 노드는 저장소에서 유일하게 목적지가 자유롭다 — URL 을 사용자·LLM 이 정한다.
 # 정책(url_guard)은 webCrawlerNode 에서 이미 돌고 있었는데 이쪽만 배선이 빠져 있었다.

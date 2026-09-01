@@ -5711,7 +5711,7 @@ if os.path.exists(FRONTEND_DIST):
         # 반영 실패가 '200 text/html'로 위장돼, 개발자가 백엔드가 아니라 프론트부터 뒤지게
         # 된다(이 저장소의 실제 재발 이력). 오타 난 라우트도 조용히 화면을 받는다.
         if full_path.startswith("api/"):
-            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+            return _api_miss_response("/" + full_path)
         candidate = os.path.realpath(os.path.join(_FRONTEND_ROOT, full_path))
         # 심볼릭 링크까지 푼 실제 경로가 dist 루트 안이어야 한다. 밖이면 SPA 라우팅으로 간주해 index.
         if candidate != _FRONTEND_ROOT and not candidate.startswith(_FRONTEND_ROOT + os.sep):
@@ -6002,3 +6002,46 @@ async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: mo
         "workflow_mappings": normalized_workflow_mappings,
         "token_usage": token_usage,
     }
+
+
+# ── 없는 /api 경로는 SPA 셸도 405 도 아니다 ────────────────────────────────
+# **반드시 이 파일 맨 끝에 있어야 한다.** Starlette 는 등록 순서로 매칭하므로, 위에 있는 실제
+# 라우트가 먼저 잡히고 아무것도 잡지 못한 /api 요청만 여기로 온다.
+#
+# 왜 필요한가: 프론트 dist 가 있을 때 `GET /{full_path:path}` catch-all 이 /api 경로까지 잡는다.
+# GET 은 그 안에서 404 JSON 으로 돌려주지만, POST 는 "경로는 매칭됐는데 메서드가 없다" 가 되어
+# **405** 가 나갔다. 배포에서 라우트가 빠졌을 때 405 는 "있는데 메서드가 틀렸나?" 로 읽혀
+# 원인 추적을 엉뚱한 데로 보낸다(계획서가 실측으로 지적한 위장 중 하나).
+#
+# 다만 진짜 405 까지 404 로 뭉개면 API 계약이 나빠진다 — 라우트가 실재하는데 메서드만 다른
+# 경우는 405 와 Allow 헤더가 정확한 답이다. 그래서 경로에 등록된 라우트가 있는지 먼저 본다.
+def _api_miss_response(path: str) -> JSONResponse:
+    """아무 라우트도 처리하지 못한 /api 요청의 응답. 두 진입점이 이걸 함께 쓴다 —
+    아래 catch-all(주로 GET 외 메서드)과, 프론트 dist 가 있을 때 GET 을 먼저 잡는
+    `serve_frontend` 의 api 분기. 한 곳만 고치면 메서드에 따라 404/405 가 갈린다."""
+    allowed: set = set()
+    for route in app.routes:
+        regex = getattr(route, "path_regex", None)
+        methods = getattr(route, "methods", None)
+        route_path = getattr(route, "path", "") or ""
+        if regex is None or not methods:
+            continue
+        # /api 로 시작하는 것만 센다. 프론트 SPA fallback(`/{full_path:path}`)도 이 경로에
+        # 매칭되지만 그건 API 라우트가 아니다 — 그것까지 세면 없는 경로가 405 로 나간다.
+        if not route_path.startswith("/api/") or route_path == "/api/{rest:path}":
+            continue
+        if regex.match(path):
+            allowed |= set(methods)
+    if allowed:
+        return JSONResponse(
+            status_code=405, content={"detail": "Method Not Allowed"},
+            headers={"Allow": ", ".join(sorted(allowed))},
+        )
+    return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+
+@app.api_route("/api/{rest:path}",
+               methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+               include_in_schema=False)
+async def api_route_not_found(rest: str):
+    return _api_miss_response("/api/" + rest)
