@@ -147,6 +147,66 @@ async def startup_event():
     except Exception as e:
         print(f"Failed to start node knowledge index sync: {e}")
 
+@app.get("/api/health")
+def health():
+    """프로세스가 살아 있는가만 본다. 의존성을 타지 않아 DB 가 죽어도 200 이다.
+
+    /api/ready 와 나누는 이유: 이걸로 재기동을 판단하는데 DB 를 함께 보면, DB 가 잠깐
+    흔들릴 때 멀쩡한 프로세스를 죽이게 된다.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/api/ready")
+def ready():
+    """트래픽을 받아도 되는 상태인가. 배포 스모크가 이걸 보고 성공·실패를 가른다.
+
+    스키마 확인이 핵심이다 — 리비전이 head 가 아닌 채로 서비스가 서면 첫 쿼리에서
+    사용자에게 오류로 드러난다. 실패해도 예외를 올리지 않고 503 + 어디가 깨졌는지를
+    돌려준다(프로브가 스택트레이스를 받아봐야 쓸 데가 없다).
+    """
+    from sqlalchemy import text as _sql_text
+
+    import db_migrate as _db_migrate
+
+    checks: dict = {}
+    detail: dict = {}
+
+    try:
+        with engine.connect() as connection:
+            connection.execute(_sql_text("SELECT 1"))
+        checks["database"] = True
+    except Exception as exc:
+        checks["database"] = False
+        detail["database"] = type(exc).__name__
+
+    try:
+        head = _db_migrate.head_revision()
+        current = _db_migrate.current_revision(engine)
+        checks["schema"] = head is not None and head == current
+        if not checks["schema"]:
+            detail["schema"] = {"head": head, "current": current}
+    except Exception as exc:
+        checks["schema"] = False
+        detail["schema"] = type(exc).__name__
+
+    # 스케줄러는 기동 시 꺼둘 수 있다(DISABLE_SCHEDULER). 끈 것을 고장으로 보지 않는다.
+    if os.environ.get("DISABLE_SCHEDULER"):
+        checks["scheduler"] = None
+    else:
+        try:
+            checks["scheduler"] = bool(scheduler.scheduler.running)
+        except Exception as exc:
+            checks["scheduler"] = False
+            detail["scheduler"] = type(exc).__name__
+
+    ok = all(v for v in checks.values() if v is not None)
+    body = {"status": "ready" if ok else "not_ready", "checks": checks}
+    if detail:
+        body["detail"] = detail
+    return JSONResponse(status_code=200 if ok else 503, content=body)
+
+
 class FlowPayload(BaseModel):
     project_id: Optional[int] = None
     nodes: List[Dict[str, Any]]
