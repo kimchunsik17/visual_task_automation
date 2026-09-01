@@ -249,7 +249,36 @@ key_id 가 맞는 후보 키로만 복호화한다. 두 비밀이 슬롯에 남�
 `resource` 모듈도 함께 쓰므로 `SystemRoot` 만 넣어도 Windows 에서 동작하지 않는다.
 pythonNode 는 `PYTHON_NODE_ENABLED=0` 으로 닫아 두었다(커밋 `cd3802d`).
 
-## 6.3 잔여
+## 6.3 2라운드 (사용자 결정 반영)
+
+| 커밋 | 항목 | 내용 |
+| --- | --- | --- |
+| `92a35b8` | — | chromadb 동시 접근 크래시가 **생성 경로에도** 남아 있던 것 (PR #32 후속) |
+| `21b9842` | C1 | 실행 결과가 공개 범위로 열리던 것 차단 + 세 분기 통일 |
+| `81dc037` | B5 | launch.json 추적 해제, example 로 대체 |
+| `1ac45c2` | B4 | 비밀 교체 금지 문단을 두 키 모두로 |
+| `cb54acc` | B2 | 없는 /api 경로가 GET 외 메서드에서 405 로 위장하던 것 |
+| `9ddebb0` | B3 | templates.slug 를 실제로 unique 하게 |
+| `2ecd1c9` | B1 | requirements_linux.txt 폐기, 하나로 통일 |
+| `f9dedd6` | C3 | 모델 unique 선언 ↔ 마이그레이션 계약 테스트 |
+| `18340df` | D/1단계 | deploy.sh · rollback.sh · AUTO_MIGRATE_ON_BOOT |
+
+### C2 — pythonNode 생성 차단: **하지 않기로 했다**
+
+노드는 리눅스(서버)에서 정상 동작하고 `PYTHON_NODE_ENABLED` 기본값이 1이다. 로컬에서 끈 것은
+Windows 에서 격리 실행기를 걸 수 없기 때문이지 노드가 잘못돼서가 아니다. 생성까지 막으면
+서버의 멀쩡한 기능을 없애는 셈이고, 그러려면 `meta_agent` 의 프롬프트와 pydantic `Literal` 을
+고쳐야 하는데 그쪽은 평가 스위트가 지키는 핵심 경로다.
+
+꺼진 환경에서의 현재 동작(그 노드만 `RUNTIME_NODE_DISABLED` 로 실패하고 하류는 계속)은 개발
+머신에 적절한 저하 모드다.
+
+### C3 — 드리프트 테스트: **좁게만 넣었다**
+
+전수 비교(`compare_metadata`)는 무시 목록 정책을 먼저 정해야 하는 과제라 남겼다. 대신 실제로
+터진 종류(모델의 `unique=True` ↔ 마이그레이션)만 검사한다. 현재 unique 컬럼 14개 전부 일치.
+
+## 6.4 잔여
 
 **0단계**: `main.jsx:2·20` DEV 가드 + `frontend/src/ErrorBoundary.jsx` 를 `App.jsx:65`
 `<Routes>` 바깥에 감기 — **브라우저 확인이 필요해 미착수**. nginx `/telegram-webhook/`,
