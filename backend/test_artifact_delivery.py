@@ -160,6 +160,25 @@ def test_content_change_after_registration_is_rejected(uploads, db):
     assert exc.value.error.code == "ARTIFACT_NOT_FOUND"
 
 
+def _symlinks_available() -> bool:
+    """Windows 는 심볼릭 링크 생성에 관리자 권한이나 개발자 모드가 필요하다. 없으면 이 검사는
+    수행할 수 없다 — 실패로 남겨 두면 '원래 빨간 테스트' 가 되어 진짜 회귀를 가린다.
+    리눅스(운영·CI)에서는 항상 돌아간다."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        base = Path(d)
+        target = base / "t"
+        target.write_text("x", encoding="utf-8")
+        try:
+            (base / "l").symlink_to(target)
+            return True
+        except (OSError, NotImplementedError):
+            return False
+
+
+@pytest.mark.skipif(not _symlinks_available(),
+                    reason="심볼릭 링크를 만들 수 없는 환경(권한 없는 Windows)")
 def test_symlink_and_paths_outside_the_root_are_never_opened(uploads, db, tmp_path):
     secret = tmp_path / "secret.png"
     secret.write_bytes(PNG_BYTES)
