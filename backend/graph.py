@@ -307,6 +307,17 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     lines.append("        resolved.relative_to(root)")
     lines.append("    except Exception:")
     lines.append("        return None")
+    # 소유권 검사(ADR-0010 후속). 예전에는 uploads/ 안이기만 하면 통과해, 예측 가능한 이름
+    # (uploads/서식.hwpx, 작성완료.hwpx 등)으로 **남의 생성·업로드 파일을 읽을 수** 있었다.
+    # 등록된 파일이면 이번 실행의 소유자(__owner_user_id__) 것이어야 한다. db 가 없으면(테스트)
+    # 확인을 건너뛰고 경로 가둠만 적용한다. 등록되지 않은 경로는 종전대로 통과한다.
+    lines.append("    try:")
+    lines.append("        if db is not None:")
+    lines.append("            _rec = db.query(models.UploadedFile).filter(models.UploadedFile.stored_name == resolved.name).first()")
+    lines.append("            if _rec is not None and _rec.owner_user_id not in (None, 0, __owner_user_id__):")
+    lines.append("                return None")
+    lines.append("    except Exception:")
+    lines.append("        pass")
     lines.append("    return resolved")
     lines.append("__node_bindings__ = " + repr(node_bindings.runtime_map(nodes)))
     lines.append("def _binding_path(value, path):")

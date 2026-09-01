@@ -313,3 +313,71 @@ def test_upload_endpoint_authorization_and_quota(tmp_path):
     )
     assert result.returncode == 0, f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr[-3000:]}"
     assert "ALL OK" in result.stdout
+
+
+# ── _safe_user_path 소유권 (교차 사용자 파일 읽기 차단) ─────────────────────
+# 예전에는 uploads/ 안이기만 하면 통과해, 예측 가능한 이름(uploads/서식.hwpx)으로 남의
+# 생성·업로드 파일을 워크플로우에서 읽을 수 있었다. _safe_user_path 가 DB 소유권을 본다.
+
+def _compiled_safe_user_path(db, owner_user_id, upload_dir):
+    """생성 코드의 _safe_user_path 를 실제 러너와 같은 네임스페이스로 얻는다."""
+    import json as _json
+    import os
+    import graph
+    import node_generators  # noqa: F401
+
+    os.environ["UPLOAD_DIR"] = str(upload_dir)
+    src = graph.compile_workflow(
+        [{"id": "s", "type": "startNode", "data": {}, "position": {"x": 0, "y": 0}}],
+        [],
+    )
+    ns = {"db": db, "models": models, "json": _json, "__owner_user_id__": owner_user_id}
+    exec(compile(src, "<gen>", "exec"), ns)  # noqa: S102
+    return ns["_safe_user_path"]
+
+
+def test_safe_user_path_blocks_reading_another_users_file(tmp_path, monkeypatch):
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    (upload_dir / "shared_name.txt").write_text("owner 1 의 비밀", encoding="utf-8")
+
+    db = make_db()
+    add_file(db, owner=1, size=10, name="shared_name.txt")
+
+    target = "uploads/shared_name.txt"
+    monkeypatch.chdir(tmp_path)
+
+    owner_path = _compiled_safe_user_path(db, 1, upload_dir)(target)
+    assert owner_path is not None, "소유자 본인은 읽을 수 있어야 한다"
+
+    stranger_path = _compiled_safe_user_path(db, 2, upload_dir)(target)
+    assert stranger_path is None, "타인은 읽을 수 없어야 한다"
+
+    anon_path = _compiled_safe_user_path(db, None, upload_dir)(target)
+    assert anon_path is None, "익명은 남의 파일을 읽을 수 없어야 한다"
+
+
+def test_safe_user_path_allows_unregistered_paths(tmp_path, monkeypatch):
+    """DB 에 없는 경로(생성 직전 임시 등)는 종전대로 경로 가둠만 적용한다 — 소유권을 물을
+    대상이 없으므로 막지 않는다."""
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    (upload_dir / "scratch.txt").write_text("x", encoding="utf-8")
+
+    db = make_db()
+    monkeypatch.chdir(tmp_path)
+
+    path = _compiled_safe_user_path(db, 1, upload_dir)("uploads/scratch.txt")
+    assert path is not None
+
+
+def test_safe_user_path_still_rejects_paths_outside_uploads(tmp_path, monkeypatch):
+    """소유권 검사를 더해도 경로 탈출 방어는 그대로다."""
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    db = make_db()
+    monkeypatch.chdir(tmp_path)
+
+    fn = _compiled_safe_user_path(db, 1, upload_dir)
+    assert fn("../../../etc/passwd") is None
+    assert fn("uploads/../../secret") is None
