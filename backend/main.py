@@ -88,11 +88,38 @@ if not JWT_SECRET:
 JWT_ALGORITHM = "HS256"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "off", "no"}
+
+
 # Create DB tables
 # 스키마는 Alembic 마이그레이션으로 맞춘다(ADR-0006). 예전에는 create_all 을 썼는데,
 # 이미 있는 테이블에 컬럼을 추가해주지 않아서 모델 변경이 운영 DB에 조용히 누락됐다.
 # create_all 로 만들어진 기존 DB 는 ensure_schema 가 기준선으로 stamp 한 뒤 인계받는다.
-print(f"[db] {db_migrate.ensure_schema(engine)}")
+#
+# ■ AUTO_MIGRATE_ON_BOOT (기본 1 = 지금까지의 동작)
+#   임포트 시점에 마이그레이션을 **적용**한다. 이 말은 "재기동 = 운영 스키마 변경" 이라는
+#   뜻이고, 크래시 루프가 돌면 매 사이클마다 그것이 실행된다(운영에서 4.2일간 6,645회
+#   재기동이 관측됐다). scripts/deploy.sh 가 alembic 을 먼저 완주시키는 레일을 쓰기
+#   시작하면 0 으로 내려라 — 그때부터 앱은 스키마를 **확인만** 하고, 어긋나면 뜨지 않는다.
+#
+#   순서를 뒤집지 말 것: 배포 스크립트가 alembic 을 돌리기 전에 이 값을 0 으로 내리면
+#   다음 마이그레이션이 있는 배포에서 서비스가 서 버린다.
+if _env_flag("AUTO_MIGRATE_ON_BOOT", True):
+    print(f"[db] {db_migrate.ensure_schema(engine)}")
+else:
+    _head = db_migrate.head_revision()
+    _current = db_migrate.current_revision(engine)
+    if _current != _head:
+        raise RuntimeError(
+            f"DB 스키마가 head 가 아니다 (current={_current}, head={_head}). "
+            "마이그레이션을 적용하지 않은 채로 뜨면 첫 쿼리에서 사용자에게 오류로 드러난다. "
+            "`alembic upgrade head` 를 먼저 돌려라 — scripts/deploy.sh 가 그것을 한다."
+        )
+    print(f"[db] 스키마 확인만 했다 (revision={_current}, AUTO_MIGRATE_ON_BOOT=0)")
 ensure_usage_tracking_schema(engine)
 
 app = FastAPI(title="Business Automation API")
