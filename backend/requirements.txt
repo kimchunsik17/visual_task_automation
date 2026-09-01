@@ -34,3 +34,9 @@ python-hwpx==3.4.1
 playwright
 langchain-text-splitters
 langfuse
+
+# 테스트 전용. 런타임에는 필요 없지만 여기 없으면 clone 직후 pytest 를 돌릴 수 없다.
+# pytest-asyncio 는 @pytest.mark.asyncio 가 붙은 테스트(test_security_hardening.py 등)에
+# 필요하다 — 없으면 "async def functions are not natively supported" 로 실패한다.
+pytest
+pytest-asyncio
