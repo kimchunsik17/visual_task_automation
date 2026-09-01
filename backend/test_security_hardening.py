@@ -136,3 +136,34 @@ def test_인증이_필요한_경로는_500이_아니라_401을_돌려준다(tmp_
     )
     assert result.returncode == 0, f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr[-3000:]}"
     assert "ALL OK" in result.stdout
+
+
+@pytest.mark.skipif(
+    not __import__("os").path.exists(
+        __import__("os").path.join(
+            __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))),
+            "frontend", "dist")),
+    reason="frontend/dist 가 없으면 catch-all 라우트 자체가 등록되지 않는다 (npm run build 필요)")
+def test_unknown_api_routes_return_json_404_not_the_spa_shell():
+    """없는 /api/ 경로가 index.html 200 으로 위장되지 않는다.
+
+    catch-all(`@app.get("/{full_path:path}")`)이 모든 미매치 GET 에 index.html 을 돌려주는
+    바람에, 배포 반영 실패와 오타 난 라우트가 '200 text/html' 로 보였다. 그러면 개발자가
+    백엔드가 아니라 프론트부터 뒤진다 — 이 저장소의 실제 재발 이력이다.
+
+    SPA 라우팅(/editor/123 등)은 그대로 index.html 을 받아야 하므로 함께 확인한다.
+    """
+    import os as _os
+    _os.environ.setdefault("DISABLE_SCHEDULER", "1")
+    from fastapi.testclient import TestClient
+    import main
+
+    client = TestClient(main.app)
+
+    r = client.get("/api/no-such-route-xyz")
+    assert r.status_code == 404, f"없는 API 경로가 {r.status_code} 를 돌려줬다"
+    assert r.headers["content-type"].startswith("application/json")
+
+    spa = client.get("/editor/123")
+    assert spa.status_code == 200 and spa.headers["content-type"].startswith("text/html"), \
+        "SPA 라우팅이 깨졌다 — catch-all 이 index.html 을 내야 한다"

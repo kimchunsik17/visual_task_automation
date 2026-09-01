@@ -5589,6 +5589,11 @@ if os.path.exists(FRONTEND_DIST):
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         index = os.path.join(_FRONTEND_ROOT, "index.html")
+        # 없는 API 경로는 SPA 라우팅이 아니다. 여기서 index.html 을 200 으로 돌려주면 배포
+        # 반영 실패가 '200 text/html'로 위장돼, 개발자가 백엔드가 아니라 프론트부터 뒤지게
+        # 된다(이 저장소의 실제 재발 이력). 오타 난 라우트도 조용히 화면을 받는다.
+        if full_path.startswith("api/"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
         candidate = os.path.realpath(os.path.join(_FRONTEND_ROOT, full_path))
         # 심볼릭 링크까지 푼 실제 경로가 dist 루트 안이어야 한다. 밖이면 SPA 라우팅으로 간주해 index.
         if candidate != _FRONTEND_ROOT and not candidate.startswith(_FRONTEND_ROOT + os.sep):
