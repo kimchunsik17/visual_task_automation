@@ -28,7 +28,8 @@
 | [INCOMPLETE_NODE_STRUCTURE_REVIEW.md](plans/INCOMPLETE_NODE_STRUCTURE_REVIEW.md) | P0 완료(ADR-0014·0015), P1 이후 미착수 |
 | [LLM_GENERATION_QUALITY_PLAN.md](plans/LLM_GENERATION_QUALITY_PLAN.md) | 생성 품질·로컬 전환 계획 |
 | [TROUBLESHOOTING_AUDIT_INTERIM.md](plans/TROUBLESHOOTING_AUDIT_INTERIM.md) | **중단됨** — 전반 감사 7/12축, 발견 55건(미검증). 재개 방법과 남은 축이 적혀 있다 |
-| [TROUBLESHOOTING_EXECUTION_PLAN.md](plans/TROUBLESHOOTING_EXECUTION_PLAN.md) | **실행 계획** — 12축 감사 종합. P0 보안·0단계 상당수 완료, 남은 40h/7~8세션. 여기서부터 이어간다 |
+| [TROUBLESHOOTING_EXECUTION_PLAN.md](plans/TROUBLESHOOTING_EXECUTION_PLAN.md) | **실행 계획** — 12축 감사 종합. P0 보안·0단계 상당수 완료. 여기서부터 이어간다 |
+| [TROUBLESHOOTING_REVERIFICATION.md](plans/TROUBLESHOOTING_REVERIFICATION.md) | **실측 재검증(2026-09-01)** — 위 계획의 주장 약 110건을 코드와 대조했다. 개수 정정 5건·줄번호 표류 12곳·결정이 뒤집힌 항목 2개. **계획서보다 이걸 먼저 읽어라** |
 
 ## [design/](design/) — 디자인 계획과 기준
 
