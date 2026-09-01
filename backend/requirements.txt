@@ -1,3 +1,15 @@
+# 이 파일 하나가 정본이다.
+#
+# 예전에는 requirements_linux.txt 를 따로 두었는데, 그쪽이 python-hwpx·gspread·
+# google-auth-oauthlib·playwright 4개를 빠뜨린 부분집합이었다. 서버가 그것으로 설치하는 동안
+# hwpxDocumentNode·googleSheetsNode·posterGeneratorNode·OAuth 연동이 런타임에만 ImportError 로
+# 죽었다(전부 지연 import 라 기동은 성공한다 — 그래서 오래 눈에 띄지 않았다). 두 파일을
+# 손으로 맞추는 방식은 이 누락을 다시 만든다.
+#
+# 배포 시: playwright 는 브라우저 바이너리를 따로 받아야 하지만, 서버에는 이미
+# ~/.cache/ms-playwright 에 Chromium 이 있다(poster_generator.py:9). 새 머신에서는
+# `python -m playwright install chromium` 을 한 번 돌린다.
+
 fastapi
 uvicorn
 sqlalchemy
@@ -34,3 +46,9 @@ python-hwpx==3.4.1
 playwright
 langchain-text-splitters
 langfuse
+
+# 테스트 전용. 런타임에는 필요 없지만 여기 없으면 clone 직후 pytest 를 돌릴 수 없다.
+# pytest-asyncio 는 @pytest.mark.asyncio 가 붙은 테스트(test_security_hardening.py 등)에
+# 필요하다 — 없으면 "async def functions are not natively supported" 로 실패한다.
+pytest
+pytest-asyncio

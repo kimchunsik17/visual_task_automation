@@ -160,6 +160,25 @@ def test_content_change_after_registration_is_rejected(uploads, db):
     assert exc.value.error.code == "ARTIFACT_NOT_FOUND"
 
 
+def _symlinks_available() -> bool:
+    """Windows 는 심볼릭 링크 생성에 관리자 권한이나 개발자 모드가 필요하다. 없으면 이 검사는
+    수행할 수 없다 — 실패로 남겨 두면 '원래 빨간 테스트' 가 되어 진짜 회귀를 가린다.
+    리눅스(운영·CI)에서는 항상 돌아간다."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        base = Path(d)
+        target = base / "t"
+        target.write_text("x", encoding="utf-8")
+        try:
+            (base / "l").symlink_to(target)
+            return True
+        except (OSError, NotImplementedError):
+            return False
+
+
+@pytest.mark.skipif(not _symlinks_available(),
+                    reason="심볼릭 링크를 만들 수 없는 환경(권한 없는 Windows)")
 def test_symlink_and_paths_outside_the_root_are_never_opened(uploads, db, tmp_path):
     secret = tmp_path / "secret.png"
     secret.write_bytes(PNG_BYTES)
@@ -795,3 +814,44 @@ def test_node_definitions_declare_the_attachment_port():
         field = next(f for f in definition.fields if f.name == "attachments")
         assert field.kind == "attachments"
         assert any(port.name == "attachments" for port in definition.inputs)
+
+
+def test_register_generated_file_does_not_hijack_another_users_row(uploads, db):
+    """stored_name 은 output_path 에서 오고 사용자가 고정할 수 있다(uploads/서식.hwpx).
+    남의 파일명과 충돌시켜도, 남의 artifact 행을 덮어쓰거나 그 id 를 돌려받으면 안 된다 —
+    예전에는 그게 남의 파일을 자기 산출물로 첨부하는 경로였다."""
+    path = artifacts.upload_root() / "shared_name.png"
+    path.write_bytes(PNG_BYTES)
+
+    # user 1 이 먼저 등록한다.
+    first = artifacts.register_generated_file(db, path=str(path), owner_user_id=1, project_id=10,
+                                              purpose="generated-poster")
+    assert first is not None
+    original_artifact_id = first.artifact_id
+
+    # user 2 가 같은 이름으로 등록을 시도한다(내용을 바꿔서).
+    path.write_bytes(PNG_BYTES + b"user2 content")
+    hijack = artifacts.register_generated_file(db, path=str(path), owner_user_id=2, project_id=20,
+                                               purpose="generated-poster")
+    assert hijack is None, "남의 행을 가로챘다"
+
+    # user 1 의 행은 그대로여야 한다 — 소유자·artifact_id 가 안 바뀐다.
+    db.expire_all()
+    import models
+    row = db.query(models.UploadedFile).filter(
+        models.UploadedFile.stored_name == "shared_name.png").one()
+    assert row.owner_user_id == 1
+    assert row.artifact_id == original_artifact_id
+
+
+def test_register_generated_file_still_reuses_the_owners_own_row(uploads, db):
+    """소유자 본인의 재렌더는 여전히 같은 행을 재사용해야 한다(멱등성 보존)."""
+    path = artifacts.upload_root() / "mine.png"
+    path.write_bytes(PNG_BYTES)
+    a = artifacts.register_generated_file(db, path=str(path), owner_user_id=7, project_id=1,
+                                          purpose="generated-poster")
+    path.write_bytes(PNG_BYTES + b"again")
+    b = artifacts.register_generated_file(db, path=str(path), owner_user_id=7, project_id=1,
+                                          purpose="generated-poster")
+    assert a is not None and b is not None
+    assert a.artifact_id == b.artifact_id

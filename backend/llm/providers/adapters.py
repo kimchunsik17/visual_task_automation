@@ -134,6 +134,79 @@ class OpenAICompatibleProvider(OpenAIProvider):
         return ChatOpenAI(**params)
 
 
+OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def openrouter_model_id(model: str) -> str:
+    """OpenRouter 는 모델을 vendor/이름 으로 네임스페이스한다(gpt-4o-mini → openai/gpt-4o-mini).
+    이미 `/` 가 있으면(사용자가 명시) 그대로 둔다. 이름으로 vendor 를 추측하되, 모르는 것은
+    openai 로 본다 — 이 프로젝트의 기본 모델이 전부 OpenAI 계열이기 때문이다."""
+    if not model or "/" in model:
+        return model
+    low = model.lower()
+    if "claude" in low:
+        return f"anthropic/{model}"
+    if "gemini" in low:
+        return f"google/{model}"
+    if low.startswith("gpt") or low.startswith("o1") or low.startswith("o3") or "gpt-" in low:
+        return f"openai/{model}"
+    return f"openai/{model}"
+
+
+class OpenRouterProvider(OpenAIProvider):
+    """OpenRouter(https://openrouter.ai) 경유. OpenAI 호환 chat completions API 라 ChatOpenAI 로
+    base_url 만 바꿔 쓴다. 임베딩·이미지 생성은 OpenRouter 에 없으므로 이 provider 로 오지 않는다
+    — 그쪽은 OPENAI_API_KEY 로 직접 간다(node_knowledge/rag_utils/image_generation_runtime).
+
+    키는 OPENROUTER_API_KEY. LLM_API_KEY 가 있으면 그쪽이 이긴다(config.load_llm_settings)."""
+
+    name = "openrouter"
+    capabilities = ProviderCapabilities(
+        structured_output=True, tool_calling=True, streaming=True,
+        image_input=True, usage_metadata=True,
+    )
+
+    def __init__(self, settings: LLMSettings):
+        super().__init__(settings)
+        self.base_url = (settings.base_url or "").strip() or OPENROUTER_DEFAULT_BASE_URL
+
+    def create_chat_model(self, *, model, temperature=None, max_retries=None, api_key=None):
+        from langchain_openai import ChatOpenAI
+
+        key = api_key or self.settings.api_key or os.getenv("OPENROUTER_API_KEY")
+        if not key:
+            raise ProviderConfigurationError(
+                "LLM_PROVIDER=openrouter 일 때 OPENROUTER_API_KEY(또는 LLM_API_KEY)가 필요합니다."
+            )
+        resolved = openrouter_model_id(model)
+        params = {
+            "model": resolved,
+            "api_key": key,
+            "base_url": self.base_url,
+            "timeout": self.settings.timeout_seconds,
+        }
+        # OpenRouter 가 권장하는 식별 헤더(순위·대시보드용, 없어도 동작). 값은 env 로 바꿀 수 있다.
+        referer = os.getenv("OPENROUTER_HTTP_REFERER", "").strip()
+        title = os.getenv("OPENROUTER_APP_TITLE", "").strip()
+        headers = {}
+        if referer:
+            headers["HTTP-Referer"] = referer
+        if title:
+            headers["X-Title"] = title
+        if headers:
+            params["default_headers"] = headers
+
+        if temperature is not None and "gpt-5" not in resolved:
+            params["temperature"] = temperature
+        if max_retries is not None:
+            params["max_retries"] = max_retries
+        # gpt-5/o1/o3 는 reasoning 모델이라 reasoning_effort 를 넘긴다(OpenAIProvider 와 동일).
+        if "gpt-5" in resolved or "o1" in resolved or "o3" in resolved:
+            params["model_kwargs"] = {"reasoning_effort": "none"}
+
+        return ChatOpenAI(**params)
+
+
 class GoogleProvider(BaseLangChainProvider):
     name = "google"
     capabilities = ProviderCapabilities(image_input=True)

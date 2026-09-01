@@ -24,6 +24,40 @@ NODE_TYPE = "httpRequestNode"
 PLACEHOLDER_URL = "REPLACE_WITH_ACTUAL_URL"
 
 
+def _guard_url(url: str) -> None:
+    """SSRF 검사. 막을 이유가 있으면 요청을 보내기 전에 ConnectorError 로 세운다.
+
+    이 노드의 URL 은 사용자·LLM 이 정한다 — 저장소에서 유일하게 목적지가 자유로운 노드다.
+    정책 자체는 `url_guard` 에 이미 있고 webCrawlerNode 가 쓰고 있었는데, 이쪽만 배선이
+    빠져 있었다(내부 주소·클라우드 메타데이터 엔드포인트로 그냥 나갈 수 있었다).
+
+    INVALID_REQUEST 를 쓰는 이유: 재시도 대상이 아니다(`errors.RETRYABLE_CODES` 밖). 막힌
+    주소로 다시 보내봐야 결과가 같다.
+    """
+    import url_guard
+
+    try:
+        url_guard.check_url(url)
+    except url_guard.UrlBlocked as exc:
+        raise ConnectorError(code=INVALID_REQUEST, service=SERVICE, detail=str(exc)) from exc
+
+
+def _redirect_guard(response, *args: Any, **kwargs: Any):
+    """리다이렉트를 따라가기 전에 다음 홉을 검사하는 requests response 훅.
+
+    초기 URL 만 검사하면 공격자가 자기 서버에서 302 로 169.254.169.254 를 가리키는 것으로
+    우회할 수 있다. requests 는 응답 훅을 **다음 요청을 보내기 전에** 부르므로, 여기서
+    세우면 내부 주소로는 요청이 나가지 않는다.
+    """
+    if response.is_redirect or response.is_permanent_redirect:
+        location = response.headers.get("Location")
+        if location:
+            from urllib.parse import urljoin
+
+            _guard_url(urljoin(response.url, location))
+    return response
+
+
 def _parse_json_field(raw: Any, label: str) -> Dict[str, Any]:
     if raw is None:
         return {}
@@ -70,7 +104,18 @@ def call(
     else:
         kwargs["json"] = parsed_body
 
-    response = session.request(method, str(url).strip(), **kwargs)
+    target = str(url).strip()
+
+    # mock 재생은 네트워크를 타지 않는다(node_definition.new_session 이 재생 transport 를 끼운다).
+    # 그런데 check_url 은 DNS 를 해석하므로, 목업 시나리오의 가짜 호스트를 막아버린다.
+    # 나가지 않는 요청을 SSRF 로 막을 이유가 없으니 목업에서는 건너뛴다.
+    from .. import mock_runtime
+
+    if mock_runtime.current() is None:
+        _guard_url(target)
+        kwargs["hooks"] = {"response": _redirect_guard}
+
+    response = session.request(method, target, **kwargs)
     payload = response.json()
     if isinstance(payload, (dict, list)):
         return json.dumps(payload, ensure_ascii=False, indent=2)

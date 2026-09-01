@@ -223,13 +223,13 @@ def get_llm(provider: str = "openai", complexity_level: str = "low"):
         else:
             model_name = "gpt-5.6-terra"
 
-        kwargs = {}
-        if "gpt-5" not in model_name:
-            kwargs["temperature"] = 0.1
-        else:
-            kwargs["model_kwargs"] = {"reasoning_effort": "none"}
+        # 모델 생성을 provider 층에 맡긴다 — LLM_PROVIDER=openrouter 면 base_url·키·모델
+        # 네임스페이스(openai/…)가 거기서 처리된다. 예전에는 ChatOpenAI 를 직접 만들어
+        # OpenRouter 설정을 무시했다. response_format 바인딩은 그대로 유지한다.
+        from llm.providers import create_runtime_chat_model
 
-        return ChatOpenAI(model=model_name, **kwargs).bind(response_format={"type": "json_object"})
+        base_model = create_runtime_chat_model(model=model_name)
+        return base_model.bind(response_format={"type": "json_object"})
 
 async def generate_app(prompt: str, current_state: dict = None, provider: str = "openai", complexity_level: str = "low", generate_mode: str = "code") -> AppGeneratorResult:
     if current_state is None:

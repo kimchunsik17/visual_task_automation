@@ -4,7 +4,7 @@ import os
 from dataclasses import replace
 from typing import Optional, Set
 
-from .adapters import AnthropicProvider, GoogleProvider, MockProvider, OpenAICompatibleProvider, OpenAIProvider
+from .adapters import AnthropicProvider, GoogleProvider, MockProvider, OpenAICompatibleProvider, OpenAIProvider, OpenRouterProvider
 from .base import (
     GenerationRequest,
     GenerationResult,
@@ -23,6 +23,7 @@ def get_model_provider(provider_name: Optional[str] = None, settings: Optional[L
         "openai": OpenAIProvider,
         "openai_compatible": OpenAICompatibleProvider,
         "local": OpenAICompatibleProvider,
+        "openrouter": OpenRouterProvider,
         "google": GoogleProvider,
         "anthropic": AnthropicProvider,
         "mock": MockProvider,
@@ -122,6 +123,11 @@ def create_chat_model(
 
 
 def provider_name_for_model(model: str) -> str:
+    # OpenRouter 를 쓰기로 설정했으면 vendor 를 가리지 않고 전부 OpenRouter 로 보낸다 —
+    # OpenRouter 가 openai/anthropic/google 모델을 모두 한 API 로 서빙하기 때문이다.
+    # (provider 는 여전히 모델명으로 네임스페이스를 붙인다: claude-* → anthropic/claude-*)
+    if os.getenv("LLM_PROVIDER", "openai").strip().lower() == "openrouter":
+        return "openrouter"
     lowered = model.lower()
     if "claude" in lowered:
         return "anthropic"

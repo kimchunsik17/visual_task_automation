@@ -28,7 +28,8 @@
 | [INCOMPLETE_NODE_STRUCTURE_REVIEW.md](plans/INCOMPLETE_NODE_STRUCTURE_REVIEW.md) | P0 완료(ADR-0014·0015), P1 이후 미착수 |
 | [LLM_GENERATION_QUALITY_PLAN.md](plans/LLM_GENERATION_QUALITY_PLAN.md) | 생성 품질·로컬 전환 계획 |
 | [TROUBLESHOOTING_AUDIT_INTERIM.md](plans/TROUBLESHOOTING_AUDIT_INTERIM.md) | **중단됨** — 전반 감사 7/12축, 발견 55건(미검증). 재개 방법과 남은 축이 적혀 있다 |
-| [TROUBLESHOOTING_EXECUTION_PLAN.md](plans/TROUBLESHOOTING_EXECUTION_PLAN.md) | **실행 계획** — 12축 감사 종합. P0 보안·0단계 상당수 완료, 남은 40h/7~8세션. 여기서부터 이어간다 |
+| [TROUBLESHOOTING_EXECUTION_PLAN.md](plans/TROUBLESHOOTING_EXECUTION_PLAN.md) | **실행 계획** — 12축 감사 종합. P0 보안·0단계 상당수 완료. 여기서부터 이어간다 |
+| [TROUBLESHOOTING_REVERIFICATION.md](plans/TROUBLESHOOTING_REVERIFICATION.md) | **실측 재검증(2026-09-01)** — 위 계획의 주장 약 110건을 코드와 대조했다. 개수 정정 5건·줄번호 표류 12곳·결정이 뒤집힌 항목 2개. **계획서보다 이걸 먼저 읽어라** |
 
 ## [design/](design/) — 디자인 계획과 기준
 
@@ -75,7 +76,42 @@
 - **반대로, 런타임·빌드에 필요한 파일이 빠지지 않았는가** — 소스가 `import` 하는 자산,
   백엔드가 경로로 직접 읽는 파일(`poster_generator.py` 의 포스터 배경 등), 마이그레이션.
   위 3번이 이쪽 실수였다. 확인 방법은 **커밋된 트리만으로 빌드해 보는 것**이다.
+- **생성물이 정본과 어긋나지 않는가** — `python backend/export_node_definitions.py --check`.
+  `node_definitions/`·`error_catalog.json`·`credential_providers.json` 등을 고쳐 놓고 파생물을
+  다시 만들지 않으면, 프론트는 옛 정의로 화면을 그리는데 백엔드는 새 정의로 실행한다.
+  `--check` 는 어긋나면 0 이 아닌 코드로 끝나므로 배포 스크립트의 첫 관문으로도 쓴다.
+- **테스트를 돌렸는가** — 바꾼 영역의 백엔드 테스트를 파일 단위로(`pytest backend/test_X.py`).
+  전체는 느리니 상시로 돌리지 않는다. 프론트는 러너가 아직 없다 — `frontend/src/*.test.js` 9개가
+  `package.json` 에 스크립트가 없어 방치돼 있으므로, 그 파일들을 고쳤다면 손으로 확인해야 한다.
 - 커밋 메시지는 한국어로 "무엇을 왜". 일부러 뺀 것이 있으면 그 이유까지 적는다.
+
+## ⛔ 운영 비밀을 바꾸기 전에 — 되돌릴 수 없는 것
+
+**`JWT_SECRET` 과 `CREDENTIAL_ENCRYPTION_KEY` 중 어느 쪽이든, 재암호화 없이 바꾸면
+`user_api_keys` 에 저장된 자격증명이 영구히 복호화 불가가 된다.** 되돌릴 스크립트는 저장소에
+없다. 잃는 것은 사용자들이 API 센터에 연결해 둔 OAuth refresh token·SMTP 비밀번호·봇 토큰이고,
+사용자가 직접 다시 연결하는 것 말고는 복구 수단이 없다.
+
+이유는 `backend/credential_crypto.py:19-33` 에 있다. 암호화 키 후보를 이 순서로 만든다:
+
+```
+CREDENTIAL_ENCRYPTION_KEY  →  JWT_SECRET      (둘 다 sha256 으로 키 유도)
+```
+
+그래서 **`CREDENTIAL_ENCRYPTION_KEY` 가 비어 있으면 `JWT_SECRET` 이 사실상 암호화 키다.**
+계획서 초안이 `JWT_SECRET` 만 금지 대상으로 적었던 것은 이 폴백을 놓친 것이고, 두 값 모두가
+대상이다.
+
+한편 암호문에는 `enc:v1:{key_id}:` 로 어느 키로 잠갔는지가 박혀 있다(`:48`, `:56`, `:66-73`).
+그래서 **두 값이 슬롯에 함께 남아 있는 동안에는** 옛 키로 잠긴 것과 새 키로 잠긴 것이 섞여
+있어도 양쪽 다 읽힌다. 안전한 교체 순서는 여기서 나온다:
+
+1. 새 `CREDENTIAL_ENCRYPTION_KEY` 를 **추가**한다(기존 값은 지우지 않는다).
+2. 기존 자격증명을 새 키로 재암호화한다 — **이 스크립트를 먼저 만들어야 한다.**
+3. 전부 옮겨진 것을 확인한 뒤에야 옛 값을 지운다.
+
+이 절차를 밟기 전에는 두 변수 중 어느 것도 건드리지 않는다. 로컬 개발용 값은 서버와 무관하니
+자유롭게 새로 만들어도 된다.
 
 ## 이 문서들을 고칠 때
 

@@ -74,7 +74,10 @@ def test_project_run_rejects_anonymous_for_private(owner_and_project):
 def test_other_user_cannot_deploy(owner_and_project):
     _o, other, project = owner_and_project
     r = client.post(f"/api/deploy/{project.id}", json={"mode": "fastapi"}, headers=_headers(other))
-    assert r.status_code in (403, 404), r.text
+    # 403 이 아니라 404 다 — 남의 프로젝트는 "권한이 없다"가 아니라 "없다"고 답해
+    # 존재 자체를 알리지 않는다. 느슨하게 (403, 404) 로 두면 이 성질이 깨져도 통과한다.
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Project not found"
 
 
 def test_other_user_cannot_borrow_project_credentials(owner_and_project):
@@ -82,13 +85,19 @@ def test_other_user_cannot_borrow_project_credentials(owner_and_project):
     _o, other, project = owner_and_project
     r = client.post("/api/execute", headers=_headers(other),
                     json={"nodes": GRAPH["nodes"], "edges": GRAPH["edges"], "project_id": project.id})
-    assert r.status_code in (403, 404), r.text
+    # 403 이 아니라 404 다 — 남의 프로젝트는 "권한이 없다"가 아니라 "없다"고 답해
+    # 존재 자체를 알리지 않는다. 느슨하게 (403, 404) 로 두면 이 성질이 깨져도 통과한다.
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Project not found"
 
 
 def test_other_user_cannot_run_private_project(owner_and_project):
     _o, other, project = owner_and_project
     r = client.post(f"/api/projects/{project.id}/run", json={}, headers=_headers(other))
-    assert r.status_code in (403, 404), r.text
+    # 403 이 아니라 404 다 — 남의 프로젝트는 "권한이 없다"가 아니라 "없다"고 답해
+    # 존재 자체를 알리지 않는다. 느슨하게 (403, 404) 로 두면 이 성질이 깨져도 통과한다.
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Project not found"
 
 
 def test_shared_app_get_checks_visibility(owner_and_project):
@@ -107,7 +116,9 @@ def test_public_app_stays_readable_and_runnable(owner_and_project):
     assert client.get(f"/api/apps/{project.share_token}").status_code == 200
     # 실행은 인증 없이도 권한 판정을 통과해야 한다(실제 실행 결과는 여기서 보지 않는다).
     r = client.post(f"/api/projects/{project.id}/run", json={})
-    assert r.status_code not in (401, 403, 404), r.text
+    # not in (401,403,404) 로 두면 500 도 통과한다 — 권한은 통과했는데 실행이
+    # 깨진 상태를 "기능 보존" 으로 오해하게 된다.
+    assert r.status_code == 200, r.text
 
 
 def test_owner_can_still_deploy_and_run(owner_and_project):
@@ -115,7 +126,7 @@ def test_owner_can_still_deploy_and_run(owner_and_project):
     assert client.post(f"/api/deploy/{project.id}", json={"mode": "none"},
                        headers=_headers(owner)).status_code == 200
     r = client.post(f"/api/projects/{project.id}/run", json={}, headers=_headers(owner))
-    assert r.status_code not in (401, 403, 404), r.text
+    assert r.status_code == 200, r.text
 
 
 # ── 경로 순회 (2026-08-31 적대적 리뷰) ────────────────────────────────────
@@ -179,3 +190,93 @@ def test_uploads_route_requires_ownership():
     db = SessionLocal()
     db.query(models.User).filter(models.User.id == uid).delete()
     db.commit(); db.close()
+
+
+def test_orphan_run_details_are_not_readable_by_others():
+    """GET /api/runs/{run_id} 의 fail-open 회귀 방지 (2026-09-01 재검증에서 미수정 확정).
+
+    프로젝트가 삭제됐거나 project_id 가 NULL 인 '고아' 실행 로그는, 예전에는 라우트가
+    `if project:` 를 그냥 통과해 **로그인한 아무 계정에게나** run.result 전문과 전 노드
+    result_data 를 내줬다. 이제는 로그 소유자 본인만 열람할 수 있어야 한다.
+    """
+    db = SessionLocal()
+    tag = uuid.uuid4().hex[:8]
+    owner = models.User(email=f"runowner-{tag}@e.com", name="ro", token_balance=10)
+    other = models.User(email=f"runother-{tag}@e.com", name="rx", token_balance=10)
+    db.add_all([owner, other]); db.commit(); db.refresh(owner); db.refresh(other)
+    # project_id 없는 고아 로그. billable_user_id 로 소유자를 표시한다.
+    log = models.FlowExecutionLog(
+        user_id=owner.id, billable_user_id=owner.id, actor_user_id=owner.id,
+        project_id=None, result="SECRET orphan run output", status="success", total_tokens=1)
+    db.add(log); db.commit(); db.refresh(log)
+    run_id, owner_id, other_id = log.id, owner.id, other.id
+    db.close()
+
+    try:
+        # 남은 403 — 예전엔 200 이었다.
+        r_other = client.get(f"/api/runs/{run_id}", headers=_headers(type("U", (), {"id": other_id})()))
+        assert r_other.status_code == 403, f"고아 로그가 남에게 열렸다: {r_other.status_code}"
+        # 소유자 본인은 200, 결과 전문을 받는다.
+        r_owner = client.get(f"/api/runs/{run_id}", headers=_headers(type("U", (), {"id": owner_id})()))
+        assert r_owner.status_code == 200, f"소유자가 못 봤다: {r_owner.status_code}"
+        assert r_owner.json()["run"]["result"] == "SECRET orphan run output"
+        # 비로그인도 당연히 막힌다.
+        assert client.get(f"/api/runs/{run_id}").status_code == 401
+    finally:
+        db = SessionLocal()
+        db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.id == run_id).delete()
+        db.query(models.User).filter(models.User.id.in_([owner_id, other_id])).delete()
+        db.commit(); db.close()
+
+
+# ── 실행 결과는 공개 범위로 열리지 않는다 (C1) ─────────────────────────────
+# "공개" 는 그래프를 보여준다는 뜻이지 그 사람의 데이터를 보여준다는 뜻이 아니다.
+# 예전에는 세 라우트가 각자 visibility 를 손으로 보면서 public 을 무검사 통과시켜, 로그인만
+# 하면 남의 공개 프로젝트 실행 결과 전문(run.result + 전 노드 result_data)이 열렸다.
+
+@pytest.fixture
+def public_project_with_a_run(owner_and_project):
+    owner, other, project = owner_and_project
+    db = SessionLocal()
+    db.query(models.Project).filter(models.Project.id == project.id).update({"visibility": "public"})
+    run = models.FlowExecutionLog(
+        user_id=owner.id, billable_user_id=owner.id, actor_user_id=owner.id,
+        project_id=project.id, result="영업비밀-실행결과-원문", status="success", total_tokens=1)
+    db.add(run); db.commit(); db.refresh(run)
+    step = models.NodeExecutionLog(
+        flow_execution_id=run.id, node_id="n1", node_type="llmNode",
+        status="success", result_data="노드-출력-원문")
+    db.add(step); db.commit()
+    run_id = run.id
+    db.close()
+    yield owner, other, project, run_id
+    db = SessionLocal()
+    db.query(models.NodeExecutionLog).filter(models.NodeExecutionLog.flow_execution_id == run_id).delete()
+    db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.id == run_id).delete()
+    db.commit(); db.close()
+
+
+def test_stranger_cannot_read_run_results_of_a_public_project(public_project_with_a_run):
+    _owner, other, _project, run_id = public_project_with_a_run
+    r = client.get(f"/api/runs/{run_id}", headers=_headers(other))
+    assert r.status_code == 403, r.text
+    assert "영업비밀-실행결과-원문" not in r.text
+    assert "노드-출력-원문" not in r.text
+
+
+def test_stranger_cannot_list_runs_or_evaluations_of_a_public_project(public_project_with_a_run):
+    _owner, other, project, _run_id = public_project_with_a_run
+    assert client.get(f"/api/projects/{project.id}/runs",
+                      headers=_headers(other)).status_code == 403
+    assert client.get(f"/api/projects/{project.id}/evaluations",
+                      headers=_headers(other)).status_code == 403
+
+
+def test_owner_still_reads_their_own_run_results(public_project_with_a_run):
+    """막는 김에 소유자까지 막으면 기능이 죽는다."""
+    owner, _other, project, run_id = public_project_with_a_run
+    r = client.get(f"/api/runs/{run_id}", headers=_headers(owner))
+    assert r.status_code == 200, r.text
+    assert r.json()["run"]["result"] == "영업비밀-실행결과-원문"
+    assert client.get(f"/api/projects/{project.id}/runs",
+                      headers=_headers(owner)).status_code == 200

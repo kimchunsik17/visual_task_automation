@@ -23,6 +23,33 @@ from python_runtime import IsolationLimits, run_isolated
 from workflow_security import WorkflowSecurityError, validate_python_node_code
 
 
+def _sandbox_runnable() -> bool:
+    """이 환경에서 pythonNode 격리 실행기를 실제로 돌릴 수 있는가.
+
+    두 가지가 막는다.
+
+      1. **플랫폼**: `python_sandbox.py` 가 POSIX 전용 `resource` 로 rlimit 을 걸고, 자식에게
+         넘기는 환경을 최소화하면서 Windows 가 난수 초기화에 쓰는 SystemRoot 도 뺀다. 둘 중
+         하나만으로도 자식이 즉사하고, 부모는 그 종료 코드를 자원 한도 초과로 오해한다.
+      2. **플래그**: `PYTHON_NODE_ENABLED=0` 이면 노드 자체가 닫혀 있다(ADR-0019 후속).
+
+    둘 중 하나라도 걸리면 이 파일의 실행 계열 테스트는 '검증할 대상이 없는' 상태다. 실패로
+    남겨 두면 21건이 상시 빨강이 되어 진짜 회귀를 가린다 — 리눅스(운영·CI)에서는 전부 돈다.
+    """
+    if not python_runtime.node_enabled():
+        return False
+    try:
+        import resource  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+requires_sandbox = pytest.mark.skipif(
+    not _sandbox_runnable(),
+    reason="pythonNode 격리 실행기를 돌릴 수 없는 환경(POSIX rlimit 부재 또는 PYTHON_NODE_ENABLED=0)")
+
+
 def _tight(**overrides) -> IsolationLimits:
     """테스트가 오래 걸리지 않게 좁힌 한도."""
     base = dict(cpu_seconds=1, address_space_bytes=192 * 1024 * 1024,
@@ -86,6 +113,7 @@ def test_static_filter_admits_it_cannot_catch_computed_bombs():
 
 
 # ── 3. 자원 한도(PYEXEC-1) ───────────────────────────────────────────────
+@requires_sandbox
 def test_computed_bomb_is_stopped_by_the_cpu_limit():
     result = run_isolated("n = 10 ** 8\noutput_data = n ** n", None, limits=_tight())
     assert result.error.code == "RUNTIME_RESOURCE_EXCEEDED"
@@ -93,6 +121,7 @@ def test_computed_bomb_is_stopped_by_the_cpu_limit():
     assert result.error.effect_state == "not_started" and result.error.safe_to_retry is False
 
 
+@requires_sandbox
 def test_memory_bomb_is_stopped_by_the_address_space_limit():
     code = "r = []\nfor i in range(1000000):\n    r.append('x' * 100000)\noutput_data = 1"
     result = run_isolated(code, None, limits=_tight())
@@ -100,12 +129,14 @@ def test_memory_bomb_is_stopped_by_the_address_space_limit():
     assert result.error.safe_details["limitKind"] in {"memory", "cpu"}
 
 
+@requires_sandbox
 def test_unresponsive_child_is_cut_by_the_wall_clock():
     result = run_isolated("output_data = input_data", "x", limits=_tight(wall_seconds=0.01))
     assert result.error.code == "RUNTIME_RESOURCE_EXCEEDED"
     assert result.error.safe_details["limitKind"] == "wall"
 
 
+@requires_sandbox
 def test_output_size_is_capped():
     result = run_isolated("output_data = 'x' * 500000", None, limits=_tight(output_bytes=1024))
     assert result.error.code == "RUNTIME_OUTPUT_TOO_LARGE"
@@ -113,6 +144,7 @@ def test_output_size_is_capped():
 
 
 # ── 4. 정리 ─────────────────────────────────────────────────────────────
+@requires_sandbox
 def test_repeated_bombs_leave_no_zombies_or_temp_directories():
     """실패·타임아웃을 반복해도 자식 프로세스와 임시 디렉터리가 남지 않아야 한다."""
     before = {d for d in os.listdir("/tmp") if d.startswith("pynode-")}
@@ -130,6 +162,7 @@ def test_repeated_bombs_leave_no_zombies_or_temp_directories():
 
 
 # ── 5. 격리 ─────────────────────────────────────────────────────────────
+@requires_sandbox
 def test_child_process_gets_no_secrets_from_the_environment(monkeypatch):
     monkeypatch.setenv("SECRET_CANARY", "leaked")
     probe = subprocess.run(
@@ -141,6 +174,7 @@ def test_child_process_gets_no_secrets_from_the_environment(monkeypatch):
     assert not any(n.startswith(("OPENAI", "GOOGLE", "SMTP", "DATABASE", "SECRET", "JWT")) for n in names)
 
 
+@requires_sandbox
 def test_child_runs_in_a_throwaway_working_directory():
     """`cwd` 가 저장소가 아니어야 한다 — 허용 목록이 open() 을 막지만 방어는 겹쳐 둔다."""
     result = run_isolated("output_data = input_data", "ok", limits=_tight())
@@ -150,6 +184,7 @@ def test_child_runs_in_a_throwaway_working_directory():
 
 
 # ── 6. 오류 표현 ────────────────────────────────────────────────────────
+@requires_sandbox
 def test_user_code_errors_report_type_and_line_but_not_the_data():
     result = run_isolated("output_data = input_data['없는키']", {"a": 1}, limits=_tight())
     assert result.error.code == "RUNTIME_USER_CODE_FAILED"
@@ -159,6 +194,7 @@ def test_user_code_errors_report_type_and_line_but_not_the_data():
     assert "없는키" not in json.dumps(result.error.to_dict(), ensure_ascii=False)
 
 
+@requires_sandbox
 def test_user_code_is_not_echoed_into_the_public_payload():
     result = run_isolated("output_data = input_data + 1", "문자열", limits=_tight())
     assert result.error.code == "RUNTIME_USER_CODE_FAILED"
@@ -173,17 +209,20 @@ def test_user_code_is_not_echoed_into_the_public_payload():
     ("", "그대로", "그대로"),                       # 코드가 비면 입력을 그대로 흘린다
     ("output_data = set([3, 1, 2])", None, [1, 2, 3]),   # set 은 정렬된 배열로 정규화된다
 ])
+@requires_sandbox
 def test_normal_transformations_round_trip(code, data, expected):
     result = run_isolated(code, data, limits=_tight())
     assert result.ok, result.error
     assert result.data == expected
 
 
+@requires_sandbox
 def test_metrics_are_reported_for_successful_runs():
     result = run_isolated("output_data = input_data", "x", limits=_tight())
     assert result.metrics["cpuMs"] >= 0 and result.metrics["peakRssBytes"] > 0
 
 
+@requires_sandbox
 def test_non_serializable_input_is_refused_before_spawning():
     """`input_data` 는 순수 데이터여야 한다는 불변식. 살아 있는 객체가 상류에서 흘러들면 여기서 걸린다."""
     class Live:
@@ -205,6 +244,7 @@ def _graph(code):
     return nodes, [{"source": "s1", "target": "v1"}, {"source": "v1", "target": "py"}]
 
 
+@requires_sandbox
 def test_generated_code_does_not_inline_user_code():
     """사용자 코드가 생성 소스의 **일부**가 아니라 문자열 인자여야 한다.
 
@@ -223,6 +263,7 @@ def test_generated_code_does_not_inline_user_code():
     )
 
 
+@requires_sandbox
 def test_workflow_run_returns_the_transformed_value():
     nodes, edges = _graph("output_data = [x.strip().upper() for x in input_data.split(',')]")
     text, _, logs = run_workflow(nodes, edges, default_input="")
@@ -231,6 +272,7 @@ def test_workflow_run_returns_the_transformed_value():
     assert "A" in text and "C" in text
 
 
+@requires_sandbox
 def test_a_failing_node_does_not_kill_the_workflow():
     nodes, edges = _graph("output_data = input_data['없는키']")
     text, _, logs = run_workflow(nodes, edges, default_input="")
@@ -240,6 +282,7 @@ def test_a_failing_node_does_not_kill_the_workflow():
     assert not text.startswith("Dynamic Execution Error")   # 흐름 전체가 죽지 않는다
 
 
+@requires_sandbox
 def test_isolation_can_be_switched_off_for_rollback(monkeypatch):
     """되돌리기 경로에서도 허용 목록과 정적 상한은 그대로 걸린다."""
     monkeypatch.setenv("PYTHON_NODE_ISOLATION", "0")
@@ -254,6 +297,7 @@ def test_isolation_can_be_switched_off_for_rollback(monkeypatch):
 
 
 # ── 9. 성능 ─────────────────────────────────────────────────────────────
+@requires_sandbox
 def test_isolation_overhead_stays_within_budget():
     """프로세스 기동 비용이 정상 변환을 눈에 띄게 느리게 만들면 안 된다."""
     samples = []

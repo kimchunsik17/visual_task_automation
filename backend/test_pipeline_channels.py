@@ -111,3 +111,50 @@ def test_log_step_does_not_overwrite_node_recorded_error():
         ns["_set_node_meta"]("n9", status="success")
     assert ns["__node_meta__"]["n9"]["status"] == "error"
     assert ns["__node_meta__"]["n9"]["error_code"] == "URL_BLOCKED"
+
+
+def _exec_full_helpers(source: str) -> dict:
+    """log_step 을 포함해 run_workflow 정의 직전까지 실행한다. log_step 은 module-level 헬퍼라
+    그 앞에서 전부 정의된다."""
+    cut = source.index("def run_workflow(")
+    ns: dict = {}
+    exec(source[:cut], ns)  # noqa: S102
+    return ns
+
+
+def test_log_step_records_node_recorded_error_in_the_execution_log():
+    """이게 핵심 회귀다. webCrawler 처럼 error= 를 안 넘기고 문자열만 result 로 주면서
+    _set_node_meta(status='error') 로만 오류를 표시한 노드는, 예전에 __node_meta__ 는 error 인데
+    DB 로 나가는 __execution_logs__ 는 success 로 남았다 — 실패가 성공으로 기록됐다.
+    이제 log_step 이 메타를 보고 로그의 status 를 맞춘다."""
+    ns = _exec_full_helpers(_compile(*BASIC_GRAPH))
+    ns["_set_node_meta"]("n2", status="error", error_code="URL_BLOCKED",
+                         error_message="robots.txt 차단")
+    # 노드 코드가 하던 것과 동일: error= 없이 문자열만 넘긴다.
+    ns["log_step"]("n2", "webCrawlerNode", "2026-01-01T00:00:00",
+                   result="수집하지 않았습니다: robots.txt disallow")
+
+    entry = next(e for e in ns["__execution_logs__"] if e["node_id"] == "n2")
+    assert entry["status"] == "error", "노드가 error 로 표시했는데 로그가 success 로 남았다"
+    assert entry["error"] is not None
+    assert entry["error"]["code"] == "URL_BLOCKED"
+    assert entry["error_message"] == "robots.txt 차단"
+
+
+def test_log_step_still_records_success_for_clean_runs():
+    """멀쩡한 노드까지 error 로 만들면 안 된다."""
+    ns = _exec_full_helpers(_compile(*BASIC_GRAPH))
+    ns["log_step"]("n2", "promptNode", "2026-01-01T00:00:00", result="정상 결과")
+    entry = next(e for e in ns["__execution_logs__"] if e["node_id"] == "n2")
+    assert entry["status"] == "success"
+    assert entry["error"] is None
+
+
+def test_pinned_output_does_not_become_an_error_from_stale_meta():
+    """고정 출력은 사용자가 저장해 둔 값이라, 이전 실행의 error 메타로 오류가 되면 안 된다."""
+    ns = _exec_full_helpers(_compile(*BASIC_GRAPH))
+    ns["_set_node_meta"]("n2", status="error", error_code="CRAWL_FAILED", error_message="옛 실패")
+    ns["log_step"]("n2", "webCrawlerNode", "2026-01-01T00:00:00",
+                   result="[⚠️ 저장된 출력]", pinned=True)
+    entry = next(e for e in ns["__execution_logs__"] if e["node_id"] == "n2")
+    assert entry["status"] == "success", "고정 출력이 낡은 메타로 error 가 됐다"

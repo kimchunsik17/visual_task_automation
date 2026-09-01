@@ -62,15 +62,26 @@ def _confine_to_uploads(path: str) -> str:
     return normalized
 
 
+def _path_literal(value: str) -> str:
+    """이미 confine 된 경로를 생성 코드의 "..." 안에 넣을 수 있게 이스케이프한다.
+
+    **이스케이프는 마지막 단계여야 한다.** 예전에는 `.replace('\\\\','\\\\\\\\')...` 로 이스케이프한
+    뒤 `.replace('\\\\','/')` 로 경로 구분자를 바꿨는데, 그 마지막 치환이 이스케이프한 역슬래시를
+    되풀어(`\\\\"` → `/"`) 따옴표가 든 경로가 생성 코드를 통째로 깨뜨렸다 — 한 노드의 잘못된
+    경로가 워크플로우 전체 컴파일을 실패시켰다. confine 이 이미 \\→/ 정규화를 했으므로 여기서는
+    남은 특수문자(따옴표·개행)만 처리한다."""
+    return (value or '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+
+
 @node_registry.register('templateAnalyzerNode')
 def generate_template_analyzer_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Template Analyzer Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    template_file = node.get('data', {}).get('template_path', '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\\', '/')
+    _template_raw = node.get('data', {}).get('template_path', '')
     # output_file과 동일하게 uploads/ 밑으로 정규화한다 — 안 그러면 챗봇이 지어낸 "자기소개서_템플릿.hwpx"
     # 처럼 디렉터리 없는 경로가 서버 실행 위치(backend/) 바로 밑에 그대로 생겨 uploads/ 밖에 파일이
     # 흩어지는 문제가 있었다(실제로 backend/ 루트에 파일이 생기는 것을 확인함).
-    template_file = _confine_to_uploads(template_file)
+    template_file = _path_literal(_confine_to_uploads(_template_raw))
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    import re")
     lines.append(f"{indent}    import json")
@@ -186,13 +197,13 @@ def generate_template_analyzer_node(node_id, node, indent, active_llm_id, prev_r
 def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Auto Fill Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    template_file = node.get('data', {}).get('template_path', '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\\', '/')
+    template_file = _confine_to_uploads(node.get('data', {}).get('template_path', ''))
     # output_file과 동일하게 uploads/ 밑으로 정규화한다 — 안 그러면 챗봇이 지어낸 "자기소개서_템플릿.hwpx"
     # 처럼 디렉터리 없는 경로가 서버 실행 위치(backend/) 바로 밑에 그대로 생겨 uploads/ 밖에 파일이
     # 흩어지는 문제가 있었다(실제로 backend/ 루트에 파일이 생기는 것을 확인함).
-    template_file = _confine_to_uploads(template_file)
+    template_file_lit = _path_literal(template_file)  # 임베딩 전용(이스케이프됨)
                     
-    output_file = node.get('data', {}).get('output_path', '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    output_file = node.get('data', {}).get('output_path', '')
     if not output_file:
         # output_path를 안 정해주면 예전엔 항상 "output.확장자"로 저장돼서, 다운로드한 파일
         # 이름이 무슨 내용인지 알 수 없고, 서로 다른 실행이 같은 이름을 덮어쓸 위험도 있었다.
@@ -210,6 +221,7 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
             output_file = f"결과_{unique_suffix}.txt"
 
     output_file = _confine_to_uploads(output_file)
+    output_file_lit = _path_literal(output_file)  # 임베딩 전용(이스케이프됨)
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    import json")
     lines.append(f"{indent}    import os")
@@ -223,21 +235,21 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}    else:")
     lines.append(f"{indent}        data_dict = {{}}")
     lines.append(f"{indent}    ")
-    lines.append(f"{indent}    template_ext = \"{template_file}\".lower()")
-    lines.append(f"{indent}    output_ext = \"{output_file}\".lower()")
+    lines.append(f"{indent}    template_ext = \"{template_file_lit}\".lower()")
+    lines.append(f"{indent}    output_ext = \"{output_file_lit}\".lower()")
     # PDF는 hwpx/docx처럼 "빈칸 있는 서식 파일을 나중에 찾아 바꾸는" 방식이 안 맞는 포맷이라
     # (텍스트 스트림을 안전하게 찾아 바꾸기 어려움) 아예 템플릿 개념을 안 쓰고, data_dict를 바로
     # 새 PDF 문서로 렌더링해서 만든다 — output_path가 .pdf면 template_path는 아예 무시한다.
     lines.append(f"{indent}    if output_ext.endswith('.pdf'):")
     lines.append(f"{indent}        from template_generator import render_pdf_document")
-    lines.append(f"{indent}        _pdf_title_{node_id} = os.path.splitext(os.path.basename(\"{output_file}\"))[0]")
-    lines.append(f"{indent}        render_pdf_document(\"{output_file}\", data_dict, title=_pdf_title_{node_id})")
-    lines.append(f"{indent}        res_text_{node_id} = \"{output_file}\"")
+    lines.append(f"{indent}        _pdf_title_{node_id} = os.path.splitext(os.path.basename(\"{output_file_lit}\"))[0]")
+    lines.append(f"{indent}        render_pdf_document(\"{output_file_lit}\", data_dict, title=_pdf_title_{node_id})")
+    lines.append(f"{indent}        res_text_{node_id} = \"{output_file_lit}\"")
     lines.append(f"{indent}    else:")
     # 챗봇이 지어낸 template_path가 실제로 업로드된 적 없어 파일이 없는 경우, 지금 채우려는
     # 진짜 값(data_dict의 키)을 그대로 필드로 써서 즉석에서 빈 템플릿을 만들고 이어서 채운다.
     # (templateAnalyzerNode와 달리 여기선 이미 실제 값이 있으니 LLM으로 필드명을 추측할 필요가 없다.)
-    lines.append(f"{indent}        _fm_needs_regen_{node_id} = not os.path.exists(\"{template_file}\")")
+    lines.append(f"{indent}        _fm_needs_regen_{node_id} = not os.path.exists(\"{template_file_lit}\")")
     # 파일이 이미 있는데 그 안의 {{key}}가 지금 채우려는 data_dict 키와 절반도 안 겹치는 경우가
     # 있다. 예전에는 "낡은 템플릿"으로 보고 그 자리에 새로 만들었는데, 그 대상이 사용자가 올린
     # 서식일 수도 있었다(generate_hwpx_template 이 템플릿 경로에 직접 쓴다). 지금은 덮어쓰지 않고
@@ -246,23 +258,23 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     # 쪼개진 서식을 "키가 안 맞는다"고 잘못 막는다. 공용 엔진이 채운 뒤 정확히 보고한다.
     lines.append(f"{indent}        if not _fm_needs_regen_{node_id} and template_ext.endswith('.docx') and data_dict:")
     lines.append(f"{indent}            from template_generator import extract_template_keys")
-    lines.append(f"{indent}            _fm_existing_keys_{node_id} = extract_template_keys(\"{template_file}\")")
+    lines.append(f"{indent}            _fm_existing_keys_{node_id} = extract_template_keys(\"{template_file_lit}\")")
     lines.append(f"{indent}            _fm_wanted_keys_{node_id} = set(data_dict.keys())")
     lines.append(f"{indent}            _fm_overlap_{node_id} = _fm_existing_keys_{node_id} & _fm_wanted_keys_{node_id}")
     lines.append(f"{indent}            if not _fm_existing_keys_{node_id} or len(_fm_overlap_{node_id}) < (len(_fm_wanted_keys_{node_id}) + 1) // 2:")
     lines.append(f"{indent}                raise ValueError(")
-    lines.append(f"{indent}                    '서식 파일의 빈칸 이름이 채우려는 값과 맞지 않습니다: ' + \"{template_file}\"")
+    lines.append(f"{indent}                    '서식 파일의 빈칸 이름이 채우려는 값과 맞지 않습니다: ' + \"{template_file_lit}\"")
     lines.append(f"{indent}                    + ' / 서식에 있는 빈칸: ' + (', '.join(sorted(_fm_existing_keys_{node_id})) or '(없음)')")
     lines.append(f"{indent}                    + ' / 채우려는 값: ' + (', '.join(sorted(_fm_wanted_keys_{node_id})) or '(없음)')")
     lines.append(f"{indent}                    + ' — 서식의 {{{{빈칸}}}} 이름을 값의 키와 맞추거나, 서식 파일을 다시 선택해주세요.'")
     lines.append(f"{indent}                )")
     lines.append(f"{indent}        if _fm_needs_regen_{node_id} and (template_ext.endswith('.hwpx') or template_ext.endswith('.docx')) and data_dict:")
     lines.append(f"{indent}            from template_generator import generate_hwpx_template, generate_docx_template")
-    lines.append(f"{indent}            _fm_title_{node_id} = os.path.splitext(os.path.basename(\"{template_file}\"))[0].replace('_템플릿', '').replace('_template', '')")
+    lines.append(f"{indent}            _fm_title_{node_id} = os.path.splitext(os.path.basename(\"{template_file_lit}\"))[0].replace('_템플릿', '').replace('_template', '')")
     lines.append(f"{indent}            if template_ext.endswith('.hwpx'):")
-    lines.append(f"{indent}                generate_hwpx_template(\"{template_file}\", list(data_dict.keys()), title=_fm_title_{node_id})")
+    lines.append(f"{indent}                generate_hwpx_template(\"{template_file_lit}\", list(data_dict.keys()), title=_fm_title_{node_id})")
     lines.append(f"{indent}            else:")
-    lines.append(f"{indent}                generate_docx_template(\"{template_file}\", list(data_dict.keys()), title=_fm_title_{node_id})")
+    lines.append(f"{indent}                generate_docx_template(\"{template_file_lit}\", list(data_dict.keys()), title=_fm_title_{node_id})")
     lines.append(f"{indent}        if template_ext.endswith('.hwp'):")
     lines.append(f"{indent}            raise ValueError('HWP(.hwp) 서식 파일은 현재 지원하지 않습니다. HWPX(.hwpx)나 Word(.docx) 서식을 사용해주세요.')")
     # HWPX 채우기는 공용 엔진이 한다(documents/hwpx). 여기 있던 문자열 치환은 run 이 쪼개진
@@ -271,7 +283,7 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}        elif template_ext.endswith('.hwpx'):")
     lines.append(f"{indent}            from documents import hwpx as _hwpx_engine")
     lines.append(f"{indent}            _fm_fill_{node_id} = _hwpx_engine.fill_template(")
-    lines.append(f"{indent}                \"{template_file}\", data_dict, \"{output_file}\")")
+    lines.append(f"{indent}                \"{template_file_lit}\", data_dict, \"{output_file_lit}\")")
     lines.append(f"{indent}            if _fm_fill_{node_id}.unresolved:")
     # §3.6 — 미치환 자리표시자는 결과에 명시하고 기본 설정에서는 실패로 다룬다.
     lines.append(f"{indent}                raise ValueError(")
@@ -281,7 +293,7 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}                )")
     lines.append(f"{indent}        elif template_ext.endswith('.docx') or template_ext.endswith('.doc'):")
     lines.append(f"{indent}            from docx import Document as _DocxDocument")
-    lines.append(f"{indent}            _docx_doc = _DocxDocument(\"{template_file}\")")
+    lines.append(f"{indent}            _docx_doc = _DocxDocument(\"{template_file_lit}\")")
     lines.append(f"{indent}            for p in _docx_doc.paragraphs:")
     lines.append(f"{indent}                for run in p.runs:")
     lines.append(f"{indent}                    for k, v in data_dict.items():")
@@ -295,10 +307,10 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}                                for k, v in data_dict.items():")
     lines.append(f"{indent}                                    if '{{{{' + str(k) + '}}}}' in run.text:")
     lines.append(f"{indent}                                        run.text = run.text.replace('{{{{' + str(k) + '}}}}', str(v))")
-    lines.append(f"{indent}            _docx_doc.save(\"{output_file}\")")
+    lines.append(f"{indent}            _docx_doc.save(\"{output_file_lit}\")")
     lines.append(f"{indent}        elif template_ext.endswith('.xlsx') or template_ext.endswith('.xls'):")
     lines.append(f"{indent}            import openpyxl")
-    lines.append(f"{indent}            wb = openpyxl.load_workbook(\"{template_file}\")")
+    lines.append(f"{indent}            wb = openpyxl.load_workbook(\"{template_file_lit}\")")
     lines.append(f"{indent}            for sheet in wb.worksheets:")
     lines.append(f"{indent}                for row in sheet.iter_rows():")
     lines.append(f"{indent}                    for cell in row:")
@@ -306,10 +318,10 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}                            for k, v in data_dict.items():")
     lines.append(f"{indent}                                if '{{{{' + str(k) + '}}}}' in cell.value:")
     lines.append(f"{indent}                                    cell.value = cell.value.replace('{{{{' + str(k) + '}}}}', str(v))")
-    lines.append(f"{indent}            wb.save(\"{output_file}\")")
+    lines.append(f"{indent}            wb.save(\"{output_file_lit}\")")
     lines.append(f"{indent}        elif template_ext.endswith('.pptx') or template_ext.endswith('.ppt'):")
     lines.append(f"{indent}            from pptx import Presentation")
-    lines.append(f"{indent}            prs = Presentation(\"{template_file}\")")
+    lines.append(f"{indent}            prs = Presentation(\"{template_file_lit}\")")
     lines.append(f"{indent}            for slide in prs.slides:")
     lines.append(f"{indent}                for shape in slide.shapes:")
     lines.append(f"{indent}                    if shape.has_text_frame:")
@@ -319,11 +331,11 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}                                    for k, v in data_dict.items():")
     lines.append(f"{indent}                                        if '{{{{' + str(k) + '}}}}' in run.text:")
     lines.append(f"{indent}                                            run.text = run.text.replace('{{{{' + str(k) + '}}}}', str(v))")
-    lines.append(f"{indent}            prs.save(\"{output_file}\")")
+    lines.append(f"{indent}            prs.save(\"{output_file_lit}\")")
     lines.append(f"{indent}        else:")
-    lines.append(f"{indent}            with open(\"{output_file}\", \"w\", encoding=\"utf-8\") as _f:")
+    lines.append(f"{indent}            with open(\"{output_file_lit}\", \"w\", encoding=\"utf-8\") as _f:")
     lines.append(f"{indent}                _f.write(str({prev_res_var if prev_res_var else 'last_result'}))")
-    lines.append(f"{indent}        res_text_{node_id} = \"{output_file}\"")
+    lines.append(f"{indent}        res_text_{node_id} = \"{output_file_lit}\"")
     lines.append(f"{indent}    ")
     lines.append(f"{indent}except Exception as e:")
     lines.append(f"{indent}    res_text_{node_id} = f\"Error formatting file: {{str(e)}}\"")
@@ -331,7 +343,7 @@ def generate_file_modifier_node(node_id, node, indent, active_llm_id, prev_res_v
     # 이 값을 읽는다. 실패했을 때는 파일이 없으므로 register_generated_file 이 None 을 돌려준다.
     lines.append(f"{indent}import artifacts as _artifacts")
     lines.append(f"{indent}_fm_ref_{node_id} = _artifacts.register_generated_file(")
-    lines.append(f"{indent}    db, path=\"{output_file}\", owner_user_id=__owner_user_id__,")
+    lines.append(f"{indent}    db, path=\"{output_file_lit}\", owner_user_id=__owner_user_id__,")
     lines.append(f"{indent}    project_id=kwargs.get('project_id'), purpose='generated-document')")
     lines.append(f"{indent}_record_artifacts('{node_id}', [_fm_ref_{node_id}.to_public_dict()] if _fm_ref_{node_id} else [])")
     lines.append(f"{indent}last_result = res_text_{node_id}")
@@ -505,22 +517,25 @@ def generate_poster_generator_node(node_id, node, indent, active_llm_id, prev_re
     }:
         background_preset = 'none'
 
-    output_file = data.get('output_path', '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    # confine 을 먼저(내부에서 \→/ 정규화), 이스케이프를 마지막에(_path_literal). 예전에는
+    # 이스케이프한 뒤 _confine_to_uploads 가 \→/ 를 해서 이스케이프가 되풀렸다.
+    output_file = data.get('output_path', '')
     if not output_file:
         unique_suffix = uuid.uuid4().hex[:6]
         output_file = f"poster_{unique_suffix}.{fmt}"
     output_file = _confine_to_uploads(output_file)
+    output_file_lit = _path_literal(output_file)  # 임베딩 전용(이스케이프됨)
 
     lines.append(f"{indent}try:")
     lines.append(f"{indent}    from poster_generator import render_html_to_file")
     lines.append(f"{indent}    _poster_html_{node_id} = str({prev_res_var if prev_res_var else 'last_result'})")
-    lines.append(f"{indent}    render_html_to_file(_poster_html_{node_id}, \"{output_file}\", width={width}, height={height}, fmt=\"{fmt}\", background_preset=\"{background_preset}\")")
-    lines.append(f"{indent}    res_text_{node_id} = \"{output_file}\"")
+    lines.append(f"{indent}    render_html_to_file(_poster_html_{node_id}, \"{output_file_lit}\", width={width}, height={height}, fmt=\"{fmt}\", background_preset=\"{background_preset}\")")
+    lines.append(f"{indent}    res_text_{node_id} = \"{output_file_lit}\"")
     # 렌더한 포스터를 artifact 로 등록한다(ADR-0018 FILE-SEND-0 ②). 등록해야 소유자·만료가
     # 생기고, 발송 노드가 경로 문자열을 추측하지 않고 첨부할 수 있다.
     lines.append(f"{indent}    import artifacts as _artifacts")
     lines.append(f"{indent}    _poster_ref_{node_id} = _artifacts.register_generated_file(")
-    lines.append(f"{indent}        db, path=\"{output_file}\", owner_user_id=__owner_user_id__,")
+    lines.append(f"{indent}        db, path=\"{output_file_lit}\", owner_user_id=__owner_user_id__,")
     lines.append(f"{indent}        project_id=kwargs.get('project_id'), purpose='generated-poster')")
     lines.append(f"{indent}    _record_artifacts('{node_id}', [_poster_ref_{node_id}.to_public_dict()] if _poster_ref_{node_id} else [])")
     lines.append(f"{indent}except Exception as e:")

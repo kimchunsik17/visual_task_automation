@@ -374,9 +374,14 @@ app.get('/mock/payment/checkout/:orderId', (req, res) => {
     `);
 });
 
-app.listen(PORT, () => {
+// 기본은 루프백이다. 예전에는 호스트를 지정하지 않아 0.0.0.0 — 즉 모든 인터페이스에 열렸다.
+// 이 서버는 nginx 가 같은 호스트에서 프록시하므로 외부에 직접 열려 있을 이유가 없고, 목업
+// 결제/알림 엔드포인트라 인증도 없다. 다른 호스트에서 붙여야 하면 MOCK_SERVER_HOST 로 명시한다.
+const HOST = process.env.MOCK_SERVER_HOST || '127.0.0.1';
+
+app.listen(PORT, HOST, () => {
     console.log(chalk.cyan.bold(`\n======================================================`));
-    console.log(chalk.cyan.bold(` 🚀 MVP Demo Mock API Server running on port ${PORT}`));
+    console.log(chalk.cyan.bold(` 🚀 MVP Demo Mock API Server running on ${HOST}:${PORT}`));
     console.log(chalk.white(`    👉 대시보드 URL: http://localhost:${PORT}`));
     console.log(chalk.white(`    👉 외부 접근 기본 URL: ${PUBLIC_BASE_URL}`));
     console.log(chalk.cyan.bold(`======================================================\n`));

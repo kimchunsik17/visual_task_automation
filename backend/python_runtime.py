@@ -47,6 +47,31 @@ def isolation_enabled() -> bool:
     return os.getenv("PYTHON_NODE_ISOLATION", "1").strip().lower() not in {"0", "false", "off", "no"}
 
 
+def node_enabled() -> bool:
+    """`PYTHON_NODE_ENABLED`(기본 켜짐). 끄면 pythonNode 가 아예 실행되지 않는다.
+
+    격리 스위치(`PYTHON_NODE_ISOLATION`)와는 층이 다르다. 그쪽은 "어떻게 실행할지"를 고르는
+    되돌리기용 스위치라, 0 으로 내리면 격리 없는 인라인 실행이라는 **더 약한** 경로가 열린다.
+    이건 "실행할지 말지"라서, 끄면 두 경로가 모두 닫힌다.
+
+    끄는 이유는 주로 플랫폼이다 — `python_sandbox.py` 는 POSIX 전용 `resource` 모듈로 rlimit 을
+    건다. Windows 개발 머신에서는 자식이 ImportError 로 즉사하고, 부모는 그 종료 코드를
+    메모리 한도 초과로 오해해 엉뚱한 오류를 보여준다. 격리를 못 거는 환경이라면 인라인으로
+    낮춰 실행하는 것보다 노드를 닫는 편이 맞다.
+    """
+    return os.getenv("PYTHON_NODE_ENABLED", "1").strip().lower() not in {"0", "false", "off", "no"}
+
+
+def disabled_error(node_id: Optional[str] = None):
+    """pythonNode 가 꺼진 환경에서 돌려줄 NodeError. 실행 경로 두 곳이 같은 것을 쓴다."""
+    return make_error(
+        "RUNTIME_NODE_DISABLED", effect_state="not_started",
+        safe_details={"nodeType": "pythonNode"},
+        node_type="pythonNode", node_id=node_id,
+        internal_message="PYTHON_NODE_ENABLED=0",
+    )
+
+
 def _positive(name: str, default):
     raw = os.getenv(name)
     if raw is None:
@@ -124,6 +149,11 @@ def run_isolated(
 
     실패해도 워크플로우를 죽이지 않는다 — 이 노드만 오류로 끝나고 하류는 계속된다.
     """
+    # 생성 시점에 이미 걸러지지만(action_nodes.generate_python_node), 저장돼 있던 워크플로우가
+    # 예전 생성 코드로 실행될 수 있으므로 실행기에서도 다시 막는다.
+    if not node_enabled():
+        return NodeResult.failure(disabled_error(node_id))
+
     limits = limits or IsolationLimits.from_env()
     # 입력은 JSON 으로 건너간다. 직렬화할 수 없는 값이 상류에서 오면 여기서 걸린다 —
     # 그 자체가 "input_data 는 순수 데이터"라는 불변식의 실행 시점 확인이다.

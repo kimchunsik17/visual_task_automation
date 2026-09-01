@@ -22,9 +22,11 @@ def test_model_profile_aliases_keep_existing_defaults(monkeypatch):
     monkeypatch.delenv("LLM_MODEL_QUALITY", raising=False)
     settings = load_llm_settings()
 
-    assert settings.model_for("low") == "gpt-4o-mini"
-    assert settings.model_for("medium") == "gpt-5.4-mini"
-    assert settings.model_for("high") == "gpt-5.3-chat-latest"
+    # 코드 기본값(config.load_llm_settings)과 맞춘다. 이 값이 바뀌면 여기도 함께 바꾼다 —
+    # 서버 .env 에는 LLM_MODEL_* 가 없어 이 기본값이 그대로 운영에 쓰인다.
+    assert settings.model_for("low") == "gpt-5.4-mini"
+    assert settings.model_for("medium") == "gpt-5.6-terra"
+    assert settings.model_for("high") == "gpt-5.6-sol"
 
 
 def test_openai_compatible_provider_requires_base_url(monkeypatch):
@@ -66,4 +68,5 @@ async def test_provider_generate_returns_common_result(monkeypatch):
 
     assert result.text == "hello"
     assert result.provider == "mock"
-    assert result.model == "gpt-4o-mini"
+    # 'fast' 프로파일의 실제 기본 모델과 맞춘다(하드코딩된 옛 이름 대신).
+    assert result.model == load_llm_settings().model_for("fast")

@@ -147,7 +147,7 @@ def generate_python_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     # 예전에는 사용자 코드를 이 생성 소스에 그대로 인라인했다. 허용 목록(workflow_security)이
     # 접근을 막고 있었지만 **자원 한도가 없어서** `10 ** 10 ** 10` 한 줄이면 워커가 멈췄고,
     # 코드가 db 세션이 있는 네임스페이스 바로 옆에서 돌아 방어가 한 겹뿐이었다.
-    from python_runtime import isolation_enabled
+    from python_runtime import isolation_enabled, node_enabled
 
     user_code = node.get('data', {}).get('code', '')
     upstream = prev_res_var if prev_res_var else 'last_result'
@@ -155,7 +155,16 @@ def generate_python_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     lines.append(f"{indent}input_data = {upstream}")
 
-    if isolation_enabled():
+    if not node_enabled():
+        # PYTHON_NODE_ENABLED=0. 사용자 코드를 생성 소스에 싣지 않는다 — 꺼진 노드의 코드가
+        # 인라인되면 아래 되돌리기 경로로 새어 실행될 수 있다.
+        lines.append(f"{indent}from python_runtime import disabled_error as _py_disabled")
+        lines.append(f"{indent}from node_errors import NodeResult as _NodeResult")
+        lines.append(f"{indent}_py_res_{node_id} = _NodeResult.failure(_py_disabled('{node_id}'))")
+        lines.append(f"{indent}res_text_{node_id} = str(_py_res_{node_id})")
+        lines.append(f"{indent}last_result = res_text_{node_id}")
+        lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_py_res_{node_id})")
+    elif isolation_enabled():
         # 코드는 **문자열 리터럴**로만 들어간다 — 생성 소스의 일부가 아니다.
         lines.append(f"{indent}from python_runtime import run_isolated as _run_isolated")
         lines.append(f"{indent}_py_res_{node_id} = _run_isolated({user_code!r}, input_data, node_id='{node_id}')")

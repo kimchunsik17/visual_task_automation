@@ -330,10 +330,36 @@ def _db_dir() -> str:
     return os.getenv("NODE_INDEX_DB_DIR", "").strip() or _DEFAULT_DB_DIR
 
 
-def _get_collection(provider: EmbeddingProvider, db_dir: Optional[str] = None):
-    import chromadb
+# 경로당 PersistentClient 하나를 공유한다 (rag_utils 가 같은 이유로 같은 일을 한다).
+#
+# 예전에는 _get_collection 이 호출마다 새 PersistentClient 를 만들었다. chromadb 의 시스템
+# 레지스트리(_identifier_to_system)가 스레드 안전하지 않아, **첫 초기화**가 동시에 여러 번
+# 일어나면 'Could not connect to tenant default_tenant' 로 터진다. 이 함수는 생성 경로에
+# 물려 있다 — meta_agent.py:473 이 NODE_RETRIEVAL_SHADOW(기본 켜짐) 아래 매 생성 요청마다
+# hybrid_select_node_types -> vector_candidates -> 여기를 부른다. 즉 재기동 직후 동시 생성
+# 요청이 들어오면 그대로 재현된다(실측: 새 프로세스에서 8스레드 동시 호출 시 5~8건 실패).
+#
+# db_dir 로 경로를 갈아끼울 수 있으므로(테스트가 NODE_INDEX_DB_DIR 로 격리한다) 단일 전역이
+# 아니라 경로별로 담는다.
+_client_lock = threading.Lock()
+_clients: Dict[str, Any] = {}
 
-    client = chromadb.PersistentClient(path=db_dir or _db_dir())
+
+def _client_for(path: str):
+    client = _clients.get(path)
+    if client is None:
+        with _client_lock:
+            client = _clients.get(path)
+            if client is None:
+                import chromadb
+
+                client = chromadb.PersistentClient(path=path)
+                _clients[path] = client
+    return client
+
+
+def _get_collection(provider: EmbeddingProvider, db_dir: Optional[str] = None):
+    client = _client_for(db_dir or _db_dir())
     return client.get_or_create_collection(
         name=_collection_name(provider.model_id),
         metadata={

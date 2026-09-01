@@ -142,6 +142,41 @@ def test_sanitize_is_idempotent():
     assert once == twice
 
 
+def test_sanitize_strips_execution_results_injected_by_the_editor():
+    """에디터의 enrich 는 직전 실행 결과 전문을 bindingContext 로 **모든 노드**에 복제해
+    넣는다. sanitize 가 아는 필드만 지우고 나머지 키를 그대로 복사했기 때문에, 예전에는
+    그 실행 결과가 공개 템플릿·공유 스냅샷으로 샜다. 이제 렌더·실행용 키를 통째로 뗀다."""
+    graph = {
+        "nodes": [
+            {"id": "n1", "type": "startNode", "data": {}},
+            {"id": "n2", "type": "llmNode", "data": {
+                "systemPrompt": "요약해줘", "model": "gpt-4o-mini",
+                # enrich 주입분
+                "bindingContext": {"results": {"n1": "영업비밀-실행결과", "n2": "민감출력"},
+                                   "nodes": [], "edges": []},
+                "className": "ai-highlight", "isPinnedOutput": True,
+                "isExecuting": False, "actualTokens": 999, "executionStatus": "done",
+            }},
+            {"id": "n3", "type": "outputNode", "data": {}},
+        ],
+        "edges": [{"id": "e1", "source": "n1", "target": "n2"},
+                  {"id": "e2", "source": "n2", "target": "n3"}],
+    }
+    clean, _ = sanitize.sanitize_graph(graph)
+    blob = json.dumps(clean, ensure_ascii=False)
+
+    assert "영업비밀-실행결과" not in blob
+    assert "민감출력" not in blob
+    for key in ("bindingContext", "className", "isPinnedOutput", "isExecuting",
+                "actualTokens", "executionStatus"):
+        assert key not in blob, f"{key} 가 공개 스냅샷으로 샜다"
+
+    # 실제 설정은 그대로 남아야 한다 — 가져간 사람이 워크플로를 쓸 수 있어야 한다.
+    n2 = next(n for n in clean["nodes"] if n["id"] == "n2")
+    assert n2["data"]["model"] == "gpt-4o-mini"
+    assert n2["data"]["systemPrompt"] == "요약해줘"
+
+
 # ── 2. 공개 범위 (§9-10) ────────────────────────────────────────────────
 def test_friends_only_posts_are_hidden_from_non_friends_and_guests(db):
     post = _question(db, author_id=1, visibility="friends")

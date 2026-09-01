@@ -70,15 +70,56 @@ from usage_tracking import (
 import project_access
 from statistics_service import VALID_TIME_RANGES, build_statistics
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key")
+# 기본값을 두지 않는다. 'super-secret-key' 가 기본값이던 동안에는, .env 에 JWT_SECRET 을
+# 넣는 것을 잊어도 서버가 조용히 떠서 **공개된 문자열로 토큰에 서명**했다 — 누구나 임의의
+# user_id 로 토큰을 만들 수 있다는 뜻이다. 설정 누락은 부팅 실패로 드러나야 한다.
+#
+# ⚠️ 이미 뜬 서비스에서 이 값을 바꾸면 user_api_keys 의 자격증명이 복호화 불가가 된다 —
+# credential_crypto 가 CREDENTIAL_ENCRYPTION_KEY 가 없을 때 JWT_SECRET 으로 폴백하기
+# 때문이다(:19-33). 재암호화 스크립트는 저장소에 없다. 바꾸려면 CREDENTIAL_ENCRYPTION_KEY 를
+# 먼저 독립된 값으로 넣고 기존 자격증명을 옮긴 뒤에 한다.
+JWT_SECRET = os.environ.get("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET 이 설정되지 않았다. backend/.env 에 충분히 긴 임의 문자열을 넣어라 "
+        "(backend/.env.example 참고). 예전에는 'super-secret-key' 로 조용히 폴백했는데, "
+        "그러면 공개된 문자열로 토큰에 서명하게 된다."
+    )
 JWT_ALGORITHM = "HS256"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "off", "no"}
+
 
 # Create DB tables
 # 스키마는 Alembic 마이그레이션으로 맞춘다(ADR-0006). 예전에는 create_all 을 썼는데,
 # 이미 있는 테이블에 컬럼을 추가해주지 않아서 모델 변경이 운영 DB에 조용히 누락됐다.
 # create_all 로 만들어진 기존 DB 는 ensure_schema 가 기준선으로 stamp 한 뒤 인계받는다.
-print(f"[db] {db_migrate.ensure_schema(engine)}")
+#
+# ■ AUTO_MIGRATE_ON_BOOT (기본 1 = 지금까지의 동작)
+#   임포트 시점에 마이그레이션을 **적용**한다. 이 말은 "재기동 = 운영 스키마 변경" 이라는
+#   뜻이고, 크래시 루프가 돌면 매 사이클마다 그것이 실행된다(운영에서 4.2일간 6,645회
+#   재기동이 관측됐다). scripts/deploy.sh 가 alembic 을 먼저 완주시키는 레일을 쓰기
+#   시작하면 0 으로 내려라 — 그때부터 앱은 스키마를 **확인만** 하고, 어긋나면 뜨지 않는다.
+#
+#   순서를 뒤집지 말 것: 배포 스크립트가 alembic 을 돌리기 전에 이 값을 0 으로 내리면
+#   다음 마이그레이션이 있는 배포에서 서비스가 서 버린다.
+if _env_flag("AUTO_MIGRATE_ON_BOOT", True):
+    print(f"[db] {db_migrate.ensure_schema(engine)}")
+else:
+    _head = db_migrate.head_revision()
+    _current = db_migrate.current_revision(engine)
+    if _current != _head:
+        raise RuntimeError(
+            f"DB 스키마가 head 가 아니다 (current={_current}, head={_head}). "
+            "마이그레이션을 적용하지 않은 채로 뜨면 첫 쿼리에서 사용자에게 오류로 드러난다. "
+            "`alembic upgrade head` 를 먼저 돌려라 — scripts/deploy.sh 가 그것을 한다."
+        )
+    print(f"[db] 스키마 확인만 했다 (revision={_current}, AUTO_MIGRATE_ON_BOOT=0)")
 ensure_usage_tracking_schema(engine)
 
 app = FastAPI(title="Business Automation API")
@@ -92,12 +133,45 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import traceback
 
+import logging
+
+from node_errors.redaction import redact_text
+
+# 예전에는 두 처리기가 error_log.txt 에 직접 append 했다. 회전이 없어 무한히 자라고,
+# 프로세스가 여럿이면 같은 파일에 섞여 쓴다. logging 으로 내보내면 journald/logrotate 가
+# 맡는다. 이 파일을 읽는 코드는 저장소에 없었다(추적도 PR #29 에서 해제됐다).
+logger = logging.getLogger("app")
+
+
+def _safe_validation_errors(errors) -> list:
+    """검증 오류에서 사용자가 보낸 값을 떼어낸다.
+
+    pydantic 의 `exc.errors()` 는 각 항목에 `input`(제출된 값 원본)과 `ctx` 를 싣는다.
+    그대로 돌려주면 **검증에 실패한 요청 본문이 응답과 로그에 그대로 되비친다** — 토큰이나
+    비밀번호를 잘못된 형식으로 보내면 그 값이 그대로 나온다. `loc`/`msg`/`type` 만 남기면
+    클라이언트가 어느 필드가 왜 틀렸는지 아는 데는 충분하다.
+
+    덤으로 `ctx` 에 직렬화 불가능한 값이 들어와 500 이 되던 경로도 함께 닫힌다.
+    """
+    safe = []
+    for item in errors or []:
+        if not isinstance(item, dict):
+            continue
+        safe.append({
+            "loc": list(item.get("loc") or []),
+            "msg": redact_text(item.get("msg"), max_length=300),
+            "type": item.get("type"),
+        })
+    return safe
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     error_id = uuid.uuid4().hex
-    with open("error_log.txt", "a") as f:
-        f.write(f"{datetime.datetime.now()} - {request.method} {request.url.path} - {error_id} - {str(exc)}\n")
-        traceback.print_exc(file=f)
+    logger.exception(
+        "unhandled error %s %s error_id=%s: %s",
+        request.method, request.url.path, error_id, redact_text(exc, max_length=500),
+    )
     return JSONResponse(
         status_code=500,
         content={"message": "Internal Server Error", "error_id": error_id},
@@ -105,9 +179,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    with open("error_log.txt", "a") as f:
-        f.write(f"{datetime.datetime.now()} - {request.method} {request.url.path} - Validation Error: {exc.errors()}\n")
-    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+    safe_errors = _safe_validation_errors(exc.errors())
+    logger.warning(
+        "validation error %s %s: %s", request.method, request.url.path, safe_errors,
+    )
+    return JSONResponse(status_code=422, content={"detail": safe_errors})
 
 # Setup CORS to allow requests from the React frontend
 app.add_middleware(
@@ -146,6 +222,66 @@ async def startup_event():
         node_knowledge.sync_node_index_in_background()
     except Exception as e:
         print(f"Failed to start node knowledge index sync: {e}")
+
+@app.get("/api/health")
+def health():
+    """프로세스가 살아 있는가만 본다. 의존성을 타지 않아 DB 가 죽어도 200 이다.
+
+    /api/ready 와 나누는 이유: 이걸로 재기동을 판단하는데 DB 를 함께 보면, DB 가 잠깐
+    흔들릴 때 멀쩡한 프로세스를 죽이게 된다.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/api/ready")
+def ready():
+    """트래픽을 받아도 되는 상태인가. 배포 스모크가 이걸 보고 성공·실패를 가른다.
+
+    스키마 확인이 핵심이다 — 리비전이 head 가 아닌 채로 서비스가 서면 첫 쿼리에서
+    사용자에게 오류로 드러난다. 실패해도 예외를 올리지 않고 503 + 어디가 깨졌는지를
+    돌려준다(프로브가 스택트레이스를 받아봐야 쓸 데가 없다).
+    """
+    from sqlalchemy import text as _sql_text
+
+    import db_migrate as _db_migrate
+
+    checks: dict = {}
+    detail: dict = {}
+
+    try:
+        with engine.connect() as connection:
+            connection.execute(_sql_text("SELECT 1"))
+        checks["database"] = True
+    except Exception as exc:
+        checks["database"] = False
+        detail["database"] = type(exc).__name__
+
+    try:
+        head = _db_migrate.head_revision()
+        current = _db_migrate.current_revision(engine)
+        checks["schema"] = head is not None and head == current
+        if not checks["schema"]:
+            detail["schema"] = {"head": head, "current": current}
+    except Exception as exc:
+        checks["schema"] = False
+        detail["schema"] = type(exc).__name__
+
+    # 스케줄러는 기동 시 꺼둘 수 있다(DISABLE_SCHEDULER). 끈 것을 고장으로 보지 않는다.
+    if os.environ.get("DISABLE_SCHEDULER"):
+        checks["scheduler"] = None
+    else:
+        try:
+            checks["scheduler"] = bool(scheduler.scheduler.running)
+        except Exception as exc:
+            checks["scheduler"] = False
+            detail["scheduler"] = type(exc).__name__
+
+    ok = all(v for v in checks.values() if v is not None)
+    body = {"status": "ready" if ok else "not_ready", "checks": checks}
+    if detail:
+        body["detail"] = detail
+    return JSONResponse(status_code=200 if ok else 503, content=body)
+
 
 class FlowPayload(BaseModel):
     project_id: Optional[int] = None
@@ -999,7 +1135,14 @@ class DatabasePreviewPayload(BaseModel):
 def get_features():
     """클라이언트가 어떤 경로의 UI 를 그릴지 정하는 배포 플래그."""
     import db_query_runtime
-    return {"database_query_v2": db_query_runtime.v2_enabled(), "node_error_v1": node_error_runtime.is_enabled()}
+    import python_runtime
+    return {
+        "database_query_v2": db_query_runtime.v2_enabled(),
+        "node_error_v1": node_error_runtime.is_enabled(),
+        # 꺼져 있으면 편집기가 팔레트에서 pythonNode 를 빼야 한다. 실행 경로는 이 값과 무관하게
+        # 서버에서 다시 막으므로, 이건 UI 가 헛수고를 안 하게 하는 힌트다.
+        "python_node_enabled": python_runtime.node_enabled(),
+    }
 
 
 @app.get("/api/database/credentials")
@@ -2410,11 +2553,14 @@ def get_project_runs(project_id: int, db: Session = Depends(get_db), user: model
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    if project.visibility == 'private' and project.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this project")
-    elif project.visibility == 'friends':
-        if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
-            raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    # 실행 결과는 공개 범위로 열지 않는다. 예전에는 세 라우트가 각자 visibility 를 손으로 보면서
+    # public 을 무검사 통과시켜, 로그인만 하면 **남의 공개 프로젝트의 실행 결과 전문**(run.result 와
+    # 전 노드 result_data)을 읽을 수 있었다. 공개는 '그래프를 보여준다'는 뜻이지 '그 사람의 데이터를
+    # 보여준다'는 뜻이 아니다.
+    #
+    # RUN 등급으로 판정한다 — project_access.can 의 3단계(공개 범위)는 VIEW 만 주므로 public·friends
+    # 로는 절대 통과하지 못하고, 소유자와 workspace 의 runner 이상만 통과한다.
+    _require_project_action(db, user, project, project_access.RUN)
         
     runs = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.project_id == project_id).order_by(models.FlowExecutionLog.execution_time.desc()).limit(100).all()
     
@@ -2436,11 +2582,14 @@ def get_project_evaluations(project_id: int, db: Session = Depends(get_db), user
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    if project.visibility == 'private' and project.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this project")
-    elif project.visibility == 'friends':
-        if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
-            raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    # 실행 결과는 공개 범위로 열지 않는다. 예전에는 세 라우트가 각자 visibility 를 손으로 보면서
+    # public 을 무검사 통과시켜, 로그인만 하면 **남의 공개 프로젝트의 실행 결과 전문**(run.result 와
+    # 전 노드 result_data)을 읽을 수 있었다. 공개는 '그래프를 보여준다'는 뜻이지 '그 사람의 데이터를
+    # 보여준다'는 뜻이 아니다.
+    #
+    # RUN 등급으로 판정한다 — project_access.can 의 3단계(공개 범위)는 VIEW 만 주므로 public·friends
+    # 로는 절대 통과하지 못하고, 소유자와 workspace 의 runner 이상만 통과한다.
+    _require_project_action(db, user, project, project_access.RUN)
         
     evals = db.query(models.EvaluationLog).filter(models.EvaluationLog.project_id == project_id).order_by(models.EvaluationLog.created_at.desc()).limit(100).all()
     
@@ -2481,13 +2630,23 @@ def get_run_details(run_id: int, db: Session = Depends(get_db), user: models.Use
         raise HTTPException(status_code=404, detail="Run not found")
         
     project = db.query(models.Project).filter(models.Project.id == run.project_id).first()
+    # 실행 결과는 공개 범위로 열지 않는다. 예전에는 세 라우트가 각자 visibility 를 손으로 보면서
+    # public 을 무검사 통과시켜, 로그인만 하면 **남의 공개 프로젝트의 실행 결과 전문**(run.result 와
+    # 전 노드 result_data)을 읽을 수 있었다. 공개는 '그래프를 보여준다'는 뜻이지 '그 사람의 데이터를
+    # 보여준다'는 뜻이 아니다.
+    #
+    # RUN 등급으로 판정한다 — project_access.can 의 3단계(공개 범위)는 VIEW 만 주므로 public·friends
+    # 로는 절대 통과하지 못하고, 소유자와 workspace 의 runner 이상만 통과한다.
     if project:
-        if project.visibility == 'private' and project.user_id != user.id:
+        _require_project_action(db, user, project, project_access.RUN)
+    else:
+        # 프로젝트가 없는 고아 로그(삭제된 프로젝트, project_id NULL). 예전에는 위 `if project:` 를
+        # 그냥 통과해 로그인한 아무 계정에게나 run.result 전문과 전 노드 result_data 가 열렸다.
+        # fail-closed 로 뒤집는다 — 로그를 소유한 본인만 열람할 수 있다.
+        owner_ids = {run.billable_user_id, run.user_id, run.actor_user_id}
+        if user.id not in owner_ids:
             raise HTTPException(status_code=403, detail="Not authorized to view this run")
-        elif project.visibility == 'friends':
-            if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
-                raise HTTPException(status_code=403, detail="Not authorized to view this run")
-        
+
     steps = db.query(models.NodeExecutionLog).filter(models.NodeExecutionLog.flow_execution_id == run.id).order_by(models.NodeExecutionLog.id).all()
     
     return {
@@ -5575,6 +5734,11 @@ if os.path.exists(FRONTEND_DIST):
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         index = os.path.join(_FRONTEND_ROOT, "index.html")
+        # 없는 API 경로는 SPA 라우팅이 아니다. 여기서 index.html 을 200 으로 돌려주면 배포
+        # 반영 실패가 '200 text/html'로 위장돼, 개발자가 백엔드가 아니라 프론트부터 뒤지게
+        # 된다(이 저장소의 실제 재발 이력). 오타 난 라우트도 조용히 화면을 받는다.
+        if full_path.startswith("api/"):
+            return _api_miss_response("/" + full_path)
         candidate = os.path.realpath(os.path.join(_FRONTEND_ROOT, full_path))
         # 심볼릭 링크까지 푼 실제 경로가 dist 루트 안이어야 한다. 밖이면 SPA 라우팅으로 간주해 index.
         if candidate != _FRONTEND_ROOT and not candidate.startswith(_FRONTEND_ROOT + os.sep):
@@ -5865,3 +6029,46 @@ async def builder_generate_app_endpoint(req: BuilderGenerateAppRequest, user: mo
         "workflow_mappings": normalized_workflow_mappings,
         "token_usage": token_usage,
     }
+
+
+# ── 없는 /api 경로는 SPA 셸도 405 도 아니다 ────────────────────────────────
+# **반드시 이 파일 맨 끝에 있어야 한다.** Starlette 는 등록 순서로 매칭하므로, 위에 있는 실제
+# 라우트가 먼저 잡히고 아무것도 잡지 못한 /api 요청만 여기로 온다.
+#
+# 왜 필요한가: 프론트 dist 가 있을 때 `GET /{full_path:path}` catch-all 이 /api 경로까지 잡는다.
+# GET 은 그 안에서 404 JSON 으로 돌려주지만, POST 는 "경로는 매칭됐는데 메서드가 없다" 가 되어
+# **405** 가 나갔다. 배포에서 라우트가 빠졌을 때 405 는 "있는데 메서드가 틀렸나?" 로 읽혀
+# 원인 추적을 엉뚱한 데로 보낸다(계획서가 실측으로 지적한 위장 중 하나).
+#
+# 다만 진짜 405 까지 404 로 뭉개면 API 계약이 나빠진다 — 라우트가 실재하는데 메서드만 다른
+# 경우는 405 와 Allow 헤더가 정확한 답이다. 그래서 경로에 등록된 라우트가 있는지 먼저 본다.
+def _api_miss_response(path: str) -> JSONResponse:
+    """아무 라우트도 처리하지 못한 /api 요청의 응답. 두 진입점이 이걸 함께 쓴다 —
+    아래 catch-all(주로 GET 외 메서드)과, 프론트 dist 가 있을 때 GET 을 먼저 잡는
+    `serve_frontend` 의 api 분기. 한 곳만 고치면 메서드에 따라 404/405 가 갈린다."""
+    allowed: set = set()
+    for route in app.routes:
+        regex = getattr(route, "path_regex", None)
+        methods = getattr(route, "methods", None)
+        route_path = getattr(route, "path", "") or ""
+        if regex is None or not methods:
+            continue
+        # /api 로 시작하는 것만 센다. 프론트 SPA fallback(`/{full_path:path}`)도 이 경로에
+        # 매칭되지만 그건 API 라우트가 아니다 — 그것까지 세면 없는 경로가 405 로 나간다.
+        if not route_path.startswith("/api/") or route_path == "/api/{rest:path}":
+            continue
+        if regex.match(path):
+            allowed |= set(methods)
+    if allowed:
+        return JSONResponse(
+            status_code=405, content={"detail": "Method Not Allowed"},
+            headers={"Allow": ", ".join(sorted(allowed))},
+        )
+    return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+
+@app.api_route("/api/{rest:path}",
+               methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+               include_in_schema=False)
+async def api_route_not_found(rest: str):
+    return _api_miss_response("/api/" + rest)

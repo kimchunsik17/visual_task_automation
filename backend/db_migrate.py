@@ -41,6 +41,22 @@ def _alembic_config(database_url: str):
     return config
 
 
+def head_revision() -> Optional[str]:
+    """마이그레이션 스크립트가 정의하는 head 리비전. 읽기만 하므로 DB 가 필요 없다."""
+    from alembic.script import ScriptDirectory
+
+    config = _alembic_config("sqlite://")  # URL 은 쓰지 않지만 Config 가 요구한다
+    return ScriptDirectory.from_config(config).get_current_head()
+
+
+def current_revision(engine: Engine) -> Optional[str]:
+    """이 DB 에 실제로 적용된 리비전. alembic_version 이 없으면 None."""
+    from alembic.runtime.migration import MigrationContext
+
+    with engine.connect() as connection:
+        return MigrationContext.configure(connection).get_current_revision()
+
+
 def ensure_schema(engine: Engine, database_url: Optional[str] = None) -> str:
     """스키마를 head 로 맞추고, 무엇을 했는지 알려주는 문자열을 돌려준다.
 
