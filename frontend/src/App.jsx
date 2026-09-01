@@ -25,6 +25,7 @@ import RequireAuth from './RequireAuth';
 import AdminRoute from './AdminRoute';
 import AdminPage from './pages/AdminPage';
 import IntroPage from './pages/IntroPage';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useAuth } from './AuthContext';
 import AppBuilderPage from './pages/AppBuilderPage';
 import CustomAppViewerPage from './pages/CustomAppViewerPage';
@@ -62,51 +63,54 @@ function App() {
 
   return (
     <Router>
-      <Routes>
-        <Route path="/" element={<RootRoute />} />
-        <Route path="/intro" element={<IntroPage />} />
-        <Route path="/workflows" element={<RequireAuth><WorkflowsPage /></RequireAuth>} />
-        <Route path="/community/templates" element={<RequireAuth><TemplatesPage /></RequireAuth>} />
-        <Route path="/community/templates/:slug" element={<RequireAuth><TemplateDetailPage /></RequireAuth>} />
-        <Route path="/messages" element={<RequireAuth><MessagesPage /></RequireAuth>} />
-        <Route path="/community/qna" element={<RequireAuth><CommunityQnaPage /></RequireAuth>} />
-        <Route path="/community/qna/new" element={<RequireAuth><CommunityQnaPage view="new" /></RequireAuth>} />
-        <Route path="/community/qna/:postId" element={<RequireAuth><CommunityQnaPage view="detail" /></RequireAuth>} />
-        <Route path="/templates" element={<LegacyRedirect to="/community/templates" />} />
-        <Route path="/tutorial" element={<RequireAuth><TutorialPage /></RequireAuth>} />
-        <Route path="/tutorial/:trackId" element={<RequireAuth><TutorialPage /></RequireAuth>} />
-        <Route path="/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
-        <Route path="/documents/nodes/:nodeType" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
-        <Route path="/documents/patterns/:patternId" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
-        <Route path="/settings" element={<LegacyRedirect to="/settings/profile" />} />
-        <Route path="/settings/api-center" element={<RequireAuth><ApiCenterPage /></RequireAuth>} />
-        <Route path="/settings/:tab" element={<RequireAuth><SettingsPage /></RequireAuth>} />
-        <Route path="/admin" element={<AdminRoute><AdminPage view="overview" /></AdminRoute>} />
-        <Route path="/admin/moderation" element={<RequireAuth><AdminPage view="moderation" /></RequireAuth>} />
-        <Route path="/admin/users" element={<AdminRoute><AdminPage view="users" /></AdminRoute>} />
-        <Route path="/admin/llm" element={<AdminRoute><AdminPage view="llm" /></AdminRoute>} />
-        <Route path="/admin/feedback" element={<AdminRoute><AdminPage view="feedback" /></AdminRoute>} />
-        <Route path="/moderation" element={<RequireAuth><LegacyRedirect to="/admin/moderation" /></RequireAuth>} />
-        <Route path="/patch-notes" element={<RequireAuth><PatchNotesPage /></RequireAuth>} />
-        <Route path="/editor/:projectId?" element={<RequireAuth><EditorPage /></RequireAuth>} />
-        <Route path="/project/:projectId/runs" element={<RequireAuth><ProjectRunsPage /></RequireAuth>} />
-        {/* 공유 링크 — 계정 없이도 열람/실행 가능해야 하므로 로그인 강제에서 제외 */}
-        <Route path="/app/:shareToken" element={<AppRunnerPage />} />
-        <Route path="/viewer/:projectId" element={<AppViewerPage />} />
-        <Route path="/apicenter" element={<LegacyRedirect to="/settings/api-center" />} />
-        <Route path="/operations" element={<RequireAuth><OperationsOverviewPage /></RequireAuth>} />
-        <Route path="/operations/webhooks" element={<RequireAuth><WebhookManagerPage /></RequireAuth>} />
-        <Route path="/operations/bots" element={<RequireAuth><BotManagerPage /></RequireAuth>} />
-        <Route path="/operations/schedules" element={<RequireAuth><SchedulerPage /></RequireAuth>} />
-        <Route path="/webhooks" element={<LegacyRedirect to="/operations/webhooks" />} />
-        <Route path="/bots" element={<LegacyRedirect to="/operations/bots" />} />
-        <Route path="/scheduler" element={<LegacyRedirect to="/operations/schedules" />} />
-        <Route path="/approvals" element={<RequireAuth><ApprovalInboxPage /></RequireAuth>} />
-        <Route path="/statistics" element={<RequireAuth><StatisticsPage /></RequireAuth>} />
-        <Route path="/custom-apps" element={<RequireAuth><CustomAppsDashboardPage /></RequireAuth>} />
-        <Route path="/app-builder/:appId?" element={<RequireAuth><AppBuilderPage /></RequireAuth>} />
-        <Route path="/custom-app/:appId" element={<CustomAppViewerPage />} />
-      </Routes>
+      {/* 라우트 렌더링 중 터진 오류가 흰 화면으로 끝나지 않게 <Routes> 바깥에서 감싼다 */}
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<RootRoute />} />
+          <Route path="/intro" element={<IntroPage />} />
+          <Route path="/workflows" element={<RequireAuth><WorkflowsPage /></RequireAuth>} />
+          <Route path="/community/templates" element={<RequireAuth><TemplatesPage /></RequireAuth>} />
+          <Route path="/community/templates/:slug" element={<RequireAuth><TemplateDetailPage /></RequireAuth>} />
+          <Route path="/messages" element={<RequireAuth><MessagesPage /></RequireAuth>} />
+          <Route path="/community/qna" element={<RequireAuth><CommunityQnaPage /></RequireAuth>} />
+          <Route path="/community/qna/new" element={<RequireAuth><CommunityQnaPage view="new" /></RequireAuth>} />
+          <Route path="/community/qna/:postId" element={<RequireAuth><CommunityQnaPage view="detail" /></RequireAuth>} />
+          <Route path="/templates" element={<LegacyRedirect to="/community/templates" />} />
+          <Route path="/tutorial" element={<RequireAuth><TutorialPage /></RequireAuth>} />
+          <Route path="/tutorial/:trackId" element={<RequireAuth><TutorialPage /></RequireAuth>} />
+          <Route path="/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
+          <Route path="/documents/nodes/:nodeType" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
+          <Route path="/documents/patterns/:patternId" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
+          <Route path="/settings" element={<LegacyRedirect to="/settings/profile" />} />
+          <Route path="/settings/api-center" element={<RequireAuth><ApiCenterPage /></RequireAuth>} />
+          <Route path="/settings/:tab" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+          <Route path="/admin" element={<AdminRoute><AdminPage view="overview" /></AdminRoute>} />
+          <Route path="/admin/moderation" element={<RequireAuth><AdminPage view="moderation" /></RequireAuth>} />
+          <Route path="/admin/users" element={<AdminRoute><AdminPage view="users" /></AdminRoute>} />
+          <Route path="/admin/llm" element={<AdminRoute><AdminPage view="llm" /></AdminRoute>} />
+          <Route path="/admin/feedback" element={<AdminRoute><AdminPage view="feedback" /></AdminRoute>} />
+          <Route path="/moderation" element={<RequireAuth><LegacyRedirect to="/admin/moderation" /></RequireAuth>} />
+          <Route path="/patch-notes" element={<RequireAuth><PatchNotesPage /></RequireAuth>} />
+          <Route path="/editor/:projectId?" element={<RequireAuth><EditorPage /></RequireAuth>} />
+          <Route path="/project/:projectId/runs" element={<RequireAuth><ProjectRunsPage /></RequireAuth>} />
+          {/* 공유 링크 — 계정 없이도 열람/실행 가능해야 하므로 로그인 강제에서 제외 */}
+          <Route path="/app/:shareToken" element={<AppRunnerPage />} />
+          <Route path="/viewer/:projectId" element={<AppViewerPage />} />
+          <Route path="/apicenter" element={<LegacyRedirect to="/settings/api-center" />} />
+          <Route path="/operations" element={<RequireAuth><OperationsOverviewPage /></RequireAuth>} />
+          <Route path="/operations/webhooks" element={<RequireAuth><WebhookManagerPage /></RequireAuth>} />
+          <Route path="/operations/bots" element={<RequireAuth><BotManagerPage /></RequireAuth>} />
+          <Route path="/operations/schedules" element={<RequireAuth><SchedulerPage /></RequireAuth>} />
+          <Route path="/webhooks" element={<LegacyRedirect to="/operations/webhooks" />} />
+          <Route path="/bots" element={<LegacyRedirect to="/operations/bots" />} />
+          <Route path="/scheduler" element={<LegacyRedirect to="/operations/schedules" />} />
+          <Route path="/approvals" element={<RequireAuth><ApprovalInboxPage /></RequireAuth>} />
+          <Route path="/statistics" element={<RequireAuth><StatisticsPage /></RequireAuth>} />
+          <Route path="/custom-apps" element={<RequireAuth><CustomAppsDashboardPage /></RequireAuth>} />
+          <Route path="/app-builder/:appId?" element={<RequireAuth><AppBuilderPage /></RequireAuth>} />
+          <Route path="/custom-app/:appId" element={<CustomAppViewerPage />} />
+        </Routes>
+      </ErrorBoundary>
       <CustomAlert />
       <CustomConfirm />
       <MilestoneCelebrationHost />
