@@ -74,7 +74,10 @@ def test_project_run_rejects_anonymous_for_private(owner_and_project):
 def test_other_user_cannot_deploy(owner_and_project):
     _o, other, project = owner_and_project
     r = client.post(f"/api/deploy/{project.id}", json={"mode": "fastapi"}, headers=_headers(other))
-    assert r.status_code in (403, 404), r.text
+    # 403 이 아니라 404 다 — 남의 프로젝트는 "권한이 없다"가 아니라 "없다"고 답해
+    # 존재 자체를 알리지 않는다. 느슨하게 (403, 404) 로 두면 이 성질이 깨져도 통과한다.
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Project not found"
 
 
 def test_other_user_cannot_borrow_project_credentials(owner_and_project):
@@ -82,13 +85,19 @@ def test_other_user_cannot_borrow_project_credentials(owner_and_project):
     _o, other, project = owner_and_project
     r = client.post("/api/execute", headers=_headers(other),
                     json={"nodes": GRAPH["nodes"], "edges": GRAPH["edges"], "project_id": project.id})
-    assert r.status_code in (403, 404), r.text
+    # 403 이 아니라 404 다 — 남의 프로젝트는 "권한이 없다"가 아니라 "없다"고 답해
+    # 존재 자체를 알리지 않는다. 느슨하게 (403, 404) 로 두면 이 성질이 깨져도 통과한다.
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Project not found"
 
 
 def test_other_user_cannot_run_private_project(owner_and_project):
     _o, other, project = owner_and_project
     r = client.post(f"/api/projects/{project.id}/run", json={}, headers=_headers(other))
-    assert r.status_code in (403, 404), r.text
+    # 403 이 아니라 404 다 — 남의 프로젝트는 "권한이 없다"가 아니라 "없다"고 답해
+    # 존재 자체를 알리지 않는다. 느슨하게 (403, 404) 로 두면 이 성질이 깨져도 통과한다.
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Project not found"
 
 
 def test_shared_app_get_checks_visibility(owner_and_project):
@@ -107,7 +116,9 @@ def test_public_app_stays_readable_and_runnable(owner_and_project):
     assert client.get(f"/api/apps/{project.share_token}").status_code == 200
     # 실행은 인증 없이도 권한 판정을 통과해야 한다(실제 실행 결과는 여기서 보지 않는다).
     r = client.post(f"/api/projects/{project.id}/run", json={})
-    assert r.status_code not in (401, 403, 404), r.text
+    # not in (401,403,404) 로 두면 500 도 통과한다 — 권한은 통과했는데 실행이
+    # 깨진 상태를 "기능 보존" 으로 오해하게 된다.
+    assert r.status_code == 200, r.text
 
 
 def test_owner_can_still_deploy_and_run(owner_and_project):
@@ -115,7 +126,7 @@ def test_owner_can_still_deploy_and_run(owner_and_project):
     assert client.post(f"/api/deploy/{project.id}", json={"mode": "none"},
                        headers=_headers(owner)).status_code == 200
     r = client.post(f"/api/projects/{project.id}/run", json={}, headers=_headers(owner))
-    assert r.status_code not in (401, 403, 404), r.text
+    assert r.status_code == 200, r.text
 
 
 # ── 경로 순회 (2026-08-31 적대적 리뷰) ────────────────────────────────────
