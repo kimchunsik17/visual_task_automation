@@ -2526,11 +2526,14 @@ def get_project_runs(project_id: int, db: Session = Depends(get_db), user: model
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    if project.visibility == 'private' and project.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this project")
-    elif project.visibility == 'friends':
-        if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
-            raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    # 실행 결과는 공개 범위로 열지 않는다. 예전에는 세 라우트가 각자 visibility 를 손으로 보면서
+    # public 을 무검사 통과시켜, 로그인만 하면 **남의 공개 프로젝트의 실행 결과 전문**(run.result 와
+    # 전 노드 result_data)을 읽을 수 있었다. 공개는 '그래프를 보여준다'는 뜻이지 '그 사람의 데이터를
+    # 보여준다'는 뜻이 아니다.
+    #
+    # RUN 등급으로 판정한다 — project_access.can 의 3단계(공개 범위)는 VIEW 만 주므로 public·friends
+    # 로는 절대 통과하지 못하고, 소유자와 workspace 의 runner 이상만 통과한다.
+    _require_project_action(db, user, project, project_access.RUN)
         
     runs = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.project_id == project_id).order_by(models.FlowExecutionLog.execution_time.desc()).limit(100).all()
     
@@ -2552,11 +2555,14 @@ def get_project_evaluations(project_id: int, db: Session = Depends(get_db), user
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    if project.visibility == 'private' and project.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this project")
-    elif project.visibility == 'friends':
-        if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
-            raise HTTPException(status_code=403, detail="Not authorized to view this project")
+    # 실행 결과는 공개 범위로 열지 않는다. 예전에는 세 라우트가 각자 visibility 를 손으로 보면서
+    # public 을 무검사 통과시켜, 로그인만 하면 **남의 공개 프로젝트의 실행 결과 전문**(run.result 와
+    # 전 노드 result_data)을 읽을 수 있었다. 공개는 '그래프를 보여준다'는 뜻이지 '그 사람의 데이터를
+    # 보여준다'는 뜻이 아니다.
+    #
+    # RUN 등급으로 판정한다 — project_access.can 의 3단계(공개 범위)는 VIEW 만 주므로 public·friends
+    # 로는 절대 통과하지 못하고, 소유자와 workspace 의 runner 이상만 통과한다.
+    _require_project_action(db, user, project, project_access.RUN)
         
     evals = db.query(models.EvaluationLog).filter(models.EvaluationLog.project_id == project_id).order_by(models.EvaluationLog.created_at.desc()).limit(100).all()
     
@@ -2597,12 +2603,15 @@ def get_run_details(run_id: int, db: Session = Depends(get_db), user: models.Use
         raise HTTPException(status_code=404, detail="Run not found")
         
     project = db.query(models.Project).filter(models.Project.id == run.project_id).first()
+    # 실행 결과는 공개 범위로 열지 않는다. 예전에는 세 라우트가 각자 visibility 를 손으로 보면서
+    # public 을 무검사 통과시켜, 로그인만 하면 **남의 공개 프로젝트의 실행 결과 전문**(run.result 와
+    # 전 노드 result_data)을 읽을 수 있었다. 공개는 '그래프를 보여준다'는 뜻이지 '그 사람의 데이터를
+    # 보여준다'는 뜻이 아니다.
+    #
+    # RUN 등급으로 판정한다 — project_access.can 의 3단계(공개 범위)는 VIEW 만 주므로 public·friends
+    # 로는 절대 통과하지 못하고, 소유자와 workspace 의 runner 이상만 통과한다.
     if project:
-        if project.visibility == 'private' and project.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Not authorized to view this run")
-        elif project.visibility == 'friends':
-            if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
-                raise HTTPException(status_code=403, detail="Not authorized to view this run")
+        _require_project_action(db, user, project, project_access.RUN)
     else:
         # 프로젝트가 없는 고아 로그(삭제된 프로젝트, project_id NULL). 예전에는 위 `if project:` 를
         # 그냥 통과해 로그인한 아무 계정에게나 run.result 전문과 전 노드 result_data 가 열렸다.

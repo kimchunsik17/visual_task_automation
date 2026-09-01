@@ -227,3 +227,56 @@ def test_orphan_run_details_are_not_readable_by_others():
         db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.id == run_id).delete()
         db.query(models.User).filter(models.User.id.in_([owner_id, other_id])).delete()
         db.commit(); db.close()
+
+
+# ── 실행 결과는 공개 범위로 열리지 않는다 (C1) ─────────────────────────────
+# "공개" 는 그래프를 보여준다는 뜻이지 그 사람의 데이터를 보여준다는 뜻이 아니다.
+# 예전에는 세 라우트가 각자 visibility 를 손으로 보면서 public 을 무검사 통과시켜, 로그인만
+# 하면 남의 공개 프로젝트 실행 결과 전문(run.result + 전 노드 result_data)이 열렸다.
+
+@pytest.fixture
+def public_project_with_a_run(owner_and_project):
+    owner, other, project = owner_and_project
+    db = SessionLocal()
+    db.query(models.Project).filter(models.Project.id == project.id).update({"visibility": "public"})
+    run = models.FlowExecutionLog(
+        user_id=owner.id, billable_user_id=owner.id, actor_user_id=owner.id,
+        project_id=project.id, result="영업비밀-실행결과-원문", status="success", total_tokens=1)
+    db.add(run); db.commit(); db.refresh(run)
+    step = models.NodeExecutionLog(
+        flow_execution_id=run.id, node_id="n1", node_type="llmNode",
+        status="success", result_data="노드-출력-원문")
+    db.add(step); db.commit()
+    run_id = run.id
+    db.close()
+    yield owner, other, project, run_id
+    db = SessionLocal()
+    db.query(models.NodeExecutionLog).filter(models.NodeExecutionLog.flow_execution_id == run_id).delete()
+    db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.id == run_id).delete()
+    db.commit(); db.close()
+
+
+def test_stranger_cannot_read_run_results_of_a_public_project(public_project_with_a_run):
+    _owner, other, _project, run_id = public_project_with_a_run
+    r = client.get(f"/api/runs/{run_id}", headers=_headers(other))
+    assert r.status_code == 403, r.text
+    assert "영업비밀-실행결과-원문" not in r.text
+    assert "노드-출력-원문" not in r.text
+
+
+def test_stranger_cannot_list_runs_or_evaluations_of_a_public_project(public_project_with_a_run):
+    _owner, other, project, _run_id = public_project_with_a_run
+    assert client.get(f"/api/projects/{project.id}/runs",
+                      headers=_headers(other)).status_code == 403
+    assert client.get(f"/api/projects/{project.id}/evaluations",
+                      headers=_headers(other)).status_code == 403
+
+
+def test_owner_still_reads_their_own_run_results(public_project_with_a_run):
+    """막는 김에 소유자까지 막으면 기능이 죽는다."""
+    owner, _other, project, run_id = public_project_with_a_run
+    r = client.get(f"/api/runs/{run_id}", headers=_headers(owner))
+    assert r.status_code == 200, r.text
+    assert r.json()["run"]["result"] == "영업비밀-실행결과-원문"
+    assert client.get(f"/api/projects/{project.id}/runs",
+                      headers=_headers(owner)).status_code == 200
