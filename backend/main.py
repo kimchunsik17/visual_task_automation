@@ -2494,7 +2494,14 @@ def get_run_details(run_id: int, db: Session = Depends(get_db), user: models.Use
         elif project.visibility == 'friends':
             if project.user_id != user.id and not db.query(models.Friendship).filter(models.Friendship.user_id == project.user_id, models.Friendship.friend_id == user.id).first():
                 raise HTTPException(status_code=403, detail="Not authorized to view this run")
-        
+    else:
+        # 프로젝트가 없는 고아 로그(삭제된 프로젝트, project_id NULL). 예전에는 위 `if project:` 를
+        # 그냥 통과해 로그인한 아무 계정에게나 run.result 전문과 전 노드 result_data 가 열렸다.
+        # fail-closed 로 뒤집는다 — 로그를 소유한 본인만 열람할 수 있다.
+        owner_ids = {run.billable_user_id, run.user_id, run.actor_user_id}
+        if user.id not in owner_ids:
+            raise HTTPException(status_code=403, detail="Not authorized to view this run")
+
     steps = db.query(models.NodeExecutionLog).filter(models.NodeExecutionLog.flow_execution_id == run.id).order_by(models.NodeExecutionLog.id).all()
     
     return {

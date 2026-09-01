@@ -179,3 +179,40 @@ def test_uploads_route_requires_ownership():
     db = SessionLocal()
     db.query(models.User).filter(models.User.id == uid).delete()
     db.commit(); db.close()
+
+
+def test_orphan_run_details_are_not_readable_by_others():
+    """GET /api/runs/{run_id} 의 fail-open 회귀 방지 (2026-09-01 재검증에서 미수정 확정).
+
+    프로젝트가 삭제됐거나 project_id 가 NULL 인 '고아' 실행 로그는, 예전에는 라우트가
+    `if project:` 를 그냥 통과해 **로그인한 아무 계정에게나** run.result 전문과 전 노드
+    result_data 를 내줬다. 이제는 로그 소유자 본인만 열람할 수 있어야 한다.
+    """
+    db = SessionLocal()
+    tag = uuid.uuid4().hex[:8]
+    owner = models.User(email=f"runowner-{tag}@e.com", name="ro", token_balance=10)
+    other = models.User(email=f"runother-{tag}@e.com", name="rx", token_balance=10)
+    db.add_all([owner, other]); db.commit(); db.refresh(owner); db.refresh(other)
+    # project_id 없는 고아 로그. billable_user_id 로 소유자를 표시한다.
+    log = models.FlowExecutionLog(
+        user_id=owner.id, billable_user_id=owner.id, actor_user_id=owner.id,
+        project_id=None, result="SECRET orphan run output", status="success", total_tokens=1)
+    db.add(log); db.commit(); db.refresh(log)
+    run_id, owner_id, other_id = log.id, owner.id, other.id
+    db.close()
+
+    try:
+        # 남은 403 — 예전엔 200 이었다.
+        r_other = client.get(f"/api/runs/{run_id}", headers=_headers(type("U", (), {"id": other_id})()))
+        assert r_other.status_code == 403, f"고아 로그가 남에게 열렸다: {r_other.status_code}"
+        # 소유자 본인은 200, 결과 전문을 받는다.
+        r_owner = client.get(f"/api/runs/{run_id}", headers=_headers(type("U", (), {"id": owner_id})()))
+        assert r_owner.status_code == 200, f"소유자가 못 봤다: {r_owner.status_code}"
+        assert r_owner.json()["run"]["result"] == "SECRET orphan run output"
+        # 비로그인도 당연히 막힌다.
+        assert client.get(f"/api/runs/{run_id}").status_code == 401
+    finally:
+        db = SessionLocal()
+        db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.id == run_id).delete()
+        db.query(models.User).filter(models.User.id.in_([owner_id, other_id])).delete()
+        db.commit(); db.close()
