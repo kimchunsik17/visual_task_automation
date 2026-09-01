@@ -50,6 +50,12 @@ MANIFEST
 # Environment
 .env
 .env.local
+# 서버에서 내려받은 운영 .env 사본. `.env` 패턴은 이런 이름을 잡지 못해서, 운영 DB 접속정보와
+# API 키가 든 파일이 `??` 상태로 남아 `git add -A` 한 번에 커밋된다 — 이름을 넓게 막는다.
+*.env.txt
+original.env*
+*.env.bak
+*.env.orig
 .venv
 venv/
 ENV/
