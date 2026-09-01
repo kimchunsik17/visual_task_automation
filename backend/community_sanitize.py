@@ -43,6 +43,30 @@ GRAPH_SECRET_KEYS = {"discord_bot_token", "telegram_bot_token", "share_token", "
 REDACTED = ""
 NEEDS_INPUT = "__NEEDS_INPUT__"
 
+# 노드 data 에 섞여 있지만 워크플로 설정이 아닌 키 — 에디터가 렌더·실행용으로 주입한 값이다.
+# 공개 스냅샷(템플릿·공유)에 그대로 나가면 안 된다. 특히 **bindingContext 는 직전 실행의
+# 결과 전문을 모든 노드에 복제**해 담는다(EditorPage 의 enrich). sanitize 가 아는 필드만
+# 지우고 나머지 키를 그대로 복사했기 때문에, 여기 없으면 실행 결과가 공개로 샌다.
+# frontend/src/editorCommands.js 의 UI_DATA_KEYS + TRANSIENT_NODE_KEYS 와 맞추고, enrich 가
+# 넣는 비-함수 키(className·isPinnedOutput·bindingContext)를 더한다. 함수(onChange 등)는
+# JSON 직렬화에서 이미 사라지지만, 방어를 위해 이름으로도 막는다.
+TRANSIENT_DATA_KEYS = frozenset({
+    # enrich 가 심는 실행/표시 상태 (UI_DATA_KEYS)
+    "onChange", "onDelete", "onExpandChange", "onClearAIHighlight", "isAIModified", "aiChanges",
+    "isTokenTrackingMode", "predictedTokens", "actualTokens", "tokenDisplayMode", "costCurrency",
+    "isExecuting", "executionStatus", "onMemoAutoResize", "expandAllCommand",
+    # React Flow transient (TRANSIENT_NODE_KEYS) — data 에 새어들 수 있다
+    "selected", "dragging", "measured", "resizing", "internals",
+    # enrich 의 비-함수 키. bindingContext 가 실행 결과 유출의 핵심이다.
+    "className", "isPinnedOutput", "bindingContext",
+    "onInspect", "onOpenFormatStudio", "onInsertFillLLM",
+})
+
+
+def strip_transient_keys(data: dict) -> dict:
+    """공개 스냅샷에 나가면 안 되는 렌더·실행용 키를 뗀다. 새 dict 를 돌려준다."""
+    return {k: v for k, v in data.items() if k not in TRANSIENT_DATA_KEYS}
+
 # React Flow 노드의 보통 크기(약 320x200)와 에디터 dagre 설정을 기준으로 한 간격이다.
 # 공개 스냅샷은 measured 크기를 싣지 않으므로, 가져오기 전에 겹치지 않는 안전한 기본 간격을 둔다.
 LAYOUT_X_GAP = 470
@@ -327,7 +351,9 @@ def sanitize_graph(graph: Dict[str, Any]) -> Tuple[Dict[str, Any], SanitizeRepor
     for node in nodes:
         node_type = str(node.get("type"))
         rule = rule_for(node_type)
-        data = dict(node.get("data") or {})
+        # 렌더·실행용 키를 **먼저** 뗀다. 그래야 아래 필드별 정화가 놓친 bindingContext(실행
+        # 결과 전문) 같은 것이 공개 스냅샷으로 새지 않는다.
+        data = strip_transient_keys(dict(node.get("data") or {}))
         node_id = str(node.get("id"))
 
         # 자격증명 필드를 **먼저** 본다. 많은 필드가 secret 이면서 동시에 credential 이라
