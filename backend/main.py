@@ -92,12 +92,45 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import traceback
 
+import logging
+
+from node_errors.redaction import redact_text
+
+# 예전에는 두 처리기가 error_log.txt 에 직접 append 했다. 회전이 없어 무한히 자라고,
+# 프로세스가 여럿이면 같은 파일에 섞여 쓴다. logging 으로 내보내면 journald/logrotate 가
+# 맡는다. 이 파일을 읽는 코드는 저장소에 없었다(추적도 PR #29 에서 해제됐다).
+logger = logging.getLogger("app")
+
+
+def _safe_validation_errors(errors) -> list:
+    """검증 오류에서 사용자가 보낸 값을 떼어낸다.
+
+    pydantic 의 `exc.errors()` 는 각 항목에 `input`(제출된 값 원본)과 `ctx` 를 싣는다.
+    그대로 돌려주면 **검증에 실패한 요청 본문이 응답과 로그에 그대로 되비친다** — 토큰이나
+    비밀번호를 잘못된 형식으로 보내면 그 값이 그대로 나온다. `loc`/`msg`/`type` 만 남기면
+    클라이언트가 어느 필드가 왜 틀렸는지 아는 데는 충분하다.
+
+    덤으로 `ctx` 에 직렬화 불가능한 값이 들어와 500 이 되던 경로도 함께 닫힌다.
+    """
+    safe = []
+    for item in errors or []:
+        if not isinstance(item, dict):
+            continue
+        safe.append({
+            "loc": list(item.get("loc") or []),
+            "msg": redact_text(item.get("msg"), max_length=300),
+            "type": item.get("type"),
+        })
+    return safe
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     error_id = uuid.uuid4().hex
-    with open("error_log.txt", "a") as f:
-        f.write(f"{datetime.datetime.now()} - {request.method} {request.url.path} - {error_id} - {str(exc)}\n")
-        traceback.print_exc(file=f)
+    logger.exception(
+        "unhandled error %s %s error_id=%s: %s",
+        request.method, request.url.path, error_id, redact_text(exc, max_length=500),
+    )
     return JSONResponse(
         status_code=500,
         content={"message": "Internal Server Error", "error_id": error_id},
@@ -105,9 +138,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    with open("error_log.txt", "a") as f:
-        f.write(f"{datetime.datetime.now()} - {request.method} {request.url.path} - Validation Error: {exc.errors()}\n")
-    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+    safe_errors = _safe_validation_errors(exc.errors())
+    logger.warning(
+        "validation error %s %s: %s", request.method, request.url.path, safe_errors,
+    )
+    return JSONResponse(status_code=422, content={"detail": safe_errors})
 
 # Setup CORS to allow requests from the React frontend
 app.add_middleware(

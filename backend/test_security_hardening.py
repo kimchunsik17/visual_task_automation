@@ -239,3 +239,43 @@ def test_mock_replay_is_not_blocked_by_the_ssrf_guard():
     with mock_runtime.activate(mock_runtime.MockContext(scenario="success")):
         body = http_request.call(_http_definition(), method="GET", url="https://api.example.invalid/x")
     assert _json.loads(body) == {"ok": True, "message": "목업 응답입니다"}
+
+
+# ── 검증 오류가 제출한 값을 되비치지 않는다 ────────────────────────────────
+
+def test_validation_errors_do_not_echo_the_submitted_value():
+    """pydantic 의 exc.errors() 는 각 항목에 `input`(제출 값 원본)을 싣는다. 그대로 돌려주면
+    검증에 실패한 요청 본문이 응답과 로그에 되비친다 — 토큰·비밀번호를 잘못된 형식으로
+    보내면 그 값이 그대로 나온다."""
+    import os as _os
+    _os.environ.setdefault("DISABLE_SCHEDULER", "1")
+    from fastapi.testclient import TestClient
+    import main
+
+    client = TestClient(main.app, raise_server_exceptions=False)
+    secret = "sk-proj-MUST-NOT-APPEAR-IN-RESPONSE"
+
+    r = client.post("/api/auth/google", json={"token": 12345, "leaked": secret})
+
+    assert r.status_code == 422, r.text
+    assert secret not in r.text
+    assert "12345" not in r.text, "제출한 값이 응답에 그대로 실렸다"
+    for item in r.json()["detail"]:
+        assert set(item.keys()) == {"loc", "msg", "type"}, item
+
+
+def test_safe_validation_errors_drops_input_and_ctx():
+    """ctx 에 직렬화 불가능한 값이 들어와 500 이 되던 경로도 같이 닫힌다."""
+    import main
+
+    raw = [
+        {"loc": ("body", "token"), "msg": "Input should be a valid string",
+         "type": "string_type", "input": "sk-proj-SECRET", "ctx": {"error": object()}},
+        "문자열 항목은 무시한다",
+    ]
+    safe = main._safe_validation_errors(raw)
+
+    assert safe == [{"loc": ["body", "token"], "msg": "Input should be a valid string",
+                     "type": "string_type"}]
+    import json as _json
+    _json.dumps(safe)  # 직렬화 가능해야 한다
