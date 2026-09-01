@@ -213,6 +213,8 @@ import sys
 
 from sqlalchemy import text
 
+from conftest import minimal_subprocess_env
+
 BACKEND_DIR = pathlib.Path(__file__).resolve().parent
 
 
@@ -220,7 +222,7 @@ def _alembic(args, database_url):
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         cwd=BACKEND_DIR,
-        env={"PATH": "/usr/bin:/bin", "DATABASE_URL": database_url, "PYTHONPATH": str(BACKEND_DIR)},
+        env=minimal_subprocess_env(DATABASE_URL=database_url, PYTHONPATH=str(BACKEND_DIR)),
         capture_output=True, text=True, timeout=600,
     )
 

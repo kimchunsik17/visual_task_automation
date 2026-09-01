@@ -39,3 +39,28 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow_render: Chromium 렌더가 필요한 느린 테스트 (포맷 스튜디오 pdf/png)")
 
+
+
+def minimal_subprocess_env(**overrides) -> dict:
+    """자식 파이썬을 띄울 때 쓰는 최소 환경.
+
+    이 환경을 좁히는 목적은 **부모의 DATABASE_URL 을 물려주지 않는 것**이지 OS 필수 변수까지
+    지우는 것이 아니다. 그런데 `{"PATH": "/usr/bin:/bin", ...}` 처럼 POSIX 경로만 넘기면
+    Windows 에서는 인터프리터가 아예 뜨지 않는다 —
+
+        Fatal Python error: _Py_HashRandomization_Init:
+        failed to get random numbers to initialize Python
+
+    Windows 의 난수 초기화가 SystemRoot 를 필요로 하기 때문이다. 부모에서 그대로 가져와야
+    하는 것만 골라 넘긴다(비밀은 없다). 호출부가 DATABASE_URL 등을 overrides 로 덮는다.
+    """
+    import os
+
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    # SystemRoot·COMSPEC 은 Windows 필수, TEMP/TMP 는 tempfile 이 쓴다.
+    for key in ("SystemRoot", "SYSTEMROOT", "COMSPEC", "TEMP", "TMP", "LANG", "LC_ALL"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    env.update({k: v for k, v in overrides.items() if v is not None})
+    return env
