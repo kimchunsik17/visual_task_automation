@@ -6,7 +6,7 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": [
         "/c",
-        "cd /d C:\\Users\\syn\\Documents\\GitHub\\visual_task_automation\\backend && venv\\Scripts\\python.exe -m uvicorn main:app --reload --port 8000"
+        "cd /d <CLONE_PATH>\\backend && venv\\Scripts\\python.exe -m uvicorn main:app --reload --port 8000"
       ],
       "port": 8000
     },
@@ -15,7 +15,7 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": [
         "/c",
-        "cd /d C:\\Users\\syn\\Documents\\GitHub\\visual_task_automation\\frontend && npm run dev"
+        "cd /d <CLONE_PATH>\\frontend && npm run dev"
       ],
       "port": 5173
     }

@@ -77,6 +77,10 @@ backend/_archive_n8n_translation_pipeline/
 # Claude Code worktrees / runtime lock files
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+# launch.json 은 절대 경로가 박히는 머신별 파일이다. 추적하면 사람마다 자기 경로로 덮어써서
+# 남의 F5 실행을 깨뜨린다(실제로 C:\Users\syn\... 가 커밋돼 있었다). 각자 로컬에 둔다 —
+# .claude/launch.json.example 을 복사해 경로만 고쳐 쓰면 된다.
+.claude/launch.json
 
 # 빌드 산출물 수동 스냅샷 — dist 와 같은 성격이라 추적하지 않는다
 frontend/dist.prev/
