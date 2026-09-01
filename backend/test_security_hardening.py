@@ -167,3 +167,75 @@ def test_unknown_api_routes_return_json_404_not_the_spa_shell():
     spa = client.get("/editor/123")
     assert spa.status_code == 200 and spa.headers["content-type"].startswith("text/html"), \
         "SPA 라우팅이 깨졌다 — catch-all 이 index.html 을 내야 한다"
+
+
+# ── httpRequestNode SSRF (url_guard 배선) ──────────────────────────────────
+# 이 노드는 저장소에서 유일하게 목적지가 자유롭다 — URL 을 사용자·LLM 이 정한다.
+# 정책(url_guard)은 webCrawlerNode 에서 이미 돌고 있었는데 이쪽만 배선이 빠져 있었다.
+
+def _http_definition():
+    import node_definition
+    return node_definition.get_definition("httpRequestNode")
+
+
+@pytest.mark.parametrize("url,label", [
+    ("http://169.254.169.254/latest/meta-data/", "클라우드 메타데이터"),
+    ("http://127.0.0.1:5432/", "루프백"),
+    ("http://10.0.0.1/admin", "사설 대역"),
+    ("http://localhost:8000/api/features", "localhost 이름"),
+    ("file:///etc/passwd", "http 아닌 스킴"),
+])
+def test_http_request_node_refuses_internal_targets(url, label):
+    """요청을 **보내기 전에** 세운다 — transport 가 한 번도 불리지 않아야 한다."""
+    from connectors.errors import ConnectorError
+    from connectors.services import http_request
+    from connectors.session import Response
+
+    seen = []
+
+    def _transport(*a, **k):
+        seen.append(a)
+        return Response(200, {}, {})
+
+    session = _http_definition().connector.new_session(transport=_transport, sleep=lambda _: None)
+    with pytest.raises(ConnectorError):
+        http_request.call(_http_definition(), method="GET", url=url, session=session)
+    assert seen == [], f"{label}: 차단됐어야 하는데 요청이 나갔다"
+
+
+def test_http_request_node_refuses_redirect_into_internal_address():
+    """초기 URL 만 검사하면 공격자가 자기 서버에서 302 로 내부를 가리켜 우회할 수 있다.
+    requests 는 응답 훅을 다음 요청 **전에** 부르므로 거기서 세운다."""
+    from connectors.errors import ConnectorError
+    from connectors.services import http_request
+
+    class _Resp:
+        def __init__(self, location, base):
+            self.status_code, self.url = 302, base
+            self.headers = {"Location": location}
+        is_redirect = True
+        is_permanent_redirect = False
+
+    with pytest.raises(ConnectorError):
+        http_request._redirect_guard(_Resp("http://169.254.169.254/", "https://evil.test/r"))
+    # 상대 경로도 현재 URL 기준으로 풀어서 본다
+    with pytest.raises(ConnectorError):
+        http_request._redirect_guard(_Resp("/internal", "http://127.0.0.1/x"))
+
+
+def test_http_request_node_allows_ordinary_public_targets():
+    """정상 외부 주소까지 막으면 노드가 죽는다."""
+    from connectors.services import http_request
+    http_request._guard_url("https://api.openai.com/v1/models")
+
+
+def test_mock_replay_is_not_blocked_by_the_ssrf_guard():
+    """mock 재생은 네트워크를 타지 않는다(재생 transport 가 끼워진다). check_url 은 DNS 를
+    해석하므로, 목업 시나리오의 가짜 호스트를 막아버리면 Mock 탭이 통째로 죽는다."""
+    import json as _json
+    from connectors import mock_runtime
+    from connectors.services import http_request
+
+    with mock_runtime.activate(mock_runtime.MockContext(scenario="success")):
+        body = http_request.call(_http_definition(), method="GET", url="https://api.example.invalid/x")
+    assert _json.loads(body) == {"ok": True, "message": "목업 응답입니다"}
