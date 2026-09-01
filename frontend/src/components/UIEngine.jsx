@@ -413,7 +413,7 @@ export default function UIEngine({
       if (foundId) {
         targetProjectId = foundId;
       } else {
-        alert("유효한 워크플로우 ID가 지정되지 않았습니다. 우측 패널에서 연결할 프로젝트 ID를 설정해주세요.");
+        alert("유효한 워크플로우 ID가 지정되지 않았습니다. 우측 패널에서 연결할 프로젝트 ID를 설정해주세요.", 'error');
         throw new Error("Invalid Workflow ID");
       }
     }
@@ -639,7 +639,7 @@ export default function UIEngine({
 
     if (actionMode === 'script') {
       if (!comp.props.onClickHandler || !(await runScriptHandler())) {
-        alert('연결된 JavaScript 핸들러를 찾을 수 없습니다.');
+        alert('연결된 JavaScript 핸들러를 찾을 수 없습니다.', 'error');
       }
       return;
     }
@@ -647,7 +647,7 @@ export default function UIEngine({
     if (actionMode === 'blueprint') {
       try {
         const handled = await executeLogic(comp.id, 'onClick');
-        if (!handled) alert('이 버튼에 연결된 Blueprint 트리거가 없습니다.');
+        if (!handled) alert('이 버튼에 연결된 Blueprint 트리거가 없습니다.', 'error');
       } catch (err) {
         console.error('Blueprint execution error:', err);
         alert('Blueprint 실행 중 오류 발생: ' + (err.response?.data?.detail || err.message));
@@ -667,12 +667,12 @@ export default function UIEngine({
     }
 
     if (!comp.props.workflowId) {
-      alert('버튼에 실행할 동작이 연결되지 않았습니다.');
+      alert('버튼에 실행할 동작이 연결되지 않았습니다.', 'error');
       return;
     }
 
     if (String(comp.props.workflowId).includes('WORKFLOW_ID') || isNaN(comp.props.workflowId)) {
-      alert('유효한 워크플로우 ID가 설정되지 않았습니다. 우측 패널에서 연결할 프로젝트 ID를 올바르게 숫자로 설정해주세요.');
+      alert('유효한 워크플로우 ID가 설정되지 않았습니다. 우측 패널에서 연결할 프로젝트 ID를 올바르게 숫자로 설정해주세요.', 'error');
       return;
     }
 

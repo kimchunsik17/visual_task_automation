@@ -538,7 +538,7 @@ export default function TemplateModal({ isOpen, onClose, onSave, onLoad, current
   if (!isOpen) return null;
 
   const handleSave = () => {
-    if (!newTemplateName.trim()) return alert('Please enter a template name.');
+    if (!newTemplateName.trim()) return alert('Please enter a template name.', 'warning');
 
     const newTemplate = {
       id: `usr-${Date.now()}`,

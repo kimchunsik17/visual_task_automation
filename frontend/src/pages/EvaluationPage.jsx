@@ -45,7 +45,7 @@ export default function EvaluationPage() {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else if (next.size < targetedMaxCases) next.add(id);
-      else alert(`비용 보호를 위해 한 번에 최대 ${targetedMaxCases}개까지 선택할 수 있습니다.`);
+      else alert(`비용 보호를 위해 한 번에 최대 ${targetedMaxCases}개까지 선택할 수 있습니다.`, 'warning');
       return next;
     });
   };
@@ -59,7 +59,7 @@ export default function EvaluationPage() {
 
   const startEvaluation = () => {
     if (selectedCaseIds.size === 0) {
-      alert("평가할 프롬프트를 최소 1개 이상 선택해주세요.");
+      alert("평가할 프롬프트를 최소 1개 이상 선택해주세요.", 'warning');
       return;
     }
     if (evaluationMode === 'full' && !window.confirm(
@@ -91,7 +91,7 @@ export default function EvaluationPage() {
         setIsRunning(false);
         eventSource.close();
       } else if (data.type === 'error') {
-        alert(data.message);
+        alert(data.message, 'error');
         setIsRunning(false);
         eventSource.close();
       }

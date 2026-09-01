@@ -548,7 +548,7 @@ export default function AppBuilderPage() {
 
   const onLogicConnect = useCallback((params) => {
     if (!isValidLogicConnection(params)) {
-      alert('빨간 실행 포트끼리 또는 초록 데이터 포트끼리 연결해주세요.');
+      alert('빨간 실행 포트끼리 또는 초록 데이터 포트끼리 연결해주세요.', 'warning');
       return;
     }
     setLogicEdges((edges) => addEdge(params, edges));

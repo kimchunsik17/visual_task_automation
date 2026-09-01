@@ -89,7 +89,7 @@ const AppViewerPage = () => {
       } catch (error) {
         console.error(error);
         const errorMsg = error.response?.data?.detail || error.message;
-        alert(`프로젝트를 불러오지 못했습니다. 에러: ${errorMsg}`);
+        alert(`프로젝트를 불러오지 못했습니다. 에러: ${errorMsg}`, 'error');
       } finally {
         setIsLoading(false);
       }
