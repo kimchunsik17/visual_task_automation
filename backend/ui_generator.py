@@ -6,12 +6,17 @@ from pydantic import BaseModel, Field
 
 # Using the same llm setup as the rest of the app, assuming we can get api keys
 def get_llm_for_ui(api_key: str = None, provider: str = "openai"):
-    # Note: in real usage, we should use the user's API key or system default.
-    # We will assume OpenAI or Gemini based on provider.
+    # api_key 가 있으면 사용자가 API 센터에 등록한 자기 키다 — 그대로 존중한다.
+    # 없으면(시스템 기본) provider 층에 맡겨 LLM_PROVIDER=openrouter 설정을 따르게 한다.
+    # 예전에는 여기서 늘 ChatOpenAI 를 직접 만들어, 시스템 기본이 OpenRouter 여도 openai.com 을
+    # 때려 401 이 났다.
     if provider == "gemini":
         return ChatGoogleGenerativeAI(model="gemini-3.5-pro", google_api_key=api_key, temperature=0.2)
-    else:
+    if api_key:
         return ChatOpenAI(model="gpt-4o", openai_api_key=api_key, temperature=0.2)
+    from llm.providers import create_runtime_chat_model
+
+    return create_runtime_chat_model(model="gpt-4o")
 
 UI_GENERATION_SYSTEM_PROMPT = """\
 너는 전문적인 프론트엔드 개발자이자 UI/UX 디자이너다.
