@@ -1,5 +1,7 @@
 import os
+import threading
 from typing import List, Dict, Any, Optional
+import chromadb
 from langchain_chroma import Chroma
 from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
@@ -18,15 +20,35 @@ DB_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")
 TRANSLATED_COLLECTION = "pre_translated_templates"
 RAW_N8N_COLLECTION = "raw_n8n_templates"
 
+# 프로세스 하나에 PersistentClient 하나를 공유한다.
+# 예전에는 get_vector_store 가 매 호출마다 Chroma(persist_directory=...) 로 새 PersistentClient 를
+# 만들었는데, chromadb 의 시스템 레지스트리(_identifier_to_system)가 스레드 안전하지 않아,
+# retrieve_chat_context 가 to_thread 로 동시에 여러 번 불리면 첫 초기화가 경쟁하며
+# KeyError/'Could not connect to tenant' 로 터졌다(2026-09-01: AI 생성이 통째로 죽었다).
+# 클라이언트를 락으로 한 번만 만들어 재사용하면 그 경쟁이 사라진다 — chromadb 도 PersistentClient
+# 를 경로당 하나 재사용하도록 설계돼 있다.
+_client_lock = threading.Lock()
+_shared_client = None
+
+
+def _get_client():
+    global _shared_client
+    if _shared_client is None:
+        with _client_lock:
+            if _shared_client is None:
+                _shared_client = chromadb.PersistentClient(path=DB_DIR)
+    return _shared_client
+
+
 def get_vector_store(collection_name: str, embeddings: Embeddings = None) -> Chroma:
-    """Returns a Chroma vector store instance."""
+    """Returns a Chroma vector store instance backed by the shared client."""
     if embeddings is None:
         embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        
+
     return Chroma(
+        client=_get_client(),
         collection_name=collection_name,
         embedding_function=embeddings,
-        persist_directory=DB_DIR
     )
 
 def search_templates(query: str, complexity_level: str, k: int = 2) -> List[Dict[str, Any]]:
@@ -83,8 +105,10 @@ def process_and_store_chat_context(project_id: str, file_path: str, filename: st
 
 def retrieve_chat_context(project_id: str, query: str, k: int = 4) -> str:
     """Retrieves relevant document chunks for the given project's context collection."""
-    store = get_vector_store(f"chat_context_{project_id}")
     try:
+        # 벡터 스토어 열기도 try 안에 둔다 — 여기서 실패해도 생성은 컨텍스트 없이 계속돼야 한다.
+        # (RAG 컨텍스트는 부가 기능이고, 예전에는 이 줄이 try 밖이라 실패가 생성 전체를 죽였다.)
+        store = get_vector_store(f"chat_context_{project_id}")
         # Avoid error if collection is empty
         if store._collection.count() == 0:
             return ""
