@@ -431,6 +431,20 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     lines.append("        _detected = _detect_legacy_pattern(res_str)")
     lines.append("        if _detected is not None and _detected[1] not in __legacy_seen__:")
     lines.append("            node_error = _legacy_node_error(res_str, node_type=node_type, node_id=node_id, source='result')")
+    # 노드가 실행 중 스스로 오류를 표시한 경우(_set_node_meta status='error'). 예전에는 log_step
+    # 이 이 메타를 보지 않아, webCrawler 처럼 error= 를 안 넘기고 문자열만 result 로 준 노드는
+    # __node_meta__ 는 error 인데 DB 로그(__execution_logs__)는 success 로 남았다 — 실패가 성공으로
+    # 기록되는 결함이다. 여기서 메타의 error_code/message 로 node_error 를 만들어 로그를 맞춘다.
+    lines.append("    if node_error is None and not pinned:")
+    lines.append("        _meta = __node_meta__.get(node_id) or {}")
+    lines.append("        if _meta.get('status') == 'error':")
+    lines.append("            _mcode = _meta.get('error_code') or 'INTERNAL_UNKNOWN'")
+    lines.append("            try:")
+    lines.append("                node_error = _make_node_error(_mcode, node_type=node_type, node_id=node_id,")
+    lines.append("                    user_message=_meta.get('error_message'), safe_details={'nodeType': node_type})")
+    lines.append("            except Exception:")
+    lines.append("                node_error = _make_node_error('INTERNAL_UNKNOWN', node_type=node_type, node_id=node_id,")
+    lines.append("                    user_message=_meta.get('error_message'), safe_details={'phase': 'node_meta'})")
     lines.append("    if res_str:")
     lines.append("        _seen_now = _detect_legacy_pattern(res_str)")
     lines.append("        if _seen_now is not None:")

@@ -43,6 +43,8 @@
 | <a id="runtime_output_too_large"></a>`RUNTIME_OUTPUT_TOO_LARGE` | runtime | runtime | 아니오 | `applied` | 조치 없음 | 노드 출력이 허용 크기를 넘어 일부만 저장됐습니다. |
 | <a id="runtime_serialization_failed"></a>`RUNTIME_SERIALIZATION_FAILED` | runtime | runtime | 아니오 | `applied` | 요청 ID 로 문의 | 노드 출력을 저장 가능한 형식으로 바꾸지 못했습니다. |
 | <a id="runtime_node_disabled"></a>`RUNTIME_NODE_DISABLED` | runtime | runtime | 아니오 | `not_started` | 요청 ID 로 문의 | 이 노드는 현재 환경에서 꺼져 있습니다. 워크플로우에서 빼거나 관리자에게 문의해주세요. |
+| <a id="url_blocked"></a>`URL_BLOCKED` | runtime | runtime | 아니오 | `not_started` | 해당 입력으로 이동 | 이 주소는 수집할 수 없습니다. robots.txt 금지·접근 제한·내부 주소일 수 있습니다. |
+| <a id="crawl_failed"></a>`CRAWL_FAILED` | runtime | runtime | 아니오 | `not_started` | 해당 입력으로 이동 | 페이지를 수집하지 못했습니다. 주소가 맞는지, 페이지가 열려 있는지 확인해주세요. |
 | <a id="internal_unknown"></a>`INTERNAL_UNKNOWN` | runtime | runtime | 아니오 | `unknown` | 요청 ID 로 문의 | 예상하지 못한 오류가 발생했습니다. 요청 ID 와 함께 문의해주세요. |
 | <a id="legacy_node_error"></a>`LEGACY_NODE_ERROR` (이행용) | runtime | runtime | 아니오 | `unknown` | 조치 없음 | 노드가 오류 문구를 결과에 남겼습니다. |
 | <a id="pointing_target_not_found"></a>`POINTING_TARGET_NOT_FOUND` | validation | pointing | 아니오 | `not_started` | 해당 입력으로 이동 | 지목한 대상을 찾을 수 없습니다. 삭제됐을 수 있으니 다시 선택해주세요. |
@@ -102,6 +104,8 @@
 - `RUNTIME_OUTPUT_TOO_LARGE`: `sizeBytes`, `limitBytes`
 - `RUNTIME_SERIALIZATION_FAILED`: `phase`
 - `RUNTIME_NODE_DISABLED`: `nodeType`
+- `URL_BLOCKED`: `nodeType`
+- `CRAWL_FAILED`: `nodeType`
 - `INTERNAL_UNKNOWN`: `phase`
 - `LEGACY_NODE_ERROR`: `legacyPattern`
 - `POINTING_TARGET_NOT_FOUND`: `targets`, `scope`, `targetCount`
