@@ -70,7 +70,21 @@ from usage_tracking import (
 import project_access
 from statistics_service import VALID_TIME_RANGES, build_statistics
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key")
+# 기본값을 두지 않는다. 'super-secret-key' 가 기본값이던 동안에는, .env 에 JWT_SECRET 을
+# 넣는 것을 잊어도 서버가 조용히 떠서 **공개된 문자열로 토큰에 서명**했다 — 누구나 임의의
+# user_id 로 토큰을 만들 수 있다는 뜻이다. 설정 누락은 부팅 실패로 드러나야 한다.
+#
+# ⚠️ 이미 뜬 서비스에서 이 값을 바꾸면 user_api_keys 의 자격증명이 복호화 불가가 된다 —
+# credential_crypto 가 CREDENTIAL_ENCRYPTION_KEY 가 없을 때 JWT_SECRET 으로 폴백하기
+# 때문이다(:19-33). 재암호화 스크립트는 저장소에 없다. 바꾸려면 CREDENTIAL_ENCRYPTION_KEY 를
+# 먼저 독립된 값으로 넣고 기존 자격증명을 옮긴 뒤에 한다.
+JWT_SECRET = os.environ.get("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET 이 설정되지 않았다. backend/.env 에 충분히 긴 임의 문자열을 넣어라 "
+        "(backend/.env.example 참고). 예전에는 'super-secret-key' 로 조용히 폴백했는데, "
+        "그러면 공개된 문자열로 토큰에 서명하게 된다."
+    )
 JWT_ALGORITHM = "HS256"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 

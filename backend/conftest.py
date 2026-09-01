@@ -35,6 +35,12 @@ elif _is_production_db(_env_url):
     raise SystemExit(2)
 
 
+# main.py 는 JWT_SECRET 이 없으면 부팅을 거부한다(설정 누락이 조용히 넘어가지 않게). 테스트는
+# .env 없이 clean clone 에서도 돌아야 하므로 여기서 테스트 전용 값을 세운다. setdefault 라
+# 실제 .env 나 셸 환경이 있으면 그쪽이 이긴다.
+os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-not-for-any-real-deployment")
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow_render: Chromium 렌더가 필요한 느린 테스트 (포맷 스튜디오 pdf/png)")
