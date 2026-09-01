@@ -999,7 +999,14 @@ class DatabasePreviewPayload(BaseModel):
 def get_features():
     """클라이언트가 어떤 경로의 UI 를 그릴지 정하는 배포 플래그."""
     import db_query_runtime
-    return {"database_query_v2": db_query_runtime.v2_enabled(), "node_error_v1": node_error_runtime.is_enabled()}
+    import python_runtime
+    return {
+        "database_query_v2": db_query_runtime.v2_enabled(),
+        "node_error_v1": node_error_runtime.is_enabled(),
+        # 꺼져 있으면 편집기가 팔레트에서 pythonNode 를 빼야 한다. 실행 경로는 이 값과 무관하게
+        # 서버에서 다시 막으므로, 이건 UI 가 헛수고를 안 하게 하는 힌트다.
+        "python_node_enabled": python_runtime.node_enabled(),
+    }
 
 
 @app.get("/api/database/credentials")

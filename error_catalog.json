@@ -663,6 +663,20 @@
       "docs": "Documents/ERROR_CATALOG.md#runtime_serialization_failed"
     },
     {
+      "code": "RUNTIME_NODE_DISABLED",
+      "category": "runtime",
+      "owner": "runtime",
+      "messageKey": "runtime.node_disabled",
+      "userMessage": "이 노드는 현재 환경에서 꺼져 있습니다. 워크플로우에서 빼거나 관리자에게 문의해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "contact_support",
+      "safeDetailKeys": [
+        "nodeType"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#runtime_node_disabled"
+    },
+    {
       "code": "INTERNAL_UNKNOWN",
       "category": "runtime",
       "owner": "runtime",

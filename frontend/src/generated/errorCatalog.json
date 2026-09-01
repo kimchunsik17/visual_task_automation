@@ -497,6 +497,17 @@
       "replacedBy": null,
       "transitional": false
     },
+    "RUNTIME_NODE_DISABLED": {
+      "category": "runtime",
+      "messageKey": "runtime.node_disabled",
+      "userMessage": "이 노드는 현재 환경에서 꺼져 있습니다. 워크플로우에서 빼거나 관리자에게 문의해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "contact_support",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
     "INTERNAL_UNKNOWN": {
       "category": "runtime",
       "messageKey": "runtime.internal_unknown",
