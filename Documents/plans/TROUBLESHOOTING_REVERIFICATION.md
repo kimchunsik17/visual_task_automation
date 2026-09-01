@@ -209,13 +209,57 @@ key_id 가 맞는 후보 키로만 복호화한다. 두 비밀이 슬롯에 남�
 
 # 6. 이 라운드에서 처리한 것
 
-| 커밋 | 내용 |
-| --- | --- |
-| `c89e745` | `GET /api/runs/{run_id}` fail-open 수정 + 회귀 테스트 (§1.1) |
-| `325b258` | 루트 `pytest.ini` — 수집 범위·`--strict-markers` (0단계) |
-| `a6e31c4` | 없는 `/api/` 경로 → 404 JSON (0단계) |
+| 커밋 | 단계 | 내용 |
+| --- | --- | --- |
+| `c89e745` | 4→0 | `GET /api/runs/{run_id}` fail-open 수정 + 회귀 테스트 (§1.1) |
+| `325b258` | 0 | 루트 `pytest.ini` — 수집 범위·`--strict-markers` |
+| `a6e31c4` | 0 | 없는 `/api/` 경로 → 404 JSON |
+| `acd4483` | 9→승격 | httpRequestNode 를 url_guard 에 배선 (SSRF, §3.1) |
+| `7852a55` | — | 서브프로세스 테스트가 Windows 에서 인터프리터도 못 띄우던 것 수정 |
+| `f31d708` | 0 | 인증 강제 테스트의 느슨한 단정 5개 확정 |
+| `87a7e1f` | 1 | `/api/health`·`/api/ready` 프로브 |
+| `c5563a6` | 1 | 검증 오류가 제출 값을 응답·로그에 되비치던 것 차단 |
+| `655e130` | 1 | `JWT_SECRET` 의 `'super-secret-key'` 기본값 제거 |
 
-**0단계 잔여**: `main.jsx:2·20` DEV 가드 + `frontend/src/ErrorBoundary.jsx` 를 `App.jsx:65`
-`<Routes>` 바깥에 감기(브라우저 확인 필요), `test_auth_enforcement.py` 를 subprocess+sqlite 로
-이관(`:77·85·91`·`:110·118` 의 느슨한 단정 5개 확정), nginx `/telegram-webhook/`·`.env` 권한
-(서버 접근 필요).
+## 6.1 SSRF 배선에서 실제로 정해야 했던 것 (§3.1 보완)
+
+"배선만 하면 된다" 는 재검증 초기 판단은 절반만 맞았다. 배선 지점은 `http_request.call`
+한 곳이 맞지만, 그 전에 셋을 정해야 했다:
+
+1. **리다이렉트.** 초기 URL 만 검사하면 공격자가 자기 서버에서 302 로 내부를 가리켜 우회한다.
+   커넥터 전송은 `requests` 기본값(추적)이라 `fetch_text` 의 `allow_redirects=False` 루프를
+   그대로 쓸 수 없다 — 그렇게 바꾸면 정상 리다이렉트에 의존하는 기존 워크플로우가 깨진다.
+   **requests 의 response 훅**을 쓴다. 훅은 다음 요청을 보내기 전에 발동하므로 내부 주소로는
+   요청 자체가 나가지 않는다. 상대 경로 `Location` 은 `urljoin` 으로 푼다.
+2. **mock 재생.** `node_definition.new_session` 이 재생 transport 를 끼워 네트워크를 안 타는데
+   `check_url` 은 DNS 를 해석한다. `mock_runtime.current()` 이 있으면 건너뛴다.
+3. **적용 범위.** 다른 커넥터는 목적지가 정의에 고정돼 있고, 특히 paymentLinkNode 가 목업
+   서버(`localhost:3002`)를 부른다. 전송 계층에 일괄로 걸면 그게 막힌다 — httpRequestNode 만
+   건다.
+
+## 6.2 Windows 서브프로세스 문제 (계획서에 없던 발견)
+
+`test_connector_cursor.py`·`test_project_revisions.py` 가 자식 환경을
+`{"PATH": "/usr/bin:/bin", ...}` 로 넘겨, Windows 에서 자식 파이썬이 아예 뜨지 못했다
+(`_Py_HashRandomization_Init` 실패 — 난수 초기화가 `SystemRoot` 를 필요로 한다). 4개 테스트가
+이 이유로 실패하고 있었고 리눅스에서는 드러나지 않는다. `conftest.minimal_subprocess_env()`
+로 통일했다.
+
+**같은 뿌리가 `python_sandbox.py` 의 `SANDBOX_ENV` 에도 있다.** 다만 그쪽은 POSIX 전용
+`resource` 모듈도 함께 쓰므로 `SystemRoot` 만 넣어도 Windows 에서 동작하지 않는다.
+pythonNode 는 `PYTHON_NODE_ENABLED=0` 으로 닫아 두었다(커밋 `cd3802d`).
+
+## 6.3 잔여
+
+**0단계**: `main.jsx:2·20` DEV 가드 + `frontend/src/ErrorBoundary.jsx` 를 `App.jsx:65`
+`<Routes>` 바깥에 감기 — **브라우저 확인이 필요해 미착수**. nginx `/telegram-webhook/`,
+`.env` 권한은 서버 접근 필요.
+
+**1단계 로컬 잔여**: `scripts/deploy.sh`·`rollback.sh`(저장소 전체 `.sh` 0건),
+`main.py:81` 의 임포트 시점 `ensure_schema` 분리 + head 비교 기동 가드,
+`requirements.lock.txt`, `mock_server/server.js:377` 의 호스트 미지정 `app.listen`.
+
+**결정이 필요해 미착수**: `requirements_linux.txt` 의 4개 누락(python-hwpx·gspread·
+google-auth-oauthlib·playwright). 삭제·통합·보완 중 무엇을 택하든 **서버 배포 절차가 바뀐다**
+— playwright 를 추가하면 설치 시간과 브라우저 내려받기가 따라온다. 서버에서 어느 노드를
+실제로 쓸지 정한 뒤에 결정할 것.
