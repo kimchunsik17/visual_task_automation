@@ -86,7 +86,7 @@ const SiteFeedbackWidget = () => {
       Object.entries(answers).filter(([, value]) => typeof value === 'number'),
     );
     if (Object.keys(scores).length === 0) {
-      alert('점수를 매긴 문항이 하나도 없습니다. 한 문항이라도 별점을 남겨주세요.');
+      alert('점수를 매긴 문항이 하나도 없습니다. 한 문항이라도 별점을 남겨주세요.', 'warning');
       return;
     }
     setIsSubmitting(true);
@@ -106,7 +106,7 @@ const SiteFeedbackWidget = () => {
         setAlreadySubmitted(true);
         setIsOpen(false);
       }
-      alert(error.response?.data?.detail || '평가 제출 중 오류가 발생했습니다.');
+      alert(error.response?.data?.detail || '평가 제출 중 오류가 발생했습니다.', 'error');
     } finally {
       setIsSubmitting(false);
     }

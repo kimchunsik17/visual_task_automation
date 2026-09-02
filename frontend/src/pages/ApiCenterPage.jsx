@@ -144,7 +144,7 @@ export default function ApiCenterPage() {
       window.location.href = res.data.url;
     } catch (err) {
       const detail = err.response?.data?.detail;
-      alert(detail?.message || '연결을 시작하지 못했습니다.');
+      alert(detail?.message || '연결을 시작하지 못했습니다.', 'error');
       setConnecting(null);
     }
   };
@@ -158,7 +158,7 @@ export default function ApiCenterPage() {
     try {
       const payloadToken = credentialResponse.credential;
       if (!payloadToken) {
-         alert("인증 토큰을 받아오지 못했습니다.");
+         alert("인증 토큰을 받아오지 못했습니다.", 'error');
          return;
       }
       const res = await axios.post('/api/auth/sudo', { token: payloadToken });
@@ -184,7 +184,7 @@ export default function ApiCenterPage() {
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
         setSudoToken(null);
-        alert("세션이 만료되었습니다. 다시 인증해주세요.");
+        alert("세션이 만료되었습니다. 다시 인증해주세요.", 'warning');
       }
     } finally {
       setLoading(false);

@@ -102,7 +102,7 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
       login(res.data.user, res.data.access_token);
     } catch (error) {
       console.error('Login failed:', error);
-      alert('로그인 처리 중 에러가 발생했습니다: ' + (error.response?.data?.detail || error.message));
+      alert('로그인 처리 중 에러가 발생했습니다: ' + (error.response?.data?.detail || error.message), 'error');
     }
   };
 

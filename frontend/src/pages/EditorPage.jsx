@@ -859,13 +859,13 @@ function FlowContent() {
 
     } catch (error) {
       console.error("Failed to load project", error);
-      alert("Failed to load project or unauthorized.");
+      alert("Failed to load project or unauthorized.", 'error');
     }
   };
 
   const handleSave = async (overrideVisibility = null, overrideFlowData = null, overrideTraceId = null) => {
     if (!user) {
-      alert("프로젝트를 저장하려면 로그인이 필요합니다. 왼쪽 메뉴에서 구글 계정으로 로그인해주세요.");
+      alert("프로젝트를 저장하려면 로그인이 필요합니다. 왼쪽 메뉴에서 구글 계정으로 로그인해주세요.", 'warning');
       return null;
     }
     // overrideFlowData: setNodes/setEdges 직후 곧바로 저장해야 할 때(예: AI 생성 직후 자동 저장)
@@ -947,7 +947,7 @@ function FlowContent() {
 
   const handleOpenDeployModal = async () => {
     if (!currentId) {
-      alert("먼저 프로젝트를 저장해 주세요.");
+      alert("먼저 프로젝트를 저장해 주세요.", 'warning');
       return;
     }
     // Save latest state before deployment
@@ -960,7 +960,7 @@ function FlowContent() {
 
   const handleToggleLive = async () => {
     if (!currentId) {
-      alert("프로젝트를 먼저 저장해 주세요.");
+      alert("프로젝트를 먼저 저장해 주세요.", 'warning');
       return;
     }
     try {
@@ -968,7 +968,7 @@ function FlowContent() {
       if (res.data.status === 'success') {
         setIsLive(res.data.is_live);
         if (res.data.warning) {
-          alert("⚠️ " + res.data.warning);
+          alert("⚠️ " + res.data.warning, 'warning');
         } else {
           alert(res.data.is_live ? "라이브 모드가 시작되었습니다! (웹훅/스케줄/봇 대기중)" : "라이브 모드가 중지되었습니다.");
         }
@@ -1711,7 +1711,7 @@ function FlowContent() {
   );
   const pinOutput = useCallback((node, value) => {
     if (!writePinnedOutput(projectId, node, value)) {
-      alert('브라우저 저장 공간이 부족해 출력을 고정하지 못했습니다.');
+      alert('브라우저 저장 공간이 부족해 출력을 고정하지 못했습니다.', 'error');
       return;
     }
     setPinnedVersion((version) => version + 1);
