@@ -38,7 +38,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# 이 코드는 stdin heredoc 으로 실행된다 — 인자 없는 load_dotenv() 는 find_dotenv() 가
+# 콜스택에서 호출자 파일을 찾다가 <stdin> 프레임에서 AssertionError 로 죽는다.
+# cwd 가 $BACKEND 이므로 경로를 명시한다.
+load_dotenv(".env")
 
 import database  # noqa: E402  (DATABASE_URL 로 세션을 만든다)
 import models  # noqa: E402
