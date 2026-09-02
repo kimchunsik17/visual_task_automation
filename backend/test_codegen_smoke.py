@@ -67,6 +67,21 @@ def test_every_node_compiles_in_a_minimal_graph(node_type):
     ast.parse(src)
 
 
+@pytest.mark.parametrize("node_type", ALL_TYPES)
+def test_every_node_logs_its_step(node_type):
+    """모든 노드가 생성 소스에 log_step('<자기 id>' 를 남겨야 한다.
+
+    log_step 이 없으면 (a) 실행 로그에서 그 노드가 아예 사라지고 (b) __node_results__ 에
+    결과가 안 실려 mergeNode·데이터 바인딩에서 값이 조용히 없어진다. 실제로 제어노드 6종
+    (multiAgent·loop·delay·break·condition·distributor)이 이 상태였다(재검증 §2.1).
+    """
+    src = _compile(node_type, {})
+    assert "log_step('n'" in src, (
+        f"{node_type}: 생성 소스에 log_step('n' 이 없다 — 실행 로그·__node_results__ 에서 "
+        "이 노드가 사라진다"
+    )
+
+
 @pytest.mark.parametrize("node_type,field", PATH_FIELDS)
 def test_path_fields_survive_quotes_and_backslashes(node_type, field):
     """따옴표·역슬래시가 든 경로로도 컴파일돼야 한다(이스케이프 회귀). 되돌리면 여기서 잡힌다."""

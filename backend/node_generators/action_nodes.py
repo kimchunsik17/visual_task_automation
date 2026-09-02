@@ -196,7 +196,10 @@ def generate_delay_node(node_id, node, indent, active_llm_id, prev_res_var, visi
     lines.append(f"{indent}import time")
     lines.append(f"{indent}print(f'Waiting for {seconds} seconds...')")
     lines.append(f"{indent}time.sleep(float({seconds}))")
-    
+    # 입력을 그대로 흘려보내는 노드지만, 기록이 없으면 실행 로그에 이 노드가 아예 안 보이고
+    # __node_results__ 기반 조회(mergeNode·데이터 바인딩)에서도 값이 사라진다(재검증 §2.1).
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={prev_res_var if prev_res_var else 'last_result'})")
+
     next_edges = forward_edges.get(node_id, [])
     for target_id, handle in next_edges:
         generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)

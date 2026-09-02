@@ -62,6 +62,9 @@ def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, 
 
     lines.append(f"{indent}# --- Condition Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    # 분기 판정에 쓴 입력을 그대로 기록한다 — 이게 없으면 __node_results__ 에 이 노드가
+    # 아예 없어서, 하류 mergeNode·데이터 바인딩에서 값이 조용히 사라진다(재검증 §2.1).
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={var})")
 
     edge_by_handle = {handle: target for target, handle in forward_edges.get(node_id, [])}
 
@@ -101,7 +104,8 @@ def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, 
 def generate_loop_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     max_iter = node.get('data', {}).get('maxIterations', 5)
     lines.append(f"{indent}# --- Loop Node (Container) ({node_id}) ---")
-    
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+
     acc_var = f"loop_acc_{node_id}"
     if prev_res_var:
         lines.append(f"{indent}{acc_var} = {prev_res_var}")
@@ -137,6 +141,9 @@ def generate_loop_node(node_id, node, indent, active_llm_id, prev_res_var, visit
         else:
             lines.append(f"{indent}    pass")
         
+    # 반복이 끝난 뒤 최종 누적값을 기록한다 — 이 노드가 __node_results__ 에 없으면
+    # done 뒤의 mergeNode·데이터 바인딩이 루프 결과를 통째로 잃는다(재검증 §2.1).
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={acc_var})")
     done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
     if done_edges:
         generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)
@@ -145,6 +152,8 @@ def generate_loop_node(node_id, node, indent, active_llm_id, prev_res_var, visit
 def generate_break_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Break Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    # break 는 제어를 끊으므로 기록을 그 앞에 남긴다 — 실행 로그에서 "여기서 끊겼다"가 보여야 한다.
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
     lines.append(f"{indent}break")
 
 @node_registry.register('mergeNode')
@@ -219,6 +228,8 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
     # 빈 값은 빼고 이어 붙인다 — 조건 분기로 건너뛴 항목이 빈 줄로 남으면 결과가 지저분해진다.
     lines.append(f"{indent}{joined_var} = '\\n'.join(str(_r) for _r in {acc_var} if str(_r).strip())")
     lines.append(f"{indent}last_result = {joined_var}")
+    # 전 항목 처리가 끝난 합본을 기록한다 — 없으면 done 뒤 mergeNode 가 이 노드 결과를 못 본다.
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={joined_var})")
 
     done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
     if done_edges:
