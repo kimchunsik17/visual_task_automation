@@ -123,8 +123,9 @@ export function ElementPropsPanel({ element, fields, theme, onPatch, onReorder, 
 
 export default function FormatCanvasEditor({
   design, fields, onDesignChange,
-  selectedId: controlledSelectedId, onSelect,   // 풀페이지: 선택을 부모가 든다
+  selectedId: controlledSelectedId, onSelect,   // 풀페이지: 선택을 부모가 든다(좌측 계층 트리와 동기화)
   propsContainer = null,                        // 풀페이지: 속성 패널을 이 DOM 노드(우측 인스펙터)에 포털로 그린다
+  toolbarContainer = null,                      // 풀페이지: 요소 추가 도구줄을 이 DOM 노드(좌측 팔레트)에 포털로 그린다
   maxWidth = 620,
 }) {
   const [internalSelectedId, setInternalSelectedId] = useState(null);
@@ -247,25 +248,29 @@ export default function FormatCanvasEditor({
     );
   };
 
+  const toolbar = (
+    <div className="fcv-toolbar">
+      <button type="button" onClick={() => addElement(newTextElement({ x: 60, y: 60 }))}><Type size={13} /> 텍스트</button>
+      <select className="fcv-add-select" value=""
+              onChange={(e) => { if (e.target.value) addElement(newTextElement({ text: `{{${e.target.value}}}`, x: 60, y: 120 })); }}>
+        <option value="">+ 빈칸 텍스트…</option>
+        {(fields || []).filter((f) => f.kind !== 'image' && f.kind !== 'rows').map((f) => (
+          <option key={f.name} value={f.name}>{f.label || f.name}</option>
+        ))}
+      </select>
+      <select className="fcv-add-select" value=""
+              onChange={(e) => { if (e.target.value) addElement(newImageElement(e.target.value, { x: 60, y: 200 })); }}>
+        <option value="">+ 이미지 슬롯…</option>
+        {imageFields.map((f) => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
+      </select>
+      <button type="button" onClick={() => addElement(newBoxElement({ x: 40, y: 40 }))}><Square size={13} /> 사각형</button>
+      <span className="fcv-hint">드래그로 이동 · 오른쪽 아래 모서리로 크기 · 방향키 미세 이동(Shift=10px)</span>
+    </div>
+  );
+
   return (
     <div className="fcv" tabIndex={0} onKeyDown={onKeyDown}>
-      <div className="fcv-toolbar">
-        <button type="button" onClick={() => addElement(newTextElement({ x: 60, y: 60 }))}><Type size={13} /> 텍스트</button>
-        <select className="fcv-add-select" value=""
-                onChange={(e) => { if (e.target.value) addElement(newTextElement({ text: `{{${e.target.value}}}`, x: 60, y: 120 })); }}>
-          <option value="">+ 빈칸 텍스트…</option>
-          {(fields || []).filter((f) => f.kind !== 'image' && f.kind !== 'rows').map((f) => (
-            <option key={f.name} value={f.name}>{f.label || f.name}</option>
-          ))}
-        </select>
-        <select className="fcv-add-select" value=""
-                onChange={(e) => { if (e.target.value) addElement(newImageElement(e.target.value, { x: 60, y: 200 })); }}>
-          <option value="">+ 이미지 슬롯…</option>
-          {imageFields.map((f) => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
-        </select>
-        <button type="button" onClick={() => addElement(newBoxElement({ x: 40, y: 40 }))}><Square size={13} /> 사각형</button>
-        <span className="fcv-hint">드래그로 이동 · 오른쪽 아래 모서리로 크기 · 방향키 미세 이동(Shift=10px)</span>
-      </div>
+      {toolbarContainer ? createPortal(toolbar, toolbarContainer) : toolbar}
 
       <div className="fcv-stage" style={{ height: height * scale + 20 }}>
         <div className="fcv-artboard"
