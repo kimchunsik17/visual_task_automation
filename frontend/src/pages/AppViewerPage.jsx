@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Send, Bot, User, Paperclip, X, Upload, Download } from 'lucide-react';
+import { downloadUploadFile } from '../fileDownload';
 import './MainPage.css'; // Reuse existing layout classes if needed
 
 // 실행 결과 문자열 안에 uploads/로 시작하는 생성 파일 경로가 섞여 있으면(예: fileModifierNode/
@@ -24,19 +25,17 @@ const renderContentWithDownload = (content) => {
   return (
     <>
       {before.trim() && <div style={{ whiteSpace: 'pre-wrap', marginBottom: '0.75rem' }}>{before.trim()}</div>}
-      <a
-        href={`/${filePath}`}
-        download={fileName}
-        target="_blank"
-        rel="noreferrer"
+      <button
+        type="button"
+        onClick={() => downloadUploadFile(filePath, localStorage.getItem('token')).catch(err => alert(err.message))}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
           padding: '0.6rem 1rem', background: '#3b82f6', color: '#fff',
-          textDecoration: 'none', borderRadius: '8px', fontWeight: 500, fontSize: '0.9rem',
+          border: 'none', cursor: 'pointer', borderRadius: '8px', fontWeight: 500, fontSize: '0.9rem',
         }}
       >
         <Download size={16} /> {fileName} 다운로드
-      </a>
+      </button>
       {after.trim() && <div style={{ whiteSpace: 'pre-wrap', marginTop: '0.75rem' }}>{after.trim()}</div>}
     </>
   );

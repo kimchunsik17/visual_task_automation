@@ -4,6 +4,7 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { Play, Share2, Lock, Unlock, Users, Copy, Download, Check, XCircle, Clock } from 'lucide-react';
 import { Icon } from '../icons';
+import { downloadUploadFile } from '../fileDownload';
 import './AppRunnerPage.css';
 
 // 실행 결과가 fileModifierNode/posterGeneratorNode 등이 만든 실제 파일 경로(uploads/...)를
@@ -234,9 +235,11 @@ export default function AppRunnerPage() {
                   {isCopied ? <><Check size={16} color="#10b981"/> 복사 완료</> : <><Copy size={16} /> 복사</>}
                 </button>
                 {resultFilePath ? (
-                  <a className="btn-action" href={`/${resultFilePath}`} download={resultFileName} target="_blank" rel="noreferrer" title={`${resultFileName} 다운로드`} style={{ textDecoration: 'none' }}>
+                  // 익명 실행자는 이 파일의 소유자가 아니라 서버가 404 를 준다 — 헬퍼가
+                  // 권한 안내 메시지를 띄운다. 익명도 받을 수 있는 공유 범위 다운로드는 백로그.
+                  <button className="btn-action" onClick={() => downloadUploadFile(resultFilePath, token).catch(err => alert(err.message))} title={`${resultFileName} 다운로드`}>
                     <Download size={16} /> {resultFileName} 다운로드
-                  </a>
+                  </button>
                 ) : (
                   <button className="btn-action" onClick={handleDownloadResult} title="텍스트로 다운로드">
                     <Download size={16} /> 다운로드
