@@ -11,7 +11,8 @@ import {
   Monitor, PenTool, Play, Save, Search, Settings, Sparkles, Square, Table as TableIcon,
   Type, X,
 } from 'lucide-react';
-import FormatCanvasEditor, { ElementPropsPanel } from '../components/FormatCanvasEditor';
+import AIAssistantDrawer from '../components/AIAssistantDrawer';
+import FormatCanvasEditor from '../components/FormatCanvasEditor';
 import {
   BLOCK_LABELS, BlocksEditor, DesignPreview, DocumentPreview, FieldsEditor,
   cloneSpec, emptySpec, useFormatDraft,
@@ -61,6 +62,10 @@ export default function FormatStudioPage() {
   const [activeTab, setActiveTab] = useState('design');       // 'design' | 'preview'
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);  // 포맷 이름·설명 팝오버
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([{
+    role: 'assistant',
+    content: '안녕하세요! 포맷 AI입니다. 만들고 싶은 문서·포스터 양식을 말씀해 주시면 골격(빈칸 + 배치)을 만들어 드릴게요. (예: 출장 결과 보고서 양식 만들어줘)',
+  }]);
   const [canvasSel, setCanvasSel] = useState(null);
   const [propsEl, setPropsEl] = useState(null);               // 우측 "요소 속성" 섹션 (포털 대상)
   const [paletteQuery, setPaletteQuery] = useState('');
@@ -94,6 +99,21 @@ export default function FormatStudioPage() {
   const imageFields = (spec.fields || []).filter((f) => f.kind === 'image');
 
   const openFormat = (mutate) => { mutate(); setCanvasSel(null); setNotice(null); setPickerOpen(false); setActiveTab('design'); };
+
+  // AI 어시스턴트 — 앱 빌더와 같은 대화형 드로어. 성공하면 초안이 현재 작업을 대체한다.
+  const sendAi = async () => {
+    const prompt = aiPrompt.trim();
+    if (!prompt || aiLoading) return;
+    setChatMessages((m) => [...m, { role: 'user', content: prompt }]);
+    const ok = await generate();
+    setChatMessages((m) => [...m, {
+      role: 'assistant',
+      content: ok
+        ? '초안을 로드했어요 — 캔버스에서 다듬고 저장하세요. (이전 작업 내용은 대체되었습니다)'
+        : '생성에 실패했어요 — 요청을 조금 바꾸거나 잠시 후 다시 시도해 주세요.',
+    }]);
+    if (ok) { setAiPrompt(''); setActiveTab('design'); setCanvasSel(null); }
+  };
 
   const statusLine = `${libraryId ? '내 라이브러리' : '저장 안 됨'} · 빈칸 ${(spec.fields || []).length} · ${isDocument ? `블록 ${(spec.blocks || []).length}` : `요소 ${elements.length}`}`;
 
@@ -341,24 +361,6 @@ export default function FormatStudioPage() {
 
         {/* ── Inspector (우) ── */}
         <aside className="properties-panel" aria-label="속성">
-          {isAssistantOpen && (
-            <div className="fsp-ai-panel">
-              <div className="fsp-ai-head"><Sparkles size={14} /> AI 포맷 생성 <button type="button" className="fstudio-close" onClick={() => setIsAssistantOpen(false)} aria-label="닫기"><X size={14} /></button></div>
-              <div className="fstudio-ai">
-                <select value={aiLayout} onChange={(e) => setAiLayout(e.target.value)} aria-label="생성 종류">
-                  <option value="">자동</option><option value="document">문서</option><option value="design">포스터·팜플렛</option>
-                </select>
-                <input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
-                       onKeyDown={(e) => { if (e.key === 'Enter') generate(); }}
-                       placeholder='예: "주간 업무 보고서 양식"' />
-                <button type="button" onClick={generate} disabled={aiLoading}>
-                  {aiLoading ? <Loader2 size={15} className="fstudio-spin" /> : <Sparkles size={15} />} 생성
-                </button>
-              </div>
-              <p className="fstudio-hint">생성된 골격이 초안으로 로드됩니다 — 지금 작업을 대체합니다.</p>
-            </div>
-          )}
-
           <div className="ab-inspector-head">
             <span className="ab-type-tile">
               {selectedElement ? ((ELEMENT_ICONS[selectedElement.kind] || Type) && (() => { const HeadIcon = ELEMENT_ICONS[selectedElement.kind] || Type; return <HeadIcon size={16} />; })()) : <Monitor size={16} />}
@@ -415,6 +417,34 @@ export default function FormatStudioPage() {
           </InspectorSection>
         </aside>
       </div>
+
+      <AIAssistantDrawer
+        isOpen={isAssistantOpen}
+        title="포맷 AI"
+        description="문서·포스터 골격을 함께 구성합니다"
+        contextLabel={`빈칸 ${(spec.fields || []).length}개 · ${isDocument ? `블록 ${(spec.blocks || []).length}개` : `요소 ${elements.length}개`}`}
+        messages={chatMessages}
+        input={aiPrompt}
+        onInputChange={setAiPrompt}
+        onSend={sendAi}
+        onClose={() => setIsAssistantOpen(false)}
+        isLoading={aiLoading}
+        loadingLabel="포맷 골격을 만들고 있어요"
+        sendDisabled={!aiPrompt.trim() || aiLoading}
+        placeholder="만들고 싶은 양식을 설명하세요..."
+        suggestions={['시말서 양식 만들어줘', '행사 안내 포스터 만들어줘', '주간 업무 보고서 양식 만들어줘']}
+        onSuggestion={setAiPrompt}
+        controls={(
+          <div className="builder-assistant-group">
+            <div className="assistant-control-heading"><LayoutTemplate size={14} /> 생성 종류</div>
+            <div className="assistant-segmented" role="group" aria-label="AI 생성 종류">
+              <button type="button" className={aiLayout === '' ? 'active' : ''} onClick={() => setAiLayout('')}>자동</button>
+              <button type="button" className={aiLayout === 'document' ? 'active' : ''} onClick={() => setAiLayout('document')} title="시말서·보고서 같은 흐름형 문서 (hwpx·docx·pdf)">문서</button>
+              <button type="button" className={aiLayout === 'design' ? 'active' : ''} onClick={() => setAiLayout('design')} title="포스터·팜플렛 같은 배치형 디자인 (png·pdf)">포스터·팜플렛</button>
+            </div>
+          </div>
+        )}
+      />
 
       {notice && <div className={`fsp-toast ${notice.tone}`} role="status">{notice.text}</div>}
 
