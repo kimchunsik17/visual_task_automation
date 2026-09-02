@@ -932,6 +932,7 @@ main.py:1936 이 실행마다 `payload=json.dumps(payload.dict())` 로 그래프
   proposal         allowed=['hwpx','docx','pdf','xlsx'] event-poster    allowed=['png','pdf']  tri-fold-
 - **사용자가 겪는 장면**: LLM 생성이나 커뮤니티 템플릿 가져오기, 또는 bindings 로 채워진 흐름에 formatNode{formatId:'incident-report', output:'xlsx'} 가 들어온다(정의 enum 에 xlsx 가 있으므로 검증도 통과한다). 실행하면 서버가 거부하지 않고 시말서 서식을 엑셀 시트 한 장으로 렌더해 artifact 로 등록하고, 뒤의 emailNode 가 그 .xlsx 를 상대방에게 자동 첨부한다 — 결재선에 제출된 시말서가 표 조각 파일이다. 반대로 사용자가 그 노드를 에디터에서 열면 출력 드롭다운의 옵션은 hwpx/docx/pdf 뿐이라 value='xlsx' 가 어느 option 과도 일치하지 않아 선택칸이 빈 채로 보인다. 사용자는 "출력 형식이 비어 있는데 파일은 엑셀로 나온다"는 상태를 설명받지 못한다.
 - **수정안**: format_runtime.run() 에서 chosen_output 을 정한 직후 spec["output"]["allowed"] 로 한 번 더 검사해 FORMAT_OUTPUT_UNSUPPORTED 를 던지거나(사용자 문구에 프리셋 이름과 허용 목록을 넣는다), render_format 의 allowed 를 `normalized["output"]["allowed"]` 로 바꾼다(format_spec.py:88-98 이 이미 layout 상위집합 검증을 하므로 안전하다). test_format_spec.py:193 의 skip 을 "허용 밖 조합은 FormatSpecError(FORMAT_OUTPUT_UNSUPPORTED) 로 거부된다"는 assert 로 바꾸고, 에디터에서 값이 옵션 밖일 때 경고 문구를 보여주는지 Playwright 로 확인한다.
+- **해결(2026-09-02, fix/format-node-demo-hardening)**: format_runtime.run() 이 chosen_output 직후 spec.output.allowed 를 검사해 포맷 이름·허용 목록을 담은 FORMAT_OUTPUT_UNSUPPORTED 를 던진다. 에디터는 값이 옵션 밖이면 "— 이 포맷은 지원 안 함" 표시가 붙은 비활성 option 으로 현재 값을 드러낸다(빈 칸 아님). 재발 방지: test_format_node.py::test_run_rejects_output_outside_spec_allowed.
 
 ### 🟡 MEDIUM · formatNode 정의의 output enum 5종과 llm.description 이 프리셋별 제약을 무시해, 문서 프리셋에 png 를 고른 그래프가 모든 정적 검증을 통과하고 실행에서만 FORMAT_OUTPUT_UNSUPPORTED 로 죽는다
 
@@ -953,6 +954,7 @@ main.py:1936 이 실행마다 `payload=json.dumps(payload.dict())` 로 그래프
 즉 정의(정본)의 enum → meta_agent.validate_flow → dry_run 까지 전부 초록이고, 실패는 사용자가 실제 실행한 뒤에야 나타난다. test_node_definitions.py 의 test_catalog_description_only_mentions_declared
 - **사용자가 겪는 장면**: 사용자가 "시말서 써서 이미지로 보내줘" 또는 "제안서 만들어서 png 로 저장"이라고 요청한다. 카탈로그 문구가 formatNode 를 권하고 output 에 png 를 쓰는 것을 막지 않으므로 LLM 은 formatNode{formatId:'incident-report', output:'png'} 를 생성한다. 생성 직후의 검증·dry-run 이 모두 통과해 사용자에게 "흐름이 만들어졌습니다"로 제시되고, 실행 버튼을 누른 순간에만 "document 포맷의 출력은 ('hwpx','docx','pdf','xlsx') 만 가능합니다: 'png'" 오류가 난다. 사용자는 무엇을 고쳐야 하는지 모른 채(에디터 드롭다운에는 png 가 아예 없어 지금 값이 무엇인지도 보이지 않는다) 같은 요청을 재생성하며 반복 실패한다.
 - **수정안**: (1) llm.description 을 프리셋별 허용 목록에 맞게 고친다 — "출력은 포맷마다 다르다. 확실치 않으면 output 을 비워 포맷 기본값을 쓴다"로 바꾸고 프리셋 나열에 각 허용 형식을 붙인다(정본 document_formats/*.json 에서 파생시켜 문구를 조립하면 프리셋 추가 시 자동 반영된다 — 지금은 프리셋 7종 이름도 이 설명에 손으로 적혀 있다). (2) 값 수준 검증을 추가한다: meta_agent 의 formatNode 검증(또는 flow_validation)에서 formatId 가 알려진 프리셋일 때 output ∈ spec.output.allowed 를 확인해 생성 단계에서 재시도가 걸리게 한다. (3) 재발 방지 테스트: 모든 프리셋 × 정의 enum 5종 조합에 대해 "정적 검증 통과 == render_format 이 받아들임"이 성립하는지 대조.
+- **부분 해결(2026-09-02, fix/format-node-demo-hardening)**: (1) 완료 — llm.description·nodeDocumentation.js 를 프리셋별 허용 목록으로 교정(카탈로그 스냅샷 갱신, diff 는 formatNode 항목만). 함께, 에디터의 출력 기본 표시를 allowed[0] 이 아니라 spec.output.default 로 맞춰 회의록·제안서의 "hwpx 로 보이는데 docx 가 나오는" 불일치를 제거. (2)·(3)(생성 단계 값 수준 검증, 프리셋×enum 대조 테스트)은 미착수 — 다만 위 항목의 런타임 allowed 검사로 실행 결과는 이제 명확한 안내와 함께 거부된다.
 
 ### 🟡 MEDIUM · paymentLinkNode 는 결제 링크를 localhost:3002 해커톤 목업 서버에 하드코딩으로 요청하는데, 카탈로그·노드 문서·dry_run(HIGH_RISK) 은 실제 결제 링크 생성으로 소개한다
 

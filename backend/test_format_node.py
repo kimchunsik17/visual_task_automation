@@ -66,6 +66,13 @@ def test_format_node_dry_run_passes():
     assert result.success and result.compile_passed, result.issues
 
 
+def test_format_node_codegen_keeps_node_errors():
+    """바인딩(BINDING_*)·artifact 오류는 NodeError 를 품고 온다 — generic except 로 문자열이
+    되면 원인 안내가 사라지므로, 전용 except 절이 생성 코드에 있어야 한다."""
+    source = compile_workflow(GRAPH["nodes"], GRAPH["edges"])
+    assert "except _NodeErrorException" in source
+
+
 # ── 런타임 단위 ──────────────────────────────────────────────────────────
 
 def test_load_format_finds_presets_and_rejects_unknown():
@@ -91,6 +98,46 @@ def test_run_missing_required_reports_fields(tmp_path, monkeypatch):
         format_runtime.run(format_id="official-letter", incoming='{"subject": "제목만"}')
     assert exc.value.reason == "FORMAT_FIELD_MISSING"
     assert "docNumber" in exc.value.missing_fields
+
+
+def test_run_rejects_output_outside_spec_allowed():
+    """정본(output.allowed) 밖 조합 — 시말서를 xlsx 로 — 은 렌더 전에 거부된다(감사 지적).
+    layout 단위 검사만으로는 이 조합이 조용히 성공해 이상한 파일이 첨부됐다."""
+    with pytest.raises(format_runtime.FormatNodeError) as exc:
+        format_runtime.run(format_id="incident-report", output="xlsx", incoming="{}")
+    assert exc.value.reason == "FORMAT_OUTPUT_UNSUPPORTED"
+    with pytest.raises(format_runtime.FormatNodeError) as exc2:
+        format_runtime.run(format_id="event-poster", output="hwpx", incoming="{}")
+    assert exc2.value.reason == "FORMAT_OUTPUT_UNSUPPORTED"
+
+
+_OFFICIAL_LETTER_VALUES = ('{"docNumber": "워크-1", "sender": "운영팀", "receiver": "총무팀", '
+                           '"subject": "테스트", "body": "본문", "date": "2026-08-31"}')
+
+
+def test_run_converts_renderer_errors_to_format_error(tmp_path, monkeypatch):
+    """하위 렌더러·이미지 로더의 SpecError 가 FORMAT_* 로 변환된다 — 그대로 새면 생성 코드의
+    generic except 가 '문서 포맷 처리 실패' 로 뭉개 사용자 안내가 사라진다."""
+    from documents import hwpx
+    monkeypatch.chdir(tmp_path)
+
+    def _boom(*_args, **_kwargs):
+        raise hwpx.SpecError("이미지를 열 수 없습니다(a1): 보존 기간이 지났습니다")
+
+    monkeypatch.setattr(format_runtime, "render_format", _boom)
+    with pytest.raises(format_runtime.FormatNodeError) as exc:
+        format_runtime.run(format_id="official-letter", incoming=_OFFICIAL_LETTER_VALUES)
+    assert exc.value.reason == "FORMAT_SPEC_INVALID"
+    assert "이미지를 열 수 없습니다" in str(exc.value)
+
+
+def test_run_rejects_empty_output_filename(tmp_path, monkeypatch):
+    """output_path 가 이름 없는 경로면 HwpxNodeError 가 아니라 FORMAT_* 로 멈춘다."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(format_runtime.FormatNodeError) as exc:
+        format_runtime.run(format_id="official-letter", output_path="   /",
+                           incoming=_OFFICIAL_LETTER_VALUES)
+    assert exc.value.reason == "FORMAT_SPEC_INVALID"
 
 
 def test_run_renders_preset_from_incoming_json(tmp_path, monkeypatch):

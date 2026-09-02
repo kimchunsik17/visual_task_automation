@@ -62,6 +62,10 @@ def generate_hwpx_document_node(node_id, node, indent, active_llm_id, prev_res_v
     lines.append(f"{indent}except (_hwpx_rt.HwpxNodeError, _hwpx_engine.PackageRejected) as _e:")
     lines.append(f"{indent}    _hx_out_{node_id} = f'[⚠️ {{_e}}]'")
     lines.append(f"{indent}    _hx_err_{node_id} = _e")
+    # artifact 등록·해석 실패는 NodeError 를 품고 온다 — generic 문자열로 뭉개지 않는다.
+    lines.append(f"{indent}except _NodeErrorException as _e:")
+    lines.append(f"{indent}    _hx_out_{node_id} = f'[⚠️ {{_e.error.user_message}}]'")
+    lines.append(f"{indent}    _hx_err_{node_id} = _e.error")
     lines.append(f"{indent}except Exception as _e:")
     lines.append(f"{indent}    _hx_out_{node_id} = f'HWPX 문서 처리 실패: {{_e}}'")
     lines.append(f"{indent}    _hx_err_{node_id} = _e")
@@ -85,7 +89,6 @@ def generate_format_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     data = node.get('data', {})
     format_id = str(data.get('formatId') or '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '')
     output = str(data.get('output') or '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '')
-    output_path = str(data.get('output_path') or '').replace('\\', '/').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '')
     values_json = json.dumps(str(data.get('values') or ''), ensure_ascii=False)
     incoming = prev_res_var if prev_res_var else 'last_result'
 
@@ -112,10 +115,17 @@ def generate_format_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     lines.append(f"{indent}    _fmt_safe_{node_id} = {{'formatId': \"{format_id}\"}}")
     lines.append(f"{indent}    if _e.reason == 'FORMAT_FIELD_MISSING':")
     lines.append(f"{indent}        _fmt_safe_{node_id}['missingFields'] = list(getattr(_e, 'missing_fields', []) or [])")
+    lines.append(f"{indent}    if _e.reason == 'FORMAT_OUTPUT_UNSUPPORTED':")
+    lines.append(f"{indent}        _fmt_safe_{node_id}['output'] = \"{output}\"")
     lines.append(f"{indent}    _fmt_err_{node_id} = _make_node_error(_e.reason, node_type='{node['type']}', node_id='{node_id}',")
     lines.append(f"{indent}        safe_details=_fmt_safe_{node_id}, user_message=str(_e))")
     lines.append(f"{indent}    _fmt_out_{node_id} = f'[⚠️ {{_e}}]'")
     lines.append(f"{indent}    log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_fmt_out_{node_id}, error=_fmt_err_{node_id})")
+    # 바인딩 실패(BINDING_*)·artifact 등록 실패는 이미 NodeError 를 품고 온다 — generic except 로
+    # '문서 포맷 처리 실패' 문자열이 되면 원인 안내가 사라지므로 그대로 싣는다.
+    lines.append(f"{indent}except _NodeErrorException as _e:")
+    lines.append(f"{indent}    _fmt_out_{node_id} = f'[⚠️ {{_e.error.user_message}}]'")
+    lines.append(f"{indent}    log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_fmt_out_{node_id}, error=_e.error)")
     lines.append(f"{indent}except Exception as _e:")
     lines.append(f"{indent}    _fmt_out_{node_id} = f'문서 포맷 처리 실패: {{_e}}'")
     lines.append(f"{indent}    log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_fmt_out_{node_id}, error=_e)")

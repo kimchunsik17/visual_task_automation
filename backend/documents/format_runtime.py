@@ -14,10 +14,11 @@ import os
 import re
 from typing import Any, Dict, Optional
 
+from . import hwpx
 from .format_presets import PRESETS_BY_ID
 from .format_renderer import render_format
 from .format_spec import FormatSpecError, missing_required_fields, validate_format_spec
-from .hwpx_runtime import _image_loader, normalize_path
+from .hwpx_runtime import HwpxNodeError, _image_loader, normalize_path
 
 _STRIP_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?|\n?```\s*$")
 
@@ -84,6 +85,13 @@ def run(*, format_id: str, output: str = "", values_json: str = "", incoming: An
     spec = load_format(format_id, db=db, owner_user_id=owner_user_id)
 
     chosen_output = (output or "").strip() or spec["output"]["default"]
+    # 포맷 정본의 output.allowed 를 여기서 강제한다 — 렌더러의 layout 단위 검사만으로는
+    # "시말서를 xlsx 로" 같은 정본 밖 조합이 조용히 성공한다(감사 지적).
+    allowed = [str(o) for o in (spec.get("output") or {}).get("allowed") or []]
+    if allowed and chosen_output not in allowed:
+        raise FormatNodeError(
+            f"'{spec.get('name') or format_id}' 포맷의 출력은 {', '.join(allowed)} 만 가능합니다: "
+            f"{chosen_output!r}", reason="FORMAT_OUTPUT_UNSUPPORTED")
     values = _values_from(values_json, incoming)
 
     # 필수 빈칸 누락은 needs_input 성격 — 코드가 아니라 사용자가 채울 문제라서 먼저 알려준다.
@@ -94,8 +102,13 @@ def run(*, format_id: str, output: str = "", values_json: str = "", incoming: An
             "필수 빈칸이 비어 있습니다: " + ", ".join(f"{labels[m]}({m})" for m in missing),
             reason="FORMAT_FIELD_MISSING", missing_fields=missing)
 
-    target = normalize_path(output_path) if output_path else normalize_path(
-        default_output_name(spec, chosen_output))
+    try:
+        target = normalize_path(output_path) if output_path else normalize_path(
+            default_output_name(spec, chosen_output))
+    except HwpxNodeError as exc:
+        # hwpx_runtime 의 경로 규칙을 빌려 쓰므로 예외도 여기서 FORMAT_* 로 옮긴다 —
+        # 그대로 새면 생성 코드의 generic except 가 '문서 포맷 처리 실패' 로 뭉갠다.
+        raise FormatNodeError(str(exc), reason="FORMAT_SPEC_INVALID") from None
 
     # 물리 파일은 소유자 디렉토리 밑에 쓰고, 반환하는 'path' 는 공개 형태(uploads/<이름>)를
     # 유지한다 — hwpx_runtime.create 와 같은 계약(등록·다음 노드 읽기가 소유자 디렉토리로 푼다).
@@ -108,6 +121,10 @@ def run(*, format_id: str, output: str = "", values_json: str = "", incoming: An
     except FormatSpecError as exc:
         raise FormatNodeError(str(exc), reason=exc.reason,
                               missing_fields=exc.missing_fields) from None
+    except (hwpx.SpecError, hwpx.UnsupportedFeature) as exc:
+        # 하위 렌더러(hwpx/docx/xlsx)·이미지 로더의 오류 — 사용자가 고칠 수 있는 문구이므로
+        # FORMAT_* 코드에 실어 그대로 보여준다.
+        raise FormatNodeError(str(exc), reason="FORMAT_SPEC_INVALID") from None
 
     return {"path": target, "layout": result["layout"], "output": chosen_output,
             "format_id": spec.get("id") or format_id, "format_name": spec.get("name")}
