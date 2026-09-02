@@ -42,11 +42,12 @@ def generate_value_node(node_id, node, indent, active_llm_id, prev_res_var, visi
         lines.append(f"{indent}except Exception as e:")
         lines.append(f"{indent}    file_content_{node_id} = f'Error reading file: {{str(e)}}'")
         
-        # 마커에는 원본(가두지 않은) 경로 대신 **가둔 경로(_vpath)** 를 런타임에 넣는다
+        # 마커에는 원본(가두지 않은) 경로 대신 **가둔 경로의 공개 형태(uploads/<이름>)** 를 넣는다
         # (2026-08-31 적대적 리뷰: 원본 경로가 출력에 실려 나가고 하류 tokenizer 가 재개봉했다).
-        # 정상 케이스(uploads/uuid.ext)는 유효한 경로가 그대로 들어가 tokenizer 연계가 살아 있고,
-        # 차단된 경우 _vpath 는 None 이라 tokenizer 가 다시 열 경로가 없다.
-        lines.append(f"{indent}_marker_path_{node_id} = str(_vpath_{node_id}) if _vpath_{node_id} is not None else '(차단됨)'")
+        # 물리 경로(uploads/u<id>/...)를 그대로 실으면 프론트 다운로드 링크가 404 가 되고
+        # 소유자 id·서버 배치가 결과 텍스트로 새어 나간다(PR #41 리뷰). tokenizer 는 공개
+        # 형태를 _safe_user_path 로 다시 풀므로 연계가 유지되고, 차단된 경우 열 경로가 없다.
+        lines.append(f"{indent}_marker_path_{node_id} = ('uploads/' + _vpath_{node_id}.name) if _vpath_{node_id} is not None else '(차단됨)'")
         if prev_res_var:
             lines.append(f"{indent}val_{node_id} = f\"{{{prev_res_var}}}\\n\\n[Attached File: {{_marker_path_{node_id}}}]:\\n{{file_content_{node_id}}}\"")
         else:

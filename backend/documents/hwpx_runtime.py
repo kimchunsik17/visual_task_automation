@@ -111,17 +111,18 @@ def _image_loader(db, owner_user_id: Optional[int]):
     def load(artifact_id: str):
         import artifacts
 
-        ref = artifacts.lookup(db, artifact_id)
-        if ref is None:
-            raise hwpx.SpecError(f"이미지를 찾지 못했습니다: {artifact_id}")
-        if owner_user_id is not None and getattr(ref, "owner_user_id", None) not in (None, owner_user_id):
-            # 남의 파일을 문서에 실어 보낼 수 있으면 안 된다.
-            raise hwpx.SpecError(f"이 이미지에 접근할 수 없습니다: {artifact_id}")
-        path = getattr(ref, "path", None) or getattr(ref, "stored_path", None)
-        if not path or not os.path.exists(path):
-            raise hwpx.SpecError(f"이미지 파일이 없습니다: {artifact_id}")
-        with open(path, "rb") as handle:
-            return handle.read(), os.path.splitext(path)[1]
+        # lookup()이 주는 ArtifactRef 에는 경로가 없다(공개 봉투) — 예전 코드는 존재하지 않는
+        # .path/.stored_path 속성을 getattr 로 더듬어 항상 None 이 됐고, 이미지가 든 문서
+        # 생성이 전부 "이미지 파일이 없습니다" 로 죽었다(PR #41 리뷰). resolve() 가 소유·만료·
+        # 경로·hash 검증과 소유자 디렉토리 해석을 전부 해 주므로 그 경로를 쓴다.
+        try:
+            resolved = artifacts.resolve(
+                db, artifact_id, owner_user_id=owner_user_id or 0,
+                node_type="hwpxDocumentNode", require_project_match=False,
+            )
+        except artifacts.ArtifactError as exc:
+            raise hwpx.SpecError(f"이미지를 열 수 없습니다({artifact_id}): {exc.error.user_message}") from None
+        return resolved.read_bytes(), resolved.path.suffix
 
     return load
 
@@ -132,12 +133,20 @@ def create(spec_source: Any, *, output_path: str = "", db=None,
            owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     spec = _spec_from(spec_source)
     target = normalize_path(output_path) if output_path else default_output_path(spec)
+    # 물리 파일은 소유자 디렉토리(uploads/u<id>/) 밑에 쓴다. 결과의 'path' 는 계속 공개
+    # 형태(uploads/<이름>)를 돌려준다 — 프론트 링크·legacy 정규식·서빙 URL 계약이 그 형태고,
+    # 등록(register_generated_file)·다음 노드의 읽기(_safe_user_path)가 소유자 디렉토리로 푼다.
+    from upload_security import physical_output_path
+
+    physical = physical_output_path(target, owner_user_id)
     try:
-        info = hwpx.build(spec, target, image_loader=_image_loader(db, owner_user_id))
+        info = hwpx.build(spec, physical, image_loader=_image_loader(db, owner_user_id))
     except hwpx.UnsupportedFeature as exc:
         raise HwpxNodeError(str(exc), reason="HWPX_UNSUPPORTED_FEATURE") from None
     except hwpx.SpecError as exc:
         raise HwpxNodeError(str(exc), reason="HWPX_INVALID_SPEC") from None
+    info = dict(info)
+    info["path"] = target
     return {"mode": "create", **info}
 
 
@@ -193,4 +202,12 @@ def run(mode: str, *, incoming: Any = None, output_path: str = "",
     if mode == "create":
         return create(incoming, output_path=output_path, db=db, owner_user_id=owner_user_id)
     path = resolve_source(db, source_artifact_id, owner_user_id=owner_user_id, project_id=project_id)
-    return inspect(path) if mode == "inspect" else validate(path)
+    result = inspect(path) if mode == "inspect" else validate(path)
+    # 결과의 'path' 는 create 와 같은 공개 형태(uploads/<이름>)로 통일한다 — 물리 경로
+    # (uploads/u<id>/...)를 결과 JSON 에 실으면 프론트 다운로드 링크가 404 가 되고 소유자
+    # id·서버 배치가 노드 출력으로 새어 나간다(PR #41 리뷰).
+    if "path" in result:
+        result["path"] = "uploads/" + os.path.basename(str(result["path"]).replace("\\", "/"))
+    if "message" in result and result.get("reason") == "HWPX_NOT_FOUND":
+        result["message"] = f"파일이 없습니다: {result['path']}"
+    return result

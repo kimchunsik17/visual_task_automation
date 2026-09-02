@@ -109,7 +109,8 @@ def test_generate_registers_owned_file_and_artifact(db, tmp_path):
     assert result["file_path"].startswith("uploads/")
     assert result["response_id"] == "resp_1"
     assert result["revision_index"] == 0
-    assert (tmp_path / result["file_path"].split("/", 1)[1]).is_file()
+    # 공개 문자열은 uploads/<이름> 그대로, 물리 파일은 소유자 디렉토리(u7/) 밑이다.
+    assert (tmp_path / "u7" / result["file_path"].split("/", 1)[1]).is_file()
     assert db.query(models.UploadedFile).filter_by(owner_user_id=7).count() == 1
     artifact = db.query(models.ImageArtifact).one()
     assert artifact.artifact_id == result["artifact_id"]

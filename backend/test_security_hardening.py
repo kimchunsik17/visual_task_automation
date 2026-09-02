@@ -50,7 +50,7 @@ async def test_limited_upload_removes_partial_file(tmp_path, monkeypatch):
     upload = UploadFile(filename="report.pdf", file=io.BytesIO(b"too large"))
 
     with pytest.raises(HTTPException) as exc_info:
-        await save_upload_limited(upload, allowed_extensions={".pdf"}, max_bytes=3)
+        await save_upload_limited(upload, allowed_extensions={".pdf"}, max_bytes=3, owner_user_id=None)
 
     assert exc_info.value.status_code == 413
     assert list((tmp_path / "uploads").iterdir()) == []

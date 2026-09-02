@@ -787,7 +787,8 @@ def test_a_failed_download_leaves_nothing_behind(uploads, db):
     "첨부는 됐는데 열리지 않는" 상태가 된다."""
     import drive_downloads
 
-    before = set(artifacts.upload_root().iterdir())
+    # 파일 기준으로 비교한다 — 소유자 디렉토리(u1/)는 생겨도 되지만 파일은 남으면 안 된다.
+    before = {p for p in artifacts.upload_root().rglob("*") if p.is_file()}
     make = drive_downloads.sink_factory(db, owner_user_id=1, project_id=10)
     sink = make(filename="끊긴.pdf", mime_type="application/pdf")
     with pytest.raises(RuntimeError):
@@ -796,7 +797,7 @@ def test_a_failed_download_leaves_nothing_behind(uploads, db):
             raise RuntimeError("연결 끊김")
 
     assert sink.result == {}
-    assert set(artifacts.upload_root().iterdir()) == before
+    assert {p for p in artifacts.upload_root().rglob("*") if p.is_file()} == before
 
 
 def test_every_delivery_channel_reads_the_same_policy_table():

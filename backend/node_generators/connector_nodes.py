@@ -93,6 +93,12 @@ def generate_youtube_node(node_id, node, indent, active_llm_id, prev_res_var, vi
     if mode == 'upload_video':
         lines.append(f"{indent}if not _yt_params_{node_id}['filePath']:")
         lines.append(f"{indent}    _yt_params_{node_id}['filePath'] = _yt_upstream_{node_id}.strip()")
+        # 공개 문자열(uploads/<이름>)을 물리 경로로 풀고 소유권 검사를 태운다(_safe_user_path) —
+        # per-user 이동 후 파일은 uploads/u<id>/ 에 있고, 커넥터 쪽 검증(resolve_stored_path)은
+        # 절대 경로를 받으면 루트 가둠만 다시 확인한다.
+        lines.append(f"{indent}if _yt_params_{node_id}['filePath']:")
+        lines.append(f"{indent}    _yt_fp_{node_id} = _safe_user_path(_yt_params_{node_id}['filePath'])")
+        lines.append(f"{indent}    _yt_params_{node_id}['filePath'] = str(_yt_fp_{node_id}) if _yt_fp_{node_id} is not None else ''")
     elif mode == 'create_comment':
         lines.append(f"{indent}if not _yt_params_{node_id}['commentText']:")
         lines.append(f"{indent}    _yt_params_{node_id}['commentText'] = _yt_upstream_{node_id}")
@@ -228,6 +234,13 @@ def _emit_connector_action(node_id, node, indent, lines, *, service_alias, modul
     if body_field:
         lines.append(f"{indent}if not _cx_params_{node_id}['{body_field}']:")
         lines.append(f"{indent}    _cx_params_{node_id}['{body_field}'] = _cx_upstream_{node_id}")
+    if 'filePath' in param_keys:
+        # 공개 문자열(uploads/<이름>)을 물리 경로로 풀고 소유권 검사를 태운다(_safe_user_path) —
+        # per-user 이동 후 파일은 uploads/u<id>/ 에 있고, 서비스 쪽 resolve_stored_path 는 절대
+        # 경로를 받으면 루트 가둠만 다시 확인한다.
+        lines.append(f"{indent}if _cx_params_{node_id}.get('filePath'):")
+        lines.append(f"{indent}    _cx_fp_{node_id} = _safe_user_path(_cx_params_{node_id}['filePath'])")
+        lines.append(f"{indent}    _cx_params_{node_id}['filePath'] = str(_cx_fp_{node_id}) if _cx_fp_{node_id} is not None else ''")
     lines.append(f"{indent}_cx_out_{node_id} = ''")
     lines.append(f"{indent}_cx_attach_{node_id} = []")
     if attachment_provider:

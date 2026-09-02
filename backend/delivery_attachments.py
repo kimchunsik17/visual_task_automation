@@ -178,7 +178,7 @@ def collect_artifact_ids(
 
     converted: List[str] = []
     for raw_path in artifacts.find_legacy_paths(upstream_text):
-        ref = artifacts.lookup_by_stored_path(db, raw_path)
+        ref = artifacts.lookup_by_stored_path(db, raw_path, owner_user_id=owner_user_id)
         # 소유자가 다르면 변환하지 않는다. 여기서 걸러도 resolve() 가 한 번 더 막지만, 애초에
         # 남의 파일 id 를 목록에 올리지 않는 편이 오류 메시지도 정확하다.
         if ref and ref.artifact_id and int(ref.owner_user_id or 0) == int(owner_user_id or 0):
@@ -194,7 +194,7 @@ def unresolved_legacy_paths(db, text: str, *, owner_user_id: int = 0) -> List[st
     """
     missing: List[str] = []
     for raw_path in artifacts.find_legacy_paths(text):
-        ref = artifacts.lookup_by_stored_path(db, raw_path) if db is not None else None
+        ref = artifacts.lookup_by_stored_path(db, raw_path, owner_user_id=owner_user_id) if db is not None else None
         if not ref or int(ref.owner_user_id or 0) != int(owner_user_id or 0):
             missing.append(raw_path)
     return missing

@@ -37,6 +37,7 @@ cd /home/ubuntu/app/backend && venv/bin/pip install -r requirements.txt
 | 4 | **`04-bind-loopback.sh`** | 8000 을 루프백에만 | **높음 — 실패하면 사이트 전체 502** |
 | 5 | `05-log-rotation.sh` | logrotate + journald 상한 | 낮음 |
 | 6 | `06-requirements-lock.sh` | lock 파일 생성 | 없음 (읽기만, `--write` 로 써야 반영) |
+| 7 | `07-uploads-per-user-move.sh` | 기존 업로드 파일을 소유자 디렉토리로 이동 | 낮음 (dry-run 기본, `--apply` 로 실행. **마이그레이션 0023 이 적용된 배포 뒤에만**) |
 
 **4번은 혼자 실행한다.** 계획서가 "두 바인드 변경을 한 번에 하지 않는다" 고 못 박았다.
 mock_server 바인드는 코드에서 이미 루프백으로 바꿨고 배포로 나가므로 여기서 함께 만지지 않는다.

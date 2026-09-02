@@ -97,12 +97,17 @@ def run(*, format_id: str, output: str = "", values_json: str = "", incoming: An
     target = normalize_path(output_path) if output_path else normalize_path(
         default_output_name(spec, chosen_output))
 
+    # 물리 파일은 소유자 디렉토리 밑에 쓰고, 반환하는 'path' 는 공개 형태(uploads/<이름>)를
+    # 유지한다 — hwpx_runtime.create 와 같은 계약(등록·다음 노드 읽기가 소유자 디렉토리로 푼다).
+    from upload_security import physical_output_path
+
+    physical = physical_output_path(target, owner_user_id)
     try:
-        result = render_format(spec, values, chosen_output, target,
+        result = render_format(spec, values, chosen_output, physical,
                                image_loader=_image_loader(db, owner_user_id))
     except FormatSpecError as exc:
         raise FormatNodeError(str(exc), reason=exc.reason,
                               missing_fields=exc.missing_fields) from None
 
-    return {"path": result["path"], "layout": result["layout"], "output": chosen_output,
+    return {"path": target, "layout": result["layout"], "output": chosen_output,
             "format_id": spec.get("id") or format_id, "format_name": spec.get("name")}

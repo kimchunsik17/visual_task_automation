@@ -381,13 +381,16 @@ def serve_upload(stored_name: str, user: models.User = Depends(get_current_user_
     # 경로 순회 차단 — stored_name 은 파일명 하나여야 한다.
     if "/" in stored_name or "\\" in stored_name or stored_name in ("", ".", ".."):
         raise HTTPException(status_code=404, detail="Not found")
+    # per-user 물리 이동 후 stored_name 은 (owner, name) 복합 unique 다 — 같은 이름의 남의
+    # 행이 있어도 내 것만 본다. 소유자가 아니면 존재를 알리지 않는다.
     record = db.query(models.UploadedFile).filter(
-        models.UploadedFile.stored_name == stored_name).first()
-    if record is None or record.owner_user_id != user.id:
-        # 소유자가 아니면 존재를 알리지 않는다.
+        models.UploadedFile.stored_name == stored_name,
+        models.UploadedFile.owner_user_id == user.id).first()
+    if record is None:
         raise HTTPException(status_code=404, detail="Not found")
     root = _artifacts.upload_root()
-    candidate = (root / stored_name).resolve()
+    # 실제 파일은 소유자 디렉토리(uploads/u<id>/) 에 있고, 이관 전 파일은 레거시 루트에 있다.
+    candidate = upload_security.stored_file_path(record.stored_name, record.owner_user_id).resolve()
     try:
         candidate.relative_to(root)
     except ValueError:
@@ -470,6 +473,7 @@ async def upload_file(
         file,
         allowed_extensions=allowed_extensions,
         max_bytes=max_bytes,
+        owner_user_id=owner_user_id,
     )
 
     try:
@@ -494,7 +498,9 @@ async def upload_file(
 
     return {
         "status": "success",
-        "file_path": file_path.as_posix(),
+        # 공개 문자열은 물리 위치(uploads/u<id>/...)가 아니라 늘 uploads/<이름> 이다 —
+        # 프론트 링크·legacy 정규식·서빙 URL(/uploads/<이름>) 계약이 이 형태를 전제한다.
+        "file_path": f"uploads/{file_path.name}",
         "filename": original_name,
         # artifact_id 를 함께 준다 — 커뮤니티 이미지처럼 경로가 아니라 식별자로 붙이는 곳이 있다.
         "artifact_id": record.artifact_id,
@@ -623,6 +629,7 @@ async def upload_chat_context(
             file,
             allowed_extensions=CONTEXT_UPLOAD_EXTENSIONS,
             max_bytes=max_context_bytes(),
+            owner_user_id=user.id,
         )
         try:
             chunks_added = process_and_store_chat_context(project_id, str(file_path), original_name)
