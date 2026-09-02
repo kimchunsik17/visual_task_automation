@@ -68,12 +68,26 @@ def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, 
 
     edge_by_handle = {handle: target for target, handle in forward_edges.get(node_id, [])}
 
+    # 갈래를 방출하는 동안 분기 경로를 표시한다 — 형제 갈래에 걸친 재합류 노드는 갈래 안에
+    # 자리 잡지 않고, 분기 구문이 닫힌 뒤(graph.generate_block 의 _flush_ready_joins) 방출된다.
+    _begin_branch = getattr(generate_block_fn, 'begin_branch', lambda *_: None)
+    _end_branch = getattr(generate_block_fn, 'end_branch', lambda: None)
+
     def _emit_branch(handle, branch_indent):
         target_id = edge_by_handle.get(handle)
         if target_id is None:
             lines.append(f"{branch_indent}pass")
         else:
-            generate_block_fn(target_id, branch_indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+            _lines_before = len(lines)
+            _begin_branch(node_id, handle)
+            try:
+                generate_block_fn(target_id, branch_indent, active_llm_id=active_llm_id, prev_res_var=prev_res_var, visited=visited)
+            finally:
+                _end_branch()
+            # 갈래 본문이 재합류 노드뿐이면 방출이 분기 뒤로 미뤄져 아무 줄도 안 생긴다 —
+            # 빈 if/else 블록은 문법 오류이므로 pass 로 채운다.
+            if len(lines) == _lines_before:
+                lines.append(f"{branch_indent}pass")
 
     def _cond_expr(operator, value):
         value_escaped = str(value).replace('\\', '\\\\').replace('"', '\\"')

@@ -50,18 +50,38 @@ def generate_human_approval_node(node_id, node, indent, active_llm_id, prev_res_
     rejected_edges = [t for t, h in all_edges if h in ('rejected', 'else')]
     plain_edges = [t for t, h in all_edges if h not in ('approved', 'rejected', 'else')]
 
+    # conditionNode 와 같은 배타 분기 — 갈래를 방출하는 동안 분기 경로를 표시해서, 승인/거절
+    # 갈래에 걸친 재합류 노드가 갈래 안이 아니라 분기 구문 뒤에 방출되게 한다.
+    _begin_branch = getattr(generate_block_fn, 'begin_branch', lambda *_: None)
+    _end_branch = getattr(generate_block_fn, 'end_branch', lambda: None)
+
     if approved_edges or rejected_edges:
         lines.append(f"{indent}if str(approval_{node_id}).strip().upper() in ['Y', 'YES', 'APPROVE', 'TRUE', '1']:")
         approve_targets = approved_edges + plain_edges
         if approve_targets:
-            for t in approve_targets:
-                generate_block_fn(t, indent + "    ", active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+            _lines_before = len(lines)
+            _begin_branch(node_id, 'approved')
+            try:
+                for t in approve_targets:
+                    generate_block_fn(t, indent + "    ", active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+            finally:
+                _end_branch()
+            # 갈래 본문이 재합류 노드뿐이면 방출이 분기 뒤로 미뤄져 빈 블록이 남는다 — pass 로 채운다.
+            if len(lines) == _lines_before:
+                lines.append(f"{indent}    pass")
         else:
             lines.append(f"{indent}    pass")
         lines.append(f"{indent}else:")
         if rejected_edges:
-            for t in rejected_edges:
-                generate_block_fn(t, indent + "    ", active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+            _lines_before = len(lines)
+            _begin_branch(node_id, 'rejected')
+            try:
+                for t in rejected_edges:
+                    generate_block_fn(t, indent + "    ", active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+            finally:
+                _end_branch()
+            if len(lines) == _lines_before:
+                lines.append(f"{indent}    pass")
         else:
             lines.append(f"{indent}    raise Exception('Workflow execution halted by Human Approval Node (Rejected).')")
     else:
