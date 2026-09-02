@@ -67,6 +67,7 @@ import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, L
 } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 import { MEMO_MIN_NODE_HEIGHT } from '../memoSizing';
+import { downloadUploadFile } from '../fileDownload';
 import {
   MEMO_DEFAULT_WIDTH,
   ensureMemoNodeDefaults,
@@ -3868,9 +3869,13 @@ function FlowContent() {
                     (response && typeof response === 'string' && (response.startsWith('uploads/') || response.startsWith('uploads\\'))) ? (
                       <div className="exec-file">
                         <p>파일이 생성됐습니다.</p>
-                        <a href={`/${response.replace(/\\/g, '/')}`} target="_blank" rel="noreferrer" className="btn-run exec-download">
+                        <button
+                          type="button"
+                          className="btn-run exec-download"
+                          onClick={() => downloadUploadFile(response, token).catch(err => alert(err.message))}
+                        >
                           파일 내려받기
-                        </a>
+                        </button>
                       </div>
                     ) : (
                       <div className="exec-response">{response || '대기 중...'}</div>
