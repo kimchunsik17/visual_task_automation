@@ -126,6 +126,8 @@ export default function FormatCanvasEditor({
   selectedId: controlledSelectedId, onSelect,   // 풀페이지: 선택을 부모가 든다(좌측 계층 트리와 동기화)
   propsContainer = null,                        // 풀페이지: 속성 패널을 이 DOM 노드(우측 인스펙터)에 포털로 그린다
   toolbarContainer = null,                      // 풀페이지: 요소 추가 도구줄을 이 DOM 노드(좌측 팔레트)에 포털로 그린다
+  hideToolbar = false,                          // 풀페이지: 요소 추가는 좌측 팔레트가 담당 — 내장 도구줄 숨김
+  hideProps = false,                            // 풀페이지: propsContainer 가 아직 없을 때 인라인 패널을 그리지 않는다
   maxWidth = 620,
 }) {
   const [internalSelectedId, setInternalSelectedId] = useState(null);
@@ -270,7 +272,7 @@ export default function FormatCanvasEditor({
 
   return (
     <div className="fcv" tabIndex={0} onKeyDown={onKeyDown}>
-      {toolbarContainer ? createPortal(toolbar, toolbarContainer) : toolbar}
+      {toolbarContainer ? createPortal(toolbar, toolbarContainer) : (hideToolbar ? null : toolbar)}
 
       <div className="fcv-stage" style={{ height: height * scale + 20 }}>
         <div className="fcv-artboard"
@@ -286,7 +288,8 @@ export default function FormatCanvasEditor({
                              onPatch={patchElement} onReorder={reorderSelected}
                              onDuplicate={duplicateSelected} onRemove={removeSelected} />
         );
-        return propsContainer ? createPortal(panel, propsContainer) : panel;
+        if (propsContainer) return createPortal(panel, propsContainer);
+        return hideProps ? null : panel;
       })()}
     </div>
   );
