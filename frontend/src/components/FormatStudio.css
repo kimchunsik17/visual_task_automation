@@ -475,6 +475,81 @@
 }
 .fstudio-pagemode .fcv-stage { flex: 1; }
 
+/* 헤더 (페이지): 열기 버튼 + 현재 포맷 이름 */
+.fstudio-open-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border: 1px solid var(--border-color); border-radius: 8px;
+  background: transparent; color: var(--text-color); font: inherit; font-size: 0.84rem; cursor: pointer;
+}
+.fstudio-open-btn:hover { border-color: var(--primary-color, #4f7cff); color: var(--primary-color, #4f7cff); }
+.fstudio-head-name { color: var(--text-muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fstudio-head-spacer { flex: 1; }
+
+/* 좌측 계층 구조 */
+.fstudio-toolbar-slot { display: flex; flex-direction: column; gap: 5px; }
+.fstudio-toolbar-slot .fcv-toolbar { flex-direction: column; align-items: stretch; border: 0; padding: 0; background: transparent; }
+.fstudio-toolbar-slot .fcv-hint { display: none; }
+.fstudio-tree { display: flex; flex-direction: column; gap: 3px; }
+.fstudio-tree-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 8px; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--text-color); font: inherit; font-size: 0.8rem;
+  cursor: pointer; text-align: left;
+}
+.fstudio-tree-item:hover { background: var(--btn-active-bg); }
+.fstudio-tree-item.active { border-color: #4f7cff; color: #4f7cff; }
+.fstudio-tree-item em {
+  flex: 0 0 18px; text-align: center; font-style: normal;
+  color: var(--text-muted); font-size: 0.72rem;
+}
+.fstudio-tree-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 우측 인스펙터 접이식 섹션 */
+.fstudio-sect {
+  border: 1px solid var(--border-color); border-radius: 10px;
+  background: var(--card-bg); padding: 0 10px 10px; margin-bottom: 8px;
+}
+.fstudio-sect > summary {
+  cursor: pointer; list-style: none;
+  padding: 9px 0 8px; font-size: 0.8rem; font-weight: 800; color: var(--text-muted);
+  letter-spacing: 0.04em; user-select: none;
+}
+.fstudio-sect > summary::before { content: '▸ '; }
+.fstudio-sect[open] > summary::before { content: '▾ '; }
+.fstudio-sect > summary em { font-style: normal; font-weight: 500; font-size: 0.7rem; }
+.fstudio-sect .fstudio-fields, .fstudio-sect .fstudio-design { border: 0; padding: 0; background: transparent; }
+.fstudio-sect .fstudio-ai { margin-bottom: 6px; }
+
+/* 열기·프리셋 별도 창 */
+.fstudio-picker-backdrop {
+  position: fixed; inset: 0; z-index: 1400;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(2, 6, 23, 0.6);
+}
+.fstudio-picker {
+  display: flex; flex-direction: column;
+  width: min(760px, 100%); max-height: min(640px, 100%);
+  border: 1px solid var(--border-color); border-radius: 14px;
+  background: var(--bg-color); overflow: hidden;
+}
+.fstudio-picker-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--border-color); background: var(--card-bg);
+}
+.fstudio-picker-head strong { display: inline-flex; align-items: center; gap: 7px; }
+.fstudio-picker-body { padding: 10px 14px 16px; overflow-y: auto; }
+.fstudio-picker-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px;
+}
+.fstudio-picker-grid button {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 9px 11px; border: 1px solid var(--border-color); border-radius: 8px;
+  background: transparent; color: var(--text-color); font: inherit; font-size: 0.82rem;
+  cursor: pointer; text-align: left;
+}
+.fstudio-picker-grid button:hover { border-color: var(--primary-color, #4f7cff); }
+.fstudio-picker-grid button em { color: var(--text-muted); font-size: 0.7rem; font-style: normal; flex: 0 0 auto; }
+
 /* 우측 인스펙터의 빈칸 목록 — 340px 폭에 맞는 2줄 배치 */
 .fstudio-pagemode .fstudio-preview .fstudio-field-row {
   display: flex;

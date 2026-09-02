@@ -8,7 +8,7 @@
 // 디자인류는 sandbox iframe 에 테마 변수를 주입해 그린다. 값 자리는 example 로 채운다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, FileUp, Image as ImageIcon, LayoutTemplate, Loader2, Plus, Save,
+  ArrowDown, ArrowUp, FileUp, FolderOpen, Image as ImageIcon, LayoutTemplate, Loader2, Plus, Save,
   Sparkles, Table as TableIcon, Trash2, Type, Wand2, X,
 } from 'lucide-react';
 import axios from 'axios';
@@ -110,6 +110,9 @@ function DesignPreview({ spec }) {
 export default function FormatStudio({ isOpen, onClose, initialFormatId = '', onApplyToNode = null, onLibraryChanged = null, variant = 'modal' }) {
   const isPage = variant === 'page';   // 풀페이지 스튜디오(/formats/studio) — 모달 셸 없이 3-pane 로 채운다
   const [inspectorEl, setInspectorEl] = useState(null); // 우측 인스펙터(캔버스 속성 패널 포털 대상)
+  const [toolbarEl, setToolbarEl] = useState(null);     // (페이지) 좌측 요소 팔레트 — 캔버스 도구줄 포털 대상
+  const [canvasSel, setCanvasSel] = useState(null);     // (페이지) 캔버스 선택 — 좌측 계층 트리와 공유
+  const [pickerOpen, setPickerOpen] = useState(() => isPage && !initialFormatId); // 열기·프리셋 별도 창
   const [spec, setSpec] = useState(() => emptySpec());
   const [libraryId, setLibraryId] = useState('');       // 내 라이브러리 행 id (있으면 업데이트)
   const [userFormats, setUserFormats] = useState([]);
@@ -224,6 +227,7 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
       const res = await axios.post('/api/formats/import', form, authHeaders());
       setSpec(cloneSpec(res.data.spec));
       setLibraryId('');
+      setPickerOpen(false);
       const ai = res.data.ai || '';
       setNotice({
         tone: 'success',
@@ -336,6 +340,61 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
     </div>
   );
 
+  const aiBar = (
+    <div className="fstudio-ai">
+      <select value={aiLayout} onChange={(e) => setAiLayout(e.target.value)} aria-label="생성 종류">
+        <option value="">자동</option><option value="document">문서</option><option value="design">포스터·팜플렛</option>
+      </select>
+      <input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
+             onKeyDown={(e) => { if (e.key === 'Enter') generate(); }}
+             placeholder='AI에게 포맷 요청 — 예: "주간 업무 보고서 양식"' />
+      <button type="button" onClick={generate} disabled={aiLoading}>
+        {aiLoading ? <Loader2 size={15} className="fstudio-spin" /> : <Sparkles size={15} />} 생성
+      </button>
+    </div>
+  );
+
+  const blockPalette = (
+    <div className="fstudio-block-palette">
+      <button type="button" onClick={() => addBlock('heading')}><Type size={14} /> 제목</button>
+      <button type="button" onClick={() => addBlock('paragraph')}><Type size={14} /> 문단</button>
+      <button type="button" onClick={() => addBlock('table')}><TableIcon size={14} /> 표</button>
+      <button type="button" onClick={() => addBlock('image')}><ImageIcon size={14} /> 이미지</button>
+      <button type="button" onClick={() => addBlock('page_break')}>쪽 나눔</button>
+    </div>
+  );
+
+  // (페이지) 좌측 계층 구조 — 디자인은 캔버스 선택과 양방향 동기화, 문서는 해당 블록으로 스크롤.
+  const designElements = (!isDocument && spec.design?.elements) || [];
+  const elementLabel = (el) => (
+    el.kind === 'image' ? `이미지: ${el.field}`
+      : el.kind === 'box' ? '사각형'
+        : (String(el.text || '').replace(/\s+/g, ' ').slice(0, 18) || '텍스트'));
+  const hierarchyTree = isDocument ? (
+    <div className="fstudio-tree">
+      {(spec.blocks || []).map((block, index) => (
+        <button key={index} type="button" className="fstudio-tree-item"
+                onClick={() => document.getElementById(`fstudio-block-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
+          <em>{index + 1}</em>
+          <span>{BLOCK_LABELS[block.type]}{block.text ? ` — ${String(block.text).slice(0, 12)}` : ''}</span>
+        </button>
+      ))}
+      {(spec.blocks || []).length === 0 && <p className="fstudio-hint">블록이 없습니다.</p>}
+    </div>
+  ) : (
+    <div className="fstudio-tree">
+      {designElements.map((el) => (
+        <button key={el.id} type="button"
+                className={`fstudio-tree-item ${canvasSel === el.id ? 'active' : ''}`}
+                onClick={() => setCanvasSel(el.id)}>
+          <em>{el.kind === 'text' ? 'T' : el.kind === 'image' ? '🖼' : '▢'}</em>
+          <span>{elementLabel(el)}</span>
+        </button>
+      ))}
+      {designElements.length === 0 && <p className="fstudio-hint">요소가 없습니다 — 위 팔레트에서 추가하세요.</p>}
+    </div>
+  );
+
   const themeGrid = (
     <div className="fstudio-theme-grid">
       {['primaryColor', 'backgroundColor', 'textColor', 'mutedColor'].map((key) => (
@@ -364,23 +423,30 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
            aria-label="포맷 스튜디오" onClick={isPage ? undefined : (e) => e.stopPropagation()}>
         <header className="fstudio-head">
           <div className="fstudio-title"><LayoutTemplate size={18} /> 포맷 스튜디오</div>
-          <div className="fstudio-ai">
-            <select value={aiLayout} onChange={(e) => setAiLayout(e.target.value)} aria-label="생성 종류">
-              <option value="">자동</option><option value="document">문서</option><option value="design">포스터·팜플렛</option>
-            </select>
-            <input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
-                   onKeyDown={(e) => { if (e.key === 'Enter') generate(); }}
-                   placeholder='AI에게 포맷 요청 — 예: "주간 업무 보고서 양식"' />
-            <button type="button" onClick={generate} disabled={aiLoading}>
-              {aiLoading ? <Loader2 size={15} className="fstudio-spin" /> : <Sparkles size={15} />} 생성
-            </button>
-          </div>
+          {isPage ? (
+            <>
+              <button type="button" className="fstudio-open-btn" onClick={() => setPickerOpen(true)}>
+                <FolderOpen size={14} /> 열기 · 프리셋
+              </button>
+              <span className="fstudio-head-name">{spec.name || '이름 없는 포맷'}</span>
+              <span className="fstudio-head-spacer" />
+            </>
+          ) : aiBar}
           <button type="button" className="fstudio-close" onClick={onClose} aria-label="닫기"><X size={18} /></button>
         </header>
 
         <div className="fstudio-body">
-          {/* ── 좌: 시작점 ── */}
+          {/* ── 좌: (페이지) 팔레트 + 계층 구조 / (모달) 시작점 ── */}
           <aside className="fstudio-side">
+            {isPage ? (
+              <>
+                <span className="fstudio-side-label">{isDocument ? '블록 추가' : '요소 추가'}</span>
+                {isDocument ? blockPalette : <div className="fstudio-toolbar-slot" ref={setToolbarEl} />}
+                <span className="fstudio-side-label">계층 구조</span>
+                {hierarchyTree}
+              </>
+            ) : (
+            <>
             <span className="fstudio-side-label">프리셋에서 시작</span>
             {presets.map((p) => (
               <button key={p.id} type="button" onClick={() => { const c = cloneSpec(p); delete c.id; c.name = `${p.name} (복제)`; setSpec(c); setLibraryId(''); setNotice(null); }}>
@@ -403,14 +469,10 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
             {isDocument && (
               <>
                 <span className="fstudio-side-label">블록 추가</span>
-                <div className="fstudio-block-palette">
-                  <button type="button" onClick={() => addBlock('heading')}><Type size={14} /> 제목</button>
-                  <button type="button" onClick={() => addBlock('paragraph')}><Type size={14} /> 문단</button>
-                  <button type="button" onClick={() => addBlock('table')}><TableIcon size={14} /> 표</button>
-                  <button type="button" onClick={() => addBlock('image')}><ImageIcon size={14} /> 이미지</button>
-                  <button type="button" onClick={() => addBlock('page_break')}>쪽 나눔</button>
-                </div>
+                {blockPalette}
               </>
+            )}
+            </>
             )}
           </aside>
 
@@ -423,7 +485,7 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
               <div className="fstudio-blocks">
                 <div className="fstudio-section-head"><strong>골격 (blocks)</strong></div>
                 {(spec.blocks || []).map((block, index) => (
-                  <div key={index} className="fstudio-block">
+                  <div key={index} id={`fstudio-block-${index}`} className="fstudio-block">
                     <div className="fstudio-block-head">
                       <span>{BLOCK_LABELS[block.type]}</span>
                       <div>
@@ -501,6 +563,9 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
                   <FormatCanvasEditor design={spec.design} fields={spec.fields || []}
                                       maxWidth={isPage ? 1000 : 620}
                                       propsContainer={isPage ? inspectorEl : null}
+                                      toolbarContainer={isPage ? toolbarEl : null}
+                                      selectedId={isPage ? canvasSel : undefined}
+                                      onSelect={isPage ? setCanvasSel : undefined}
                                       onDesignChange={(nextDesign) => update((s) => { s.design = nextDesign; })} />
                 ) : (
                   <p className="fstudio-hint">이 디자인은 코드(HTML/CSS) 기반입니다 — 위치·크기를 드래그로 편집하려면
@@ -518,29 +583,46 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
             )}
           </section>
 
-          {/* ── 우: (풀페이지) 인스펙터 + 미리보기 ── */}
+          {/* ── 우: (풀페이지) 속성 인스펙터 / (모달) 미리보기 ── */}
           <aside className="fstudio-preview">
-            {isPage && (
+            {isPage ? (
               <>
-                <span className="fstudio-side-label">포맷</span>
-                {nameRow}
                 {!isDocument && spec.design?.elements && (
-                  <>
-                    <span className="fstudio-side-label">선택 요소</span>
+                  <details className="fstudio-sect" open>
+                    <summary>선택 요소 속성</summary>
                     <div className="fstudio-inspector" ref={setInspectorEl} />
-                  </>
+                  </details>
                 )}
-                {!isDocument && (
-                  <div className="fstudio-design fstudio-inspector-box">
-                    {designHead}
-                    {themeGrid}
-                  </div>
-                )}
-                {fieldsSection}
+                <details className="fstudio-sect" open>
+                  <summary>포맷</summary>
+                  {nameRow}
+                  {!isDocument && (
+                    <>
+                      {designHead}
+                      {themeGrid}
+                    </>
+                  )}
+                </details>
+                <details className="fstudio-sect">
+                  <summary>빈칸 (fields)</summary>
+                  {fieldsSection}
+                </details>
+                <details className="fstudio-sect">
+                  <summary>AI 생성</summary>
+                  {aiBar}
+                  <p className="fstudio-hint">요청한 골격이 초안으로 로드됩니다 — 지금 작업을 대체합니다.</p>
+                </details>
+                <details className="fstudio-sect">
+                  <summary>구조 미리보기 <em>예시값 기준</em></summary>
+                  {isDocument ? <DocumentPreview spec={spec} /> : <DesignPreview spec={spec} />}
+                </details>
+              </>
+            ) : (
+              <>
+                <span className="fstudio-side-label">구조 미리보기 <em>예시값 기준 · 실제 문서와 다를 수 있음</em></span>
+                {isDocument ? <DocumentPreview spec={spec} /> : <DesignPreview spec={spec} />}
               </>
             )}
-            <span className="fstudio-side-label">구조 미리보기 <em>예시값 기준 · 실제 문서와 다를 수 있음</em></span>
-            {isDocument ? <DocumentPreview spec={spec} /> : <DesignPreview spec={spec} />}
           </aside>
         </div>
 
@@ -557,6 +639,48 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
             )}
           </div>
         </footer>
+        {isPage && pickerOpen && (
+          <div className="fstudio-picker-backdrop" onClick={() => setPickerOpen(false)}>
+            <div className="fstudio-picker" role="dialog" aria-label="열기·프리셋" onClick={(e) => e.stopPropagation()}>
+              <div className="fstudio-picker-head">
+                <strong><FolderOpen size={15} /> 열기 · 프리셋</strong>
+                <button type="button" className="fstudio-close" onClick={() => setPickerOpen(false)} aria-label="닫기"><X size={16} /></button>
+              </div>
+              <div className="fstudio-picker-body">
+                <span className="fstudio-side-label">새로 만들기</span>
+                <div className="fstudio-picker-grid">
+                  <button type="button" onClick={() => { setSpec(emptySpec('document')); setLibraryId(''); setCanvasSel(null); setNotice(null); setPickerOpen(false); }}>빈 문서 포맷</button>
+                  <button type="button" onClick={() => { setSpec(emptySpec('design')); setLibraryId(''); setCanvasSel(null); setNotice(null); setPickerOpen(false); }}>빈 디자인 포맷</button>
+                  <button type="button" disabled={importing} onClick={() => importInputRef.current?.click()}>
+                    {importing ? <Loader2 size={13} className="fstudio-spin" /> : <FileUp size={13} />} 파일에서 가져오기<em>.hwpx·.docx</em>
+                  </button>
+                </div>
+                {userFormats.length > 0 && (
+                  <>
+                    <span className="fstudio-side-label">내 포맷</span>
+                    <div className="fstudio-picker-grid">
+                      {userFormats.map((f) => (
+                        <button key={f.id} type="button"
+                                onClick={() => { setSpec(cloneSpec({ ...f.spec, name: f.name })); setLibraryId(f.id); setCanvasSel(null); setNotice(null); setPickerOpen(false); }}>
+                          {f.name}<em>{f.layout === 'design' ? '디자인' : '문서'}</em>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <span className="fstudio-side-label">프리셋 {presets.length}종 — 복제해서 시작</span>
+                <div className="fstudio-picker-grid">
+                  {presets.map((p) => (
+                    <button key={p.id} type="button"
+                            onClick={() => { const c = cloneSpec(p); delete c.id; c.name = `${p.name} (복제)`; setSpec(c); setLibraryId(''); setCanvasSel(null); setNotice(null); setPickerOpen(false); }}>
+                      {p.name}<em>{p.layout === 'design' ? '디자인' : '문서'}</em>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <input ref={uploadInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadImage} />
         <input ref={importInputRef} type="file" accept=".hwpx,.docx" style={{ display: 'none' }} onChange={importFromFile} />
       </div>
