@@ -90,8 +90,10 @@
                    official-letter 공문 · event-poster 행사 포스터 · tri-fold-pamphlet 3단 팜플렛,
                    또는 사용자가 포맷 스튜디오에서 만든 포맷의 id — **목록에 없는 id 를 지어내지 마라.**
                    사용자가 지정하지 않았고 마땅한 프리셋도 없으면 빈 문자열로 두고 답변에서 포맷을
-                   골라 달라고 안내한다). data.output(문자열 — 문서류는 hwpx|docx|pdf|xlsx,
-                   디자인류(포스터·팜플렛)는 png|pdf. 비우면 포맷의 기본값).
+                   골라 달라고 안내한다). data.output(문자열 — 포맷마다 허용 형식이 다르다:
+                   시말서·입사지원서·공문 hwpx|docx|pdf, 제안서·회의록 hwpx|docx|pdf|xlsx,
+                   포스터·팜플렛 png|pdf. 허용 밖 형식은 실행이 거부된다. 확실하지 않으면
+                   비워 두면 포맷의 기본값을 쓴다).
                    data.values(JSON 문자열, 선택 — 빈칸 이름→값. 비우면 직전 노드의 출력(JSON)에서
                    같은 이름의 키를 자동으로 가져온다). 빈칸 값을 LLM 으로 만들 때는 이 노드 앞에
                    llmNode 를 두고 useStructuredOutput+jsonSchema 로 포맷의 빈칸 이름과 같은 키를 가진

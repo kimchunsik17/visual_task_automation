@@ -576,6 +576,11 @@ export const FormatNode = ({ id, data }) => {
     || userFormats.map((r) => ({ ...r.spec, id: r.id, name: r.name })).find((f) => f.id === data.formatId)
     || null;
   const allowedOutputs = selected?.output?.allowed || ['hwpx', 'docx', 'pdf', 'xlsx', 'png'];
+  // 비워 두면 런타임은 포맷의 output.default 를 쓴다 — 화면도 같은 값을 보여줘야 한다
+  // (allowed[0] 를 보여주면 회의록·제안서에서 "hwpx 로 보이는데 docx 가 나오는" 불일치).
+  const defaultOutput = (selected?.output?.default && allowedOutputs.includes(selected.output.default))
+    ? selected.output.default : allowedOutputs[0];
+  const outputValue = data.output || defaultOutput;
 
   // 바인딩 UI — DefinitionField 와 같은 규칙(칩이면 입력창 대체, ⚡ 는 항상)
   const bindable = Boolean(data?.bindingContext);
@@ -630,9 +635,14 @@ export const FormatNode = ({ id, data }) => {
           </div>
 
           <label style={{ marginTop: '0.5rem' }}>출력 형식</label>
-          <select className="nodrag" value={data.output || allowedOutputs[0]}
+          <select className="nodrag" value={outputValue}
                   onChange={(e) => data.onChange && data.onChange(id, 'output', e.target.value)}
                   style={{ width: '100%', padding: '0.45rem', borderRadius: '0.25rem', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', boxSizing: 'border-box' }}>
+            {!allowedOutputs.includes(outputValue) && (
+              <option value={outputValue} disabled>
+                {(OUTPUT_LABELS[outputValue] || outputValue) + ' — 이 포맷은 지원 안 함'}
+              </option>
+            )}
             {allowedOutputs.map((o) => <option key={o} value={o}>{OUTPUT_LABELS[o] || o}</option>)}
           </select>
 

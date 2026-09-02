@@ -726,7 +726,7 @@ export const NODE_DOCS = {
     io: { input: '빈칸 이름 → 값의 JSON (직전 노드 출력 또는 고정값).', output: '완성 문서/이미지 파일 — 발송 노드에서 자동 첨부. 파일 저장으로 끝나면 결과 출력 생략 가능.' },
     fields: {
       formatId: '프리셋 또는 내 포맷을 선택합니다. 노드에서 빈칸 목록을 미리 볼 수 있습니다.',
-      output: '포맷 종류에 따라 허용 형식이 다릅니다 — 문서류 hwpx·docx·pdf·xlsx, 디자인류 png·pdf.',
+      output: '포맷마다 허용 형식이 다릅니다 — 시말서·입사지원서·공문 hwpx·docx·pdf, 제안서·회의록 hwpx·docx·pdf·xlsx, 포스터·팜플렛 png·pdf. 비워 두면 포맷의 기본값(회의록·제안서는 docx)을 씁니다.',
       values: '비우면 직전 노드의 출력(JSON)을 그대로 사용합니다.',
       output_path: '비우면 포맷 이름을 따서 자동으로 지어집니다.',
     },
