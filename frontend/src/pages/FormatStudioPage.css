@@ -52,21 +52,6 @@
 }
 .fsp .properties-panel .fcv-props { border: 0; padding: 0; }
 
-/* AI 어시스턴트 패널 (우측 상단, 토글) */
-.fsp-ai-panel {
-  margin: 10px;
-  padding: 10px;
-  border: 1px solid rgba(167, 139, 250, 0.45);
-  border-radius: 10px;
-  background: rgba(167, 139, 250, 0.06);
-  display: flex; flex-direction: column; gap: 8px;
-}
-.fsp-ai-head {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 0.8rem; font-weight: 700; color: #a78bfa;
-}
-.fsp-ai-head .fstudio-close { margin-left: auto; width: 26px; height: 26px; }
-
 /* 저장/오류 토스트 */
 .fsp-toast {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
