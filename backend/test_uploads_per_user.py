@@ -175,6 +175,118 @@ def test_user_output_path_writes_under_owner_dir(uploads):
     assert (uploads / "u1").is_dir()
 
 
+# ── PR #41 리뷰에서 잡힌 결함들의 회귀 고정 ─────────────────────────────
+def test_same_name_row_does_not_open_someone_elses_legacy_root_file(uploads):
+    """공격 경로: 남의 이관 전 파일과 같은 이름으로 내 행을 만들면(내 디렉토리에 생성),
+    '내 행도 있으니 통과' 식 검사로는 레거시 루트의 **남의 파일**이 열렸다. 루트 파일은
+    '그 파일의 주인일 수 있는 행(소유자 디렉토리 사본이 없는 행)'이 전부 나/공용일 때만 연다."""
+    db = make_db()
+    (uploads / "계약서.txt").write_text("victim(2)의 문서", encoding="utf-8")
+    _row(db, owner=2, name="계약서.txt")                     # 피해자: 이관 전(루트)
+    (uploads / "u1").mkdir()
+    (uploads / "u1" / "계약서.txt").write_text("attacker(1)", encoding="utf-8")
+    _row(db, owner=1, name="계약서.txt")                     # 공격자: 자기 디렉토리에 동명 파일
+
+    safe1, _ = _compiled_helpers(db, 1, uploads)
+    resolved = safe1("uploads/계약서.txt")
+    # 공격자는 자기 사본으로 풀려야 하고(소유자 디렉토리 우선), 루트의 남의 파일은 절대 아니다.
+    assert resolved == (uploads / "u1" / "계약서.txt").resolve()
+
+    # 자기 사본이 없는 제3자는 루트 파일에 닿을 수 없다.
+    safe3, _ = _compiled_helpers(db, 3, uploads)
+    assert safe3("uploads/계약서.txt") is None
+
+    # 피해자 본인은 계속 읽을 수 있다.
+    safe2, _ = _compiled_helpers(db, 2, uploads)
+    assert safe2("uploads/계약서.txt") == (uploads / "계약서.txt").resolve()
+
+
+def test_own_dir_file_is_readable_even_if_a_stranger_registered_the_same_name(uploads):
+    """역방향 오탐: 내 디렉토리에 물리적으로 존재하는 파일(예: 즉석 재생성된 템플릿, 미등록)이
+    남의 동명 행 때문에 차단되면 안 된다 — 디렉토리가 이미 격리를 보장한다."""
+    db = make_db()
+    _row(db, owner=2, name="서식.txt")                       # 남의 행만 존재
+    (uploads / "u1").mkdir()
+    (uploads / "u1" / "서식.txt").write_text("mine", encoding="utf-8")
+
+    safe1, _ = _compiled_helpers(db, 1, uploads)
+    assert safe1("uploads/서식.txt") == (uploads / "u1" / "서식.txt").resolve()
+
+
+def test_safe_user_path_resolves_bare_stored_name_and_ignores_cwd(uploads, tmp_path, monkeypatch):
+    """커넥터 filePath 관례(접두사 없는 저장 이름)와 절대 UPLOAD_DIR 배포에서도 풀려야 한다 —
+    상대 경로는 cwd 가 아니라 업로드 루트에 앵커한다."""
+    db = make_db()
+    (uploads / "u1").mkdir()
+    (uploads / "u1" / "a1b2.mp4").write_bytes(b"v")
+    monkeypatch.chdir(tmp_path / "..")                       # cwd 를 엉뚱한 곳으로
+
+    safe, _ = _compiled_helpers(db, 1, uploads)
+    assert safe("a1b2.mp4") == (uploads / "u1" / "a1b2.mp4").resolve()
+    assert safe("uploads/a1b2.mp4") == (uploads / "u1" / "a1b2.mp4").resolve()
+
+
+def test_purge_never_deletes_someone_elses_legacy_root_file(uploads):
+    """만료된 행의 소유자 디렉토리 사본이 사라진 상태에서, 레거시 루트 폴백이 **남의** 동명
+    파일을 지우면 되돌릴 수 없는 유실이다 — 같은 이름의 다른 행이 있으면 파일은 남긴다."""
+    db = make_db()
+    (uploads / "작성완료.txt").write_text("user2 의 살아있는 파일", encoding="utf-8")
+    _row(db, owner=2, name="작성완료.txt")                                     # 피해자(만료 아님)
+    _row(db, owner=1, name="작성완료.txt",
+         expires_at=datetime.datetime.utcnow() - datetime.timedelta(days=1))  # 만료, u1 사본 없음
+
+    report = upload_security.purge_expired_uploads(db)
+    assert (uploads / "작성완료.txt").exists(), "남의 레거시 파일이 지워졌다"
+    assert report["removed_files"] == 0
+    assert db.query(models.UploadedFile).filter_by(owner_user_id=1).count() == 0  # 기록은 정리
+
+
+def test_register_does_not_adopt_ownerless_rows(uploads):
+    """소유자 미상(0) 행을 '내 것'으로 집어 갱신하면 (a) 그 레거시 행의 hash 가 실제 파일과
+    어긋나 영구히 깨지고 (b) 내 결과물이 소유자 0 으로 등록돼 resolve(owner=me) 가 거부한다."""
+    db = make_db()
+    (uploads / "보고서.png").write_bytes(PNG_BYTES)          # 레거시 루트 파일
+    legacy = artifacts.register_generated_file(db, path="uploads/보고서.png", owner_user_id=0, purpose="generated")
+    assert legacy is not None
+    legacy_sha = db.query(models.UploadedFile).filter_by(owner_user_id=0).one().sha256
+
+    p = pathlib.Path(upload_security.physical_output_path("uploads/보고서.png", 5))
+    p.write_bytes(PNG_BYTES + b"user5")
+    mine = artifacts.register_generated_file(db, path=str(p), owner_user_id=5, purpose="generated")
+    assert mine is not None
+    assert mine.owner_user_id == 5 and mine.artifact_id != legacy.artifact_id
+    # 레거시 0-행은 건드리지 않았다.
+    assert db.query(models.UploadedFile).filter_by(owner_user_id=0).one().sha256 == legacy_sha
+    # 레거시 루트 파일에 0-행만 있을 때, 남(파일이 루트에만 있는 경우)은 여전히 등록 불가.
+    hijack = artifacts.register_generated_file(db, path="uploads/보고서.png", owner_user_id=7, purpose="generated")
+    assert hijack is None
+
+
+def test_value_node_marker_stays_public_in_generated_source(uploads):
+    """valueNode 의 [Attached File: ...] 마커가 물리 경로(uploads/u<id>/...)를 실으면 프론트
+    다운로드 링크가 404 가 되고 서버 배치가 새어 나간다 — 공개 형태로 조립돼야 한다."""
+    import graph
+    import node_generators  # noqa: F401
+
+    src = graph.compile_workflow(
+        [{"id": "s", "type": "startNode", "data": {}},
+         {"id": "v", "type": "valueNode", "data": {"file_path": "uploads/x.txt"}}],
+        [{"source": "s", "target": "v"}],
+    )
+    assert "'uploads/' + _vpath_v.name" in src
+    assert "str(_vpath_v) if" not in src
+
+
+def _row(db, *, owner, name, expires_at=None):
+    record = models.UploadedFile(
+        stored_name=name, original_name=name, owner_user_id=owner, size_bytes=1,
+        purpose="node", created_at=datetime.datetime.utcnow(), expires_at=expires_at,
+    )
+    db.add(record)
+    db.commit()
+    return record
+
+
 # ── 런타임 쓰기 지점 ────────────────────────────────────────────────────
 def test_hwpx_runtime_writes_into_owner_dir_but_reports_public_path(uploads):
     hwpx_runtime = pytest.importorskip("documents.hwpx_runtime")

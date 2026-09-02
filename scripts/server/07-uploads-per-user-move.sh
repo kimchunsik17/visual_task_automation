@@ -48,9 +48,12 @@ apply = os.environ.get("APPLY") == "1"
 root = upload_dir().resolve()
 db = database.SessionLocal()
 
-moved = skipped_done = missing = unknown_owner = 0
+moved = skipped_done = missing = unknown_owner = stale_removed = 0
 try:
     rows = db.query(models.UploadedFile).all()
+    name_counts = {}
+    for row in rows:
+        name_counts[row.stored_name] = name_counts.get(row.stored_name, 0) + 1
     for row in rows:
         owner = int(row.owner_user_id or 0)
         if owner <= 0:
@@ -59,6 +62,14 @@ try:
         src = root / row.stored_name
         dst = owner_dir(owner) / row.stored_name
         if dst.is_file():
+            # 이미 옮겨졌는데 루트 사본이 남아 있으면(이전 실행 중단 등) 낡은 사본이 읽기를
+            # 가린다(섀도잉). 같은 이름의 행이 이 행 하나뿐일 때만 루트 사본을 지운다 —
+            # 여럿이면 남의 이관 전 파일일 수 있다.
+            if src.is_file() and name_counts.get(row.stored_name, 0) == 1:
+                print(f"  [낡은 루트 사본 제거] {row.stored_name}")
+                if apply:
+                    src.unlink()
+                stale_removed += 1
             skipped_done += 1
             continue
         if not src.is_file():
@@ -77,8 +88,9 @@ try:
 
     label = "옮김" if apply else "옮길 것"
     print()
-    print(f"{label}: {moved} · 이미 완료: {skipped_done} · 디스크에 없음: {missing} · "
-          f"소유자 미상 행: {unknown_owner} · 장부에 없는 루트 파일(그대로 둠): {len(untracked)}")
+    print(f"{label}: {moved} · 이미 완료: {skipped_done} · 낡은 루트 사본 제거: {stale_removed} · "
+          f"디스크에 없음: {missing} · 소유자 미상 행: {unknown_owner} · "
+          f"장부에 없는 루트 파일(그대로 둠): {len(untracked)}")
     if untracked[:5]:
         print("  장부에 없는 파일 예:", ", ".join(untracked[:5]))
 finally:

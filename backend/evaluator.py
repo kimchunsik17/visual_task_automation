@@ -64,7 +64,16 @@ def _find_output_file(text: str) -> Optional[str]:
     if not m:
         return None
     path = m.group(0)
-    return path if os.path.exists(path) else None
+    if os.path.exists(path):
+        return path
+    # per-user 물리 분리(PR #41) 뒤에는 공개 문자열(uploads/<이름>)의 실제 파일이 소유자
+    # 디렉토리(uploads/u<id>/)에 있을 수 있다. 평가 파이프라인은 소유자를 모르므로 훑는다 —
+    # 파일 이름은 실행마다 uuid 가 붙어 충돌하지 않는다.
+    import glob as _glob
+
+    name = os.path.basename(path.replace("\\", "/"))
+    candidates = _glob.glob(os.path.join("uploads", "u*", name))
+    return candidates[0] if candidates else None
 
 
 def _extract_docx_text(path: str) -> str:

@@ -12,6 +12,10 @@ Revises: 0022_templates_slug_unique
 (scripts/server/07-uploads-per-user-move.sh) — 장부(owner)가 있는 파일만 옮기고, 소유자를
 모르는 파일은 레거시 루트에 남긴다(ADR-0010: 추측해서 옮기지/지우지 않는다). 이동 전에도
 resolver 가 레거시 루트로 폴백하므로 코드 배포 순서와 무관하게 동작한다.
+
+⚠️ 존재 확인은 inspector 로 한다 — batch_alter_table 안의 try/except 는 소용없다:
+SQLite 에서는 작업이 with 블록 종료 시점에 실행돼 예외가 try 밖에서 터지고, PostgreSQL
+에서는 실패한 DROP 이 트랜잭션을 오염시켜 다음 문장이 전부 실패한다(PR #41 리뷰).
 """
 import sqlalchemy as sa
 from alembic import op
@@ -23,18 +27,28 @@ depends_on = None
 
 _INDEX = "ix_uploaded_files_stored_name"
 _UQ = "uq_uploaded_files_owner_stored_name"
+_TABLE = "uploaded_files"
+
+
+def _existing(connection):
+    inspector = sa.inspect(connection)
+    indexes = {ix["name"] for ix in inspector.get_indexes(_TABLE)}
+    uniques = {uc["name"] for uc in inspector.get_unique_constraints(_TABLE)}
+    # SQLite 는 unique 인덱스를 인덱스 목록으로만 보고하기도 한다.
+    return indexes, uniques
 
 
 def upgrade() -> None:
+    indexes, uniques = _existing(op.get_bind())
+
     # 전역 unique 인덱스를 일반 인덱스로 바꾼다(stored_name 단독 조회는 여전히 많다 —
     # legacy 경로 역조회, 이미지 join). 그 위에 (owner, stored_name) 복합 unique 를 얹는다.
-    with op.batch_alter_table("uploaded_files") as batch:
-        try:
+    with op.batch_alter_table(_TABLE) as batch:
+        if _INDEX in indexes:
             batch.drop_index(_INDEX)
-        except Exception:
-            pass
         batch.create_index(_INDEX, ["stored_name"])
-        batch.create_unique_constraint(_UQ, ["owner_user_id", "stored_name"])
+        if _UQ not in uniques and _UQ not in indexes:
+            batch.create_unique_constraint(_UQ, ["owner_user_id", "stored_name"])
 
 
 def downgrade() -> None:
@@ -47,10 +61,10 @@ def downgrade() -> None:
         raise RuntimeError(
             "stored_name 이 여러 소유자에 걸쳐 존재해 전역 unique 로 되돌릴 수 없다: " + detail
         )
-    with op.batch_alter_table("uploaded_files") as batch:
-        batch.drop_constraint(_UQ, type_="unique")
-        try:
+    indexes, uniques = _existing(connection)
+    with op.batch_alter_table(_TABLE) as batch:
+        if _UQ in uniques:
+            batch.drop_constraint(_UQ, type_="unique")
+        if _INDEX in indexes:
             batch.drop_index(_INDEX)
-        except Exception:
-            pass
         batch.create_index(_INDEX, ["stored_name"], unique=True)

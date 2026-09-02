@@ -26,17 +26,20 @@ def upload_dir() -> Path:
     return Path(os.getenv("UPLOAD_DIR", str(UPLOAD_DIR)))
 
 
-def owner_dir(owner_user_id: Optional[int]) -> Path:
+def owner_dir(owner_user_id: Optional[int], *, root: Optional[Path] = None) -> Path:
     """소유자 전용 하위 디렉토리(uploads/u<id>). 소유자를 모르는 파일(0/None)은 레거시 루트.
 
     파일을 사용자별로 나누는 이유: 생성 파일은 이름을 사용자가 정할 수 있어서
     (uploads/서식.hwpx) 평면 디렉토리에서는 서로 덮어쓰고, 등록 하이재킹 가드가 두 번째
     사용자의 등록을 포기하게 만들었다. 디렉토리를 나누면 이름 충돌 자체가 없어진다.
+
+    디렉토리 이름 규칙(u<id>)의 정본은 이 함수 하나다 — 다른 곳에서 문자열로 다시 만들지
+    말 것. `root` 는 테스트용 루트 재지정.
     """
-    root = upload_dir()
+    base = root if root is not None else upload_dir()
     if owner_user_id and int(owner_user_id) > 0:
-        return root / f"u{int(owner_user_id)}"
-    return root
+        return base / f"u{int(owner_user_id)}"
+    return base
 
 
 def stored_file_path(stored_name: str, owner_user_id: Optional[int]) -> Path:
@@ -148,7 +151,9 @@ async def save_upload_limited(
     *,
     allowed_extensions: Collection[str],
     max_bytes: int,
-    owner_user_id: Optional[int] = None,
+    # 기본값을 두지 않는다 — 빠뜨린 새 호출부가 조용히 공용 레거시 루트에 쓰면, 이 PR 이
+    # 막은 이름 충돌·교차 접근이 그 경로로 되살아난다. 소유자를 모르면 None 을 명시하라.
+    owner_user_id: Optional[int],
 ) -> tuple[Path, str]:
     original_name, extension = validate_filename(upload.filename, allowed_extensions)
     destination_dir = owner_dir(owner_user_id)
@@ -284,6 +289,22 @@ def purge_expired_uploads(db, *, now: Optional[datetime.datetime] = None, limit:
     removed_bytes = 0
     for record in expired:
         path = stored_file_path(record.stored_name, record.owner_user_id)
+        # 레거시 루트 폴백으로 잡힌 파일은 이 행의 것이 아닐 수 있다 — 같은 이름의 다른
+        # 행이 있으면(복합 unique 시대) 그들의 파일일 수 있으므로 지우지 않는다. 예전에는
+        # 소유자 디렉토리 사본이 사라진 행이 만료되면서 **남의 레거시 파일을 지웠다**(PR #41 리뷰).
+        is_owner_copy = path == owner_dir(record.owner_user_id) / record.stored_name and \
+            bool(record.owner_user_id and int(record.owner_user_id) > 0)
+        if not is_owner_copy:
+            sibling = (
+                db.query(models.UploadedFile)
+                .filter(models.UploadedFile.stored_name == record.stored_name,
+                        models.UploadedFile.id != record.id)
+                .first()
+            )
+            if sibling is not None:
+                print(f"[uploads] {record.stored_name}: 루트 파일의 주인이 모호해 파일은 남기고 기록만 정리")
+                db.delete(record)
+                continue
         try:
             if path.is_file():
                 path.unlink()
