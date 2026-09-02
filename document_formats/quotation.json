@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "id": "quotation",
+  "name": "견적서",
+  "description": "공급자 정보와 품목별 금액, 합계를 담아 발행하는 견적서",
+  "layout": "document",
+  "output": {
+    "default": "docx",
+    "allowed": ["hwpx", "docx", "pdf", "xlsx"]
+  },
+  "fields": [
+    { "name": "customerName", "label": "수신(고객명)", "kind": "text", "required": true, "example": "주식회사 한빛" },
+    { "name": "quoteNumber", "label": "견적 번호", "kind": "text", "required": true, "example": "Q-2026-031" },
+    { "name": "quoteDate", "label": "견적일", "kind": "text", "required": true, "example": "2026-09-02" },
+    { "name": "validUntil", "label": "유효 기간", "kind": "text", "required": false, "example": "견적일로부터 30일" },
+    { "name": "supplierName", "label": "공급자 상호", "kind": "text", "required": true, "example": "워크플로우 주식회사" },
+    { "name": "supplierRegNo", "label": "사업자등록번호", "kind": "text", "required": true, "example": "000-00-00000" },
+    { "name": "supplierCeo", "label": "대표자", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "supplierContact", "label": "공급자 연락처", "kind": "text", "required": false, "example": "02-000-0000" },
+    { "name": "items", "label": "견적 내역", "kind": "rows",
+      "columns": ["품명", "규격", "수량", "단가(원)", "금액(원)"], "required": true },
+    { "name": "supplyAmount", "label": "공급가액", "kind": "text", "required": true, "example": "1,400,000원" },
+    { "name": "vat", "label": "부가세", "kind": "text", "required": true, "example": "140,000원" },
+    { "name": "totalAmount", "label": "합계 금액", "kind": "text", "required": true, "example": "1,540,000원" },
+    { "name": "note", "label": "비고", "kind": "text", "required": false, "example": "부가세 포함 · 배송비 별도" }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "견 적 서" },
+    { "type": "paragraph", "text": "수신: {{customerName}} 귀하" },
+    { "type": "paragraph", "text": "아래와 같이 견적합니다." },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["견적 번호", "{{quoteNumber}}"],
+        ["견적일", "{{quoteDate}}"],
+        ["유효 기간", "{{validUntil}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "공급자" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["상호", "{{supplierName}}"],
+        ["사업자등록번호", "{{supplierRegNo}}"],
+        ["대표자", "{{supplierCeo}}"],
+        ["연락처", "{{supplierContact}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "견적 내역" },
+    { "type": "table", "fromField": "items" },
+    { "type": "table", "columns": ["구분", "금액"],
+      "rows": [
+        ["공급가액", "{{supplyAmount}}"],
+        ["부가세", "{{vat}}"],
+        ["합계", "{{totalAmount}}"]
+      ] },
+    { "type": "paragraph", "text": "비고: {{note}}" }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "id": "certificate-award",
+  "name": "상장·수료증",
+  "description": "테두리 장식을 갖춘 가로 A4 상장/수료증 — 번호·성명·문구·수여 기관",
+  "layout": "design",
+  "output": {
+    "default": "pdf",
+    "allowed": ["pdf", "png"]
+  },
+  "fields": [
+    { "name": "certNumber", "label": "증서 번호", "kind": "text", "required": false, "example": "제 2026-07 호" },
+    { "name": "certTitle", "label": "증서 제목", "kind": "text", "required": true, "example": "수 료 증" },
+    { "name": "recipientOrg", "label": "소속", "kind": "text", "required": false, "example": "운영1팀" },
+    { "name": "recipientName", "label": "성명", "kind": "text", "required": true, "example": "김 워 크" },
+    { "name": "courseName", "label": "과정/수상 내용", "kind": "text", "required": true, "example": "AI 워크플로우 실무 과정" },
+    { "name": "bodyText", "label": "본문 문구", "kind": "multiline", "required": true,
+      "example": "위 사람은 본 기관이 주관한 위 과정을 성실히 이수하였기에 이 증서를 수여합니다." },
+    { "name": "issueDate", "label": "수여일", "kind": "text", "required": true, "example": "2026년 9월 2일" },
+    { "name": "issuerName", "label": "수여 기관/대표", "kind": "text", "required": true, "example": "워크플로우 아카데미 대표 이플로" }
+  ],
+  "design": {
+    "width": 1123,
+    "height": 794,
+    "theme": {
+      "primaryColor": "#b08d3e",
+      "backgroundColor": "#fffdf6",
+      "textColor": "#20242c",
+      "mutedColor": "#6b6f78",
+      "fontFamily": "Pretendard"
+    },
+    "html": "<div class=\"frame\"><div class=\"inner\"><span class=\"number\">{{certNumber}}</span><h1>{{certTitle}}</h1><p class=\"who\"><span class=\"org\">{{recipientOrg}}</span><strong>{{recipientName}}</strong></p><p class=\"course\">{{courseName}}</p><p class=\"body\">{{bodyText}}</p><p class=\"date\">{{issueDate}}</p><p class=\"issuer\">{{issuerName}} (인)</p></div></div>",
+    "css": ".frame { width: 100%; height: 100vh; box-sizing: border-box; padding: 34px; background: var(--fs-backgroundColor); }.inner { height: 100%; box-sizing: border-box; border: 3px solid var(--fs-primaryColor); outline: 1px solid var(--fs-primaryColor); outline-offset: -12px; padding: 44px 72px 40px; display: flex; flex-direction: column; align-items: center; text-align: center; color: var(--fs-textColor); }.number { align-self: flex-start; color: var(--fs-mutedColor); font-size: 16px; }h1 { margin: 6px 0 22px; font-size: 54px; letter-spacing: .5em; text-indent: .5em; color: var(--fs-textColor); }.who { margin: 0 0 4px; font-size: 22px; display: flex; gap: 18px; align-items: baseline; }.who .org { color: var(--fs-mutedColor); }.who strong { font-size: 34px; letter-spacing: .2em; }.course { margin: 0 0 18px; color: var(--fs-primaryColor); font-size: 21px; font-weight: 700; }.body { margin: 0; max-width: 720px; font-size: 19px; line-height: 1.9; }.date { margin: auto 0 8px; font-size: 18px; }.issuer { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: .08em; }"
+  }
+}

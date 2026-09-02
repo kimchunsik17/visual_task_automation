@@ -2,138 +2,43 @@
   "version": 1,
   "id": "meeting-minutes",
   "name": "회의록",
-  "description": "회의 개요, 논의 내용, 결정 사항과 후속 조치를 기록하는 문서",
+  "description": "회의 개요(일시·장소·참석자·작성자), 안건, 논의 내용, 결정 사항과 후속 조치를 기록하는 문서",
   "layout": "document",
   "output": {
     "default": "docx",
-    "allowed": [
-      "hwpx",
-      "docx",
-      "pdf",
-      "xlsx"
-    ]
+    "allowed": ["hwpx", "docx", "pdf", "xlsx"]
   },
   "fields": [
-    {
-      "name": "meetingTitle",
-      "label": "회의명",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "heldAt",
-      "label": "일시",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "place",
-      "label": "장소",
-      "kind": "text",
-      "required": false
-    },
-    {
-      "name": "attendees",
-      "label": "참석자",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "agenda",
-      "label": "안건",
-      "kind": "multiline",
-      "required": true
-    },
-    {
-      "name": "discussion",
-      "label": "논의 내용",
-      "kind": "multiline",
-      "required": true
-    },
-    {
-      "name": "decisions",
-      "label": "결정 사항",
-      "kind": "rows",
-      "columns": [
-        "번호",
-        "결정 내용"
-      ],
-      "required": false
-    },
-    {
-      "name": "actionItems",
-      "label": "후속 조치",
-      "kind": "rows",
-      "columns": [
-        "담당",
-        "할 일",
-        "기한"
-      ],
-      "required": false
-    }
+    { "name": "meetingTitle", "label": "회의명", "kind": "text", "required": true, "example": "주간 운영 회의" },
+    { "name": "heldAt", "label": "일시", "kind": "text", "required": true, "example": "2026-09-02(수) 10:00~11:00" },
+    { "name": "place", "label": "장소", "kind": "text", "required": false, "example": "본사 3층 회의실" },
+    { "name": "attendees", "label": "참석자", "kind": "text", "required": true, "example": "김워크, 이플로, 박오토" },
+    { "name": "recorder", "label": "작성자", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "agenda", "label": "안건", "kind": "multiline", "required": true },
+    { "name": "discussion", "label": "논의 내용", "kind": "multiline", "required": true },
+    { "name": "decisions", "label": "결정 사항", "kind": "rows", "columns": ["번호", "결정 내용"], "required": false },
+    { "name": "actionItems", "label": "후속 조치", "kind": "rows", "columns": ["담당", "할 일", "기한"], "required": false },
+    { "name": "notes", "label": "특이사항", "kind": "multiline", "required": false }
   ],
   "blocks": [
-    {
-      "type": "heading",
-      "level": 1,
-      "text": "회의록 — {{meetingTitle}}"
-    },
-    {
-      "type": "table",
-      "columns": [
-        "항목",
-        "내용"
-      ],
+    { "type": "heading", "level": 1, "text": "회 의 록" },
+    { "type": "table", "columns": ["항목", "내용"],
       "rows": [
-        [
-          "일시",
-          "{{heldAt}}"
-        ],
-        [
-          "장소",
-          "{{place}}"
-        ],
-        [
-          "참석자",
-          "{{attendees}}"
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "1. 안건"
-    },
-    {
-      "type": "paragraph",
-      "text": "{{agenda}}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "2. 논의 내용"
-    },
-    {
-      "type": "paragraph",
-      "text": "{{discussion}}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "3. 결정 사항"
-    },
-    {
-      "type": "table",
-      "fromField": "decisions"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "4. 후속 조치"
-    },
-    {
-      "type": "table",
-      "fromField": "actionItems"
-    }
+        ["회의명", "{{meetingTitle}}"],
+        ["일시", "{{heldAt}}"],
+        ["장소", "{{place}}"],
+        ["참석자", "{{attendees}}"],
+        ["작성자", "{{recorder}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "1. 안건" },
+    { "type": "paragraph", "text": "{{agenda}}" },
+    { "type": "heading", "level": 2, "text": "2. 논의 내용" },
+    { "type": "paragraph", "text": "{{discussion}}" },
+    { "type": "heading", "level": 2, "text": "3. 결정 사항" },
+    { "type": "table", "fromField": "decisions" },
+    { "type": "heading", "level": 2, "text": "4. 후속 조치" },
+    { "type": "table", "fromField": "actionItems" },
+    { "type": "heading", "level": 2, "text": "5. 특이사항" },
+    { "type": "paragraph", "text": "{{notes}}" }
   ]
 }

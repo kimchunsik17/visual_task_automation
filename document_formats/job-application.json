@@ -2,156 +2,51 @@
   "version": 1,
   "id": "job-application",
   "name": "입사지원서",
-  "description": "인적 사항, 학력·경력, 자기소개를 담는 입사지원서",
+  "description": "인적 사항, 학력·경력·자격, 자기소개와 지원 동기를 담는 입사지원서",
   "layout": "document",
   "output": {
     "default": "hwpx",
-    "allowed": [
-      "hwpx",
-      "docx",
-      "pdf"
-    ]
+    "allowed": ["hwpx", "docx", "pdf"]
   },
   "fields": [
-    {
-      "name": "applicantName",
-      "label": "성명",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "position",
-      "label": "지원 직무",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "contact",
-      "label": "연락처",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "email",
-      "label": "이메일",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "photo",
-      "label": "증명사진",
-      "kind": "image",
-      "required": false
-    },
-    {
-      "name": "education",
-      "label": "학력",
-      "kind": "rows",
-      "columns": [
-        "기간",
-        "학교/전공",
-        "비고"
-      ],
-      "required": false
-    },
-    {
-      "name": "career",
-      "label": "경력",
-      "kind": "rows",
-      "columns": [
-        "기간",
-        "회사/직무",
-        "주요 성과"
-      ],
-      "required": false
-    },
-    {
-      "name": "introduction",
-      "label": "자기소개",
-      "kind": "multiline",
-      "required": true
-    },
-    {
-      "name": "motivation",
-      "label": "지원 동기",
-      "kind": "multiline",
-      "required": true
-    }
+    { "name": "applicantName", "label": "성명", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "birthDate", "label": "생년월일", "kind": "text", "required": false, "example": "1999. 3. 1." },
+    { "name": "position", "label": "지원 직무", "kind": "text", "required": true, "example": "백엔드 개발" },
+    { "name": "contact", "label": "연락처", "kind": "text", "required": true, "example": "010-0000-0000" },
+    { "name": "email", "label": "이메일", "kind": "text", "required": true, "example": "work@example.com" },
+    { "name": "address", "label": "주소", "kind": "text", "required": false },
+    { "name": "photo", "label": "증명사진", "kind": "image", "required": false },
+    { "name": "education", "label": "학력 사항", "kind": "rows", "columns": ["기간", "학교/전공", "졸업 여부"], "required": false },
+    { "name": "career", "label": "경력 사항", "kind": "rows", "columns": ["기간", "회사/직무", "주요 성과"], "required": false },
+    { "name": "certificates", "label": "자격·어학", "kind": "rows", "columns": ["취득일", "자격/시험명", "발급 기관·점수"], "required": false },
+    { "name": "introduction", "label": "자기소개", "kind": "multiline", "required": true },
+    { "name": "motivation", "label": "지원 동기", "kind": "multiline", "required": true },
+    { "name": "appliedAt", "label": "작성일", "kind": "text", "required": true, "example": "2026년 9월 2일" }
   ],
   "blocks": [
-    {
-      "type": "heading",
-      "level": 1,
-      "text": "입 사 지 원 서"
-    },
-    {
-      "type": "image",
-      "fromField": "photo",
-      "widthMm": 30
-    },
-    {
-      "type": "table",
-      "columns": [
-        "항목",
-        "내용"
-      ],
+    { "type": "heading", "level": 1, "text": "입 사 지 원 서" },
+    { "type": "image", "fromField": "photo", "widthMm": 30 },
+    { "type": "table", "columns": ["항목", "내용"],
       "rows": [
-        [
-          "성명",
-          "{{applicantName}}"
-        ],
-        [
-          "지원 직무",
-          "{{position}}"
-        ],
-        [
-          "연락처",
-          "{{contact}}"
-        ],
-        [
-          "이메일",
-          "{{email}}"
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "학력 사항"
-    },
-    {
-      "type": "table",
-      "fromField": "education"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "경력 사항"
-    },
-    {
-      "type": "table",
-      "fromField": "career"
-    },
-    {
-      "type": "page_break"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "자기소개"
-    },
-    {
-      "type": "paragraph",
-      "text": "{{introduction}}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "지원 동기"
-    },
-    {
-      "type": "paragraph",
-      "text": "{{motivation}}"
-    }
+        ["성명", "{{applicantName}}"],
+        ["생년월일", "{{birthDate}}"],
+        ["지원 직무", "{{position}}"],
+        ["연락처", "{{contact}}"],
+        ["이메일", "{{email}}"],
+        ["주소", "{{address}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "학력 사항" },
+    { "type": "table", "fromField": "education" },
+    { "type": "heading", "level": 2, "text": "경력 사항" },
+    { "type": "table", "fromField": "career" },
+    { "type": "heading", "level": 2, "text": "자격·어학" },
+    { "type": "table", "fromField": "certificates" },
+    { "type": "page_break" },
+    { "type": "heading", "level": 2, "text": "자기소개" },
+    { "type": "paragraph", "text": "{{introduction}}" },
+    { "type": "heading", "level": 2, "text": "지원 동기" },
+    { "type": "paragraph", "text": "{{motivation}}" },
+    { "type": "paragraph", "text": "위 기재 사항은 사실과 다름이 없습니다." },
+    { "type": "paragraph", "text": "{{appliedAt}}    지원자: {{applicantName}} (인)" }
   ]
 }

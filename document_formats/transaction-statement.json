@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "id": "transaction-statement",
+  "name": "거래명세서",
+  "description": "공급자·공급받는자와 품목별 거래 내역, 합계를 기록하는 명세서",
+  "layout": "document",
+  "output": {
+    "default": "docx",
+    "allowed": ["hwpx", "docx", "pdf", "xlsx"]
+  },
+  "fields": [
+    { "name": "statementDate", "label": "거래일자", "kind": "text", "required": true, "example": "2026-09-02" },
+    { "name": "supplierName", "label": "공급자 상호", "kind": "text", "required": true, "example": "워크플로우 주식회사" },
+    { "name": "supplierRegNo", "label": "사업자등록번호", "kind": "text", "required": true, "example": "000-00-00000" },
+    { "name": "supplierCeo", "label": "대표자", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "buyerName", "label": "공급받는자", "kind": "text", "required": true, "example": "주식회사 한빛" },
+    { "name": "items", "label": "거래 내역", "kind": "rows",
+      "columns": ["품목", "규격", "수량", "단가(원)", "공급가액(원)"], "required": true },
+    { "name": "totalAmount", "label": "합계 금액", "kind": "text", "required": true, "example": "1,540,000원 (부가세 포함)" },
+    { "name": "receivedBy", "label": "인수자", "kind": "text", "required": false }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "거 래 명 세 서" },
+    { "type": "paragraph", "text": "거래일자: {{statementDate}}" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["공급자", "{{supplierName}}"],
+        ["사업자등록번호", "{{supplierRegNo}}"],
+        ["대표자", "{{supplierCeo}}"],
+        ["공급받는자", "{{buyerName}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "거래 내역" },
+    { "type": "table", "fromField": "items" },
+    { "type": "paragraph", "text": "합계 금액: {{totalAmount}}" },
+    { "type": "paragraph", "text": "위와 같이 거래하였음을 확인합니다." },
+    { "type": "paragraph", "text": "인수자: {{receivedBy}} (인)" }
+  ]
+}

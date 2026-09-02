@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "id": "labor-contract",
+  "name": "표준근로계약서",
+  "description": "고용노동부 표준 양식을 따른 근로계약서 — 근로 조건과 양측 서명란",
+  "layout": "document",
+  "output": {
+    "default": "hwpx",
+    "allowed": ["hwpx", "docx", "pdf"]
+  },
+  "fields": [
+    { "name": "employerName", "label": "사업체명", "kind": "text", "required": true, "example": "워크플로우 주식회사" },
+    { "name": "employerCeo", "label": "사업주(대표자)", "kind": "text", "required": true, "example": "이플로" },
+    { "name": "employerAddress", "label": "사업장 주소", "kind": "text", "required": true, "example": "서울특별시 성동구 성수이로 00" },
+    { "name": "workerName", "label": "근로자 성명", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "workerAddress", "label": "근로자 주소", "kind": "text", "required": false },
+    { "name": "workerContact", "label": "근로자 연락처", "kind": "text", "required": false, "example": "010-0000-0000" },
+    { "name": "startDate", "label": "근로 개시일", "kind": "text", "required": true, "example": "2026년 10월 1일" },
+    { "name": "workPlace", "label": "근무 장소", "kind": "text", "required": true, "example": "본사 및 회사가 지정하는 장소" },
+    { "name": "duties", "label": "업무 내용", "kind": "text", "required": true, "example": "백엔드 서비스 개발 및 운영" },
+    { "name": "workHours", "label": "소정근로시간", "kind": "text", "required": true, "example": "09:00 ~ 18:00 (휴게 12:00 ~ 13:00)" },
+    { "name": "workDays", "label": "근무일·휴일", "kind": "text", "required": true, "example": "주 5일(월~금) 근무, 주휴일 일요일" },
+    { "name": "wage", "label": "임금", "kind": "text", "required": true, "example": "월 2,800,000원" },
+    { "name": "payDate", "label": "임금 지급일", "kind": "text", "required": true, "example": "매월 25일 (휴일인 경우 전일 지급)" },
+    { "name": "payMethod", "label": "지급 방법", "kind": "text", "required": true, "example": "근로자 명의 예금통장에 입금" },
+    { "name": "contractDate", "label": "계약 체결일", "kind": "text", "required": true, "example": "2026년 9월 2일" }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "표 준 근 로 계 약 서" },
+    { "type": "paragraph", "text": "{{employerName}}(이하 \"사업주\"라 함)과(와) {{workerName}}(이하 \"근로자\"라 함)은 다음과 같이 근로계약을 체결한다." },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["1. 근로 개시일", "{{startDate}}"],
+        ["2. 근무 장소", "{{workPlace}}"],
+        ["3. 업무 내용", "{{duties}}"],
+        ["4. 소정근로시간", "{{workHours}}"],
+        ["5. 근무일 및 휴일", "{{workDays}}"],
+        ["6. 임금", "{{wage}}"],
+        ["7. 임금 지급일", "{{payDate}}"],
+        ["8. 지급 방법", "{{payMethod}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "기타" },
+    { "type": "paragraph", "text": "연차유급휴가는 근로기준법에서 정하는 바에 따라 부여하며, 사회보험(고용보험·산재보험·국민연금·건강보험)은 관계 법령에 따라 적용한다. 이 계약에 정함이 없는 사항은 근로기준법령에 의한다." },
+    { "type": "paragraph", "text": "{{contractDate}}" },
+    { "type": "table", "columns": ["구분", "내용"],
+      "rows": [
+        ["사업주", "{{employerName}} 대표 {{employerCeo}} (인) / 주소: {{employerAddress}}"],
+        ["근로자", "{{workerName}} (인) / 주소: {{workerAddress}} / 연락처: {{workerContact}}"]
+      ] }
+  ]
+}

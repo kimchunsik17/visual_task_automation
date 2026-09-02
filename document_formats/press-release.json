@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "id": "press-release",
+  "name": "보도자료",
+  "description": "배포 정보·담당자와 제목·부제·본문을 갖춘 보도자료",
+  "layout": "document",
+  "output": {
+    "default": "docx",
+    "allowed": ["hwpx", "docx", "pdf"]
+  },
+  "fields": [
+    { "name": "orgName", "label": "기관/회사명", "kind": "text", "required": true, "example": "워크플로우 주식회사" },
+    { "name": "releaseDate", "label": "배포일", "kind": "text", "required": true, "example": "2026. 9. 2.(수)" },
+    { "name": "embargo", "label": "배포 구분", "kind": "text", "required": false, "example": "즉시 배포 가능" },
+    { "name": "contactDept", "label": "담당 부서", "kind": "text", "required": true, "example": "홍보팀" },
+    { "name": "contactName", "label": "담당자", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "contactPhone", "label": "담당 연락처", "kind": "text", "required": true, "example": "02-000-0000" },
+    { "name": "title", "label": "제목", "kind": "text", "required": true,
+      "example": "워크플로우, 문서 자동화 신기능 출시" },
+    { "name": "subtitle", "label": "부제", "kind": "text", "required": false,
+      "example": "- 자연어로 만들고 링크로 배포하는 업무 자동화 -" },
+    { "name": "photo", "label": "사진", "kind": "image", "required": false },
+    { "name": "body", "label": "본문", "kind": "multiline", "required": true }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "보 도 자 료" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["배포 기관", "{{orgName}}"],
+        ["배포일", "{{releaseDate}}"],
+        ["배포 구분", "{{embargo}}"],
+        ["담당", "{{contactDept}} {{contactName}} ({{contactPhone}})"]
+      ] },
+    { "type": "heading", "level": 2, "text": "{{title}}" },
+    { "type": "heading", "level": 3, "text": "{{subtitle}}" },
+    { "type": "image", "fromField": "photo" },
+    { "type": "paragraph", "text": "{{body}}" },
+    { "type": "paragraph", "text": "이 자료에 대한 문의는 {{contactDept}} {{contactName}}({{contactPhone}})에게 연락 주시기 바랍니다." }
+  ]
+}
