@@ -52,7 +52,11 @@ class ArtifactSink:
         self._handle = None
 
     def __enter__(self):
-        root = artifacts.upload_root()
+        # 물리 파일은 소유자 디렉토리(uploads/u<id>/) 밑에 쓴다 — 등록·조회는 stored_name
+        # (이름만)으로 하므로 계약은 그대로다.
+        from upload_security import owner_dir
+
+        root = owner_dir(self.owner_user_id)
         root.mkdir(parents=True, exist_ok=True)
         # 저장 이름은 우리가 정한다 — 외부 서비스가 준 이름을 그대로 파일명으로 쓰면 경로 문자와
         # 중복이 그대로 디스크에 들어온다. 원본 이름은 표시용으로만 등록 행에 남는다.

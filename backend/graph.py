@@ -304,21 +304,42 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     lines.append("    try:")
     lines.append("        candidate = _Path(str(raw))")
     lines.append("        resolved = (candidate if candidate.is_absolute() else _Path.cwd() / candidate).resolve()")
-    lines.append("        resolved.relative_to(root)")
+    lines.append("        _rel = resolved.relative_to(root)")
     lines.append("    except Exception:")
     lines.append("        return None")
+    # 다른 사용자의 전용 디렉토리(uploads/u<id>/)는 경로만으로도 차단한다 — 물리 격리가
+    # per-user 이동의 목적이므로, DB 조회 없이도 이 선은 지켜져야 한다.
+    lines.append("    _parts = _rel.parts")
+    lines.append("    if _parts and _parts[0][:1] == 'u' and _parts[0][1:].isdigit() and int(_parts[0][1:]) != (__owner_user_id__ or 0):")
+    lines.append("        return None")
+    # 공개 문자열(uploads/<이름>)이 루트 바로 밑을 가리키는데 실제 파일이 소유자 디렉토리에
+    # 있으면 그쪽으로 푼다 — per-user 이동 뒤에도 옛 문자열 계약이 그대로 동작해야 한다.
+    lines.append("    if resolved.parent == root and not resolved.is_file() and (__owner_user_id__ or 0) > 0:")
+    lines.append("        _own = root / ('u%d' % __owner_user_id__) / resolved.name")
+    lines.append("        if _own.is_file():")
+    lines.append("            resolved = _own")
     # 소유권 검사(ADR-0010 후속). 예전에는 uploads/ 안이기만 하면 통과해, 예측 가능한 이름
     # (uploads/서식.hwpx, 작성완료.hwpx 등)으로 **남의 생성·업로드 파일을 읽을 수** 있었다.
     # 등록된 파일이면 이번 실행의 소유자(__owner_user_id__) 것이어야 한다. db 가 없으면(테스트)
     # 확인을 건너뛰고 경로 가둠만 적용한다. 등록되지 않은 경로는 종전대로 통과한다.
+    # stored_name 은 (owner, name) 복합 unique 라 같은 이름의 행이 여럿일 수 있다 — 내 것이나
+    # 소유자 미상(0/None) 행이 하나라도 있으면 통과(물리 경로는 위에서 이미 내 영역으로 굳었다).
     lines.append("    try:")
     lines.append("        if db is not None:")
-    lines.append("            _rec = db.query(models.UploadedFile).filter(models.UploadedFile.stored_name == resolved.name).first()")
-    lines.append("            if _rec is not None and _rec.owner_user_id not in (None, 0, __owner_user_id__):")
+    lines.append("            _recs = db.query(models.UploadedFile).filter(models.UploadedFile.stored_name == resolved.name).all()")
+    lines.append("            if _recs and not any(_r.owner_user_id in (None, 0, __owner_user_id__) for _r in _recs):")
     lines.append("                return None")
     lines.append("    except Exception:")
     lines.append("        pass")
     lines.append("    return resolved")
+    # 생성 노드의 쓰기 경로: 공개 문자열(uploads/<이름>)을 소유자 디렉토리 밑의 실제 경로로
+    # 바꾼다. 결과 문자열·등록 행은 여전히 이름만 쓴다(위치가 바뀌어도 계약 유지, ADR-0010).
+    lines.append("def _user_output_path(raw):")
+    lines.append("    _name = _os.path.basename(str(raw or '').replace('\\\\', '/'))")
+    lines.append("    _root = _Path(_os.getenv('UPLOAD_DIR', 'uploads'))")
+    lines.append("    _dir = _root / ('u%d' % __owner_user_id__) if (__owner_user_id__ or 0) > 0 else _root")
+    lines.append("    _dir.mkdir(parents=True, exist_ok=True)")
+    lines.append("    return str(_dir / _name)")
     lines.append("__node_bindings__ = " + repr(node_bindings.runtime_map(nodes)))
     lines.append("def _binding_path(value, path):")
     lines.append("    if not path:")

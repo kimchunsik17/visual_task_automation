@@ -283,7 +283,10 @@ def generate_or_edit_image(
     if not image_bytes or len(image_bytes) > max_bytes:
         raise ImageGenerationError("image_too_large", f"생성 이미지가 저장 한도({max_bytes // (1024 * 1024)}MB)를 초과했습니다.")
 
-    root = Path(upload_root or os.getenv("UPLOAD_DIR", str(upload_security.UPLOAD_DIR)))
+    # 물리 파일은 소유자 디렉토리(uploads/u<id>/) 밑에 쓴다. upload_root 인자는 테스트용
+    # 루트 재지정이고, 그 밑의 소유자 하위 디렉토리 규칙은 동일하게 적용한다.
+    base = Path(upload_root or os.getenv("UPLOAD_DIR", str(upload_security.UPLOAD_DIR)))
+    root = base / f"u{int(owner_user_id)}" if owner_user_id and int(owner_user_id) > 0 else base
     root.mkdir(parents=True, exist_ok=True)
     extension = ".jpg" if output_format == "jpeg" else f".{output_format}"
     stored_path = root / f"{uuid.uuid4().hex}{extension}"

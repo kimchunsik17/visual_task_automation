@@ -132,12 +132,20 @@ def create(spec_source: Any, *, output_path: str = "", db=None,
            owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     spec = _spec_from(spec_source)
     target = normalize_path(output_path) if output_path else default_output_path(spec)
+    # 물리 파일은 소유자 디렉토리(uploads/u<id>/) 밑에 쓴다. 결과의 'path' 는 계속 공개
+    # 형태(uploads/<이름>)를 돌려준다 — 프론트 링크·legacy 정규식·서빙 URL 계약이 그 형태고,
+    # 등록(register_generated_file)·다음 노드의 읽기(_safe_user_path)가 소유자 디렉토리로 푼다.
+    from upload_security import physical_output_path
+
+    physical = physical_output_path(target, owner_user_id)
     try:
-        info = hwpx.build(spec, target, image_loader=_image_loader(db, owner_user_id))
+        info = hwpx.build(spec, physical, image_loader=_image_loader(db, owner_user_id))
     except hwpx.UnsupportedFeature as exc:
         raise HwpxNodeError(str(exc), reason="HWPX_UNSUPPORTED_FEATURE") from None
     except hwpx.SpecError as exc:
         raise HwpxNodeError(str(exc), reason="HWPX_INVALID_SPEC") from None
+    info = dict(info)
+    info["path"] = target
     return {"mode": "create", **info}
 
 

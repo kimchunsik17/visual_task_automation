@@ -17,6 +17,51 @@ from fastapi import HTTPException, UploadFile, status
 
 UPLOAD_DIR = Path("uploads")
 DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+def upload_dir() -> Path:
+    """저장 루트. env 를 매 호출 읽는다 — 모듈 상수는 import 시점에 굳어 테스트·배포에서
+    UPLOAD_DIR env 를 바꿔도 반영되지 않았고, artifacts.upload_root() 와 서로 다른 위치를
+    보는 불일치가 있었다."""
+    return Path(os.getenv("UPLOAD_DIR", str(UPLOAD_DIR)))
+
+
+def owner_dir(owner_user_id: Optional[int]) -> Path:
+    """소유자 전용 하위 디렉토리(uploads/u<id>). 소유자를 모르는 파일(0/None)은 레거시 루트.
+
+    파일을 사용자별로 나누는 이유: 생성 파일은 이름을 사용자가 정할 수 있어서
+    (uploads/서식.hwpx) 평면 디렉토리에서는 서로 덮어쓰고, 등록 하이재킹 가드가 두 번째
+    사용자의 등록을 포기하게 만들었다. 디렉토리를 나누면 이름 충돌 자체가 없어진다.
+    """
+    root = upload_dir()
+    if owner_user_id and int(owner_user_id) > 0:
+        return root / f"u{int(owner_user_id)}"
+    return root
+
+
+def stored_file_path(stored_name: str, owner_user_id: Optional[int]) -> Path:
+    """장부 행의 실제 디스크 경로 — 소유자 디렉토리 우선, 이관 전 파일은 레거시 루트.
+
+    공개 문자열(`uploads/<이름>`)과 URL 계약은 그대로 두고 물리 위치만 나눴으므로,
+    디스크를 여는 쪽은 반드시 이 함수를 거친다.
+    """
+    preferred = owner_dir(owner_user_id) / stored_name
+    if preferred.is_file():
+        return preferred
+    return upload_dir() / stored_name
+
+
+def physical_output_path(public_path: str, owner_user_id: Optional[int]) -> str:
+    """공개 문자열('uploads/<이름>' 또는 이름)을 실제 쓰기 경로로 바꾼다.
+
+    소유자 디렉토리를 만들어 그 밑의 경로를 준다. 결과 문자열·등록 행의 stored_name 은
+    여전히 이름만 쓴다 — 위치가 바뀌어도 계약이 유지된다(ADR-0010).
+    """
+    name = os.path.basename(str(public_path or "").replace("\\", "/"))
+    target_dir = owner_dir(owner_user_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return str(target_dir / name)
+
 DEFAULT_MAX_CONTEXT_BYTES = 10 * 1024 * 1024
 DEFAULT_MAX_CONTEXT_FILES = 5
 # 사용자 한 명이 차지할 수 있는 총 용량과 파일 수. 익명 업로드는 앱 소유자 몫으로 계산되므로
@@ -103,10 +148,12 @@ async def save_upload_limited(
     *,
     allowed_extensions: Collection[str],
     max_bytes: int,
+    owner_user_id: Optional[int] = None,
 ) -> tuple[Path, str]:
     original_name, extension = validate_filename(upload.filename, allowed_extensions)
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    destination = UPLOAD_DIR / f"{uuid.uuid4().hex}{extension}"
+    destination_dir = owner_dir(owner_user_id)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / f"{uuid.uuid4().hex}{extension}"
     total_bytes = 0
 
     try:
@@ -236,7 +283,7 @@ def purge_expired_uploads(db, *, now: Optional[datetime.datetime] = None, limit:
     removed_files = 0
     removed_bytes = 0
     for record in expired:
-        path = UPLOAD_DIR / record.stored_name
+        path = stored_file_path(record.stored_name, record.owner_user_id)
         try:
             if path.is_file():
                 path.unlink()

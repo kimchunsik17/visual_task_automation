@@ -86,6 +86,19 @@ def upload_root() -> Path:
     return Path(os.getenv("UPLOAD_DIR", DEFAULT_UPLOAD_DIR)).resolve()
 
 
+def stored_path_for(record) -> Path:
+    """장부 행의 실제 디스크 경로 — 소유자 디렉토리(uploads/u<id>/) 우선, 이관 전 파일은
+    레거시 루트. 공개 문자열·stored_name 계약은 이름만 유지하므로 물리 경로는 늘 여기로 푼다."""
+    root = upload_root()
+    name = record.stored_name or ""
+    owner = int(record.owner_user_id or 0)
+    if owner > 0:
+        preferred = root / f"u{owner}" / name
+        if preferred.is_file():
+            return preferred
+    return root / name
+
+
 class ArtifactError(NodeErrorException):
     """ARTIFACT_* typed error 를 담은 예외. 호출부(발송 adapter)가 NodeResult 로 감싼다."""
 
@@ -261,21 +274,36 @@ def register_generated_file(
 
         resolved = Path(path)
         if not resolved.is_absolute():
-            resolved = (upload_root() / Path(path).name).resolve()
+            # 공개 문자열(uploads/<이름>)일 수 있다 — 물리 파일은 소유자 디렉토리에 먼저 찾고,
+            # 이관 전 파일은 레거시 루트에서 찾는다.
+            name = Path(path).name
+            root = upload_root()
+            owner_candidate = (
+                root / f"u{int(owner_user_id)}" / name if owner_user_id and int(owner_user_id) > 0 else None
+            )
+            if owner_candidate is not None and owner_candidate.is_file():
+                resolved = owner_candidate.resolve()
+            else:
+                resolved = (root / name).resolve()
         if not resolved.is_file():
             return None
 
-        existing = (
+        # stored_name 은 (owner_user_id, stored_name) 복합 unique 다 — 같은 이름이 사용자마다
+        # 있을 수 있으므로 내 행(또는 소유자 미상 행)만 본다. 물리 파일이 **내 디렉토리**에
+        # 있으면 남의 행과 무관하게 내 행을 만들 수 있다(디렉토리가 격리를 보장한다).
+        rows = (
             db.query(models.UploadedFile)
             .filter(models.UploadedFile.stored_name == resolved.name)
-            .first()
+            .all()
         )
-        # 같은 stored_name 의 행이 **다른 사용자** 것이면 건드리지 않는다. stored_name 은 output_path
-        # 에서 오고 사용자가 고정할 수 있어(uploads/서식.hwpx), 남의 파일명과 충돌시키면 예전에는
-        # 그 행의 size·hash 를 덮어쓰고 남의 artifact_id 를 이 호출자에게 돌려줬다 — 남의 파일을
-        # 자기 산출물로 첨부할 수 있는 경로였다. 등록을 포기한다(파일은 이미 디스크에 있고,
-        # 등록이 없으면 첨부만 못 할 뿐이다).
-        if existing is not None and (owner_user_id or 0) not in (existing.owner_user_id, 0):
+        mine = int(owner_user_id or 0)
+        existing = next((r for r in rows if int(r.owner_user_id or 0) in (mine, 0)), None)
+        # 하이재킹 가드(레거시 루트 한정): 파일이 소유자 디렉토리가 아니라 공용 루트에 있고
+        # 같은 이름의 행이 **다른 사용자** 것뿐이면 등록을 포기한다 — 그 물리 파일은 남의
+        # 것일 수 있고, 등록하면 resolve() 가 그 파일을 이 호출자에게 열어 준다.
+        my_dir = upload_root() / f"u{mine}" if mine > 0 else None
+        in_my_dir = my_dir is not None and resolved.parent == my_dir.resolve()
+        if not in_my_dir and existing is None and rows:
             return None
         size_bytes = resolved.stat().st_size
         digest = sha256_of(resolved)
@@ -373,10 +401,15 @@ def _find_upload_record(db, artifact_id: str):
         .first()
     )
     if image:
-        record = (
+        # 같은 stored_name 의 행이 사용자마다 있을 수 있다(복합 unique) — 이미지 소유자의 행을 본다.
+        rows = (
             db.query(models.UploadedFile)
             .filter(models.UploadedFile.stored_name == image.stored_name)
-            .first()
+            .all()
+        )
+        record = next(
+            (r for r in rows if int(r.owner_user_id or 0) == int(image.owner_user_id or 0)),
+            rows[0] if rows else None,
         )
         if record:
             return record, "image"
@@ -393,11 +426,12 @@ def lookup(db, artifact_id: str) -> Optional[ArtifactRef]:
     return _ref_from_upload(record, source=source or "upload")
 
 
-def lookup_by_stored_path(db, raw_path: str) -> Optional[ArtifactRef]:
+def lookup_by_stored_path(db, raw_path: str, *, owner_user_id: Optional[int] = None) -> Optional[ArtifactRef]:
     """legacy `uploads/...` 문자열 → 등록된 artifact (FILE-SEND-2 ⑤).
 
     임의 로컬 경로를 열기 위한 통로가 아니다 — **등록된 파일로 역조회되는 경우에만** 값을 돌려주고,
-    소유권 확인은 호출부의 `resolve()` 가 한다.
+    소유권 확인은 호출부의 `resolve()` 가 한다. 같은 이름의 행이 사용자마다 있을 수 있으므로
+    (복합 unique), 호출부가 소유자를 알면 그 사용자의 행을 우선한다.
     """
     import models
 
@@ -406,13 +440,16 @@ def lookup_by_stored_path(db, raw_path: str) -> Optional[ArtifactRef]:
     name = os.path.basename(str(raw_path).replace("\\", "/").strip())
     if not name or name in {".", ".."}:
         return None
-    record = (
+    rows = (
         db.query(models.UploadedFile)
         .filter(models.UploadedFile.stored_name == name)
-        .first()
+        .all()
     )
-    if not record:
+    if not rows:
         return None
+    record = rows[0]
+    if owner_user_id is not None:
+        record = next((r for r in rows if int(r.owner_user_id or 0) == int(owner_user_id)), record)
     if not record.artifact_id:
         ensure_artifact_id(db, record)
     return _ref_from_upload(record)
@@ -491,7 +528,7 @@ def resolve(
         raise fail("ARTIFACT_EXPIRED", internal="보존 기간 경과")
 
     root = upload_root()
-    candidate = root / (record.stored_name or "")
+    candidate = stored_path_for(record)
     # symlink 를 따라간 뒤의 경로가 루트 안이어야 한다. `resolve()` 는 링크를 모두 푼다.
     resolved_path = candidate.resolve()
     try:

@@ -439,10 +439,15 @@ class UploadedFile(Base):
     """
 
     __tablename__ = "uploaded_files"
+    # 저장 이름은 소유자 안에서만 유일하다. 생성 파일은 이름을 사용자가 정할 수 있어서
+    # (uploads/서식.hwpx) 전역 unique 면 서로 다른 사용자의 같은 이름이 충돌했다 — 물리
+    # 파일도 소유자 디렉토리(uploads/u<id>/)로 나눠 이름 충돌 자체가 없다(마이그레이션 0023).
+    __table_args__ = (UniqueConstraint("owner_user_id", "stored_name", name="uq_uploaded_files_owner_stored_name"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    # 디스크에 저장된 이름(uuid). 경로가 아니라 이름만 저장한다 — 저장 위치가 바뀌어도 이력이 남는다.
-    stored_name = Column(String, unique=True, index=True, nullable=False)
+    # 디스크에 저장된 이름(uuid 또는 사용자가 정한 출력 이름). 경로가 아니라 이름만 저장한다 —
+    # 실제 위치(소유자 디렉토리/레거시 루트)는 upload_security.stored_file_path 가 푼다.
+    stored_name = Column(String, index=True, nullable=False)
     # 공개 식별자(ADR-0018). 그래프·실행 로그·전송 결과에는 이 값만 남고, stored_name 과 실제
     # 경로는 서버 resolver 안에서만 다룬다 — 저장 위치가 바뀌어도 참조가 깨지지 않는다.
     artifact_id = Column(String, unique=True, index=True, nullable=True)
