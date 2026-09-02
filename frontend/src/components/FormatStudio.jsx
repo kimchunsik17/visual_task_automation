@@ -107,7 +107,9 @@ function DesignPreview({ spec }) {
 
 // ── 본체 ────────────────────────────────────────────────────────────────
 
-export default function FormatStudio({ isOpen, onClose, initialFormatId = '', onApplyToNode = null, onLibraryChanged = null }) {
+export default function FormatStudio({ isOpen, onClose, initialFormatId = '', onApplyToNode = null, onLibraryChanged = null, variant = 'modal' }) {
+  const isPage = variant === 'page';   // 풀페이지 스튜디오(/formats/studio) — 모달 셸 없이 3-pane 로 채운다
+  const [inspectorEl, setInspectorEl] = useState(null); // 우측 인스펙터(캔버스 속성 패널 포털 대상)
   const [spec, setSpec] = useState(() => emptySpec());
   const [libraryId, setLibraryId] = useState('');       // 내 라이브러리 행 id (있으면 업데이트)
   const [userFormats, setUserFormats] = useState([]);
@@ -285,9 +287,9 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
   if (!isOpen) return null;
   const isDocument = spec.layout === 'document';
 
-  return (
-    <div className="fstudio-backdrop" onClick={onClose}>
-      <div className="fstudio" role="dialog" aria-label="포맷 스튜디오" onClick={(e) => e.stopPropagation()}>
+  const studio = (
+      <div className={`fstudio ${isPage ? 'fstudio-pagemode' : ''}`} role={isPage ? undefined : 'dialog'}
+           aria-label="포맷 스튜디오" onClick={isPage ? undefined : (e) => e.stopPropagation()}>
         <header className="fstudio-head">
           <div className="fstudio-title"><LayoutTemplate size={18} /> 포맷 스튜디오</div>
           <div className="fstudio-ai">
@@ -480,6 +482,8 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
                 </div>
                 {spec.design?.elements ? (
                   <FormatCanvasEditor design={spec.design} fields={spec.fields || []}
+                                      maxWidth={isPage ? 940 : 620}
+                                      propsContainer={isPage ? inspectorEl : null}
                                       onDesignChange={(nextDesign) => update((s) => { s.design = nextDesign; })} />
                 ) : (
                   <p className="fstudio-hint">이 디자인은 코드(HTML/CSS) 기반입니다 — 위치·크기를 드래그로 편집하려면
@@ -497,8 +501,14 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
             )}
           </section>
 
-          {/* ── 우: 미리보기 ── */}
+          {/* ── 우: (풀페이지) 인스펙터 + 미리보기 ── */}
           <aside className="fstudio-preview">
+            {isPage && !isDocument && spec.design?.elements && (
+              <>
+                <span className="fstudio-side-label">선택 요소</span>
+                <div className="fstudio-inspector" ref={setInspectorEl} />
+              </>
+            )}
             <span className="fstudio-side-label">구조 미리보기 <em>예시값 기준 · 실제 문서와 다를 수 있음</em></span>
             {isDocument ? <DocumentPreview spec={spec} /> : <DesignPreview spec={spec} />}
           </aside>
@@ -520,6 +530,8 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
         <input ref={uploadInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadImage} />
         <input ref={importInputRef} type="file" accept=".hwpx,.docx" style={{ display: 'none' }} onChange={importFromFile} />
       </div>
-    </div>
   );
+
+  if (isPage) return studio;
+  return <div className="fstudio-backdrop" onClick={onClose}>{studio}</div>;
 }
