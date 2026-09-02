@@ -524,14 +524,116 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
                 lines.append(f"        llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler], tags=['workflow_execution'])")
             lines.append(f"    sys_prompt_{node_id} = \"{sys_prompt}\"")
     
-    def generate_block(node_id, indent, active_llm_id=None, prev_res_var=None, visited=None):
+    # ── 재합류(join) 지점 계산 ──────────────────────────────────────────────
+    # 제어 간선이 2개 이상 들어오는 노드는 "재합류"다. 예전에는 갈래마다 generate_block 이
+    # 사본 visited 로 따로 내려가면서 재합류 노드와 그 **하류 전체**가 갈래 수만큼 방출됐다 —
+    # 제품이 오류 문구로 권하는 해법(mergeNode 를 사이에 두어라)을 그대로 따라도 발송 노드가
+    # 두 번 실행됐다(메일 두 통, 재검증 §2.1). 이제 재합류 노드는 모든 상류 갈래가 방출된
+    # 뒤 한 번만 방출한다. 루프 되돌림(back-edge) 상류는 기다리면 영원히 못 만나므로 기대
+    # 목록에서 뺀다(그 간선까지 세면 재합류가 아예 방출되지 않는다).
+    _join_edges = {}
+    for _e in control_flow_edges:
+        _join_edges.setdefault(_e['target'], []).append(_e['source'])
+
+    def _forward_reachable(start_id):
+        seen, stack = set(), [start_id]
+        while stack:
+            for _nxt, _h in forward_edges.get(stack.pop(), []):
+                if _nxt not in seen:
+                    seen.add(_nxt)
+                    stack.append(_nxt)
+        return seen
+
+    # 간선 단위로 센다 — 같은 source 에서 다른 핸들로 두 번 들어와도(조건의 r1/else 가 같은
+    # 노드로) 각각이 갈래 하나씩이라 도착을 따로 기다려야 한다.
+    join_expected = {}      # 재합류 노드 -> (기대 도착 수, back-edge 제외한 상류 집합)
+    for _target, _sources_list in _join_edges.items():
+        if len(_sources_list) >= 2:
+            _fwd = _forward_reachable(_target)
+            _live = [s for s in _sources_list if s not in _fwd]
+            if len(_live) >= 2:
+                join_expected[_target] = (len(_live), set(_live))
+
+    emitted_nodes = set()      # 본문이 이미 방출된 노드
+    emitted_paths = {}         # 노드 -> 방출 당시의 분기 경로(아래 branch_path 스냅샷)
+    pending_joins = {}         # 자리를 기다리는 재합류 노드: id -> {'visited': 도착 경로 합집합}
+
+    # 배타 분기(conditionNode/humanApprovalNode)의 "어느 갈래 안인가"를 나타내는 스택.
+    # 생성기가 갈래 하나를 방출하는 동안 (노드 id, 갈래 식별자) 프레임을 밀어 둔다.
+    # 재합류 노드를 어디에 방출할지 이 경로로 판정한다:
+    #   - 상류 전부가 현재 경로의 계보 안(같은 갈래·바깥 스코프·이미 닫힌 내부 구문)이면
+    #     지금 이 자리(분기 안 포함)에 방출해도 안전하다 — 분기 내부 다이아몬드는 분기 안에
+    #     남아야, 그 갈래가 실행되지 않을 때 하류(발송 노드)도 실행되지 않는다.
+    #   - 상류가 형제 갈래에 걸쳐 있으면 분기 안에 방출할 수 없다(다른 갈래가 타면 영영 못
+    #     만난다) — 분기 구문이 닫힌 자리에서 _flush_ready_joins 가 방출한다.
+    branch_path = []
+
+    def _path_compatible(source_path, current_path):
+        # 한쪽이 다른 쪽의 접두사면 같은 계보다(바깥 스코프 또는 같은 갈래 안).
+        shorter = min(len(source_path), len(current_path))
+        return source_path[:shorter] == tuple(current_path[:shorter])
+
+    def _join_placeable_here(jid):
+        # 지금 이 자리에 방출해도 되는가: (a) 기대한 갈래가 전부 도착했고 (b) 상류가 전부
+        # 방출됐고 (c) 상류·도착 지점이 모두 현재 분기 경로의 계보 안이어야 한다.
+        # (c)가 없으면 형제 갈래에 걸친 재합류가 마지막 갈래 "안"에 방출돼, 다른 갈래가
+        # 실행될 때 그 노드를 영영 못 만난다.
+        _count, _srcs = join_expected[jid]
+        _st = pending_joins.get(jid)
+        if _st is None or _st['arrivals'] < _count:
+            return False
+        if not _srcs <= emitted_nodes:
+            return False
+        return (
+            all(_path_compatible(emitted_paths.get(s, ()), branch_path) for s in _srcs)
+            and all(_path_compatible(p, branch_path) for p in _st['paths'])
+        )
+
+    def _flush_ready_joins(indent):
+        # 분기 구문이 닫힌 자리에서, 상류가 전부 방출됐고 계보가 맞는 재합류 노드를 방출한다.
+        progress = True
+        while progress:
+            progress = False
+            for _jid in list(pending_joins):
+                if _join_placeable_here(_jid):
+                    _st = pending_joins.pop(_jid)
+                    progress = True
+                    generate_block(_jid, indent, prev_res_var=None, visited=_st['visited'], _as_join=True)
+
+    def _flush_stranded_joins(indent):
+        # 상류 일부가 아예 생성되지 않아(도달 불가 갈래, 부분 실행 진입) 자리 잡지 못한
+        # 재합류 노드 — 마지막 루트 끝에서 한 번은 방출한다. 예전에는 도달한 갈래마다
+        # 방출됐으므로, 한 번 방출이 하위 호환이다(merge 는 없는 상류를 빈 값으로 건너뛴다).
+        while pending_joins:
+            _jid, _st = pending_joins.popitem()
+            generate_block(_jid, indent, prev_res_var=None, visited=_st['visited'], _as_join=True)
+
+    def generate_block(node_id, indent, active_llm_id=None, prev_res_var=None, visited=None, _as_join=False):
         if visited is None:
             visited = set()
-        
+
         # Prevent cyclic recursion
         if node_id in visited:
             return
-        
+
+        # ── 재합류 게이트: 도착만 기록하고 자리는 나중에 잡는다 ──
+        # 마지막 상류 갈래가 방출을 마친 시점(같은 들여쓰기의 fan-out 이면 그 자리에서 즉시,
+        # 배타 분기 안이면 분기 구문이 닫힌 뒤 _flush_ready_joins)에 한 번만 방출된다.
+        # prev_res_var 를 넘기지 않는 것이 중요하다 — 특정 갈래의 지역 변수를 물려주면
+        # 다른 갈래가 실행됐을 때 NameError 가 난다. last_result/__node_results__ 로 받는다.
+        if not _as_join and node_id in join_expected:
+            if node_id in emitted_nodes:
+                return
+            _st = pending_joins.setdefault(node_id, {'visited': set(), 'arrivals': 0, 'paths': set()})
+            _st['visited'] |= visited
+            _st['arrivals'] += 1
+            _st['paths'].add(tuple(branch_path))
+            if not _join_placeable_here(node_id):
+                return
+            pending_joins.pop(node_id, None)
+            visited = visited | _st['visited']
+            prev_res_var = None
+
         # Tool nodes are generated inside MultiAgentNode
         if node_id in tool_node_ids and node.get('type') != 'multiAgentNode':
             pass # wait, if it's explicitly called, we should generate it.
@@ -547,6 +649,11 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
         node = node_dict.get(node_id)
         if not node:
             return
+
+        # 재합류 게이트가 "상류가 전부 방출됐는지"를 이 집합으로 판정한다. 생성기 본문은
+        # 아래에서 자기 코드를 먼저 쌓고 나서 다음 노드로 재귀하므로, 시작 시점에 넣는다.
+        emitted_nodes.add(node_id)
+        emitted_paths[node_id] = tuple(branch_path)
 
         # 0. 고정된 출력(§7.3) — 이 노드는 실행하지 않고 저장해 둔 결과를 그대로 흘려보낸다.
         #    상류가 외부 API 를 부르는 노드여도 하류를 반복 테스트할 수 있다. 고정 사실은
@@ -565,6 +672,10 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
         # 1. Use Registry if available (New Architecture)
         if node_registry.has_node(node['type']):
             generator = node_registry.get_generator(node['type'])
+            # 배타 분기(if/elif/else)를 방출하는 노드 — 형제 갈래에 걸친 재합류 노드는
+            # 분기 안에 자리 잡지 못하고, 분기 구문이 닫힌 이 자리(같은 들여쓰기)에서 방출된다.
+            # (생성기 안에서 갈래마다 begin_branch/end_branch 로 경로를 표시한다.)
+            is_exclusive = node['type'] in ('conditionNode', 'humanApprovalNode')
             generator(
                 node_id=node_id,
                 node=node,
@@ -578,6 +689,8 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
                 lines=lines,
                 generate_block_fn=generate_block
             )
+            if is_exclusive:
+                _flush_ready_joins(indent)
             return
         else:
             lines.append(f"{indent}# --- Unsupported Node ({node_id}) ---")
@@ -586,6 +699,18 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
+
+    # 배타 분기 생성기(conditionNode/humanApprovalNode)가 갈래 하나를 방출하는 동안
+    # 호출한다 — 재합류 게이트가 "이 노드가 어느 갈래 안에서 방출됐는지"를 알 수 있게.
+    # 함수 속성으로 노출해 생성기 시그니처를 바꾸지 않는다(51종 공통 시그니처).
+    def _begin_branch(owner_id, branch_key):
+        branch_path.append((owner_id, str(branch_key)))
+
+    def _end_branch():
+        branch_path.pop()
+
+    generate_block.begin_branch = _begin_branch
+    generate_block.end_branch = _end_branch
 
     # Start generation for all roots
     lines.append("    __global_results = []")
@@ -598,7 +723,12 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
             lines.append(f"        last_result = 'No execution occurred.'")
         
         generate_block(r['id'], "        ")
-        
+
+        # 루트 여러 개에 걸친 재합류는 마지막 루트에서야 상류가 모두 방출되므로 여기서 정리한다.
+        # (그 전 루트에서 방출하면 아직 실행되지 않은 루트의 결과를 merge 가 못 본다.)
+        if idx == len(roots) - 1:
+            _flush_stranded_joins("        ")
+
         # If the block didn't explicitly return, add a fallback return
         if "return last_result" not in lines[-1]:
              lines.append("        return last_result")

@@ -1658,8 +1658,9 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
             )
 
     # 9) 재합류(diamond) 감지 — conditionNode가 아닌 노드에서 갈라진 경로 여러 개가
-    # 같은 하류 노드에서 다시 합쳐지는지 검사. (실행 엔진에 merge 기능이 없어서, 이런 구조가 있으면
-    # 그 하류 노드가 여러 번 실행/출력된다. conditionNode의 분기는 런타임에 하나만 타므로 예외.)
+    # 같은 하류 노드에서 다시 합쳐지는지 검사. (실행 엔진이 재합류 노드를 한 번만 방출하도록
+    # 바뀌어 중복 실행은 없어졌지만, mergeNode 없이 합쳐지면 마지막 갈래의 값만 남고 나머지
+    # 갈래의 결과는 조용히 사라진다. conditionNode의 분기는 런타임에 하나만 타므로 예외.)
     forward: Dict[str, List[str]] = defaultdict(list)
     for e in g.edges:
         forward[e.source].append(e.target)
@@ -1698,7 +1699,7 @@ def validate_flow(g: FlowGraph, require_complete: bool = True) -> Tuple[bool, Li
                     reported_diamonds.add(key)
                     errors.append(
                         f"{n.id}에서 나간 경로 여러 개({c1}, {c2} 방향)가 {', '.join(sorted(shared))}에서 "
-                        "다시 합쳐진다 — merge 기능이 없어 해당 노드가 중복 실행된다. 여러 갈래를 합치려면 "
+                        "다시 합쳐진다 — mergeNode 없이 합쳐지면 마지막 갈래의 값만 남고 나머지는 사라진다. 여러 갈래를 합치려면 "
                         "반드시 mergeNode를 사이에 두어 병합해라."
                     )
 
