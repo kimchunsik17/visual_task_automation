@@ -6,16 +6,53 @@
   "layout": "design",
   "output": {
     "default": "png",
-    "allowed": ["png", "pdf"]
+    "allowed": [
+      "png",
+      "pdf"
+    ]
   },
   "fields": [
-    { "name": "brandName", "label": "채널/브랜드", "kind": "text", "required": true, "example": "워크플로우" },
-    { "name": "pageLabel", "label": "페이지 표기", "kind": "text", "required": false, "example": "1 / 5" },
-    { "name": "title", "label": "제목", "kind": "text", "required": true, "example": "반복 업무, 아직 손으로 하세요?" },
-    { "name": "highlight", "label": "핵심 문구", "kind": "text", "required": false, "example": "하루 2시간을 돌려받는 방법" },
-    { "name": "body", "label": "본문", "kind": "multiline", "required": true,
-      "example": "매일 반복되는 보고서 작성과 메일 발송, 이제 워크플로우가 대신합니다. 자연어로 말하면 자동화 흐름이 만들어져요." },
-    { "name": "mainImage", "label": "이미지", "kind": "image", "required": false }
+    {
+      "name": "brandName",
+      "label": "채널/브랜드",
+      "kind": "text",
+      "required": true,
+      "example": "워크플로우"
+    },
+    {
+      "name": "pageLabel",
+      "label": "페이지 표기",
+      "kind": "text",
+      "required": false,
+      "example": "1 / 5"
+    },
+    {
+      "name": "title",
+      "label": "제목",
+      "kind": "text",
+      "required": true,
+      "example": "반복 업무, 아직 손으로 하세요?"
+    },
+    {
+      "name": "highlight",
+      "label": "핵심 문구",
+      "kind": "text",
+      "required": false,
+      "example": "하루 2시간을 돌려받는 방법"
+    },
+    {
+      "name": "body",
+      "label": "본문",
+      "kind": "multiline",
+      "required": true,
+      "example": "매일 반복되는 보고서 작성과 메일 발송, 이제 워크플로우가 대신합니다. 자연어로 말하면 자동화 흐름이 만들어져요."
+    },
+    {
+      "name": "mainImage",
+      "label": "이미지",
+      "kind": "image",
+      "required": false
+    }
   ],
   "design": {
     "width": 1080,
@@ -27,7 +64,90 @@
       "mutedColor": "#93a0c4",
       "fontFamily": "Pretendard"
     },
-    "html": "<div class=\"card\"><div class=\"head\"><span class=\"brand\">{{brandName}}</span><span class=\"page\">{{pageLabel}}</span></div><img data-field=\"mainImage\" class=\"hero\"><h1>{{title}}</h1><p class=\"highlight\">{{highlight}}</p><p class=\"body\">{{body}}</p></div>",
-    "css": ".card { width: 100%; height: 100vh; box-sizing: border-box; padding: 72px 64px; background: var(--fs-backgroundColor); color: var(--fs-textColor); display: flex; flex-direction: column; gap: 26px; }.head { display: flex; justify-content: space-between; align-items: center; }.brand { color: var(--fs-primaryColor); font-weight: 800; letter-spacing: .12em; font-size: 22px; }.page { color: var(--fs-mutedColor); font-size: 20px; }.hero { width: 100%; max-height: 380px; object-fit: cover; border-radius: 22px; }h1 { margin: 8px 0 0; font-size: 62px; line-height: 1.2; letter-spacing: -0.02em; }.highlight { margin: 0; display: inline-block; align-self: flex-start; padding: 12px 22px; border-radius: 999px; background: color-mix(in srgb, var(--fs-primaryColor) 20%, transparent); color: var(--fs-primaryColor); font-size: 26px; font-weight: 700; }.body { margin-top: auto; color: var(--fs-mutedColor); font-size: 27px; line-height: 1.65; }"
+    "elements": [
+      {
+        "id": "brand",
+        "kind": "text",
+        "bold": true,
+        "align": "left",
+        "color": "primaryColor",
+        "lineHeight": 1.45,
+        "text": "{{brandName}}",
+        "x": 64,
+        "y": 60,
+        "w": 500,
+        "h": 32,
+        "fontSize": 22,
+        "letterSpacing": ".12em"
+      },
+      {
+        "id": "page",
+        "kind": "text",
+        "bold": false,
+        "align": "right",
+        "color": "mutedColor",
+        "lineHeight": 1.45,
+        "text": "{{pageLabel}}",
+        "x": 816,
+        "y": 60,
+        "w": 200,
+        "h": 32,
+        "fontSize": 20
+      },
+      {
+        "id": "hero",
+        "kind": "image",
+        "field": "mainImage",
+        "radius": 22,
+        "x": 64,
+        "y": 120,
+        "w": 952,
+        "h": 370
+      },
+      {
+        "id": "title",
+        "kind": "text",
+        "bold": true,
+        "align": "left",
+        "color": "textColor",
+        "lineHeight": 1.2,
+        "text": "{{title}}",
+        "x": 64,
+        "y": 520,
+        "w": 952,
+        "h": 155,
+        "fontSize": 58
+      },
+      {
+        "id": "highlight",
+        "kind": "text",
+        "bold": true,
+        "align": "left",
+        "color": "primaryColor",
+        "lineHeight": 1.45,
+        "text": "{{highlight}}",
+        "x": 64,
+        "y": 692,
+        "w": 952,
+        "h": 44,
+        "fontSize": 26
+      },
+      {
+        "id": "body",
+        "kind": "text",
+        "bold": false,
+        "align": "left",
+        "color": "mutedColor",
+        "lineHeight": 1.65,
+        "text": "{{body}}",
+        "x": 64,
+        "y": 770,
+        "w": 952,
+        "h": 240,
+        "fontSize": 26
+      }
+    ],
+    "html": "<div class=\"cv\"><div class=\"e e1\">{{brandName}}</div><div class=\"e e2\">{{pageLabel}}</div><img data-field=\"mainImage\" class=\"e e3\"><div class=\"e e4\">{{title}}</div><div class=\"e e5\">{{highlight}}</div><div class=\"e e6\">{{body}}</div></div>",
+    "css": ".cv{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;background:var(--fs-backgroundColor);color:var(--fs-textColor);}\n.cv .e{position:absolute;box-sizing:border-box;margin:0;white-space:pre-wrap;word-break:keep-all;}\n.cv .e1{left:64px;top:60px;width:500px;height:32px;font-size:22px;font-weight:700;text-align:left;color:var(--fs-primaryColor);line-height:1.45;letter-spacing:.12em;}\n.cv .e2{left:816px;top:60px;width:200px;height:32px;font-size:20px;font-weight:400;text-align:right;color:var(--fs-mutedColor);line-height:1.45;}\n.cv .e3{left:64px;top:120px;width:952px;height:370px;object-fit:cover;border-radius:22px;}\n.cv .e4{left:64px;top:520px;width:952px;height:155px;font-size:58px;font-weight:700;text-align:left;color:var(--fs-textColor);line-height:1.2;}\n.cv .e5{left:64px;top:692px;width:952px;height:44px;font-size:26px;font-weight:700;text-align:left;color:var(--fs-primaryColor);line-height:1.45;}\n.cv .e6{left:64px;top:770px;width:952px;height:240px;font-size:26px;font-weight:400;text-align:left;color:var(--fs-mutedColor);line-height:1.65;}"
   }
 }

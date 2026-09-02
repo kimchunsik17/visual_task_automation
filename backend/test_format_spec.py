@@ -85,6 +85,16 @@ def test_validate_rejects_unused_required_field():
         validate_format_spec(spec)
 
 
+def test_validate_preserves_design_elements():
+    """캔버스 편집기의 정본(design.elements)은 검증·정규화를 통과해도 보존돼야 한다 —
+    떨어져 나가면 저장한 포맷을 다시 열었을 때 드래그 편집이 불가능해진다."""
+    spec = {**DESIGN_SPEC, "design": {**DESIGN_SPEC["design"],
+                                      "elements": [{"id": "t1", "kind": "text", "text": "{{headline}}",
+                                                    "x": 10, "y": 20, "w": 300, "h": 40}]}}
+    normalized = validate_format_spec(spec)
+    assert normalized["design"]["elements"][0]["id"] == "t1"
+
+
 def test_validate_rejects_rows_field_in_design():
     spec = {**DESIGN_SPEC, "fields": DESIGN_SPEC["fields"] + [
         {"name": "rows1", "kind": "rows", "columns": ["a"]}]}
