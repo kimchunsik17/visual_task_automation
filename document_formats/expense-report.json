@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "id": "expense-report",
+  "name": "지출결의서",
+  "description": "지출 내역과 합계 금액을 정리해 결재를 요청하는 문서",
+  "layout": "document",
+  "output": {
+    "default": "docx",
+    "allowed": ["hwpx", "docx", "pdf", "xlsx"]
+  },
+  "fields": [
+    { "name": "department", "label": "부서", "kind": "text", "required": true, "example": "경영지원팀" },
+    { "name": "drafterName", "label": "기안자", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "draftDate", "label": "기안일", "kind": "text", "required": true, "example": "2026-09-02" },
+    { "name": "payee", "label": "지급처", "kind": "text", "required": false, "example": "주식회사 한빛" },
+    { "name": "paymentMethod", "label": "지급 방법", "kind": "text", "required": false, "example": "법인카드" },
+    { "name": "items", "label": "지출 내역", "kind": "rows",
+      "columns": ["적요", "금액(원)", "비고"], "required": true },
+    { "name": "totalAmount", "label": "합계 금액", "kind": "text", "required": true, "example": "1,540,000원" },
+    { "name": "note", "label": "비고", "kind": "multiline", "required": false }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "지 출 결 의 서" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["부서", "{{department}}"],
+        ["기안자", "{{drafterName}}"],
+        ["기안일", "{{draftDate}}"],
+        ["지급처", "{{payee}}"],
+        ["지급 방법", "{{paymentMethod}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "지출 내역" },
+    { "type": "table", "fromField": "items" },
+    { "type": "paragraph", "text": "합계 금액: {{totalAmount}}" },
+    { "type": "paragraph", "text": "{{note}}" },
+    { "type": "paragraph", "text": "위 금액을 지출하고자 하오니 결재하여 주시기 바랍니다." }
+  ]
+}

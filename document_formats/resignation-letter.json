@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "id": "resignation-letter",
+  "name": "사직서",
+  "description": "사직 사유와 퇴직 예정일을 적어 제출하는 문서",
+  "layout": "document",
+  "output": {
+    "default": "hwpx",
+    "allowed": ["hwpx", "docx", "pdf"]
+  },
+  "fields": [
+    { "name": "department", "label": "소속", "kind": "text", "required": true, "example": "운영1팀" },
+    { "name": "position", "label": "직위", "kind": "text", "required": true, "example": "대리" },
+    { "name": "employeeName", "label": "성명", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "hireDate", "label": "입사일", "kind": "text", "required": true, "example": "2023. 1. 2." },
+    { "name": "resignDate", "label": "퇴직 예정일", "kind": "text", "required": true, "example": "2026. 10. 2." },
+    { "name": "reason", "label": "사직 사유", "kind": "multiline", "required": true, "example": "일신상의 사유" },
+    { "name": "appliedAt", "label": "제출일", "kind": "text", "required": true, "example": "2026년 9월 2일" }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "사 직 서" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["소속", "{{department}}"],
+        ["직위", "{{position}}"],
+        ["성명", "{{employeeName}}"],
+        ["입사일", "{{hireDate}}"],
+        ["퇴직 예정일", "{{resignDate}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "사직 사유" },
+    { "type": "paragraph", "text": "{{reason}}" },
+    { "type": "paragraph", "text": "본인은 위와 같은 사유로 사직하고자 하오니 허가하여 주시기 바랍니다." },
+    { "type": "paragraph", "text": "{{appliedAt}}" },
+    { "type": "paragraph", "text": "신청인: {{employeeName}} (인)" }
+  ]
+}

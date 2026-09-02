@@ -213,7 +213,8 @@ def test_document_preset_pdf_renders(tmp_path):
 
 
 @pytest.mark.slow_render
-@pytest.mark.parametrize("preset_id,output", [("event-poster", "png"), ("tri-fold-pamphlet", "pdf")])
+@pytest.mark.parametrize("preset_id,output", [("event-poster", "png"), ("tri-fold-pamphlet", "pdf"),
+                                              ("card-news", "png"), ("certificate-award", "pdf")])
 def test_design_presets_render(preset_id, output, tmp_path):
     preset = format_presets.PRESETS_BY_ID[preset_id]
     target = tmp_path / f"{preset_id}.{output}"

@@ -3,6 +3,616 @@
   "formats": [
     {
       "version": 1,
+      "id": "business-trip-report",
+      "name": "출장보고서",
+      "description": "출장 개요·일정·결과·경비를 정리해 보고하는 문서",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "department",
+          "label": "소속",
+          "kind": "text",
+          "required": true,
+          "example": "영업팀"
+        },
+        {
+          "name": "position",
+          "label": "직위",
+          "kind": "text",
+          "required": true,
+          "example": "과장"
+        },
+        {
+          "name": "authorName",
+          "label": "성명",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "destination",
+          "label": "출장지",
+          "kind": "text",
+          "required": true,
+          "example": "부산 해운대구"
+        },
+        {
+          "name": "period",
+          "label": "출장 기간",
+          "kind": "text",
+          "required": true,
+          "example": "2026-09-08 ~ 2026-09-09 (1박 2일)"
+        },
+        {
+          "name": "purpose",
+          "label": "출장 목적",
+          "kind": "text",
+          "required": true,
+          "example": "거래처 정기 미팅 및 현장 점검"
+        },
+        {
+          "name": "schedule",
+          "label": "출장 일정",
+          "kind": "rows",
+          "columns": [
+            "일시",
+            "활동 내용"
+          ],
+          "required": false
+        },
+        {
+          "name": "result",
+          "label": "출장 결과",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "expenses",
+          "label": "출장 경비",
+          "kind": "rows",
+          "columns": [
+            "항목",
+            "금액(원)",
+            "비고"
+          ],
+          "required": false
+        },
+        {
+          "name": "writtenAt",
+          "label": "작성일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 10일"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "출 장 보 고 서"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "소속",
+              "{{department}}"
+            ],
+            [
+              "직위",
+              "{{position}}"
+            ],
+            [
+              "성명",
+              "{{authorName}}"
+            ],
+            [
+              "출장지",
+              "{{destination}}"
+            ],
+            [
+              "출장 기간",
+              "{{period}}"
+            ],
+            [
+              "출장 목적",
+              "{{purpose}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "1. 출장 일정"
+        },
+        {
+          "type": "table",
+          "fromField": "schedule"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "2. 출장 결과"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{result}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "3. 출장 경비"
+        },
+        {
+          "type": "table",
+          "fromField": "expenses"
+        },
+        {
+          "type": "paragraph",
+          "text": "위와 같이 출장 결과를 보고합니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{writtenAt}}    보고자: {{authorName}} (인)"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "card-news",
+      "name": "카드뉴스",
+      "description": "SNS용 1080×1080 정사각 카드 한 장 — 제목·핵심 문구·본문·페이지 표기",
+      "layout": "design",
+      "output": {
+        "default": "png",
+        "allowed": [
+          "png",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "brandName",
+          "label": "채널/브랜드",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우"
+        },
+        {
+          "name": "pageLabel",
+          "label": "페이지 표기",
+          "kind": "text",
+          "required": false,
+          "example": "1 / 5"
+        },
+        {
+          "name": "title",
+          "label": "제목",
+          "kind": "text",
+          "required": true,
+          "example": "반복 업무, 아직 손으로 하세요?"
+        },
+        {
+          "name": "highlight",
+          "label": "핵심 문구",
+          "kind": "text",
+          "required": false,
+          "example": "하루 2시간을 돌려받는 방법"
+        },
+        {
+          "name": "body",
+          "label": "본문",
+          "kind": "multiline",
+          "required": true,
+          "example": "매일 반복되는 보고서 작성과 메일 발송, 이제 워크플로우가 대신합니다. 자연어로 말하면 자동화 흐름이 만들어져요."
+        },
+        {
+          "name": "mainImage",
+          "label": "이미지",
+          "kind": "image",
+          "required": false
+        }
+      ],
+      "design": {
+        "width": 1080,
+        "height": 1080,
+        "theme": {
+          "primaryColor": "#4f7cff",
+          "backgroundColor": "#101725",
+          "textColor": "#f5f7ff",
+          "mutedColor": "#93a0c4",
+          "fontFamily": "Pretendard"
+        },
+        "html": "<div class=\"card\"><div class=\"head\"><span class=\"brand\">{{brandName}}</span><span class=\"page\">{{pageLabel}}</span></div><img data-field=\"mainImage\" class=\"hero\"><h1>{{title}}</h1><p class=\"highlight\">{{highlight}}</p><p class=\"body\">{{body}}</p></div>",
+        "css": ".card { width: 100%; height: 100vh; box-sizing: border-box; padding: 72px 64px; background: var(--fs-backgroundColor); color: var(--fs-textColor); display: flex; flex-direction: column; gap: 26px; }.head { display: flex; justify-content: space-between; align-items: center; }.brand { color: var(--fs-primaryColor); font-weight: 800; letter-spacing: .12em; font-size: 22px; }.page { color: var(--fs-mutedColor); font-size: 20px; }.hero { width: 100%; max-height: 380px; object-fit: cover; border-radius: 22px; }h1 { margin: 8px 0 0; font-size: 62px; line-height: 1.2; letter-spacing: -0.02em; }.highlight { margin: 0; display: inline-block; align-self: flex-start; padding: 12px 22px; border-radius: 999px; background: color-mix(in srgb, var(--fs-primaryColor) 20%, transparent); color: var(--fs-primaryColor); font-size: 26px; font-weight: 700; }.body { margin-top: auto; color: var(--fs-mutedColor); font-size: 27px; line-height: 1.65; }"
+      }
+    },
+    {
+      "version": 1,
+      "id": "certificate-award",
+      "name": "상장·수료증",
+      "description": "테두리 장식을 갖춘 가로 A4 상장/수료증 — 번호·성명·문구·수여 기관",
+      "layout": "design",
+      "output": {
+        "default": "pdf",
+        "allowed": [
+          "pdf",
+          "png"
+        ]
+      },
+      "fields": [
+        {
+          "name": "certNumber",
+          "label": "증서 번호",
+          "kind": "text",
+          "required": false,
+          "example": "제 2026-07 호"
+        },
+        {
+          "name": "certTitle",
+          "label": "증서 제목",
+          "kind": "text",
+          "required": true,
+          "example": "수 료 증"
+        },
+        {
+          "name": "recipientOrg",
+          "label": "소속",
+          "kind": "text",
+          "required": false,
+          "example": "운영1팀"
+        },
+        {
+          "name": "recipientName",
+          "label": "성명",
+          "kind": "text",
+          "required": true,
+          "example": "김 워 크"
+        },
+        {
+          "name": "courseName",
+          "label": "과정/수상 내용",
+          "kind": "text",
+          "required": true,
+          "example": "AI 워크플로우 실무 과정"
+        },
+        {
+          "name": "bodyText",
+          "label": "본문 문구",
+          "kind": "multiline",
+          "required": true,
+          "example": "위 사람은 본 기관이 주관한 위 과정을 성실히 이수하였기에 이 증서를 수여합니다."
+        },
+        {
+          "name": "issueDate",
+          "label": "수여일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
+        },
+        {
+          "name": "issuerName",
+          "label": "수여 기관/대표",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우 아카데미 대표 이플로"
+        }
+      ],
+      "design": {
+        "width": 1123,
+        "height": 794,
+        "theme": {
+          "primaryColor": "#b08d3e",
+          "backgroundColor": "#fffdf6",
+          "textColor": "#20242c",
+          "mutedColor": "#6b6f78",
+          "fontFamily": "Pretendard"
+        },
+        "html": "<div class=\"frame\"><div class=\"inner\"><span class=\"number\">{{certNumber}}</span><h1>{{certTitle}}</h1><p class=\"who\"><span class=\"org\">{{recipientOrg}}</span><strong>{{recipientName}}</strong></p><p class=\"course\">{{courseName}}</p><p class=\"body\">{{bodyText}}</p><p class=\"date\">{{issueDate}}</p><p class=\"issuer\">{{issuerName}} (인)</p></div></div>",
+        "css": ".frame { width: 100%; height: 100vh; box-sizing: border-box; padding: 34px; background: var(--fs-backgroundColor); }.inner { height: 100%; box-sizing: border-box; border: 3px solid var(--fs-primaryColor); outline: 1px solid var(--fs-primaryColor); outline-offset: -12px; padding: 44px 72px 40px; display: flex; flex-direction: column; align-items: center; text-align: center; color: var(--fs-textColor); }.number { align-self: flex-start; color: var(--fs-mutedColor); font-size: 16px; }h1 { margin: 6px 0 22px; font-size: 54px; letter-spacing: .5em; text-indent: .5em; color: var(--fs-textColor); }.who { margin: 0 0 4px; font-size: 22px; display: flex; gap: 18px; align-items: baseline; }.who .org { color: var(--fs-mutedColor); }.who strong { font-size: 34px; letter-spacing: .2em; }.course { margin: 0 0 18px; color: var(--fs-primaryColor); font-size: 21px; font-weight: 700; }.body { margin: 0; max-width: 720px; font-size: 19px; line-height: 1.9; }.date { margin: auto 0 8px; font-size: 18px; }.issuer { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: .08em; }"
+      }
+    },
+    {
+      "version": 1,
+      "id": "cooperation-request",
+      "name": "업무협조전",
+      "description": "부서 간 업무 협조를 요청하는 사내 문서 — 발신·수신·협조 내용·회신 기한",
+      "layout": "document",
+      "output": {
+        "default": "docx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "docNumber",
+          "label": "문서 번호",
+          "kind": "text",
+          "required": false,
+          "example": "협조-2026-012"
+        },
+        {
+          "name": "sendDept",
+          "label": "발신 부서",
+          "kind": "text",
+          "required": true,
+          "example": "운영1팀"
+        },
+        {
+          "name": "sendName",
+          "label": "발신자",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "recvDept",
+          "label": "수신 부서",
+          "kind": "text",
+          "required": true,
+          "example": "정보시스템팀"
+        },
+        {
+          "name": "title",
+          "label": "제목",
+          "kind": "text",
+          "required": true,
+          "example": "고객 데이터 추출 협조 요청"
+        },
+        {
+          "name": "dueDate",
+          "label": "회신 기한",
+          "kind": "text",
+          "required": false,
+          "example": "2026-09-05(금)"
+        },
+        {
+          "name": "content",
+          "label": "협조 내용",
+          "kind": "multiline",
+          "required": true
+        },
+        {
+          "name": "requestItems",
+          "label": "요청 사항",
+          "kind": "rows",
+          "columns": [
+            "번호",
+            "요청 사항"
+          ],
+          "required": false
+        },
+        {
+          "name": "writtenAt",
+          "label": "작성일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "업 무 협 조 전"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "문서 번호",
+              "{{docNumber}}"
+            ],
+            [
+              "발신",
+              "{{sendDept}} {{sendName}}"
+            ],
+            [
+              "수신",
+              "{{recvDept}}"
+            ],
+            [
+              "제목",
+              "{{title}}"
+            ],
+            [
+              "회신 기한",
+              "{{dueDate}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "협조 내용"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{content}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "요청 사항"
+        },
+        {
+          "type": "table",
+          "fromField": "requestItems"
+        },
+        {
+          "type": "paragraph",
+          "text": "위와 같이 업무 협조를 요청하오니 처리하여 주시기 바랍니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{writtenAt}}    {{sendDept}} {{sendName}} (인)"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "employment-certificate",
+      "name": "재직증명서",
+      "description": "재직 사실을 회사 명의로 증명하는 문서 — 용도·발급일·발급 기관 포함",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "employeeName",
+          "label": "성명",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "birthDate",
+          "label": "생년월일",
+          "kind": "text",
+          "required": true,
+          "example": "1999. 3. 1."
+        },
+        {
+          "name": "address",
+          "label": "주소",
+          "kind": "text",
+          "required": false
+        },
+        {
+          "name": "department",
+          "label": "소속",
+          "kind": "text",
+          "required": true,
+          "example": "운영1팀"
+        },
+        {
+          "name": "position",
+          "label": "직위",
+          "kind": "text",
+          "required": true,
+          "example": "대리"
+        },
+        {
+          "name": "hireDate",
+          "label": "입사일",
+          "kind": "text",
+          "required": true,
+          "example": "2023. 1. 2."
+        },
+        {
+          "name": "purpose",
+          "label": "용도",
+          "kind": "text",
+          "required": true,
+          "example": "금융기관 제출용"
+        },
+        {
+          "name": "issueDate",
+          "label": "발급일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
+        },
+        {
+          "name": "companyName",
+          "label": "회사명",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우 주식회사"
+        },
+        {
+          "name": "ceoName",
+          "label": "대표자",
+          "kind": "text",
+          "required": true,
+          "example": "이플로"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "재 직 증 명 서"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "성명",
+              "{{employeeName}}"
+            ],
+            [
+              "생년월일",
+              "{{birthDate}}"
+            ],
+            [
+              "주소",
+              "{{address}}"
+            ],
+            [
+              "소속",
+              "{{department}}"
+            ],
+            [
+              "직위",
+              "{{position}}"
+            ],
+            [
+              "재직 기간",
+              "{{hireDate}} ~ 현재"
+            ],
+            [
+              "용도",
+              "{{purpose}}"
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "위 사람은 본사에 재직하고 있음을 위와 같이 증명합니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{issueDate}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "{{companyName}} 대표이사 {{ceoName}} (인)"
+        }
+      ]
+    },
+    {
+      "version": 1,
       "id": "event-poster",
       "name": "행사 포스터",
       "description": "행사 제목·일시·장소·소개를 담는 A4 세로 포스터. 색과 글꼴은 테마로 변경",
@@ -56,6 +666,13 @@
           "required": false
         },
         {
+          "name": "contactInfo",
+          "label": "신청·문의",
+          "kind": "text",
+          "required": false,
+          "example": "신청: forms.example.com · 문의: hello@example.com"
+        },
+        {
           "name": "mainImage",
           "label": "메인 이미지",
           "kind": "image",
@@ -72,15 +689,149 @@
           "mutedColor": "#93a0c4",
           "fontFamily": "Pretendard"
         },
-        "html": "<div class=\"poster\"><div class=\"top\"><span class=\"badge\">{{hostName}}</span></div><img data-field=\"mainImage\" class=\"hero\"><h1>{{eventTitle}}</h1><p class=\"tagline\">{{tagline}}</p><div class=\"meta\"><div><span>일시</span><strong>{{dateTime}}</strong></div><div><span>장소</span><strong>{{place}}</strong></div></div><p class=\"desc\">{{descriptionText}}</p></div>",
-        "css": ".poster { width: 100%; height: 100vh; box-sizing: border-box; padding: 64px 56px; background: var(--fs-backgroundColor); color: var(--fs-textColor); display: flex; flex-direction: column; gap: 22px; }.top { min-height: 34px; }.badge { display: inline-block; padding: 8px 16px; border: 1.5px solid var(--fs-primaryColor); border-radius: 999px; color: var(--fs-primaryColor); font-size: 15px; font-weight: 700; letter-spacing: .08em; }.hero { width: 100%; max-height: 360px; object-fit: cover; border-radius: 18px; }h1 { margin: 12px 0 0; font-size: 64px; line-height: 1.16; letter-spacing: -0.02em; }.tagline { margin: 0; color: var(--fs-primaryColor); font-size: 26px; font-weight: 700; }.meta { display: flex; gap: 18px; margin-top: auto; }.meta > div { flex: 1; padding: 18px 20px; border-radius: 14px; background: color-mix(in srgb, var(--fs-primaryColor) 14%, transparent); }.meta span { display: block; color: var(--fs-mutedColor); font-size: 14px; margin-bottom: 6px; }.meta strong { font-size: 21px; }.desc { color: var(--fs-mutedColor); font-size: 17px; line-height: 1.7; margin: 0; }"
+        "html": "<div class=\"poster\"><div class=\"top\"><span class=\"badge\">{{hostName}}</span></div><img data-field=\"mainImage\" class=\"hero\"><h1>{{eventTitle}}</h1><p class=\"tagline\">{{tagline}}</p><div class=\"meta\"><div><span>일시</span><strong>{{dateTime}}</strong></div><div><span>장소</span><strong>{{place}}</strong></div></div><p class=\"desc\">{{descriptionText}}</p><p class=\"contact\">{{contactInfo}}</p></div>",
+        "css": ".poster { width: 100%; height: 100vh; box-sizing: border-box; padding: 64px 56px; background: var(--fs-backgroundColor); color: var(--fs-textColor); display: flex; flex-direction: column; gap: 22px; }.top { min-height: 34px; }.badge { display: inline-block; padding: 8px 16px; border: 1.5px solid var(--fs-primaryColor); border-radius: 999px; color: var(--fs-primaryColor); font-size: 15px; font-weight: 700; letter-spacing: .08em; }.hero { width: 100%; max-height: 360px; object-fit: cover; border-radius: 18px; }h1 { margin: 12px 0 0; font-size: 64px; line-height: 1.16; letter-spacing: -0.02em; }.tagline { margin: 0; color: var(--fs-primaryColor); font-size: 26px; font-weight: 700; }.meta { display: flex; gap: 18px; margin-top: auto; }.meta > div { flex: 1; padding: 18px 20px; border-radius: 14px; background: color-mix(in srgb, var(--fs-primaryColor) 14%, transparent); }.meta span { display: block; color: var(--fs-mutedColor); font-size: 14px; margin-bottom: 6px; }.meta strong { font-size: 21px; }.desc { color: var(--fs-mutedColor); font-size: 17px; line-height: 1.7; margin: 0; }.contact { margin: 0; padding-top: 14px; border-top: 1px solid color-mix(in srgb, var(--fs-mutedColor) 35%, transparent); color: var(--fs-textColor); font-size: 15.5px; font-weight: 600; }"
       }
+    },
+    {
+      "version": 1,
+      "id": "expense-report",
+      "name": "지출결의서",
+      "description": "지출 내역과 합계 금액을 정리해 결재를 요청하는 문서",
+      "layout": "document",
+      "output": {
+        "default": "docx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf",
+          "xlsx"
+        ]
+      },
+      "fields": [
+        {
+          "name": "department",
+          "label": "부서",
+          "kind": "text",
+          "required": true,
+          "example": "경영지원팀"
+        },
+        {
+          "name": "drafterName",
+          "label": "기안자",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "draftDate",
+          "label": "기안일",
+          "kind": "text",
+          "required": true,
+          "example": "2026-09-02"
+        },
+        {
+          "name": "payee",
+          "label": "지급처",
+          "kind": "text",
+          "required": false,
+          "example": "주식회사 한빛"
+        },
+        {
+          "name": "paymentMethod",
+          "label": "지급 방법",
+          "kind": "text",
+          "required": false,
+          "example": "법인카드"
+        },
+        {
+          "name": "items",
+          "label": "지출 내역",
+          "kind": "rows",
+          "columns": [
+            "적요",
+            "금액(원)",
+            "비고"
+          ],
+          "required": true
+        },
+        {
+          "name": "totalAmount",
+          "label": "합계 금액",
+          "kind": "text",
+          "required": true,
+          "example": "1,540,000원"
+        },
+        {
+          "name": "note",
+          "label": "비고",
+          "kind": "multiline",
+          "required": false
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "지 출 결 의 서"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "부서",
+              "{{department}}"
+            ],
+            [
+              "기안자",
+              "{{drafterName}}"
+            ],
+            [
+              "기안일",
+              "{{draftDate}}"
+            ],
+            [
+              "지급처",
+              "{{payee}}"
+            ],
+            [
+              "지급 방법",
+              "{{paymentMethod}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "지출 내역"
+        },
+        {
+          "type": "table",
+          "fromField": "items"
+        },
+        {
+          "type": "paragraph",
+          "text": "합계 금액: {{totalAmount}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{note}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "위 금액을 지출하고자 하오니 결재하여 주시기 바랍니다."
+        }
+      ]
     },
     {
       "version": 1,
       "id": "incident-report",
       "name": "시말서",
-      "description": "업무 중 발생한 사건의 경위와 재발 방지 대책을 보고하는 문서",
+      "description": "업무 중 발생한 사건의 경위와 재발 방지 대책을 보고하고 서약하는 문서",
       "layout": "document",
       "output": {
         "default": "hwpx",
@@ -99,8 +850,15 @@
           "example": "운영1팀"
         },
         {
+          "name": "position",
+          "label": "직위",
+          "kind": "text",
+          "required": true,
+          "example": "대리"
+        },
+        {
           "name": "authorName",
-          "label": "작성자",
+          "label": "성명",
           "kind": "text",
           "required": true,
           "example": "김워크"
@@ -147,6 +905,13 @@
           "label": "재발 방지 대책",
           "kind": "multiline",
           "required": true
+        },
+        {
+          "name": "writtenAt",
+          "label": "작성일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
         }
       ],
       "blocks": [
@@ -167,7 +932,11 @@
               "{{department}}"
             ],
             [
-              "작성자",
+              "직위",
+              "{{position}}"
+            ],
+            [
+              "성명",
               "{{authorName}}"
             ],
             [
@@ -218,7 +987,15 @@
         },
         {
           "type": "paragraph",
-          "text": "위와 같이 사건 경위를 보고하며, 재발 방지에 최선을 다하겠습니다."
+          "text": "상기 본인은 위 사실이 틀림없음을 확인하며, 이후 같은 일이 재발하지 않도록 할 것을 서약하고 이에 시말서를 제출합니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{writtenAt}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "소속: {{department}}    직위: {{position}}    성명: {{authorName}} (인)"
         }
       ]
     },
@@ -226,7 +1003,7 @@
       "version": 1,
       "id": "job-application",
       "name": "입사지원서",
-      "description": "인적 사항, 학력·경력, 자기소개를 담는 입사지원서",
+      "description": "인적 사항, 학력·경력·자격, 자기소개와 지원 동기를 담는 입사지원서",
       "layout": "document",
       "output": {
         "default": "hwpx",
@@ -241,25 +1018,42 @@
           "name": "applicantName",
           "label": "성명",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "birthDate",
+          "label": "생년월일",
+          "kind": "text",
+          "required": false,
+          "example": "1999. 3. 1."
         },
         {
           "name": "position",
           "label": "지원 직무",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "백엔드 개발"
         },
         {
           "name": "contact",
           "label": "연락처",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "010-0000-0000"
         },
         {
           "name": "email",
           "label": "이메일",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "work@example.com"
+        },
+        {
+          "name": "address",
+          "label": "주소",
+          "kind": "text",
+          "required": false
         },
         {
           "name": "photo",
@@ -269,23 +1063,34 @@
         },
         {
           "name": "education",
-          "label": "학력",
+          "label": "학력 사항",
           "kind": "rows",
           "columns": [
             "기간",
             "학교/전공",
-            "비고"
+            "졸업 여부"
           ],
           "required": false
         },
         {
           "name": "career",
-          "label": "경력",
+          "label": "경력 사항",
           "kind": "rows",
           "columns": [
             "기간",
             "회사/직무",
             "주요 성과"
+          ],
+          "required": false
+        },
+        {
+          "name": "certificates",
+          "label": "자격·어학",
+          "kind": "rows",
+          "columns": [
+            "취득일",
+            "자격/시험명",
+            "발급 기관·점수"
           ],
           "required": false
         },
@@ -300,6 +1105,13 @@
           "label": "지원 동기",
           "kind": "multiline",
           "required": true
+        },
+        {
+          "name": "appliedAt",
+          "label": "작성일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
         }
       ],
       "blocks": [
@@ -325,6 +1137,10 @@
               "{{applicantName}}"
             ],
             [
+              "생년월일",
+              "{{birthDate}}"
+            ],
+            [
               "지원 직무",
               "{{position}}"
             ],
@@ -335,6 +1151,10 @@
             [
               "이메일",
               "{{email}}"
+            ],
+            [
+              "주소",
+              "{{address}}"
             ]
           ]
         },
@@ -357,6 +1177,15 @@
           "fromField": "career"
         },
         {
+          "type": "heading",
+          "level": 2,
+          "text": "자격·어학"
+        },
+        {
+          "type": "table",
+          "fromField": "certificates"
+        },
+        {
           "type": "page_break"
         },
         {
@@ -376,6 +1205,385 @@
         {
           "type": "paragraph",
           "text": "{{motivation}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "위 기재 사항은 사실과 다름이 없습니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{appliedAt}}    지원자: {{applicantName}} (인)"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "labor-contract",
+      "name": "표준근로계약서",
+      "description": "고용노동부 표준 양식을 따른 근로계약서 — 근로 조건과 양측 서명란",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "employerName",
+          "label": "사업체명",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우 주식회사"
+        },
+        {
+          "name": "employerCeo",
+          "label": "사업주(대표자)",
+          "kind": "text",
+          "required": true,
+          "example": "이플로"
+        },
+        {
+          "name": "employerAddress",
+          "label": "사업장 주소",
+          "kind": "text",
+          "required": true,
+          "example": "서울특별시 성동구 성수이로 00"
+        },
+        {
+          "name": "workerName",
+          "label": "근로자 성명",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "workerAddress",
+          "label": "근로자 주소",
+          "kind": "text",
+          "required": false
+        },
+        {
+          "name": "workerContact",
+          "label": "근로자 연락처",
+          "kind": "text",
+          "required": false,
+          "example": "010-0000-0000"
+        },
+        {
+          "name": "startDate",
+          "label": "근로 개시일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 10월 1일"
+        },
+        {
+          "name": "workPlace",
+          "label": "근무 장소",
+          "kind": "text",
+          "required": true,
+          "example": "본사 및 회사가 지정하는 장소"
+        },
+        {
+          "name": "duties",
+          "label": "업무 내용",
+          "kind": "text",
+          "required": true,
+          "example": "백엔드 서비스 개발 및 운영"
+        },
+        {
+          "name": "workHours",
+          "label": "소정근로시간",
+          "kind": "text",
+          "required": true,
+          "example": "09:00 ~ 18:00 (휴게 12:00 ~ 13:00)"
+        },
+        {
+          "name": "workDays",
+          "label": "근무일·휴일",
+          "kind": "text",
+          "required": true,
+          "example": "주 5일(월~금) 근무, 주휴일 일요일"
+        },
+        {
+          "name": "wage",
+          "label": "임금",
+          "kind": "text",
+          "required": true,
+          "example": "월 2,800,000원"
+        },
+        {
+          "name": "payDate",
+          "label": "임금 지급일",
+          "kind": "text",
+          "required": true,
+          "example": "매월 25일 (휴일인 경우 전일 지급)"
+        },
+        {
+          "name": "payMethod",
+          "label": "지급 방법",
+          "kind": "text",
+          "required": true,
+          "example": "근로자 명의 예금통장에 입금"
+        },
+        {
+          "name": "contractDate",
+          "label": "계약 체결일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "표 준 근 로 계 약 서"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{employerName}}(이하 \"사업주\"라 함)과(와) {{workerName}}(이하 \"근로자\"라 함)은 다음과 같이 근로계약을 체결한다."
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "1. 근로 개시일",
+              "{{startDate}}"
+            ],
+            [
+              "2. 근무 장소",
+              "{{workPlace}}"
+            ],
+            [
+              "3. 업무 내용",
+              "{{duties}}"
+            ],
+            [
+              "4. 소정근로시간",
+              "{{workHours}}"
+            ],
+            [
+              "5. 근무일 및 휴일",
+              "{{workDays}}"
+            ],
+            [
+              "6. 임금",
+              "{{wage}}"
+            ],
+            [
+              "7. 임금 지급일",
+              "{{payDate}}"
+            ],
+            [
+              "8. 지급 방법",
+              "{{payMethod}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "기타"
+        },
+        {
+          "type": "paragraph",
+          "text": "연차유급휴가는 근로기준법에서 정하는 바에 따라 부여하며, 사회보험(고용보험·산재보험·국민연금·건강보험)은 관계 법령에 따라 적용한다. 이 계약에 정함이 없는 사항은 근로기준법령에 의한다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{contractDate}}"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "구분",
+            "내용"
+          ],
+          "rows": [
+            [
+              "사업주",
+              "{{employerName}} 대표 {{employerCeo}} (인) / 주소: {{employerAddress}}"
+            ],
+            [
+              "근로자",
+              "{{workerName}} (인) / 주소: {{workerAddress}} / 연락처: {{workerContact}}"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "leave-request",
+      "name": "휴가신청서",
+      "description": "휴가 구분·기간·사유를 적어 결재를 요청하는 신청서",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "department",
+          "label": "부서",
+          "kind": "text",
+          "required": true,
+          "example": "운영1팀"
+        },
+        {
+          "name": "position",
+          "label": "직위",
+          "kind": "text",
+          "required": true,
+          "example": "대리"
+        },
+        {
+          "name": "applicantName",
+          "label": "성명",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "leaveType",
+          "label": "휴가 구분",
+          "kind": "text",
+          "required": true,
+          "example": "연차",
+          "description": "연차 / 반차 / 병가 / 경조 / 공가 등"
+        },
+        {
+          "name": "startDate",
+          "label": "시작일",
+          "kind": "text",
+          "required": true,
+          "example": "2026-09-10"
+        },
+        {
+          "name": "endDate",
+          "label": "종료일",
+          "kind": "text",
+          "required": true,
+          "example": "2026-09-11"
+        },
+        {
+          "name": "days",
+          "label": "일수",
+          "kind": "text",
+          "required": true,
+          "example": "2"
+        },
+        {
+          "name": "emergencyContact",
+          "label": "비상 연락처",
+          "kind": "text",
+          "required": false,
+          "example": "010-0000-0000"
+        },
+        {
+          "name": "handoverTo",
+          "label": "업무 인수자",
+          "kind": "text",
+          "required": false
+        },
+        {
+          "name": "reason",
+          "label": "휴가 사유",
+          "kind": "multiline",
+          "required": true,
+          "example": "개인 사유"
+        },
+        {
+          "name": "appliedAt",
+          "label": "신청일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "휴 가 신 청 서"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "부서",
+              "{{department}}"
+            ],
+            [
+              "직위",
+              "{{position}}"
+            ],
+            [
+              "성명",
+              "{{applicantName}}"
+            ]
+          ]
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "휴가 구분",
+              "{{leaveType}}"
+            ],
+            [
+              "기간",
+              "{{startDate}} ~ {{endDate}} ({{days}}일)"
+            ],
+            [
+              "비상 연락처",
+              "{{emergencyContact}}"
+            ],
+            [
+              "업무 인수자",
+              "{{handoverTo}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "휴가 사유"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{reason}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "위와 같이 휴가를 신청하오니 허가하여 주시기 바랍니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{appliedAt}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "신청인: {{applicantName}} (인)"
         }
       ]
     },
@@ -383,7 +1591,7 @@
       "version": 1,
       "id": "meeting-minutes",
       "name": "회의록",
-      "description": "회의 개요, 논의 내용, 결정 사항과 후속 조치를 기록하는 문서",
+      "description": "회의 개요(일시·장소·참석자·작성자), 안건, 논의 내용, 결정 사항과 후속 조치를 기록하는 문서",
       "layout": "document",
       "output": {
         "default": "docx",
@@ -399,25 +1607,36 @@
           "name": "meetingTitle",
           "label": "회의명",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "주간 운영 회의"
         },
         {
           "name": "heldAt",
           "label": "일시",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "2026-09-02(수) 10:00~11:00"
         },
         {
           "name": "place",
           "label": "장소",
           "kind": "text",
-          "required": false
+          "required": false,
+          "example": "본사 3층 회의실"
         },
         {
           "name": "attendees",
           "label": "참석자",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "김워크, 이플로, 박오토"
+        },
+        {
+          "name": "recorder",
+          "label": "작성자",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
         },
         {
           "name": "agenda",
@@ -451,13 +1670,19 @@
             "기한"
           ],
           "required": false
+        },
+        {
+          "name": "notes",
+          "label": "특이사항",
+          "kind": "multiline",
+          "required": false
         }
       ],
       "blocks": [
         {
           "type": "heading",
           "level": 1,
-          "text": "회의록 — {{meetingTitle}}"
+          "text": "회 의 록"
         },
         {
           "type": "table",
@@ -466,6 +1691,10 @@
             "내용"
           ],
           "rows": [
+            [
+              "회의명",
+              "{{meetingTitle}}"
+            ],
             [
               "일시",
               "{{heldAt}}"
@@ -477,6 +1706,10 @@
             [
               "참석자",
               "{{attendees}}"
+            ],
+            [
+              "작성자",
+              "{{recorder}}"
             ]
           ]
         },
@@ -515,6 +1748,15 @@
         {
           "type": "table",
           "fromField": "actionItems"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "5. 특이사항"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{notes}}"
         }
       ]
     },
@@ -522,7 +1764,7 @@
       "version": 1,
       "id": "official-letter",
       "name": "공문",
-      "description": "기관 간 주고받는 대외 공문서(수신·발신·제목·본문·붙임)",
+      "description": "기관 간 주고받는 대외 공문서 — 기관명·수신·(경유)·제목·본문·붙임·발신명의·시행 정보",
       "layout": "document",
       "output": {
         "default": "hwpx",
@@ -534,6 +1776,20 @@
       },
       "fields": [
         {
+          "name": "sender",
+          "label": "발신 기관명",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우 주식회사"
+        },
+        {
+          "name": "senderTitle",
+          "label": "발신 명의",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우 주식회사 대표이사"
+        },
+        {
           "name": "docNumber",
           "label": "문서 번호",
           "kind": "text",
@@ -541,22 +1797,31 @@
           "example": "워크-2026-041"
         },
         {
-          "name": "sender",
-          "label": "발신",
+          "name": "date",
+          "label": "시행일",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "2026. 9. 2."
         },
         {
           "name": "receiver",
           "label": "수신",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "한빛대학교 총장"
+        },
+        {
+          "name": "via",
+          "label": "경유",
+          "kind": "text",
+          "required": false
         },
         {
           "name": "subject",
           "label": "제목",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "업무 협약 체결 협조 요청"
         },
         {
           "name": "body",
@@ -569,13 +1834,21 @@
           "label": "붙임",
           "kind": "text",
           "required": false,
-          "example": "1. 사업 계획서 1부. 끝."
+          "example": "1. 사업 계획서 1부.  끝."
         },
         {
-          "name": "date",
-          "label": "시행일",
+          "name": "contactName",
+          "label": "담당자",
           "kind": "text",
-          "required": true
+          "required": false,
+          "example": "경영지원팀 김워크"
+        },
+        {
+          "name": "contactPhone",
+          "label": "담당 연락처",
+          "kind": "text",
+          "required": false,
+          "example": "02-000-0000"
         }
       ],
       "blocks": [
@@ -583,6 +1856,35 @@
           "type": "heading",
           "level": 1,
           "text": "{{sender}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "수신  {{receiver}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "(경유)  {{via}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "제목  {{subject}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "1. 귀 기관의 무궁한 발전을 기원합니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "2. {{body}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "붙임  {{attachmentsNote}}"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "{{senderTitle}}"
         },
         {
           "type": "table",
@@ -600,18 +1902,306 @@
               "{{date}}"
             ],
             [
-              "수신",
-              "{{receiver}}"
+              "담당",
+              "{{contactName}}"
             ],
             [
-              "제목",
-              "{{subject}}"
+              "연락처",
+              "{{contactPhone}}"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "power-of-attorney",
+      "name": "위임장",
+      "description": "위임인이 수임인에게 특정 사무의 권한을 위임하는 문서",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "principalName",
+          "label": "위임인 성명",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "principalBirth",
+          "label": "위임인 생년월일",
+          "kind": "text",
+          "required": true,
+          "example": "1999. 3. 1."
+        },
+        {
+          "name": "principalAddress",
+          "label": "위임인 주소",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "principalContact",
+          "label": "위임인 연락처",
+          "kind": "text",
+          "required": false,
+          "example": "010-0000-0000"
+        },
+        {
+          "name": "agentName",
+          "label": "수임인 성명",
+          "kind": "text",
+          "required": true,
+          "example": "이플로"
+        },
+        {
+          "name": "agentBirth",
+          "label": "수임인 생년월일",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "agentAddress",
+          "label": "수임인 주소",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "delegation",
+          "label": "위임 내용",
+          "kind": "multiline",
+          "required": true,
+          "example": "○○ 관련 서류의 접수 및 수령에 관한 일체의 권한"
+        },
+        {
+          "name": "writtenAt",
+          "label": "작성일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "위 임 장"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "위임인"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "성명",
+              "{{principalName}}"
+            ],
+            [
+              "생년월일",
+              "{{principalBirth}}"
+            ],
+            [
+              "주소",
+              "{{principalAddress}}"
+            ],
+            [
+              "연락처",
+              "{{principalContact}}"
             ]
           ]
         },
         {
+          "type": "heading",
+          "level": 2,
+          "text": "수임인"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "성명",
+              "{{agentName}}"
+            ],
+            [
+              "생년월일",
+              "{{agentBirth}}"
+            ],
+            [
+              "주소",
+              "{{agentAddress}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "위임 내용"
+        },
+        {
           "type": "paragraph",
-          "text": "1. 귀 기관의 무궁한 발전을 기원합니다."
+          "text": "{{delegation}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "위임인은 위 수임인에게 위 사항에 관한 일체의 권한을 위임합니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{writtenAt}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "위임인: {{principalName}} (인)"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "press-release",
+      "name": "보도자료",
+      "description": "배포 정보·담당자와 제목·부제·본문을 갖춘 보도자료",
+      "layout": "document",
+      "output": {
+        "default": "docx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "orgName",
+          "label": "기관/회사명",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우 주식회사"
+        },
+        {
+          "name": "releaseDate",
+          "label": "배포일",
+          "kind": "text",
+          "required": true,
+          "example": "2026. 9. 2.(수)"
+        },
+        {
+          "name": "embargo",
+          "label": "배포 구분",
+          "kind": "text",
+          "required": false,
+          "example": "즉시 배포 가능"
+        },
+        {
+          "name": "contactDept",
+          "label": "담당 부서",
+          "kind": "text",
+          "required": true,
+          "example": "홍보팀"
+        },
+        {
+          "name": "contactName",
+          "label": "담당자",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "contactPhone",
+          "label": "담당 연락처",
+          "kind": "text",
+          "required": true,
+          "example": "02-000-0000"
+        },
+        {
+          "name": "title",
+          "label": "제목",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우, 문서 자동화 신기능 출시"
+        },
+        {
+          "name": "subtitle",
+          "label": "부제",
+          "kind": "text",
+          "required": false,
+          "example": "- 자연어로 만들고 링크로 배포하는 업무 자동화 -"
+        },
+        {
+          "name": "photo",
+          "label": "사진",
+          "kind": "image",
+          "required": false
+        },
+        {
+          "name": "body",
+          "label": "본문",
+          "kind": "multiline",
+          "required": true
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "보 도 자 료"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "배포 기관",
+              "{{orgName}}"
+            ],
+            [
+              "배포일",
+              "{{releaseDate}}"
+            ],
+            [
+              "배포 구분",
+              "{{embargo}}"
+            ],
+            [
+              "담당",
+              "{{contactDept}} {{contactName}} ({{contactPhone}})"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "{{title}}"
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "{{subtitle}}"
+        },
+        {
+          "type": "image",
+          "fromField": "photo"
         },
         {
           "type": "paragraph",
@@ -619,12 +2209,7 @@
         },
         {
           "type": "paragraph",
-          "text": "붙임  {{attachmentsNote}}"
-        },
-        {
-          "type": "heading",
-          "level": 2,
-          "text": "{{sender}}"
+          "text": "이 자료에 대한 문의는 {{contactDept}} {{contactName}}({{contactPhone}})에게 연락 주시기 바랍니다."
         }
       ]
     },
@@ -632,7 +2217,7 @@
       "version": 1,
       "id": "proposal",
       "name": "제안서",
-      "description": "과제·사업 제안의 배경, 내용, 일정, 예산을 담는 문서",
+      "description": "과제·사업 제안의 배경, 내용, 기대 효과, 일정, 예산을 담는 문서",
       "layout": "document",
       "output": {
         "default": "docx",
@@ -655,7 +2240,22 @@
           "name": "proposer",
           "label": "제안자/부서",
           "kind": "text",
-          "required": true
+          "required": true,
+          "example": "운영1팀 김워크"
+        },
+        {
+          "name": "date",
+          "label": "작성일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
+        },
+        {
+          "name": "summary",
+          "label": "제안 요약",
+          "kind": "multiline",
+          "required": false,
+          "description": "한 문단 요약 — 표지 아래에 들어간다"
         },
         {
           "name": "background",
@@ -692,7 +2292,7 @@
           "kind": "rows",
           "columns": [
             "항목",
-            "금액",
+            "금액(원)",
             "비고"
           ],
           "required": false
@@ -706,7 +2306,11 @@
         },
         {
           "type": "paragraph",
-          "text": "제안자: {{proposer}}"
+          "text": "제안자: {{proposer}}    작성일: {{date}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{summary}}"
         },
         {
           "type": "heading",
@@ -752,6 +2356,480 @@
         {
           "type": "table",
           "fromField": "budget"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "quotation",
+      "name": "견적서",
+      "description": "공급자 정보와 품목별 금액, 합계를 담아 발행하는 견적서",
+      "layout": "document",
+      "output": {
+        "default": "docx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf",
+          "xlsx"
+        ]
+      },
+      "fields": [
+        {
+          "name": "customerName",
+          "label": "수신(고객명)",
+          "kind": "text",
+          "required": true,
+          "example": "주식회사 한빛"
+        },
+        {
+          "name": "quoteNumber",
+          "label": "견적 번호",
+          "kind": "text",
+          "required": true,
+          "example": "Q-2026-031"
+        },
+        {
+          "name": "quoteDate",
+          "label": "견적일",
+          "kind": "text",
+          "required": true,
+          "example": "2026-09-02"
+        },
+        {
+          "name": "validUntil",
+          "label": "유효 기간",
+          "kind": "text",
+          "required": false,
+          "example": "견적일로부터 30일"
+        },
+        {
+          "name": "supplierName",
+          "label": "공급자 상호",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우 주식회사"
+        },
+        {
+          "name": "supplierRegNo",
+          "label": "사업자등록번호",
+          "kind": "text",
+          "required": true,
+          "example": "000-00-00000"
+        },
+        {
+          "name": "supplierCeo",
+          "label": "대표자",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "supplierContact",
+          "label": "공급자 연락처",
+          "kind": "text",
+          "required": false,
+          "example": "02-000-0000"
+        },
+        {
+          "name": "items",
+          "label": "견적 내역",
+          "kind": "rows",
+          "columns": [
+            "품명",
+            "규격",
+            "수량",
+            "단가(원)",
+            "금액(원)"
+          ],
+          "required": true
+        },
+        {
+          "name": "supplyAmount",
+          "label": "공급가액",
+          "kind": "text",
+          "required": true,
+          "example": "1,400,000원"
+        },
+        {
+          "name": "vat",
+          "label": "부가세",
+          "kind": "text",
+          "required": true,
+          "example": "140,000원"
+        },
+        {
+          "name": "totalAmount",
+          "label": "합계 금액",
+          "kind": "text",
+          "required": true,
+          "example": "1,540,000원"
+        },
+        {
+          "name": "note",
+          "label": "비고",
+          "kind": "text",
+          "required": false,
+          "example": "부가세 포함 · 배송비 별도"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "견 적 서"
+        },
+        {
+          "type": "paragraph",
+          "text": "수신: {{customerName}} 귀하"
+        },
+        {
+          "type": "paragraph",
+          "text": "아래와 같이 견적합니다."
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "견적 번호",
+              "{{quoteNumber}}"
+            ],
+            [
+              "견적일",
+              "{{quoteDate}}"
+            ],
+            [
+              "유효 기간",
+              "{{validUntil}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "공급자"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "상호",
+              "{{supplierName}}"
+            ],
+            [
+              "사업자등록번호",
+              "{{supplierRegNo}}"
+            ],
+            [
+              "대표자",
+              "{{supplierCeo}}"
+            ],
+            [
+              "연락처",
+              "{{supplierContact}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "견적 내역"
+        },
+        {
+          "type": "table",
+          "fromField": "items"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "구분",
+            "금액"
+          ],
+          "rows": [
+            [
+              "공급가액",
+              "{{supplyAmount}}"
+            ],
+            [
+              "부가세",
+              "{{vat}}"
+            ],
+            [
+              "합계",
+              "{{totalAmount}}"
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "비고: {{note}}"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "resignation-letter",
+      "name": "사직서",
+      "description": "사직 사유와 퇴직 예정일을 적어 제출하는 문서",
+      "layout": "document",
+      "output": {
+        "default": "hwpx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf"
+        ]
+      },
+      "fields": [
+        {
+          "name": "department",
+          "label": "소속",
+          "kind": "text",
+          "required": true,
+          "example": "운영1팀"
+        },
+        {
+          "name": "position",
+          "label": "직위",
+          "kind": "text",
+          "required": true,
+          "example": "대리"
+        },
+        {
+          "name": "employeeName",
+          "label": "성명",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "hireDate",
+          "label": "입사일",
+          "kind": "text",
+          "required": true,
+          "example": "2023. 1. 2."
+        },
+        {
+          "name": "resignDate",
+          "label": "퇴직 예정일",
+          "kind": "text",
+          "required": true,
+          "example": "2026. 10. 2."
+        },
+        {
+          "name": "reason",
+          "label": "사직 사유",
+          "kind": "multiline",
+          "required": true,
+          "example": "일신상의 사유"
+        },
+        {
+          "name": "appliedAt",
+          "label": "제출일",
+          "kind": "text",
+          "required": true,
+          "example": "2026년 9월 2일"
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "사 직 서"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "소속",
+              "{{department}}"
+            ],
+            [
+              "직위",
+              "{{position}}"
+            ],
+            [
+              "성명",
+              "{{employeeName}}"
+            ],
+            [
+              "입사일",
+              "{{hireDate}}"
+            ],
+            [
+              "퇴직 예정일",
+              "{{resignDate}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "사직 사유"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{reason}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "본인은 위와 같은 사유로 사직하고자 하오니 허가하여 주시기 바랍니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "{{appliedAt}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "신청인: {{employeeName}} (인)"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "transaction-statement",
+      "name": "거래명세서",
+      "description": "공급자·공급받는자와 품목별 거래 내역, 합계를 기록하는 명세서",
+      "layout": "document",
+      "output": {
+        "default": "docx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf",
+          "xlsx"
+        ]
+      },
+      "fields": [
+        {
+          "name": "statementDate",
+          "label": "거래일자",
+          "kind": "text",
+          "required": true,
+          "example": "2026-09-02"
+        },
+        {
+          "name": "supplierName",
+          "label": "공급자 상호",
+          "kind": "text",
+          "required": true,
+          "example": "워크플로우 주식회사"
+        },
+        {
+          "name": "supplierRegNo",
+          "label": "사업자등록번호",
+          "kind": "text",
+          "required": true,
+          "example": "000-00-00000"
+        },
+        {
+          "name": "supplierCeo",
+          "label": "대표자",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "buyerName",
+          "label": "공급받는자",
+          "kind": "text",
+          "required": true,
+          "example": "주식회사 한빛"
+        },
+        {
+          "name": "items",
+          "label": "거래 내역",
+          "kind": "rows",
+          "columns": [
+            "품목",
+            "규격",
+            "수량",
+            "단가(원)",
+            "공급가액(원)"
+          ],
+          "required": true
+        },
+        {
+          "name": "totalAmount",
+          "label": "합계 금액",
+          "kind": "text",
+          "required": true,
+          "example": "1,540,000원 (부가세 포함)"
+        },
+        {
+          "name": "receivedBy",
+          "label": "인수자",
+          "kind": "text",
+          "required": false
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "거 래 명 세 서"
+        },
+        {
+          "type": "paragraph",
+          "text": "거래일자: {{statementDate}}"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "공급자",
+              "{{supplierName}}"
+            ],
+            [
+              "사업자등록번호",
+              "{{supplierRegNo}}"
+            ],
+            [
+              "대표자",
+              "{{supplierCeo}}"
+            ],
+            [
+              "공급받는자",
+              "{{buyerName}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "거래 내역"
+        },
+        {
+          "type": "table",
+          "fromField": "items"
+        },
+        {
+          "type": "paragraph",
+          "text": "합계 금액: {{totalAmount}}"
+        },
+        {
+          "type": "paragraph",
+          "text": "위와 같이 거래하였음을 확인합니다."
+        },
+        {
+          "type": "paragraph",
+          "text": "인수자: {{receivedBy}} (인)"
         }
       ]
     },
@@ -831,6 +2909,127 @@
         "html": "<div class=\"sheet\"><section class=\"panel\"><h3>{{panel1Title}}</h3><p>{{panel1Body}}</p></section><section class=\"panel\"><h3>{{panel2Title}}</h3><p>{{panel2Body}}</p><p class=\"contact\">{{contact}}</p></section><section class=\"panel cover\"><img data-field=\"coverImage\" class=\"cover-img\"><span class=\"brand\">{{brandName}}</span><h2>{{headline}}</h2></section></div>",
         "css": ".sheet { display: flex; width: 100%; height: 100vh; box-sizing: border-box; background: var(--fs-backgroundColor); color: var(--fs-textColor); }.panel { flex: 1; box-sizing: border-box; padding: 44px 34px; border-right: 1px dashed color-mix(in srgb, var(--fs-mutedColor) 40%, transparent); display: flex; flex-direction: column; }.panel:last-child { border-right: 0; }h3 { margin: 0 0 12px; color: var(--fs-primaryColor); font-size: 22px; }.panel p { margin: 0 0 10px; font-size: 14.5px; line-height: 1.75; color: var(--fs-textColor); }.contact { margin-top: auto !important; color: var(--fs-mutedColor); font-weight: 600; }.cover { background: color-mix(in srgb, var(--fs-primaryColor) 8%, var(--fs-backgroundColor)); justify-content: center; }.cover-img { width: 100%; max-height: 300px; object-fit: cover; border-radius: 14px; margin-bottom: 22px; }.brand { color: var(--fs-primaryColor); font-weight: 800; letter-spacing: .12em; font-size: 15px; }h2 { margin: 10px 0 0; font-size: 34px; line-height: 1.25; }"
       }
+    },
+    {
+      "version": 1,
+      "id": "weekly-report",
+      "name": "주간업무보고서",
+      "description": "금주 실적과 차주 계획, 특이사항을 표로 정리하는 주간 보고서",
+      "layout": "document",
+      "output": {
+        "default": "docx",
+        "allowed": [
+          "hwpx",
+          "docx",
+          "pdf",
+          "xlsx"
+        ]
+      },
+      "fields": [
+        {
+          "name": "department",
+          "label": "부서",
+          "kind": "text",
+          "required": true,
+          "example": "운영1팀"
+        },
+        {
+          "name": "authorName",
+          "label": "작성자",
+          "kind": "text",
+          "required": true,
+          "example": "김워크"
+        },
+        {
+          "name": "period",
+          "label": "보고 기간",
+          "kind": "text",
+          "required": true,
+          "example": "2026-08-31 ~ 2026-09-04"
+        },
+        {
+          "name": "thisWeek",
+          "label": "금주 실적",
+          "kind": "rows",
+          "columns": [
+            "구분",
+            "업무 내용",
+            "진행률"
+          ],
+          "required": true
+        },
+        {
+          "name": "nextWeek",
+          "label": "차주 계획",
+          "kind": "rows",
+          "columns": [
+            "구분",
+            "계획 내용"
+          ],
+          "required": false
+        },
+        {
+          "name": "issues",
+          "label": "특이사항·건의",
+          "kind": "multiline",
+          "required": false
+        }
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "주 간 업 무 보 고 서"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "항목",
+            "내용"
+          ],
+          "rows": [
+            [
+              "부서",
+              "{{department}}"
+            ],
+            [
+              "작성자",
+              "{{authorName}}"
+            ],
+            [
+              "보고 기간",
+              "{{period}}"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "1. 금주 실적"
+        },
+        {
+          "type": "table",
+          "fromField": "thisWeek"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "2. 차주 계획"
+        },
+        {
+          "type": "table",
+          "fromField": "nextWeek"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "3. 특이사항 및 건의"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{issues}}"
+        }
+      ]
     }
   ]
 }

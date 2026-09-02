@@ -2,109 +2,40 @@
   "version": 1,
   "id": "official-letter",
   "name": "공문",
-  "description": "기관 간 주고받는 대외 공문서(수신·발신·제목·본문·붙임)",
+  "description": "기관 간 주고받는 대외 공문서 — 기관명·수신·(경유)·제목·본문·붙임·발신명의·시행 정보",
   "layout": "document",
   "output": {
     "default": "hwpx",
-    "allowed": [
-      "hwpx",
-      "docx",
-      "pdf"
-    ]
+    "allowed": ["hwpx", "docx", "pdf"]
   },
   "fields": [
-    {
-      "name": "docNumber",
-      "label": "문서 번호",
-      "kind": "text",
-      "required": true,
-      "example": "워크-2026-041"
-    },
-    {
-      "name": "sender",
-      "label": "발신",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "receiver",
-      "label": "수신",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "subject",
-      "label": "제목",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "body",
-      "label": "본문",
-      "kind": "multiline",
-      "required": true
-    },
-    {
-      "name": "attachmentsNote",
-      "label": "붙임",
-      "kind": "text",
-      "required": false,
-      "example": "1. 사업 계획서 1부. 끝."
-    },
-    {
-      "name": "date",
-      "label": "시행일",
-      "kind": "text",
-      "required": true
-    }
+    { "name": "sender", "label": "발신 기관명", "kind": "text", "required": true, "example": "워크플로우 주식회사" },
+    { "name": "senderTitle", "label": "발신 명의", "kind": "text", "required": true, "example": "워크플로우 주식회사 대표이사" },
+    { "name": "docNumber", "label": "문서 번호", "kind": "text", "required": true, "example": "워크-2026-041" },
+    { "name": "date", "label": "시행일", "kind": "text", "required": true, "example": "2026. 9. 2." },
+    { "name": "receiver", "label": "수신", "kind": "text", "required": true, "example": "한빛대학교 총장" },
+    { "name": "via", "label": "경유", "kind": "text", "required": false },
+    { "name": "subject", "label": "제목", "kind": "text", "required": true, "example": "업무 협약 체결 협조 요청" },
+    { "name": "body", "label": "본문", "kind": "multiline", "required": true },
+    { "name": "attachmentsNote", "label": "붙임", "kind": "text", "required": false, "example": "1. 사업 계획서 1부.  끝." },
+    { "name": "contactName", "label": "담당자", "kind": "text", "required": false, "example": "경영지원팀 김워크" },
+    { "name": "contactPhone", "label": "담당 연락처", "kind": "text", "required": false, "example": "02-000-0000" }
   ],
   "blocks": [
-    {
-      "type": "heading",
-      "level": 1,
-      "text": "{{sender}}"
-    },
-    {
-      "type": "table",
-      "columns": [
-        "항목",
-        "내용"
-      ],
+    { "type": "heading", "level": 1, "text": "{{sender}}" },
+    { "type": "paragraph", "text": "수신  {{receiver}}" },
+    { "type": "paragraph", "text": "(경유)  {{via}}" },
+    { "type": "paragraph", "text": "제목  {{subject}}" },
+    { "type": "paragraph", "text": "1. 귀 기관의 무궁한 발전을 기원합니다." },
+    { "type": "paragraph", "text": "2. {{body}}" },
+    { "type": "paragraph", "text": "붙임  {{attachmentsNote}}" },
+    { "type": "heading", "level": 2, "text": "{{senderTitle}}" },
+    { "type": "table", "columns": ["항목", "내용"],
       "rows": [
-        [
-          "문서 번호",
-          "{{docNumber}}"
-        ],
-        [
-          "시행일",
-          "{{date}}"
-        ],
-        [
-          "수신",
-          "{{receiver}}"
-        ],
-        [
-          "제목",
-          "{{subject}}"
-        ]
-      ]
-    },
-    {
-      "type": "paragraph",
-      "text": "1. 귀 기관의 무궁한 발전을 기원합니다."
-    },
-    {
-      "type": "paragraph",
-      "text": "{{body}}"
-    },
-    {
-      "type": "paragraph",
-      "text": "붙임  {{attachmentsNote}}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "{{sender}}"
-    }
+        ["문서 번호", "{{docNumber}}"],
+        ["시행일", "{{date}}"],
+        ["담당", "{{contactName}}"],
+        ["연락처", "{{contactPhone}}"]
+      ] }
   ]
 }

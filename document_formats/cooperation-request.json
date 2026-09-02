@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "id": "cooperation-request",
+  "name": "업무협조전",
+  "description": "부서 간 업무 협조를 요청하는 사내 문서 — 발신·수신·협조 내용·회신 기한",
+  "layout": "document",
+  "output": {
+    "default": "docx",
+    "allowed": ["hwpx", "docx", "pdf"]
+  },
+  "fields": [
+    { "name": "docNumber", "label": "문서 번호", "kind": "text", "required": false, "example": "협조-2026-012" },
+    { "name": "sendDept", "label": "발신 부서", "kind": "text", "required": true, "example": "운영1팀" },
+    { "name": "sendName", "label": "발신자", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "recvDept", "label": "수신 부서", "kind": "text", "required": true, "example": "정보시스템팀" },
+    { "name": "title", "label": "제목", "kind": "text", "required": true, "example": "고객 데이터 추출 협조 요청" },
+    { "name": "dueDate", "label": "회신 기한", "kind": "text", "required": false, "example": "2026-09-05(금)" },
+    { "name": "content", "label": "협조 내용", "kind": "multiline", "required": true },
+    { "name": "requestItems", "label": "요청 사항", "kind": "rows", "columns": ["번호", "요청 사항"], "required": false },
+    { "name": "writtenAt", "label": "작성일", "kind": "text", "required": true, "example": "2026년 9월 2일" }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "업 무 협 조 전" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["문서 번호", "{{docNumber}}"],
+        ["발신", "{{sendDept}} {{sendName}}"],
+        ["수신", "{{recvDept}}"],
+        ["제목", "{{title}}"],
+        ["회신 기한", "{{dueDate}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "협조 내용" },
+    { "type": "paragraph", "text": "{{content}}" },
+    { "type": "heading", "level": 2, "text": "요청 사항" },
+    { "type": "table", "fromField": "requestItems" },
+    { "type": "paragraph", "text": "위와 같이 업무 협조를 요청하오니 처리하여 주시기 바랍니다." },
+    { "type": "paragraph", "text": "{{writtenAt}}    {{sendDept}} {{sendName}} (인)" }
+  ]
+}

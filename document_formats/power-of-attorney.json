@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "id": "power-of-attorney",
+  "name": "위임장",
+  "description": "위임인이 수임인에게 특정 사무의 권한을 위임하는 문서",
+  "layout": "document",
+  "output": {
+    "default": "hwpx",
+    "allowed": ["hwpx", "docx", "pdf"]
+  },
+  "fields": [
+    { "name": "principalName", "label": "위임인 성명", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "principalBirth", "label": "위임인 생년월일", "kind": "text", "required": true, "example": "1999. 3. 1." },
+    { "name": "principalAddress", "label": "위임인 주소", "kind": "text", "required": true },
+    { "name": "principalContact", "label": "위임인 연락처", "kind": "text", "required": false, "example": "010-0000-0000" },
+    { "name": "agentName", "label": "수임인 성명", "kind": "text", "required": true, "example": "이플로" },
+    { "name": "agentBirth", "label": "수임인 생년월일", "kind": "text", "required": true },
+    { "name": "agentAddress", "label": "수임인 주소", "kind": "text", "required": true },
+    { "name": "delegation", "label": "위임 내용", "kind": "multiline", "required": true,
+      "example": "○○ 관련 서류의 접수 및 수령에 관한 일체의 권한" },
+    { "name": "writtenAt", "label": "작성일", "kind": "text", "required": true, "example": "2026년 9월 2일" }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "위 임 장" },
+    { "type": "heading", "level": 2, "text": "위임인" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["성명", "{{principalName}}"],
+        ["생년월일", "{{principalBirth}}"],
+        ["주소", "{{principalAddress}}"],
+        ["연락처", "{{principalContact}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "수임인" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["성명", "{{agentName}}"],
+        ["생년월일", "{{agentBirth}}"],
+        ["주소", "{{agentAddress}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "위임 내용" },
+    { "type": "paragraph", "text": "{{delegation}}" },
+    { "type": "paragraph", "text": "위임인은 위 수임인에게 위 사항에 관한 일체의 권한을 위임합니다." },
+    { "type": "paragraph", "text": "{{writtenAt}}" },
+    { "type": "paragraph", "text": "위임인: {{principalName}} (인)" }
+  ]
+}

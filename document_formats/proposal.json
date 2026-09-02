@@ -2,126 +2,37 @@
   "version": 1,
   "id": "proposal",
   "name": "제안서",
-  "description": "과제·사업 제안의 배경, 내용, 일정, 예산을 담는 문서",
+  "description": "과제·사업 제안의 배경, 내용, 기대 효과, 일정, 예산을 담는 문서",
   "layout": "document",
   "output": {
     "default": "docx",
-    "allowed": [
-      "hwpx",
-      "docx",
-      "pdf",
-      "xlsx"
-    ]
+    "allowed": ["hwpx", "docx", "pdf", "xlsx"]
   },
   "fields": [
-    {
-      "name": "title",
-      "label": "제안 제목",
-      "kind": "text",
-      "required": true,
-      "example": "고객 문의 자동 분류 시스템 도입"
-    },
-    {
-      "name": "proposer",
-      "label": "제안자/부서",
-      "kind": "text",
-      "required": true
-    },
-    {
-      "name": "background",
-      "label": "제안 배경",
-      "kind": "multiline",
-      "required": true
-    },
-    {
-      "name": "content",
-      "label": "제안 내용",
-      "kind": "multiline",
-      "required": true
-    },
-    {
-      "name": "expectedEffect",
-      "label": "기대 효과",
-      "kind": "multiline",
-      "required": true
-    },
-    {
-      "name": "schedule",
-      "label": "추진 일정",
-      "kind": "rows",
-      "columns": [
-        "단계",
-        "기간",
-        "내용"
-      ],
-      "required": false
-    },
-    {
-      "name": "budget",
-      "label": "소요 예산",
-      "kind": "rows",
-      "columns": [
-        "항목",
-        "금액",
-        "비고"
-      ],
-      "required": false
-    }
+    { "name": "title", "label": "제안 제목", "kind": "text", "required": true, "example": "고객 문의 자동 분류 시스템 도입" },
+    { "name": "proposer", "label": "제안자/부서", "kind": "text", "required": true, "example": "운영1팀 김워크" },
+    { "name": "date", "label": "작성일", "kind": "text", "required": true, "example": "2026년 9월 2일" },
+    { "name": "summary", "label": "제안 요약", "kind": "multiline", "required": false,
+      "description": "한 문단 요약 — 표지 아래에 들어간다" },
+    { "name": "background", "label": "제안 배경", "kind": "multiline", "required": true },
+    { "name": "content", "label": "제안 내용", "kind": "multiline", "required": true },
+    { "name": "expectedEffect", "label": "기대 효과", "kind": "multiline", "required": true },
+    { "name": "schedule", "label": "추진 일정", "kind": "rows", "columns": ["단계", "기간", "내용"], "required": false },
+    { "name": "budget", "label": "소요 예산", "kind": "rows", "columns": ["항목", "금액(원)", "비고"], "required": false }
   ],
   "blocks": [
-    {
-      "type": "heading",
-      "level": 1,
-      "text": "{{title}}"
-    },
-    {
-      "type": "paragraph",
-      "text": "제안자: {{proposer}}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "1. 제안 배경"
-    },
-    {
-      "type": "paragraph",
-      "text": "{{background}}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "2. 제안 내용"
-    },
-    {
-      "type": "paragraph",
-      "text": "{{content}}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "3. 기대 효과"
-    },
-    {
-      "type": "paragraph",
-      "text": "{{expectedEffect}}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "4. 추진 일정"
-    },
-    {
-      "type": "table",
-      "fromField": "schedule"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "5. 소요 예산"
-    },
-    {
-      "type": "table",
-      "fromField": "budget"
-    }
+    { "type": "heading", "level": 1, "text": "{{title}}" },
+    { "type": "paragraph", "text": "제안자: {{proposer}}    작성일: {{date}}" },
+    { "type": "paragraph", "text": "{{summary}}" },
+    { "type": "heading", "level": 2, "text": "1. 제안 배경" },
+    { "type": "paragraph", "text": "{{background}}" },
+    { "type": "heading", "level": 2, "text": "2. 제안 내용" },
+    { "type": "paragraph", "text": "{{content}}" },
+    { "type": "heading", "level": 2, "text": "3. 기대 효과" },
+    { "type": "paragraph", "text": "{{expectedEffect}}" },
+    { "type": "heading", "level": 2, "text": "4. 추진 일정" },
+    { "type": "table", "fromField": "schedule" },
+    { "type": "heading", "level": 2, "text": "5. 소요 예산" },
+    { "type": "table", "fromField": "budget" }
   ]
 }

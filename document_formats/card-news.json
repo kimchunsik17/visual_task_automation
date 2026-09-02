@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "card-news",
+  "name": "카드뉴스",
+  "description": "SNS용 1080×1080 정사각 카드 한 장 — 제목·핵심 문구·본문·페이지 표기",
+  "layout": "design",
+  "output": {
+    "default": "png",
+    "allowed": ["png", "pdf"]
+  },
+  "fields": [
+    { "name": "brandName", "label": "채널/브랜드", "kind": "text", "required": true, "example": "워크플로우" },
+    { "name": "pageLabel", "label": "페이지 표기", "kind": "text", "required": false, "example": "1 / 5" },
+    { "name": "title", "label": "제목", "kind": "text", "required": true, "example": "반복 업무, 아직 손으로 하세요?" },
+    { "name": "highlight", "label": "핵심 문구", "kind": "text", "required": false, "example": "하루 2시간을 돌려받는 방법" },
+    { "name": "body", "label": "본문", "kind": "multiline", "required": true,
+      "example": "매일 반복되는 보고서 작성과 메일 발송, 이제 워크플로우가 대신합니다. 자연어로 말하면 자동화 흐름이 만들어져요." },
+    { "name": "mainImage", "label": "이미지", "kind": "image", "required": false }
+  ],
+  "design": {
+    "width": 1080,
+    "height": 1080,
+    "theme": {
+      "primaryColor": "#4f7cff",
+      "backgroundColor": "#101725",
+      "textColor": "#f5f7ff",
+      "mutedColor": "#93a0c4",
+      "fontFamily": "Pretendard"
+    },
+    "html": "<div class=\"card\"><div class=\"head\"><span class=\"brand\">{{brandName}}</span><span class=\"page\">{{pageLabel}}</span></div><img data-field=\"mainImage\" class=\"hero\"><h1>{{title}}</h1><p class=\"highlight\">{{highlight}}</p><p class=\"body\">{{body}}</p></div>",
+    "css": ".card { width: 100%; height: 100vh; box-sizing: border-box; padding: 72px 64px; background: var(--fs-backgroundColor); color: var(--fs-textColor); display: flex; flex-direction: column; gap: 26px; }.head { display: flex; justify-content: space-between; align-items: center; }.brand { color: var(--fs-primaryColor); font-weight: 800; letter-spacing: .12em; font-size: 22px; }.page { color: var(--fs-mutedColor); font-size: 20px; }.hero { width: 100%; max-height: 380px; object-fit: cover; border-radius: 22px; }h1 { margin: 8px 0 0; font-size: 62px; line-height: 1.2; letter-spacing: -0.02em; }.highlight { margin: 0; display: inline-block; align-self: flex-start; padding: 12px 22px; border-radius: 999px; background: color-mix(in srgb, var(--fs-primaryColor) 20%, transparent); color: var(--fs-primaryColor); font-size: 26px; font-weight: 700; }.body { margin-top: auto; color: var(--fs-mutedColor); font-size: 27px; line-height: 1.65; }"
+  }
+}

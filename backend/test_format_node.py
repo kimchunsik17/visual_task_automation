@@ -111,8 +111,8 @@ def test_run_rejects_output_outside_spec_allowed():
     assert exc2.value.reason == "FORMAT_OUTPUT_UNSUPPORTED"
 
 
-_OFFICIAL_LETTER_VALUES = ('{"docNumber": "워크-1", "sender": "운영팀", "receiver": "총무팀", '
-                           '"subject": "테스트", "body": "본문", "date": "2026-08-31"}')
+_OFFICIAL_LETTER_VALUES = ('{"docNumber": "워크-1", "sender": "운영팀", "senderTitle": "운영팀장", '
+                           '"receiver": "총무팀", "subject": "테스트", "body": "본문", "date": "2026-08-31"}')
 
 
 def test_run_converts_renderer_errors_to_format_error(tmp_path, monkeypatch):
@@ -143,9 +143,7 @@ def test_run_rejects_empty_output_filename(tmp_path, monkeypatch):
 def test_run_renders_preset_from_incoming_json(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = format_runtime.run(
-        format_id="official-letter", output="docx",
-        incoming='{"docNumber": "워크-1", "sender": "운영팀", "receiver": "총무팀", '
-                 '"subject": "테스트", "body": "본문", "date": "2026-08-31"}')
+        format_id="official-letter", output="docx", incoming=_OFFICIAL_LETTER_VALUES)
     path = tmp_path / result["path"]
     assert path.exists() and path.stat().st_size > 0
     assert result["output"] == "docx" and result["layout"] == "document"

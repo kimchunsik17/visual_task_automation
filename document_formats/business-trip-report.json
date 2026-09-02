@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "id": "business-trip-report",
+  "name": "출장보고서",
+  "description": "출장 개요·일정·결과·경비를 정리해 보고하는 문서",
+  "layout": "document",
+  "output": {
+    "default": "hwpx",
+    "allowed": ["hwpx", "docx", "pdf"]
+  },
+  "fields": [
+    { "name": "department", "label": "소속", "kind": "text", "required": true, "example": "영업팀" },
+    { "name": "position", "label": "직위", "kind": "text", "required": true, "example": "과장" },
+    { "name": "authorName", "label": "성명", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "destination", "label": "출장지", "kind": "text", "required": true, "example": "부산 해운대구" },
+    { "name": "period", "label": "출장 기간", "kind": "text", "required": true, "example": "2026-09-08 ~ 2026-09-09 (1박 2일)" },
+    { "name": "purpose", "label": "출장 목적", "kind": "text", "required": true, "example": "거래처 정기 미팅 및 현장 점검" },
+    { "name": "schedule", "label": "출장 일정", "kind": "rows", "columns": ["일시", "활동 내용"], "required": false },
+    { "name": "result", "label": "출장 결과", "kind": "multiline", "required": true },
+    { "name": "expenses", "label": "출장 경비", "kind": "rows", "columns": ["항목", "금액(원)", "비고"], "required": false },
+    { "name": "writtenAt", "label": "작성일", "kind": "text", "required": true, "example": "2026년 9월 10일" }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "출 장 보 고 서" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["소속", "{{department}}"],
+        ["직위", "{{position}}"],
+        ["성명", "{{authorName}}"],
+        ["출장지", "{{destination}}"],
+        ["출장 기간", "{{period}}"],
+        ["출장 목적", "{{purpose}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "1. 출장 일정" },
+    { "type": "table", "fromField": "schedule" },
+    { "type": "heading", "level": 2, "text": "2. 출장 결과" },
+    { "type": "paragraph", "text": "{{result}}" },
+    { "type": "heading", "level": 2, "text": "3. 출장 경비" },
+    { "type": "table", "fromField": "expenses" },
+    { "type": "paragraph", "text": "위와 같이 출장 결과를 보고합니다." },
+    { "type": "paragraph", "text": "{{writtenAt}}    보고자: {{authorName}} (인)" }
+  ]
+}

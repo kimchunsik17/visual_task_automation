@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "id": "weekly-report",
+  "name": "주간업무보고서",
+  "description": "금주 실적과 차주 계획, 특이사항을 표로 정리하는 주간 보고서",
+  "layout": "document",
+  "output": {
+    "default": "docx",
+    "allowed": ["hwpx", "docx", "pdf", "xlsx"]
+  },
+  "fields": [
+    { "name": "department", "label": "부서", "kind": "text", "required": true, "example": "운영1팀" },
+    { "name": "authorName", "label": "작성자", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "period", "label": "보고 기간", "kind": "text", "required": true, "example": "2026-08-31 ~ 2026-09-04" },
+    { "name": "thisWeek", "label": "금주 실적", "kind": "rows",
+      "columns": ["구분", "업무 내용", "진행률"], "required": true },
+    { "name": "nextWeek", "label": "차주 계획", "kind": "rows",
+      "columns": ["구분", "계획 내용"], "required": false },
+    { "name": "issues", "label": "특이사항·건의", "kind": "multiline", "required": false }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "주 간 업 무 보 고 서" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["부서", "{{department}}"],
+        ["작성자", "{{authorName}}"],
+        ["보고 기간", "{{period}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "1. 금주 실적" },
+    { "type": "table", "fromField": "thisWeek" },
+    { "type": "heading", "level": 2, "text": "2. 차주 계획" },
+    { "type": "table", "fromField": "nextWeek" },
+    { "type": "heading", "level": 2, "text": "3. 특이사항 및 건의" },
+    { "type": "paragraph", "text": "{{issues}}" }
+  ]
+}

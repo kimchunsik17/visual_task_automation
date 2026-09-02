@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "id": "leave-request",
+  "name": "휴가신청서",
+  "description": "휴가 구분·기간·사유를 적어 결재를 요청하는 신청서",
+  "layout": "document",
+  "output": {
+    "default": "hwpx",
+    "allowed": ["hwpx", "docx", "pdf"]
+  },
+  "fields": [
+    { "name": "department", "label": "부서", "kind": "text", "required": true, "example": "운영1팀" },
+    { "name": "position", "label": "직위", "kind": "text", "required": true, "example": "대리" },
+    { "name": "applicantName", "label": "성명", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "leaveType", "label": "휴가 구분", "kind": "text", "required": true,
+      "example": "연차", "description": "연차 / 반차 / 병가 / 경조 / 공가 등" },
+    { "name": "startDate", "label": "시작일", "kind": "text", "required": true, "example": "2026-09-10" },
+    { "name": "endDate", "label": "종료일", "kind": "text", "required": true, "example": "2026-09-11" },
+    { "name": "days", "label": "일수", "kind": "text", "required": true, "example": "2" },
+    { "name": "emergencyContact", "label": "비상 연락처", "kind": "text", "required": false, "example": "010-0000-0000" },
+    { "name": "handoverTo", "label": "업무 인수자", "kind": "text", "required": false },
+    { "name": "reason", "label": "휴가 사유", "kind": "multiline", "required": true, "example": "개인 사유" },
+    { "name": "appliedAt", "label": "신청일", "kind": "text", "required": true, "example": "2026년 9월 2일" }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "휴 가 신 청 서" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["부서", "{{department}}"],
+        ["직위", "{{position}}"],
+        ["성명", "{{applicantName}}"]
+      ] },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["휴가 구분", "{{leaveType}}"],
+        ["기간", "{{startDate}} ~ {{endDate}} ({{days}}일)"],
+        ["비상 연락처", "{{emergencyContact}}"],
+        ["업무 인수자", "{{handoverTo}}"]
+      ] },
+    { "type": "heading", "level": 2, "text": "휴가 사유" },
+    { "type": "paragraph", "text": "{{reason}}" },
+    { "type": "paragraph", "text": "위와 같이 휴가를 신청하오니 허가하여 주시기 바랍니다." },
+    { "type": "paragraph", "text": "{{appliedAt}}" },
+    { "type": "paragraph", "text": "신청인: {{applicantName}} (인)" }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "id": "employment-certificate",
+  "name": "재직증명서",
+  "description": "재직 사실을 회사 명의로 증명하는 문서 — 용도·발급일·발급 기관 포함",
+  "layout": "document",
+  "output": {
+    "default": "hwpx",
+    "allowed": ["hwpx", "docx", "pdf"]
+  },
+  "fields": [
+    { "name": "employeeName", "label": "성명", "kind": "text", "required": true, "example": "김워크" },
+    { "name": "birthDate", "label": "생년월일", "kind": "text", "required": true, "example": "1999. 3. 1." },
+    { "name": "address", "label": "주소", "kind": "text", "required": false },
+    { "name": "department", "label": "소속", "kind": "text", "required": true, "example": "운영1팀" },
+    { "name": "position", "label": "직위", "kind": "text", "required": true, "example": "대리" },
+    { "name": "hireDate", "label": "입사일", "kind": "text", "required": true, "example": "2023. 1. 2." },
+    { "name": "purpose", "label": "용도", "kind": "text", "required": true, "example": "금융기관 제출용" },
+    { "name": "issueDate", "label": "발급일", "kind": "text", "required": true, "example": "2026년 9월 2일" },
+    { "name": "companyName", "label": "회사명", "kind": "text", "required": true, "example": "워크플로우 주식회사" },
+    { "name": "ceoName", "label": "대표자", "kind": "text", "required": true, "example": "이플로" }
+  ],
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "재 직 증 명 서" },
+    { "type": "table", "columns": ["항목", "내용"],
+      "rows": [
+        ["성명", "{{employeeName}}"],
+        ["생년월일", "{{birthDate}}"],
+        ["주소", "{{address}}"],
+        ["소속", "{{department}}"],
+        ["직위", "{{position}}"],
+        ["재직 기간", "{{hireDate}} ~ 현재"],
+        ["용도", "{{purpose}}"]
+      ] },
+    { "type": "paragraph", "text": "위 사람은 본사에 재직하고 있음을 위와 같이 증명합니다." },
+    { "type": "paragraph", "text": "{{issueDate}}" },
+    { "type": "heading", "level": 2, "text": "{{companyName}} 대표이사 {{ceoName}} (인)" }
+  ]
+}
