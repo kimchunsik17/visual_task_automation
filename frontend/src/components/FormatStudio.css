@@ -440,7 +440,8 @@
   .fstudio-preview { display: none; }
 }
 
-/* ── 풀페이지 스튜디오 (/formats/studio) — 앱 빌더식 3-pane 셸 ── */
+/* ── 풀페이지 스튜디오 (/formats/studio) — 앱 빌더식 3-pane 셸 ──
+   중앙은 캔버스/블록 전용 스테이지, 이름·테마·빈칸·선택 요소 속성은 우측 인스펙터로 간다. */
 .fstudio-pagemode {
   width: 100vw;
   height: 100vh;
@@ -448,7 +449,41 @@
   border-radius: 0;
 }
 .fstudio-pagemode .fstudio-body {
-  grid-template-columns: 230px minmax(0, 1fr) 340px;
+  grid-template-columns: 230px minmax(0, 1fr) 360px;
 }
-.fstudio-pagemode .fstudio-preview { overflow-y: auto; }
+.fstudio-pagemode .fstudio-preview { overflow-y: auto; border-left: 1px solid var(--border-color); }
 .fstudio-inspector { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.fstudio-inspector-box { padding: 10px; }
+
+/* 중앙 = 워크스페이스 스테이지 */
+.fstudio-pagemode .fstudio-editor {
+  background:
+    radial-gradient(color-mix(in srgb, var(--text-muted) 22%, transparent) 1px, transparent 1px) 0 0 / 22px 22px,
+    color-mix(in srgb, var(--border-color) 16%, var(--bg-color));
+}
+.fstudio-pagemode .fstudio-editor > .fstudio-design {
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.fstudio-pagemode .fcv-toolbar {
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+.fstudio-pagemode .fcv-stage { flex: 1; }
+
+/* 우측 인스펙터의 빈칸 목록 — 340px 폭에 맞는 2줄 배치 */
+.fstudio-pagemode .fstudio-preview .fstudio-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+.fstudio-pagemode .fstudio-preview .fstudio-field-row > input { flex: 1 1 42%; }
+.fstudio-pagemode .fstudio-preview .fstudio-field-row > select { flex: 1 1 38%; }

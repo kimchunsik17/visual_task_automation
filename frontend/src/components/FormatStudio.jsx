@@ -287,6 +287,78 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
   if (!isOpen) return null;
   const isDocument = spec.layout === 'document';
 
+  // 아래 조각들은 모달에서는 중앙 칼럼에, 풀페이지(3-pane)에서는 우측 인스펙터에 배치된다 —
+  // 중앙을 캔버스/블록 전용 스테이지로 비우는 것이 풀페이지의 핵심이다(앱 빌더 패턴).
+  const nameRow = (
+    <div className="fstudio-name-row">
+      <input value={spec.name} onChange={(e) => update((s) => { s.name = e.target.value; })} placeholder="포맷 이름" />
+      <span className={`fstudio-layout-badge ${spec.layout}`}>{isDocument ? '문서' : '디자인'}</span>
+    </div>
+  );
+
+  const fieldsSection = (
+    <div className="fstudio-fields">
+      <div className="fstudio-section-head">
+        <strong>빈칸 (fields)</strong>
+        <button type="button" onClick={addField}><Plus size={13} /> 추가</button>
+      </div>
+      {(spec.fields || []).length === 0 && <p className="fstudio-hint">실행마다 달라질 내용을 빈칸으로 선언하세요. 골격에서 {'{{이름}}'} 으로 참조합니다.</p>}
+      {(spec.fields || []).map((field, index) => (
+        <div key={index} className="fstudio-field-row">
+          <input className="mono" value={field.name} onChange={(e) => setField(index, 'name', e.target.value)} placeholder="name" title="영문 이름" />
+          <input value={field.label || ''} onChange={(e) => setField(index, 'label', e.target.value)} placeholder="라벨" />
+          <select value={field.kind || 'text'} onChange={(e) => setField(index, 'kind', e.target.value)}>
+            {Object.entries(KIND_LABELS).map(([v, l]) => (
+              (spec.layout === 'design' && v === 'rows') ? null : <option key={v} value={v}>{l}</option>
+            ))}
+          </select>
+          <label className="fstudio-req"><input type="checkbox" checked={!!field.required} onChange={(e) => setField(index, 'required', e.target.checked)} />필수</label>
+          {field.kind === 'rows'
+            ? <input value={(field.columns || []).join(', ')} onChange={(e) => setField(index, 'columns', e.target.value)} placeholder="열 이름 (쉼표)" />
+            : <input value={field.example || ''} onChange={(e) => setField(index, 'example', e.target.value)} placeholder="예시값 (미리보기)" />}
+          <button type="button" className="fstudio-icon-btn" onClick={() => removeField(index)} aria-label="빈칸 삭제"><Trash2 size={14} /></button>
+        </div>
+      ))}
+    </div>
+  );
+
+  const designHead = (
+    <div className="fstudio-section-head"><strong>디자인 (theme)</strong>
+      {spec.design?.elements ? (
+        <button type="button" className="fstudio-code-toggle" onClick={async () => {
+          if (!(await customConfirm('코드 편집으로 전환하면 캔버스 배치(드래그 편집)가 해제됩니다. 지금까지의 배치는 HTML/CSS 로 남습니다. 전환할까요?'))) return;
+          update((s) => { delete s.design.elements; });
+          setShowCode(true);
+        }}>코드 편집으로 전환</button>
+      ) : (
+        <label className="fstudio-code-toggle"><input type="checkbox" checked={showCode} onChange={(e) => setShowCode(e.target.checked)} /> HTML/CSS 직접 편집</label>
+      )}
+    </div>
+  );
+
+  const themeGrid = (
+    <div className="fstudio-theme-grid">
+      {['primaryColor', 'backgroundColor', 'textColor', 'mutedColor'].map((key) => (
+        <label key={key}>
+          <span>{{ primaryColor: '주 색', backgroundColor: '배경', textColor: '글자', mutedColor: '보조 글자' }[key]}</span>
+          <input type="color" value={spec.design?.theme?.[key] || '#888888'}
+                 onChange={(e) => update((s) => { s.design.theme = { ...(s.design.theme || {}), [key]: e.target.value }; })} />
+        </label>
+      ))}
+      <label><span>글꼴</span>
+        <input type="text" value={spec.design?.theme?.fontFamily || ''} placeholder="Pretendard"
+               onChange={(e) => update((s) => { s.design.theme = { ...(s.design.theme || {}), fontFamily: e.target.value }; })} />
+      </label>
+      <label><span>크기(px)</span>
+        <span className="fstudio-size">
+          <input type="number" value={spec.design?.width || 794} onChange={(e) => update((s) => { s.design.width = Number(e.target.value) || 794; })} />
+          ×
+          <input type="number" value={spec.design?.height || 1123} onChange={(e) => update((s) => { s.design.height = Number(e.target.value) || 1123; })} />
+        </span>
+      </label>
+    </div>
+  );
+
   const studio = (
       <div className={`fstudio ${isPage ? 'fstudio-pagemode' : ''}`} role={isPage ? undefined : 'dialog'}
            aria-label="포맷 스튜디오" onClick={isPage ? undefined : (e) => e.stopPropagation()}>
@@ -342,36 +414,10 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
             )}
           </aside>
 
-          {/* ── 중: 편집기 ── */}
+          {/* ── 중: 편집기 (풀페이지는 캔버스/블록 전용 스테이지 — 이름·빈칸·테마는 우측) ── */}
           <section className="fstudio-editor">
-            <div className="fstudio-name-row">
-              <input value={spec.name} onChange={(e) => update((s) => { s.name = e.target.value; })} placeholder="포맷 이름" />
-              <span className={`fstudio-layout-badge ${spec.layout}`}>{isDocument ? '문서' : '디자인'}</span>
-            </div>
-
-            <div className="fstudio-fields">
-              <div className="fstudio-section-head">
-                <strong>빈칸 (fields)</strong>
-                <button type="button" onClick={addField}><Plus size={13} /> 추가</button>
-              </div>
-              {(spec.fields || []).length === 0 && <p className="fstudio-hint">실행마다 달라질 내용을 빈칸으로 선언하세요. 골격에서 {'{{이름}}'} 으로 참조합니다.</p>}
-              {(spec.fields || []).map((field, index) => (
-                <div key={index} className="fstudio-field-row">
-                  <input className="mono" value={field.name} onChange={(e) => setField(index, 'name', e.target.value)} placeholder="name" title="영문 이름" />
-                  <input value={field.label || ''} onChange={(e) => setField(index, 'label', e.target.value)} placeholder="라벨" />
-                  <select value={field.kind || 'text'} onChange={(e) => setField(index, 'kind', e.target.value)}>
-                    {Object.entries(KIND_LABELS).map(([v, l]) => (
-                      (spec.layout === 'design' && v === 'rows') ? null : <option key={v} value={v}>{l}</option>
-                    ))}
-                  </select>
-                  <label className="fstudio-req"><input type="checkbox" checked={!!field.required} onChange={(e) => setField(index, 'required', e.target.checked)} />필수</label>
-                  {field.kind === 'rows'
-                    ? <input value={(field.columns || []).join(', ')} onChange={(e) => setField(index, 'columns', e.target.value)} placeholder="열 이름 (쉼표)" />
-                    : <input value={field.example || ''} onChange={(e) => setField(index, 'example', e.target.value)} placeholder="예시값 (미리보기)" />}
-                  <button type="button" className="fstudio-icon-btn" onClick={() => removeField(index)} aria-label="빈칸 삭제"><Trash2 size={14} /></button>
-                </div>
-              ))}
-            </div>
+            {!isPage && nameRow}
+            {!isPage && fieldsSection}
 
             {isDocument ? (
               <div className="fstudio-blocks">
@@ -449,40 +495,11 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
               </div>
             ) : (
               <div className="fstudio-design">
-                <div className="fstudio-section-head"><strong>디자인 (theme)</strong>
-                  {spec.design?.elements ? (
-                    <button type="button" className="fstudio-code-toggle" onClick={async () => {
-                      if (!(await customConfirm('코드 편집으로 전환하면 캔버스 배치(드래그 편집)가 해제됩니다. 지금까지의 배치는 HTML/CSS 로 남습니다. 전환할까요?'))) return;
-                      update((s) => { delete s.design.elements; });
-                      setShowCode(true);
-                    }}>코드 편집으로 전환</button>
-                  ) : (
-                    <label className="fstudio-code-toggle"><input type="checkbox" checked={showCode} onChange={(e) => setShowCode(e.target.checked)} /> HTML/CSS 직접 편집</label>
-                  )}
-                </div>
-                <div className="fstudio-theme-grid">
-                  {['primaryColor', 'backgroundColor', 'textColor', 'mutedColor'].map((key) => (
-                    <label key={key}>
-                      <span>{{ primaryColor: '주 색', backgroundColor: '배경', textColor: '글자', mutedColor: '보조 글자' }[key]}</span>
-                      <input type="color" value={spec.design?.theme?.[key] || '#888888'}
-                             onChange={(e) => update((s) => { s.design.theme = { ...(s.design.theme || {}), [key]: e.target.value }; })} />
-                    </label>
-                  ))}
-                  <label><span>글꼴</span>
-                    <input type="text" value={spec.design?.theme?.fontFamily || ''} placeholder="Pretendard"
-                           onChange={(e) => update((s) => { s.design.theme = { ...(s.design.theme || {}), fontFamily: e.target.value }; })} />
-                  </label>
-                  <label><span>크기(px)</span>
-                    <span className="fstudio-size">
-                      <input type="number" value={spec.design?.width || 794} onChange={(e) => update((s) => { s.design.width = Number(e.target.value) || 794; })} />
-                      ×
-                      <input type="number" value={spec.design?.height || 1123} onChange={(e) => update((s) => { s.design.height = Number(e.target.value) || 1123; })} />
-                    </span>
-                  </label>
-                </div>
+                {!isPage && designHead}
+                {!isPage && themeGrid}
                 {spec.design?.elements ? (
                   <FormatCanvasEditor design={spec.design} fields={spec.fields || []}
-                                      maxWidth={isPage ? 940 : 620}
+                                      maxWidth={isPage ? 1000 : 620}
                                       propsContainer={isPage ? inspectorEl : null}
                                       onDesignChange={(nextDesign) => update((s) => { s.design = nextDesign; })} />
                 ) : (
@@ -503,10 +520,23 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
 
           {/* ── 우: (풀페이지) 인스펙터 + 미리보기 ── */}
           <aside className="fstudio-preview">
-            {isPage && !isDocument && spec.design?.elements && (
+            {isPage && (
               <>
-                <span className="fstudio-side-label">선택 요소</span>
-                <div className="fstudio-inspector" ref={setInspectorEl} />
+                <span className="fstudio-side-label">포맷</span>
+                {nameRow}
+                {!isDocument && spec.design?.elements && (
+                  <>
+                    <span className="fstudio-side-label">선택 요소</span>
+                    <div className="fstudio-inspector" ref={setInspectorEl} />
+                  </>
+                )}
+                {!isDocument && (
+                  <div className="fstudio-design fstudio-inspector-box">
+                    {designHead}
+                    {themeGrid}
+                  </div>
+                )}
+                {fieldsSection}
               </>
             )}
             <span className="fstudio-side-label">구조 미리보기 <em>예시값 기준 · 실제 문서와 다를 수 있음</em></span>
