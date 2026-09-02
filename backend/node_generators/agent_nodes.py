@@ -17,6 +17,7 @@ def add_tracking(var_name, node_id, indent):
 @node_registry.register('multiAgentNode')
 def generate_multi_agent_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- Multi-Agent Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     mode = node.get('data', {}).get('mode', 'supervisor')
     
     # Find incoming tool/agent edges
@@ -117,6 +118,11 @@ def generate_multi_agent_node(node_id, node, indent, active_llm_id, prev_res_var
         lines.append(f"{indent}    res_ma_{node_id} = f'Tool Agent Error: {{str(e)}}'")
         
         lines.append(f"{indent}last_result = res_ma_{node_id}")
+
+    # 이 파일 전체가 log_step 0건이었다 — multiAgent 결과가 실행 로그·__node_results__ 에
+    # 안 실려 하류 mergeNode·데이터 바인딩에서 사라졌다(재검증 §2.1). 모드 공통으로 여기서 남긴다.
+    # (알 수 없는 mode 면 위 분기들이 아무 코드도 안 내므로 res_ma_* 가 없다 — last_result 로 기록.)
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
 
     # Continue flow
     next_edges = forward_edges.get(node_id, [])

@@ -734,7 +734,9 @@ def validate_records(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> str:
     content = "".join(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n" for record in records)
-    path.write_text(content, encoding="utf-8")
+    # newline="\n" 이 없으면 Windows 에서 \n → \r\n 으로 저장돼, 아래에서 \n 기준으로 계산한
+    # sha256 과 디스크 바이트가 달라진다 (manifest 해시 검증이 Windows 에서만 깨졌다).
+    path.write_text(content, encoding="utf-8", newline="\n")
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
