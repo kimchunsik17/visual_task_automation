@@ -20,6 +20,7 @@ const NAV_GROUPS = [
       { id: 'home', label: '홈', icon: 'nav-home', path: '/', match: (p) => p === '/' },
       { id: 'workflows', label: '내 워크플로우', icon: 'nav-workflows', path: '/workflows', match: (p) => p === '/workflows' },
       { id: 'app-builder', label: '앱 빌더', icon: 'nav-app-builder', path: '/custom-apps', match: (p) => p.startsWith('/custom-apps') || p.startsWith('/app-builder') },
+      { id: 'formats', label: '포맷', icon: 'node-file-modifier', path: '/formats', match: (p) => p.startsWith('/formats') },
       { id: 'tutorial', label: '튜토리얼', icon: 'nav-tutorial', path: '/tutorial', match: (p) => p.startsWith('/tutorial') || p.startsWith('/documents') },
     ],
   },

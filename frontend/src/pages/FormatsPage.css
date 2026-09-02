@@ -1,0 +1,89 @@
+/* 포맷 탭 — ManagementPage 셸 위에 얹는 카드 그리드 */
+
+.formats-section { margin-top: 1.4rem; }
+.formats-section-title {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-color);
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+.formats-section-title em {
+  font-style: normal;
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.formats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.75rem;
+}
+
+.formats-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg, var(--bg-color));
+  padding: 0.85rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 118px;
+}
+.formats-card.preset { background: color-mix(in srgb, var(--border-color) 12%, transparent); }
+
+.formats-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.formats-layout-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+}
+.formats-layout-badge.design { color: #b08d3e; border-color: color-mix(in srgb, #b08d3e 45%, transparent); }
+.formats-layout-badge.document { color: #0d9488; border-color: color-mix(in srgb, #0d9488 45%, transparent); }
+.formats-updated { font-size: 0.7rem; color: var(--text-muted); }
+
+.formats-card-name { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-color); }
+.formats-card-meta, .formats-card-desc {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.formats-card-actions {
+  margin-top: auto;
+  display: flex;
+  gap: 0.35rem;
+  padding-top: 0.45rem;
+}
+.formats-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.73rem;
+  padding: 4px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+}
+.formats-card-actions button:hover { border-color: var(--primary-color, #4f7cff); color: var(--primary-color, #4f7cff); }
+.formats-card-actions button.danger:hover { border-color: #ef4444; color: #ef4444; }

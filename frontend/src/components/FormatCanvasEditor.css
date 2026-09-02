@@ -1,0 +1,72 @@
+/* 디자인 캔버스 편집기 */
+
+.fcv { outline: none; display: flex; flex-direction: column; gap: 0.55rem; }
+
+.fcv-toolbar { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.fcv-toolbar button, .fcv-add-select {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.74rem; padding: 4px 9px; border-radius: 8px;
+  border: 1px solid var(--border-color); background: var(--bg-color);
+  color: var(--text-color); cursor: pointer;
+}
+.fcv-toolbar button:hover { border-color: var(--primary-color, #4f7cff); }
+.fcv-hint { font-size: 0.68rem; color: var(--text-muted); margin-left: auto; }
+
+.fcv-stage { overflow: auto; display: flex; justify-content: center; padding: 10px 0; }
+.fcv-artboard {
+  position: relative; flex: none;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.25);
+  border-radius: 4px; overflow: hidden;
+  cursor: default;
+}
+
+.fcv-el { position: absolute; box-sizing: border-box; cursor: move; user-select: none;
+  white-space: pre-wrap; word-break: keep-all; overflow: hidden; touch-action: none; }
+.fcv-el.selected { outline: 1.5px solid #4f7cff; outline-offset: 0; }
+.fcv-el:hover:not(.selected) { outline: 1px dashed rgba(79, 124, 255, 0.6); }
+
+.fcv-image-slot {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  width: 100%; height: 100%;
+  border: 1.5px dashed rgba(127, 127, 127, 0.6); border-radius: inherit;
+  color: rgba(127, 127, 127, 0.95); font-size: 12px; background: rgba(127, 127, 127, 0.08);
+}
+
+.fcv-resize {
+  position: absolute; right: -5px; bottom: -5px; width: 11px; height: 11px;
+  background: #4f7cff; border: 1.5px solid #fff; border-radius: 3px; cursor: nwse-resize;
+}
+
+.fcv-props {
+  border: 1px solid var(--border-color); border-radius: 10px;
+  padding: 0.55rem 0.65rem; display: flex; flex-direction: column; gap: 0.45rem;
+}
+.fcv-props-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.fcv-props-row label {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.7rem; color: var(--text-muted);
+}
+.fcv-props-row input[type="number"] {
+  width: 58px; padding: 3px 6px; font-size: 0.74rem;
+  border: 1px solid var(--border-color); border-radius: 6px;
+  background: var(--bg-color); color: var(--text-color);
+}
+.fcv-props-row select {
+  padding: 3px 6px; font-size: 0.74rem; border: 1px solid var(--border-color);
+  border-radius: 6px; background: var(--bg-color); color: var(--text-color);
+}
+.fcv-props-row button {
+  display: inline-flex; align-items: center; padding: 4px 7px; border-radius: 6px;
+  border: 1px solid var(--border-color); background: var(--bg-color);
+  color: var(--text-color); cursor: pointer;
+}
+.fcv-props-row button.active { border-color: #4f7cff; color: #4f7cff; }
+.fcv-props-row button.danger:hover { border-color: #ef4444; color: #ef4444; }
+.fcv-props-actions { display: flex; gap: 0.3rem; margin-left: auto; }
+.fcv-props textarea {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  border: 1px solid var(--border-color); border-radius: 8px;
+  background: var(--bg-color); color: var(--text-color);
+  font-size: 0.8rem; padding: 6px 8px;
+}
+.fcv-empty-hint { margin: 0; font-size: 0.72rem; color: var(--text-muted); }

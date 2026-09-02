@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import documentFormatsBundle from '../generated/documentFormats.json';
+import FormatCanvasEditor from './FormatCanvasEditor';
+import { emptyCanvasDesign } from '../formatCanvas';
+import { customConfirm } from '../CustomConfirm';
 import './FormatStudio.css';
 
 const BLOCK_LABELS = { heading: '제목', paragraph: '문단', table: '표', image: '이미지', page_break: '쪽 나눔' };
@@ -26,7 +29,11 @@ const emptySpec = (layout = 'document') => ({
   fields: [],
   ...(layout === 'document'
     ? { blocks: [{ type: 'heading', level: 1, text: '새 문서' }] }
-    : { design: { width: 794, height: 1123, html: '<div class="page"><h1>{{title}}</h1></div>', css: '.page { width: 100%; height: 100vh; box-sizing: border-box; padding: 60px; background: var(--fs-backgroundColor); color: var(--fs-textColor); } h1 { color: var(--fs-primaryColor); }', theme: { ...DEFAULT_THEME } } }),
+    : {
+      // 새 디자인 포맷은 캔버스(elements)로 시작한다 — 위치·크기를 드래그로 편집한다.
+      fields: [{ name: 'title', label: '제목', kind: 'text', required: false, example: '제목' }],
+      design: emptyCanvasDesign(794, 1123, { ...DEFAULT_THEME }),
+    }),
 });
 
 const cloneSpec = (spec) => JSON.parse(JSON.stringify(spec));
@@ -441,7 +448,15 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
             ) : (
               <div className="fstudio-design">
                 <div className="fstudio-section-head"><strong>디자인 (theme)</strong>
-                  <label className="fstudio-code-toggle"><input type="checkbox" checked={showCode} onChange={(e) => setShowCode(e.target.checked)} /> HTML/CSS 직접 편집</label>
+                  {spec.design?.elements ? (
+                    <button type="button" className="fstudio-code-toggle" onClick={async () => {
+                      if (!(await customConfirm('코드 편집으로 전환하면 캔버스 배치(드래그 편집)가 해제됩니다. 지금까지의 배치는 HTML/CSS 로 남습니다. 전환할까요?'))) return;
+                      update((s) => { delete s.design.elements; });
+                      setShowCode(true);
+                    }}>코드 편집으로 전환</button>
+                  ) : (
+                    <label className="fstudio-code-toggle"><input type="checkbox" checked={showCode} onChange={(e) => setShowCode(e.target.checked)} /> HTML/CSS 직접 편집</label>
+                  )}
                 </div>
                 <div className="fstudio-theme-grid">
                   {['primaryColor', 'backgroundColor', 'textColor', 'mutedColor'].map((key) => (
@@ -463,7 +478,14 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
                     </span>
                   </label>
                 </div>
-                {showCode && (
+                {spec.design?.elements ? (
+                  <FormatCanvasEditor design={spec.design} fields={spec.fields || []}
+                                      onDesignChange={(nextDesign) => update((s) => { s.design = nextDesign; })} />
+                ) : (
+                  <p className="fstudio-hint">이 디자인은 코드(HTML/CSS) 기반입니다 — 위치·크기를 드래그로 편집하려면
+                    "새로 만들기 → 빈 디자인 포맷"으로 캔버스에서 시작하세요.</p>
+                )}
+                {!spec.design?.elements && showCode && (
                   <>
                     <label className="fstudio-code-label">HTML — 텍스트 자리 {'{{빈칸}}'}, 이미지 자리 &lt;img data-field="빈칸"&gt;</label>
                     <textarea className="mono" rows={8} value={spec.design?.html || ''} onChange={(e) => update((s) => { s.design.html = e.target.value; })} spellCheck={false} />
