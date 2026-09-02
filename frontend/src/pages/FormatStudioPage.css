@@ -1,0 +1,79 @@
+/* 포맷 스튜디오 페이지 — 앱 빌더 셸(AppBuilderPage.css) 위에 얹는 포맷 전용 보정 */
+
+/* 중앙 스크롤 영역 안의 콘텐츠 래퍼 */
+.fsp .fsp-canvas-wrap { display: flex; justify-content: center; padding: 26px 18px 40px; }
+.fsp .fsp-doc-wrap {
+  width: min(860px, 100%);
+  margin: 26px auto 40px;
+  padding: 0 18px;
+  box-sizing: border-box;
+}
+.fsp .fsp-doc-wrap .fstudio-blocks,
+.fsp .fsp-doc-wrap .fstudio-design {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.fsp .fsp-preview-frame {
+  width: min(820px, 100%);
+  margin: 26px auto 40px;
+  background: #fff;
+  color: #111;
+  border-radius: 8px;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
+  padding: 26px 30px;
+  box-sizing: border-box;
+}
+
+/* 캔버스 편집기(FormatCanvasEditor)를 셸 안에 자연스럽게 */
+.fsp .fcv { outline: none; }
+.fsp .fcv-stage { padding: 0; }
+
+/* 우측 인스펙터 안의 포맷 스튜디오 컨트롤 — 패널 폭에 맞춤 */
+.fsp .properties-panel .fstudio-name-row { display: flex; gap: 6px; align-items: center; }
+.fsp .properties-panel .fstudio-name-row input {
+  flex: 1; min-width: 0; padding: 7px 9px;
+  border: 1px solid var(--border-color); border-radius: 7px;
+  background: var(--bg-color); color: var(--text-color); font: inherit; font-size: 0.84rem;
+}
+.fsp .properties-panel .fstudio-fields { display: flex; flex-direction: column; gap: 6px; }
+.fsp .properties-panel .fstudio-field-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  padding: 7px; border: 1px solid var(--border-color); border-radius: 8px;
+}
+.fsp .properties-panel .fstudio-field-row > input { flex: 1 1 42%; min-width: 0; }
+.fsp .properties-panel .fstudio-field-row > select { flex: 1 1 38%; min-width: 0; }
+.fsp .properties-panel .fstudio-theme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fsp .properties-panel .fstudio-theme-grid label {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  font-size: 0.74rem; color: var(--text-muted);
+}
+.fsp .properties-panel .fcv-props { border: 0; padding: 0; }
+
+/* AI 어시스턴트 패널 (우측 상단, 토글) */
+.fsp-ai-panel {
+  margin: 10px;
+  padding: 10px;
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-radius: 10px;
+  background: rgba(167, 139, 250, 0.06);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.fsp-ai-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; font-weight: 700; color: #a78bfa;
+}
+.fsp-ai-head .fstudio-close { margin-left: auto; width: 26px; height: 26px; }
+
+/* 저장/오류 토스트 */
+.fsp-toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  z-index: 1500; max-width: min(560px, 90vw);
+  padding: 9px 16px; border-radius: 999px;
+  font-size: 0.82rem; font-weight: 600;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+.fsp-toast.success { background: #123527; color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.4); }
+.fsp-toast.error { background: #3a1420; color: #fda4af; border: 1px solid rgba(253, 164, 175, 0.4); }
