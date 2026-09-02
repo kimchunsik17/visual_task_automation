@@ -241,7 +241,8 @@ DeployModal 계열의 풀스크린 모달. 세 열 구성:
 | **1. formatNode + 라이브러리** | formats 테이블·CRUD API, formatNode(정의·실행기·NodeType·카탈로그·오류 코드·dry_run mock), 노드 UI(선택+빈칸 표시+LLM 자동 구성), 문서 페이지 | 에디터에서 프리셋 선택 → 실행 → 문서 artifact 가 이메일 자동 첨부까지. 전체 회귀 통과 |
 | **2. 포맷 스튜디오** | 모달 창(블록 편집·표·이미지 업로드·fields 편집·HTML 미리보기), AI 생성 API+바, 내 라이브러리 저장/불러오기 | 스튜디오에서 만든 포맷으로 1의 흐름이 그대로 동작. Playwright 시나리오 통과 |
 | **3. 대체 완성** | format-fill 패턴 교체, 카탈로그·생성 규칙 유도 수정, 두 구노드 문서·카탈로그 문구 축소, 튜토리얼 과정 교체, 공식 템플릿 중 doc-fill 계열 점검 | AI 생성이 "시말서 만들어줘"에 formatNode 골격을 내놓는다(평가 케이스 추가) |
-| 보류 | 포맷 커뮤니티 공유(정화 규칙 필요), 서식 파일 업로드→FormatSpec 역변환(hwpx inspect 활용), 서버 사이드 정밀 미리보기, 반복 섹션(표 밖 블록 반복) | 재개 조건: Phase 3 안정화 + 수요 확인 |
+| **4. 파일→포맷 역변환** (2026-09-02 구현) | 서식 파일 업로드→FormatSpec 역변환 — `documents/format_import.py`(.hwpx/.docx 문단·표·쪽나눔·{{자리표시자}} 결정적 추출, 한글 표시자는 ASCII 개명+라벨 보존), `POST /api/formats/import`(파싱만 하고 버림, 상한 15MB), AI 빈칸 제안(`format_studio.refine_imported_spec` — 초안 근거 Structured Output, 실패 시 초안 폴백을 응답에 명시), 스튜디오 "파일에서 가져오기" 시작점 | 실제 hwpx/docx 왕복 + 렌더 복귀 + API 통합 테스트 8건(test_format_import.py) 통과 |
+| 보류 | 포맷 커뮤니티 공유(정화 규칙 필요), 서버 사이드 정밀 미리보기, 반복 섹션(표 밖 블록 반복), 역변환의 hwpx 제목 감지(charPr 역추적 — 지금은 문단으로 오고 AI 다듬기가 승격) | 재개 조건: Phase 3 안정화 + 수요 확인 |
 
 ## 6. 리스크와 방어
 

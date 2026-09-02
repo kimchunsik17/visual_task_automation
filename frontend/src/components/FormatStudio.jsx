@@ -8,7 +8,7 @@
 // 디자인류는 sandbox iframe 에 테마 변수를 주입해 그린다. 값 자리는 example 로 채운다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, Image as ImageIcon, LayoutTemplate, Loader2, Plus, Save,
+  ArrowDown, ArrowUp, FileUp, Image as ImageIcon, LayoutTemplate, Loader2, Plus, Save,
   Sparkles, Table as TableIcon, Trash2, Type, Wand2, X,
 } from 'lucide-react';
 import axios from 'axios';
@@ -108,10 +108,12 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
   const [aiLayout, setAiLayout] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [notice, setNotice] = useState(null);           // { tone: 'error'|'success', text }
   const [showCode, setShowCode] = useState(false);
   const uploadInputRef = useRef(null);
   const uploadTargetRef = useRef(null);
+  const importInputRef = useRef(null);
 
   const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
   const presets = documentFormatsBundle.formats || [];
@@ -196,6 +198,34 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
       });
     } catch (error) {
       setNotice({ tone: 'error', text: '이미지 업로드 실패: ' + (error.response?.data?.detail || error.message) });
+    }
+  };
+
+  // ── 파일에서 가져오기 (.hwpx/.docx → FormatSpec 초안) ──
+  const importFromFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || importing) return;
+    setImporting(true);
+    setNotice(null);
+    const form = new FormData();
+    form.append('file', file);
+    form.append('use_ai', '1');
+    try {
+      const res = await axios.post('/api/formats/import', form, authHeaders());
+      setSpec(cloneSpec(res.data.spec));
+      setLibraryId('');
+      const ai = res.data.ai || '';
+      setNotice({
+        tone: 'success',
+        text: ai === 'applied'
+          ? '파일 구조를 가져와 AI가 빈칸을 제안했습니다 — 확인하고 다듬은 뒤 저장하세요.'
+          : `파일 구조를 가져왔습니다 (AI 다듬기 ${ai.startsWith('skipped') ? '건너뜀' : '꺼짐'}) — 실행마다 달라질 자리를 빈칸으로 선언하세요.`,
+      });
+    } catch (error) {
+      setNotice({ tone: 'error', text: '가져오기 실패: ' + (error.response?.data?.detail || error.message) });
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -285,6 +315,10 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
             <span className="fstudio-side-label">새로 만들기</span>
             <button type="button" onClick={() => { setSpec(emptySpec('document')); setLibraryId(''); }}>빈 문서 포맷</button>
             <button type="button" onClick={() => { setSpec(emptySpec('design')); setLibraryId(''); }}>빈 디자인 포맷</button>
+            <button type="button" disabled={importing} onClick={() => importInputRef.current?.click()}
+                    title="갖고 있는 서식 파일의 문단·표 구조와 {{자리표시자}}를 읽어 포맷 초안을 만듭니다">
+              {importing ? <Loader2 size={13} className="fstudio-spin" /> : <FileUp size={13} />} 파일에서 가져오기<em>.hwpx·.docx</em>
+            </button>
             {isDocument && (
               <>
                 <span className="fstudio-side-label">블록 추가</span>
@@ -462,6 +496,7 @@ export default function FormatStudio({ isOpen, onClose, initialFormatId = '', on
           </div>
         </footer>
         <input ref={uploadInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadImage} />
+        <input ref={importInputRef} type="file" accept=".hwpx,.docx" style={{ display: 'none' }} onChange={importFromFile} />
       </div>
     </div>
   );

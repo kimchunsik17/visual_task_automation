@@ -693,6 +693,57 @@ def generate_document_format(payload: FormatGeneratePayload,
     return {"spec": spec}
 
 
+# 가져오기 파일은 파싱만 하고 버린다 — 업로드 저장소·쿼터에 남기지 않으므로 상한만 지킨다.
+MAX_FORMAT_IMPORT_BYTES = int(os.getenv("MAX_FORMAT_IMPORT_BYTES", 15 * 1024 * 1024))
+
+
+@app.post("/api/formats/import")
+async def import_document_format(file: UploadFile = File(...), use_ai: str = Form("1"),
+                                 user: models.User = Depends(get_current_user_required)):
+    """서식 파일(.hwpx/.docx) → 스튜디오에 로드할 FormatSpec 초안 (계획 보류 항목 '역변환').
+
+    결정적 추출(format_import)이 정본이고, use_ai 면 그 초안을 근거로 빈칸을 제안한다 —
+    AI 가 실패해도 초안은 돌려주되 `ai` 필드에 건너뛴 이유를 명시한다(조용한 실패 금지).
+    """
+    import tempfile
+    from documents.format_import import IMPORT_EXTENSIONS, spec_from_file
+    from documents.format_spec import FormatSpecError
+
+    original_name = file.filename or ""
+    extension = os.path.splitext(original_name)[1].lower()
+    if extension not in IMPORT_EXTENSIONS:
+        raise HTTPException(status_code=422,
+                            detail=f"지원하지 않는 파일 형식입니다 — {', '.join(IMPORT_EXTENSIONS)} 만 가져올 수 있습니다.")
+
+    data = await file.read(MAX_FORMAT_IMPORT_BYTES + 1)
+    if len(data) > MAX_FORMAT_IMPORT_BYTES:
+        raise HTTPException(status_code=413,
+                            detail=f"파일이 너무 큽니다(상한 {MAX_FORMAT_IMPORT_BYTES // (1024 * 1024)}MB).")
+    if not data:
+        raise HTTPException(status_code=422, detail="파일이 비어 있습니다.")
+
+    handle, temp_path = tempfile.mkstemp(suffix=extension)
+    try:
+        with os.fdopen(handle, "wb") as temp_file:
+            temp_file.write(data)
+        try:
+            spec, source_info = spec_from_file(temp_path, original_name=original_name)
+        except FormatSpecError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        ai_status = "off"
+        if str(use_ai).strip().lower() not in ("0", "false", "no", ""):
+            from format_studio import refine_imported_spec
+            try:
+                spec = refine_imported_spec(spec)
+                ai_status = "applied"
+            except Exception as exc:
+                ai_status = f"skipped: {exc}"
+        return {"spec": spec, "source": source_info, "ai": ai_status}
+    finally:
+        os.unlink(temp_path)
+
+
 @app.get("/api/formats")
 def list_document_formats(user: models.User = Depends(get_current_user_required),
                           db: Session = Depends(get_db)):

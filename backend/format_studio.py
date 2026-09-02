@@ -88,6 +88,53 @@ _SYSTEM = """너는 문서 포맷 설계 도우미다. 사용자의 요청을 �
 요청이 문서인지 디자인물인지 분명치 않으면 문서(document)로 만든다."""
 
 
+_IMPORT_SYSTEM = _SYSTEM + """
+
+[가져온 문서를 포맷으로 바꾸는 작업 — 추가 규칙]
+- 아래에 주어지는 것은 사용자가 올린 **실제 서식 파일**에서 추출한 구조(fields + blocks)다.
+  이 문서의 골격을 재사용 가능한 포맷으로 바꿔라.
+- 골격의 고정 문구(제목·항목명·안내문)는 **원문 그대로 유지한다** — 새로 지어내거나 빼지 마라.
+  블록의 순서·구성도 유지한다(제목으로 보이는 짧은 첫 문단을 heading 으로 승격하는 것은 좋다).
+- 실행마다 달라질 값(사람 이름·날짜·금액·본문 내용 등)만 빈칸으로 선언하고, 그 자리를
+  {{필드이름}} 으로 바꿔라. 표의 "값" 칸(예: 항목|내용 2열의 내용 쪽)이 대표적인 빈칸이다.
+- 이미 선언돼 있는 fields 는 이름을 그대로 유지하고(label·kind 는 다듬어도 된다) 지우지 마라.
+- 확신이 없는 자리는 고정 문구로 남겨라 — 빈칸을 과하게 만드는 것보다 낫다."""
+
+# 가져온 구조가 이보다 크면 LLM 다듬기를 건너뛴다(토큰·지연) — 결정적 초안은 그대로 쓸 수 있다.
+MAX_IMPORT_STRUCT_CHARS = 12000
+
+
+def refine_imported_spec(draft: Dict[str, Any]) -> Dict[str, Any]:
+    """가져오기 초안(format_import.spec_from_file)을 근거로 빈칸을 제안한다.
+
+    실패해도 초안이 정본이다 — 호출자(/api/formats/import)는 예외를 받으면 초안을 그대로
+    돌려주고 응답에 건너뛴 이유를 명시한다(조용한 실패 금지).
+    """
+    payload = json.dumps({"fields": draft.get("fields"), "blocks": draft.get("blocks")},
+                         ensure_ascii=False)
+    if len(payload) > MAX_IMPORT_STRUCT_CHARS:
+        raise FormatSpecError(
+            f"문서가 너무 커서 AI 다듬기를 건너뜁니다({len(payload)}자, 상한 {MAX_IMPORT_STRUCT_CHARS}자).")
+
+    from meta_agent import get_llm
+    llm = get_llm(complexity_level="medium").with_structured_output(
+        GeneratedFormatSpec, method="function_calling")
+    generated = llm.invoke([
+        ("system", _IMPORT_SYSTEM),
+        ("user", f"가져온 문서 구조:\n{payload}\n(layout 은 반드시 document 로 만들어라.)"),
+    ])
+
+    spec = generated.model_dump(exclude_none=True)
+    spec["layout"] = "document"
+    spec.pop("design", None)
+    # 이름·출력 형식은 파일에서 온 초안이 정본이다(이름은 파일 이름, 출력 기본값은 원본 확장자).
+    spec["name"] = draft.get("name") or spec.get("name")
+    refined = validate_format_spec(spec)
+    if draft.get("output"):
+        refined["output"] = draft["output"]
+    return refined
+
+
 def generate_format_spec(prompt: str, layout_hint: str = "") -> Dict[str, Any]:
     """요청문 → 검증까지 통과한 FormatSpec dict. 실패는 FormatSpecError 로 올린다."""
     prompt = str(prompt or "").strip()
