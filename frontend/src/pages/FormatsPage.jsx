@@ -5,13 +5,13 @@
 // 둘러보기, (3) 에디터 밖에서 별도 창/탭으로 포맷 작업, 세 가지를 담당한다.
 // 편집 자체는 기존 FormatStudio 를 그대로 재사용한다(여기서 모달로 연다).
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Copy, FileText, LayoutTemplate, Palette, PencilLine, Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { customConfirm } from '../CustomConfirm';
 import { timeAgo } from '../timeFormat';
 import MainSidebar from '../MainSidebar';
-import FormatStudio from '../components/FormatStudio';
 import documentFormatsBundle from '../generated/documentFormats.json';
 import './MainPage.css';
 import './ManagementPage.css';
@@ -20,11 +20,10 @@ import './FormatsPage.css';
 const LAYOUT_LABELS = { document: '문서', design: '디자인' };
 
 function FormatsPage() {
+  const navigate = useNavigate();
   const { user, token } = useAuth();
   const [userFormats, setUserFormats] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [studioOpen, setStudioOpen] = useState(false);
-  const [studioFormatId, setStudioFormatId] = useState('');
 
   const presets = documentFormatsBundle.formats || [];
   const authHeaders = useCallback(
@@ -42,7 +41,8 @@ function FormatsPage() {
 
   useEffect(() => { fetchFormats(); }, [fetchFormats]);
 
-  const openStudio = (formatId = '') => { setStudioFormatId(formatId); setStudioOpen(true); };
+  // 편집은 풀페이지 스튜디오(/formats/studio)에서 — 앱 빌더와 같은 3-pane 작업 공간.
+  const openStudio = (formatId = '') => navigate(`/formats/studio${formatId ? `?id=${encodeURIComponent(formatId)}` : ''}`);
 
   const duplicateFormat = async (row) => {
     try {
@@ -146,13 +146,6 @@ function FormatsPage() {
           </section>
         </div>
       </main>
-
-      <FormatStudio
-        isOpen={studioOpen}
-        onClose={() => { setStudioOpen(false); fetchFormats(); }}
-        initialFormatId={studioFormatId}
-        onLibraryChanged={fetchFormats}
-      />
     </div>
   );
 }

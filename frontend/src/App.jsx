@@ -33,6 +33,7 @@ import CustomAppsDashboardPage from './pages/CustomAppsDashboardPage';
 import TutorialPage from './pages/TutorialPage';
 import DocumentsPage from './pages/DocumentsPage';
 import FormatsPage from './pages/FormatsPage';
+import FormatStudioPage from './pages/FormatStudioPage';
 import OperationsOverviewPage from './pages/OperationsOverviewPage';
 
 // 구 URL → 새 IA 경로 (쿼리·해시 보존, replace 이동 — IA 계획 §2)
@@ -80,6 +81,7 @@ function App() {
           <Route path="/tutorial" element={<RequireAuth><TutorialPage /></RequireAuth>} />
           <Route path="/tutorial/:trackId" element={<RequireAuth><TutorialPage /></RequireAuth>} />
           <Route path="/formats" element={<RequireAuth><FormatsPage /></RequireAuth>} />
+          <Route path="/formats/studio" element={<RequireAuth><FormatStudioPage /></RequireAuth>} />
           <Route path="/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
           <Route path="/documents/nodes/:nodeType" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
           <Route path="/documents/patterns/:patternId" element={<RequireAuth><DocumentsPage /></RequireAuth>} />

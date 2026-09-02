@@ -439,3 +439,16 @@
   .fstudio-body { grid-template-columns: 180px minmax(0, 1fr); }
   .fstudio-preview { display: none; }
 }
+
+/* ── 풀페이지 스튜디오 (/formats/studio) — 앱 빌더식 3-pane 셸 ── */
+.fstudio-pagemode {
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
+}
+.fstudio-pagemode .fstudio-body {
+  grid-template-columns: 230px minmax(0, 1fr) 340px;
+}
+.fstudio-pagemode .fstudio-preview { overflow-y: auto; }
+.fstudio-inspector { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
