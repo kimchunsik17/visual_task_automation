@@ -569,7 +569,7 @@ export const NODE_DOCS = {
     io: { input: '사용하지 않습니다(검색어는 필드로 지정).', output: '검색 결과 목록(JSON 문자열).' },
     fields: {
       mode: 'blog(블로그) 또는 cafe_article(카페글).',
-      query: '검색어.',
+      query: '검색어. 비우면 직전 노드의 출력을 검색어로 씁니다 — 동적 입력이나 LLM이 만든 검색어를 그대로 넘길 때 유용합니다.',
       display: '가져올 개수(기본 10, 최대 100).',
       sort: 'sim(정확도순) 또는 date(최신순).',
     },

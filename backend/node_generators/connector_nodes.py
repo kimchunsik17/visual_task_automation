@@ -329,11 +329,18 @@ def generate_google_drive_node(node_id, node, indent, active_llm_id, prev_res_va
 
 @node_registry.register('naverSearchNode')
 def generate_naver_search_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
+    """네이버 검색.
+
+    jusoNode 와 같은 규칙으로 **검색어가 비면 직전 노드 출력을 쓴다** — 동적 입력(사용자
+    키워드)이나 앞 LLM 이 만든 검색어를 그대로 넣는 그래프가 흔하다. 둘 다 비면 서비스가
+    '검색어가 비어 있다' 로 명확히 실패한다.
+    """
     data = node.get('data', {})
     mode = str(data.get('mode') or 'blog').replace('\\', '\\\\').replace('"', '\\"')
     query = str(data.get('query', '') or '').replace('\\', '\\\\').replace('"', '\\"')
     display = int(data.get('display') or 10)
     sort = str(data.get('sort') or 'sim').replace('\\', '\\\\').replace('"', '\\"')
+    incoming = prev_res_var if prev_res_var else 'last_result'
 
     lines.append(f"{indent}# --- Naver Search Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
@@ -346,13 +353,14 @@ def generate_naver_search_node(node_id, node, indent, active_llm_id, prev_res_va
     lines.append(f"{indent}from connectors import mock_runtime as _mock_runtime")
     lines.append(f"{indent}_nv_out_{node_id} = ''")
     lines.append(f"{indent}try:")
+    lines.append(f"{indent}    _nv_query_{node_id} = \"{query}\" or str({incoming} or '').strip()")
     # 키는 실행 시점에 API 센터에서 가져온다 — graph_data 에 담기지 않아 revision/템플릿/로그로 새지 않는다.
     lines.append(f"{indent}    _nv_key_{node_id} = _oauth.require_token('naver_api_hub', __owner_user_id__, db, service='네이버 검색')")
     lines.append(f"{indent}    _nv_def_{node_id} = _node_definition.get_definition('naverSearchNode')")
     lines.append(f"{indent}    with _mock_runtime.node('{node_id}', '{node['type']}'):")
     lines.append(f"{indent}        _nv_result_{node_id} = _naver_search.search(")
     lines.append(f"{indent}            _nv_def_{node_id}, _nv_key_{node_id}, mode=\"{mode}\",")
-    lines.append(f"{indent}            query=\"{query}\", display={display}, sort=\"{sort}\")")
+    lines.append(f"{indent}            query=_nv_query_{node_id}, display={display}, sort=\"{sort}\")")
     lines.append(f"{indent}    _nv_out_{node_id} = _json.dumps(_nv_result_{node_id}, ensure_ascii=False)")
     lines.append(f"{indent}except _ConnectorError as _e:")
     lines.append(f"{indent}    print(f'[네이버 검색 실패] {{_e.code}}: {{_e.user_message}}')")
