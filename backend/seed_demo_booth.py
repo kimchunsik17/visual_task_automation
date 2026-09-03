@@ -11,18 +11,20 @@
 
 시딩 전 모든 워크플로우를 dry_run 으로 검증한다 — 하나라도 실패하면 아무것도 쓰지 않는다.
 
-콘텐츠 목록:
+콘텐츠 목록 (2026-09-03: 도로명주소 노드는 시연에서 제외 — HIDDEN_NODE_TYPES=jusoNode 권장):
   포맷   demo-news-briefing        뉴스 브리핑 (formatNode 가 참조하는 사용자 포맷)
-  WF1    키워드 → 네이버 뉴스 → 한글(HWPX) 브리핑     naverSearchNode + formatNode
-  WF2    주소 정제 · 우편번호 찾기                    jusoNode (행정안전부)
-  WF3    아침 IT 정책 브리핑 → 카카오톡               dataGoKrNode(과기정통부) + kakaoNode
+  WF1    키워드 → 네이버 검색 → 한글(HWPX) 브리핑     naverSearchNode + formatNode
+  WF2    정책 자료 키워드 검색                        dataGoKrNode (공공데이터포털)
+  WF3    아침 IT 정책 브리핑 → 카카오톡               dataGoKrNode + kakaoNode
   WF4    브랜드 모니터링 → 이메일 경보                naverSearchTriggerNode
   WF5    휴가 신청 전자결재 → HWPX 발급 → 메일        formatNode(leave-request) + humanApproval
-  APP1   주소 접수 데스크        (WF2 연결 — 층 1 QR 체험용)
-  APP2   뉴스 브리핑 생성기      (WF1 연결 — 층 1 QR 체험용)
+  APP1   정책 자료 찾기          (WF2 연결 — 층 1 QR 체험용)
+  APP2   브리핑 문서 생성기      (WF1 연결 — 층 1 QR 체험용)
+
+콘텐츠를 교체하면 이전 [시연] 항목은 "[시연-보관]" 으로 개명된다(실행 로그가 걸려 있어 삭제 안 함).
 
 주의: WF3 의 카카오톡 발송은 시연 계정에 카카오 연동(API 센터)이 있어야 실제로 나간다.
-공공데이터·도로명주소 승인키도 시연 계정 API 센터(또는 DEMO_SHARED_CREDENTIALS_*)에 필요하다.
+공공데이터포털 승인키도 시연 계정 API 센터(또는 DEMO_SHARED_CREDENTIALS_*)에 필요하다.
 """
 
 from __future__ import annotations
@@ -169,29 +171,33 @@ def build_workflows(owner_email: str):
         "문서를 만듭니다. 결과가 없으면 분기해서 안내 문구를 돌려줍니다 — 검색 → 분기 → 문서화의 완결 흐름.",
         nodes, edges)
 
-    # WF2 — 주소 정제 · 우편번호 (검색 → 결과 유무 분기 → 정본 카드 / 재시도 안내)
+    # WF2 — 정책 자료 키워드 검색 (공공데이터포털 → 관심 주제 필터 → 브리핑 / 없으면 안내)
     n_start = N("start2", "startNode")
-    n_in = N("in_addr", "dynamicInputNode", inputLabel="정리할 주소",
-             testValue="부산 금정구 부산대학로63번길 2")
-    n_juso = N("juso_search", "jusoNode", keyword="", count=3)
+    n_in = N("in_topic", "dynamicInputNode", inputLabel="관심 주제",
+             testValue="인공지능")
+    n_gov = N("gov_search", "dataGoKrNode", dataset="msit_press_release", operation="list", rows=20)
     n_cond = N("cond_found", "conditionNode",
-               rules=[{"id": "none", "operator": "Contains", "value": '"total": 0'}])
+               rules=[{"id": "none", "operator": "Contains", "value": '"items": []'}])
     n_none = N("not_found_msg", "valueNode",
-               value="주소를 찾지 못했습니다 — 동 이름이나 건물번호까지 포함해 다시 적어 주세요. (예: 부산대학로63번길 2)")
+               value="지금은 조회된 보도자료가 없습니다 — 잠시 후 다시 시도해 주세요.")
     n_pick = N("pick_llm", "llmNode", model="gpt-4o-mini",
-               systemPrompt=("입력은 행정안전부 도로명주소 검색 결과다. 가장 그럴듯한 것 하나를 고른다. "
-                             "1줄: '도로명주소 (우편번호)', 2줄: '지번: <지번주소>', 3줄: 후보가 더 있으면 "
-                             "'다른 후보 N건이 있습니다'. 검색 결과에 없는 내용은 쓰지 않는다."))
+               systemPrompt=("입력은 과학기술정보통신부 최신 보도자료 목록(JSON)이고, 마지막에 사용자의 "
+                             "관심 주제가 한 줄 붙어 있다. 관심 주제와 관련된 자료를 최대 3건 골라 "
+                             "'· 제목 — 무엇에 대한 자료인지 한 줄' 로 정리한다. 관련 자료가 없으면 "
+                             "'관련 자료가 없습니다' 라고 쓰고 최신 자료 2건을 대신 소개한다. "
+                             "목록에 없는 내용은 지어내지 않는다."))
     n_merge = N("merge2", "mergeNode")
     n_out = N("out2", "outputNode")
-    nodes = [n_start, n_in, n_juso, n_cond, n_none, n_pick, n_merge, n_out]
-    edges = [link(n_start, n_in), link(n_in, n_juso), link(n_juso, n_cond),
+    # dynamicInputNode 는 직전 출력 뒤에 자기 값을 덧붙인다 — 목록(JSON) 뒤에 관심 주제가
+    # 붙도록 공공데이터 조회를 먼저 놓는다(LLM 이 둘 다 받는다).
+    nodes = [n_start, n_gov, n_in, n_cond, n_none, n_pick, n_merge, n_out]
+    edges = [link(n_start, n_gov), link(n_gov, n_in), link(n_in, n_cond),
              link(n_cond, n_none, source_handle="none"),
              link(n_cond, n_pick, source_handle="else"),
              link(n_pick, n_merge), link(n_none, n_merge), link(n_merge, n_out)]
-    flows["주소 정제 · 우편번호 찾기"] = (
-        "대충 적은 주소를 행정안전부 정본 도로명주소·우편번호·지번까지 3초 만에 정리합니다. "
-        "못 찾으면 분기해서 어떻게 다시 적을지 안내합니다.", nodes, edges)
+    flows["정책 자료 키워드 검색"] = (
+        "관심 주제를 넣으면 공공데이터포털(과기정통부 보도자료)에서 관련 정책 자료를 찾아 브리핑합니다. "
+        "조회 결과가 없으면 분기해서 안내합니다 — 층 1 QR 체험용.", nodes, edges)
 
     # WF3 — 아침 IT 정책 브리핑 (공공데이터 → 새 자료 유무 분기 → 카카오톡 + 이메일 보관)
     n_sched = N("sched_am8", "scheduleNode", cronExpression="0 8 * * 1-5")
@@ -330,21 +336,21 @@ def build_apps(project_ids: dict):
     """제목 → (ui_graph_data, logic_graph, workflow_mappings)."""
     apps = {}
 
-    # APP1 — 주소 접수 데스크 (WF2)
-    juso_pid = project_ids["주소 정제 · 우편번호 찾기"]
+    # APP1 — 정책 자료 찾기 (WF2, 공공데이터포털)
+    gov_pid = project_ids["정책 자료 키워드 검색"]
     components = [
-        _text("title", "📮 주소 접수 데스크", 60, 44, 560, 44, fontSize="30px", fontWeight="700"),
-        _text("desc", "대충 적어도 됩니다 — 행정안전부 정본 주소와 우편번호로 정리해 드려요.",
-              60, 96, 720, 30, fontSize="15px", color="#64748b"),
-        _input("addr_input", "주소", "예: 부산 금정구 부산대학로63번길 2", "in_addr", 60, 150),
-        _button("submit_btn", "정본 주소 찾기", 500, 172),
-        _result("result_box", "textarea", "정리된 주소가 여기에 표시됩니다.", 60, 250),
+        _text("title", "🏛️ 정책 자료 찾기", 60, 44, 560, 44, fontSize="30px", fontWeight="700"),
+        _text("desc", "관심 주제를 적으면 공공데이터포털의 최신 정책 자료에서 관련 내용을 찾아 드려요.",
+              60, 96, 740, 30, fontSize="15px", color="#64748b"),
+        _input("topic_input", "관심 주제", "예: 인공지능, 통신비, 보안", "in_topic", 60, 150),
+        _button("submit_btn", "자료 찾기", 500, 172),
+        _result("result_box", "textarea", "관련 정책 자료 브리핑이 여기에 표시됩니다.", 60, 250),
     ]
     ui = {"components": components, "canvas": {"width": 800, "height": 520, "autoHeight": True},
           "rootStyle": {"backgroundColor": "#f8fafc"}, "globalCss": "", "globalJs": "",
-          "description": "주소 한 줄을 정본 도로명주소·우편번호로 정리하는 접수 데스크"}
-    logic = _blueprint("submit_btn", juso_pid, [("in_addr", "addr_input")], "result_box")
-    apps["주소 접수 데스크"] = (ui, logic, {"submit_btn": {"projectId": str(juso_pid)}})
+          "description": "공공데이터포털(과기정통부 보도자료)에서 관심 주제의 정책 자료를 찾아 주는 데스크"}
+    logic = _blueprint("submit_btn", gov_pid, [("in_topic", "topic_input")], "result_box")
+    apps["정책 자료 찾기"] = (ui, logic, {"submit_btn": {"projectId": str(gov_pid)}})
 
     # APP2 — 브리핑 생성기 (WF1)
     news_pid = project_ids["키워드 → 네이버 브리핑 문서"]
@@ -415,8 +421,9 @@ def seed(db, user) -> dict:
         project_ids[title] = row.id
 
     # 4) 앱 upsert (소유자+제목 기준)
+    apps_map = build_apps(project_ids)
     app_ids = {}
-    for title, (ui, logic, mappings) in build_apps(project_ids).items():
+    for title, (ui, logic, mappings) in apps_map.items():
         full_title = TITLE_PREFIX + title
         combined = {"ui": ui, "logic": logic}
         row = (db.query(models.CustomApp)
@@ -428,6 +435,22 @@ def seed(db, user) -> dict:
         else:
             row.ui_graph_data, row.workflow_mappings = combined, mappings
         app_ids[title] = row.id
+
+    # 5) 목록에서 빠진 [시연] 항목 정리 — 콘텐츠를 교체해도 옛 항목이 계정 화면에 남지 않게
+    #    "[시연-보관]" 으로 개명한다. 실행 로그·리비전이 걸려 있을 수 있어 삭제하지 않는다.
+    archive_prefix = "[시연-보관] "
+    expected = {TITLE_PREFIX + t for t in flows}
+    for row in (db.query(models.Project)
+                .filter(models.Project.user_id == user.id,
+                        models.Project.title.like(f"{TITLE_PREFIX}%")).all()):
+        if row.title not in expected:
+            row.title = archive_prefix + row.title[len(TITLE_PREFIX):]
+    expected_apps = {TITLE_PREFIX + t for t in apps_map}
+    for row in (db.query(models.CustomApp)
+                .filter(models.CustomApp.owner_id == user.id,
+                        models.CustomApp.title.like(f"{TITLE_PREFIX}%")).all()):
+        if row.title not in expected_apps:
+            row.title = archive_prefix + row.title[len(TITLE_PREFIX):]
 
     db.commit()
     return {"formats": [DEMO_FORMAT_ID], "projects": project_ids, "apps": app_ids}
@@ -457,7 +480,8 @@ def main():
             print(f"  워크플로우 #{pid}: {TITLE_PREFIX}{title}")
         for title, aid in result["apps"].items():
             print(f"  앱 {aid}: {TITLE_PREFIX}{title}")
-        print("남은 일: 시연 계정 API 센터에 juso·data_go_kr 승인키(+카카오 연동), 앱은 앱 빌더에서 '배포'로 링크 발급.")
+        print("남은 일: 시연 계정 API 센터에 data_go_kr 승인키(+카카오 연동 선택), 앱은 앱 빌더에서 '배포'로 링크 발급.")
+        print("        시연 서버에는 HIDDEN_NODE_TYPES=jusoNode 설정을 권장한다(도로명주소는 이번 시연에서 제외).")
     finally:
         db.close()
 

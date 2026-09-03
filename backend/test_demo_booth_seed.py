@@ -89,11 +89,18 @@ for a in apps:
     for mapping in a.workflow_mappings.values():
         assert mapping["projectId"] in project_ids, a.workflow_mappings
 
-# 멱등성 — 다시 돌려도 개수가 늘지 않고 id 가 유지된다
+# 멱등성 — 다시 돌려도 개수가 늘지 않고 id 가 유지된다. 목록에서 빠진 옛 [시연] 항목은
+# 삭제 대신 "[시연-보관]" 으로 개명된다(실행 로그 FK 보호).
+stale = models.Project(user_id=1, title="[시연] 옛 콘텐츠", graph_data={"nodes": [], "edges": []})
+db.add(stale)
+db.commit()
 before_ids = sorted(p.id for p in projects)
 result2 = seed_demo_booth.seed(db, user)
-projects2 = db.query(models.Project).filter(models.Project.user_id == 1).all()
-assert sorted(p.id for p in projects2) == before_ids
+live = db.query(models.Project).filter(models.Project.user_id == 1,
+                                       models.Project.title.like("[시연] %")).all()
+assert sorted(p.id for p in live) == before_ids
+db.refresh(stale)
+assert stale.title == "[시연-보관] 옛 콘텐츠", stale.title
 assert db.query(models.CustomApp).filter(models.CustomApp.owner_id == 1).count() == 2
 assert result2["projects"] == result["projects"]
 
