@@ -416,9 +416,9 @@ export default function FormatStudioPage() {
             {isDocument ? <DocumentPreview spec={spec} /> : <DesignPreview spec={spec} maxWidth={300} />}
           </InspectorSection>
         </aside>
-      </div>
 
-      <AIAssistantDrawer
+        {/* 앱 빌더와 동일: 워크스페이스 flex 행의 마지막 칼럼 — 열리면 오른쪽에서 390px 로 확장 */}
+        <AIAssistantDrawer
         isOpen={isAssistantOpen}
         title="포맷 AI"
         description="문서·포스터 골격을 함께 구성합니다"
@@ -444,7 +444,8 @@ export default function FormatStudioPage() {
             </div>
           </div>
         )}
-      />
+        />
+      </div>
 
       {notice && <div className={`fsp-toast ${notice.tone}`} role="status">{notice.text}</div>}
 
