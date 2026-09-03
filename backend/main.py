@@ -905,6 +905,57 @@ def auth_google(payload: AuthPayload, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid Google token: {str(e)}")
 
 
+class DemoLoginPayload(BaseModel):
+    code: str
+    seat: int = 1
+
+
+def demo_login_seats() -> int:
+    try:
+        return max(1, min(int(os.getenv("DEMO_LOGIN_SEATS", "3")), 10))
+    except ValueError:
+        return 3
+
+
+@app.post("/api/auth/demo")
+def auth_demo(payload: DemoLoginPayload, db: Session = Depends(get_db)):
+    """시연장 로그인(opt-in) — DEMO_LOGIN_CODE 가 설정된 동안에만 열린다.
+
+    부스 노트북은 새 기기라 구글 로그인이 추가 인증에 막히기 쉽다(시연 종합보고서 §4).
+    코드가 맞으면 좌석별 데모 계정(demo-booth-N)으로 JWT 를 발급한다. 데모 계정은 일반
+    사용자이고(admin 아님), 시연이 끝나면 환경변수만 지우면 입구가 닫힌다.
+    """
+    import hmac
+
+    demo_code = os.getenv("DEMO_LOGIN_CODE", "")
+    if not demo_code:
+        raise HTTPException(status_code=404, detail="시연 로그인이 꺼져 있습니다.")
+    if not hmac.compare_digest(str(payload.code or ""), demo_code):
+        raise HTTPException(status_code=401, detail="시연 코드가 올바르지 않습니다.")
+    seats = demo_login_seats()
+    if not (1 <= int(payload.seat) <= seats):
+        raise HTTPException(status_code=422, detail=f"좌석 번호는 1~{seats} 사이여야 합니다.")
+
+    google_id = f"demo-booth-{int(payload.seat)}"
+    user = db.query(models.User).filter(models.User.google_id == google_id).first()
+    if not user:
+        user = models.User(google_id=google_id, email=f"booth{int(payload.seat)}@demo.local",
+                           name=f"시연 {int(payload.seat)}번 좌석")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    print(f"[demo-login] 좌석 {int(payload.seat)} 로그인 (user={user.id})")
+
+    access_token = jwt.encode(
+        {"user_id": user.id, "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7)},
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM
+    )
+    return {"access_token": access_token,
+            "user": {"id": user.id, "name": user.name, "email": user.email,
+                     "picture": user.picture, "is_admin": is_admin_user(user)}}
+
+
 @app.get("/api/admin/users")
 def get_admin_users(user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
     users = db.query(models.User).all()
@@ -1200,6 +1251,9 @@ def get_features():
         # 꺼져 있으면 편집기가 팔레트에서 pythonNode 를 빼야 한다. 실행 경로는 이 값과 무관하게
         # 서버에서 다시 막으므로, 이건 UI 가 헛수고를 안 하게 하는 힌트다.
         "python_node_enabled": python_runtime.node_enabled(),
+        # 시연장 로그인(opt-in) — 켜져 있으면 로그인 화면에 "시연 로그인" 입구를 그린다.
+        "demo_login": bool(os.getenv("DEMO_LOGIN_CODE")),
+        "demo_login_seats": demo_login_seats(),
     }
 
 
