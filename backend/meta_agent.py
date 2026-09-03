@@ -305,6 +305,11 @@ _NODE_CATALOG_TEMPLATE = """\
 # backend/test_node_definitions.py 가 testdata/node_catalog_snapshot.txt 와 대조한다.
 NODE_CATALOG = node_definition.inject_catalog_entries(_NODE_CATALOG_TEMPLATE)
 
+# 시연 노드 비가시화(opt-in, hidden_nodes.py) — 숨긴 노드는 생성 카탈로그에서 빠져
+# LLM 이 그래프에 넣지 않는다. 환경변수 미설정이면 문자열이 그대로라 스냅샷 대조와 무관하다.
+import hidden_nodes as _hidden_nodes
+NODE_CATALOG = _hidden_nodes.strip_catalog(NODE_CATALOG)
+
 
 # ── ①-b 카탈로그 트리밍 (생성 품질 개선) ────────────────────────────────────
 # NODE_CATALOG는 32종 노드 설명을 전부 담아 항상 통째로 프롬프트에 들어갔다 — 요청과 무관한

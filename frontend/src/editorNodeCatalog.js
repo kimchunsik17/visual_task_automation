@@ -1,5 +1,6 @@
 import { NodeRegistry } from './nodeRegistry';
 import { NodeDefinitions } from './nodeDefinitions';
+import { getHiddenNodeTypes } from './features';
 
 const STATIC_EDITOR_NODES = [
   ['startNode', '시작', 'core', '#10b981', 'node-start', 'trigger'],
@@ -95,6 +96,13 @@ Object.values(NodeRegistry).forEach((meta) => {
 
 export const EDITOR_NODE_CATALOG = [...catalogByType.values()];
 
+// 시연 노드 비가시화(features.hidden_nodes) — 팔레트·교체 후보 같은 "고르는" 표면은
+// 이 함수를 쓴다. 캔버스에 이미 놓인 숨김 노드는 정상 렌더·정상 실행된다(시연 플래그 계획).
+export const visibleEditorNodes = () => {
+  const hidden = getHiddenNodeTypes();
+  return hidden.size === 0 ? EDITOR_NODE_CATALOG : EDITOR_NODE_CATALOG.filter((n) => !hidden.has(n.type));
+};
+
 export const getEditorNodeMeta = (type) => catalogByType.get(type) || {
   type,
   label: type,
@@ -108,6 +116,6 @@ export const getEditorNodeMeta = (type) => catalogByType.get(type) || {
 
 export const getReplacementCandidates = (sourceType) => {
   const source = getEditorNodeMeta(sourceType);
-  return EDITOR_NODE_CATALOG.filter((candidate) => candidate.type !== sourceType && candidate.kind === source.kind);
+  return visibleEditorNodes().filter((candidate) => candidate.type !== sourceType && candidate.kind === source.kind);
 };
 
