@@ -141,6 +141,19 @@ def require_token(provider_id: str, user_id: int, db, *, service: str) -> str:
 
     token = ensure_fresh_token(provider_id, user_id, db)
     if not token:
+        # 시연 공유 자격증명(opt-in, demo_credentials.py) — 사용자에게 키가 없을 때만
+        # 부스 계정 키로 폴백하고, 사용을 서버 로그 + flow_execution_logs 에 남긴다.
+        import demo_credentials
+
+        shared_uid = demo_credentials.fallback_user_id(provider_id)
+        if shared_uid is not None and shared_uid != user_id:
+            token = ensure_fresh_token(provider_id, shared_uid, db)
+            if token:
+                demo_credentials.record_use(
+                    db, providers=[provider_id], actor_user_id=user_id,
+                    shared_user_id=shared_uid, source="connector")
+                return token
+    if not token:
         provider = providers.get_provider(provider_id)
         raise ConnectorError(
             code=AUTH_MISSING,
