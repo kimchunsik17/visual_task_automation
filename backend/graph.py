@@ -934,16 +934,24 @@ def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=
                 if fresh_token:
                     api_key_map["{{API_CENTER:kakao_token}}"] = fresh_token
 
+            # 시연 공유 자격증명(opt-in, demo_credentials.py) — 소유자에게 없는 허용 provider 의
+            # placeholder 를 부스 계정 키로 채운다. 실제로 치환에 쓰인 것만 아래에서 기록한다.
+            import demo_credentials as _demo_creds
+            _demo_added = _demo_creds.augment_api_key_map(db, api_key_map, owner_user_id=project.user_id)
+            _used_refs = set()
+
             def replace_api_keys(obj):
                 if isinstance(obj, dict):
                     for k, v in obj.items():
                         if isinstance(v, str) and v in api_key_map:
+                            _used_refs.add(v)
                             obj[k] = api_key_map[v]
                         elif isinstance(v, (dict, list)):
                             replace_api_keys(v)
                 elif isinstance(obj, list):
                     for i in range(len(obj)):
                         if isinstance(obj[i], str) and obj[i] in api_key_map:
+                            _used_refs.add(obj[i])
                             obj[i] = api_key_map[obj[i]]
                         elif isinstance(obj[i], (dict, list)):
                             replace_api_keys(obj[i])
@@ -959,6 +967,13 @@ def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=
             for n in nodes:
                 if id(n) in _db_refs and _db_refs[id(n)] is not None:
                     n['data']['connectionString'] = _db_refs[id(n)]
+            if _demo_added:
+                _demo_used = sorted({prov for ph, prov in _demo_added.items() if ph in _used_refs})
+                _shared_uid = _demo_creds.demo_user_id()
+                if _demo_used and _shared_uid is not None:
+                    _demo_creds.record_use(db, providers=_demo_used, actor_user_id=project.user_id,
+                                           shared_user_id=_shared_uid,
+                                           project_id=project_id, source="placeholder")
 
     python_code = compile_workflow(nodes, edges, project_id=project_id, entry_node_id=entry_node_id,
                                    stop_node_id=stop_node_id, scope_node_ids=scope_node_ids,
