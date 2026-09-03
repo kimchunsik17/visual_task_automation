@@ -52,6 +52,11 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
   const [pendingCount, setPendingCount] = useState(0);
   const [approvalCount, setApprovalCount] = useState(0);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  // 시연장 로그인(opt-in) — 서버의 DEMO_LOGIN_CODE 가 설정된 동안에만 입구가 열린다.
+  const [demoLogin, setDemoLogin] = useState(null);   // { seats } | null
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [demoCode, setDemoCode] = useState('');
+  const [demoSeat, setDemoSeat] = useState(1);
   // 사이드바 안의 탭. 예전에는 사이드바가 둘이었고 한쪽을 누르면 다른 쪽이 접혔는데,
   // 접힌 상태의 위계가 불안정하고 가로 공간을 늘 두 벌 차지했다 — 하나로 합치고 탭으로 나눈다.
   const [panel, setPanel] = useState(() => readMainSidebarPanel(sidebarStorage)); // 'menu' | 'chat'
@@ -94,6 +99,23 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
     const interval = setInterval(fetchCount, 5000);
     return () => clearInterval(interval);
   }, [token]);
+
+  useEffect(() => {
+    if (user) return;
+    axios.get('/api/features')
+      .then((res) => { if (res.data?.demo_login) setDemoLogin({ seats: res.data.demo_login_seats || 3 }); })
+      .catch(() => { /* 기능 조회 실패 = 입구 없음 */ });
+  }, [user]);
+
+  const handleDemoLogin = async () => {
+    if (!demoCode.trim()) return;
+    try {
+      const res = await axios.post('/api/auth/demo', { code: demoCode, seat: Number(demoSeat) });
+      login(res.data.user, res.data.access_token);
+    } catch (error) {
+      alert('시연 로그인 실패: ' + (error.response?.data?.detail || error.message));
+    }
+  };
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
@@ -219,6 +241,25 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
                     console.log('Login Failed');
                   }}
                 />
+                {demoLogin && (
+                  !demoOpen ? (
+                    <button type="button" className="demo-login-toggle" onClick={() => setDemoOpen(true)}>
+                      시연 로그인
+                    </button>
+                  ) : (
+                    <div className="demo-login-form" aria-label="시연 로그인">
+                      <select value={demoSeat} onChange={(e) => setDemoSeat(Number(e.target.value))} aria-label="좌석">
+                        {Array.from({ length: demoLogin.seats }, (_, i) => i + 1).map((n) => (
+                          <option key={n} value={n}>{n}번 좌석</option>
+                        ))}
+                      </select>
+                      <input type="password" placeholder="시연 코드" value={demoCode}
+                             onChange={(e) => setDemoCode(e.target.value)}
+                             onKeyDown={(e) => { if (e.key === 'Enter') handleDemoLogin(); }} />
+                      <button type="button" onClick={handleDemoLogin} disabled={!demoCode.trim()}>입장</button>
+                    </div>
+                  )
+                )}
               </div>
               <div className="login-collapsed-icon">
                 <User size={24} color="var(--text-muted)" />

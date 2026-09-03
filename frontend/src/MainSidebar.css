@@ -63,3 +63,48 @@
 @media (prefers-reduced-motion: reduce) {
   .mobile-sidebar-wrapper, .nav-item, .sidebar-tab { transition: none; }
 }
+
+/* 시연장 로그인 (opt-in — /api/features.demo_login 이 켜졌을 때만 그린다) */
+.demo-login-toggle {
+  margin-top: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.demo-login-toggle:hover { color: var(--text-color); border-style: solid; }
+.demo-login-form {
+  margin-top: 8px;
+  display: flex;
+  gap: 5px;
+}
+.demo-login-form select,
+.demo-login-form input {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.78rem;
+}
+.demo-login-form select { flex: 0 0 auto; }
+.demo-login-form input { flex: 1; }
+.demo-login-form button {
+  flex: 0 0 auto;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--primary-color, #4f7cff);
+  color: #fff;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.demo-login-form button:disabled { opacity: 0.5; cursor: default; }
