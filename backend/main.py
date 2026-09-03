@@ -30,6 +30,10 @@ from node_errors import runtime as node_error_runtime
 from dry_run import dry_run_workflow
 from meta_agent import FLOW_REPAIR_PROMPT_VERSION, run_agent_turn
 import meta_agent
+# 시연 노드 비가시화(opt-in, hidden_nodes.py) — 기동 시 오타 경고·활성 로그를 남긴다.
+import hidden_nodes as _hidden_nodes_boot
+from typing import get_args as _typing_get_args
+_hidden_nodes_boot.warn_unknown(_typing_get_args(meta_agent.NodeType))
 import node_definition
 import project_revisions
 import mock_service
@@ -869,7 +873,9 @@ def get_node_definitions():
     이 엔드포인트에 의존하지 않는다. 런타임에 정의가 필요한 소비자 — 목업 서버 탭,
     커뮤니티 노드 검증, 외부 도구 — 를 위한 공개 계약이다.
     """
-    return {"status": "success", "definitions": node_definition.definitions_payload()}
+    import hidden_nodes
+    return {"status": "success",
+            "definitions": hidden_nodes.filter_definitions(node_definition.definitions_payload())}
 
 
 @app.post("/api/auth/google")
@@ -1245,6 +1251,7 @@ def get_features():
     """클라이언트가 어떤 경로의 UI 를 그릴지 정하는 배포 플래그."""
     import db_query_runtime
     import python_runtime
+    import hidden_nodes as hidden_nodes_module
     return {
         "database_query_v2": db_query_runtime.v2_enabled(),
         "node_error_v1": node_error_runtime.is_enabled(),
@@ -1254,6 +1261,8 @@ def get_features():
         # 시연장 로그인(opt-in) — 켜져 있으면 로그인 화면에 "시연 로그인" 입구를 그린다.
         "demo_login": bool(os.getenv("DEMO_LOGIN_CODE")),
         "demo_login_seats": demo_login_seats(),
+        # 시연 노드 비가시화(opt-in) — 프론트가 팔레트·교체 후보에서 이 타입들을 뺀다.
+        "hidden_nodes": sorted(hidden_nodes_module.hidden_types()),
     }
 
 

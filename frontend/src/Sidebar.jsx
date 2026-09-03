@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, ChevronRight, Puzzle, X, Shapes } from 'lucide-react';
 import { Icon } from './icons';
-import { EDITOR_NODE_CATALOG, NODE_CATEGORY_LABELS } from './editorNodeCatalog';
+import { NODE_CATEGORY_LABELS, visibleEditorNodes } from './editorNodeCatalog';
+import { loadFeatures } from './features';
 
 /**
  * 노드 팔레트.
@@ -28,6 +29,14 @@ const readExpanded = () => {
 const Sidebar = ({ isMobileOpen, onClose, onNodeTap }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCategories, setExpandedCategories] = useState(readExpanded);
+  // 시연 노드 비가시화(features.hidden_nodes) — 플래그가 로드되면 팔레트를 다시 계산한다.
+  const [catalog, setCatalog] = useState(() => visibleEditorNodes());
+
+  useEffect(() => {
+    let alive = true;
+    loadFeatures().then(() => { if (alive) setCatalog(visibleEditorNodes()); });
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(expandedCategories)); } catch { /* 저장 불가 환경은 무시 */ }
@@ -47,9 +56,9 @@ const Sidebar = ({ isMobileOpen, onClose, onNodeTap }) => {
   const isSearching = needle !== '';
   const visibleNodes = useMemo(() => (
     isSearching
-      ? EDITOR_NODE_CATALOG.filter((node) => node.label.toLowerCase().includes(needle) || node.type.toLowerCase().includes(needle))
-      : EDITOR_NODE_CATALOG
-  ), [isSearching, needle]);
+      ? catalog.filter((node) => node.label.toLowerCase().includes(needle) || node.type.toLowerCase().includes(needle))
+      : catalog
+  ), [isSearching, needle, catalog]);
 
   const renderNode = (node, showCategory = false) => (
     <div
@@ -75,7 +84,7 @@ const Sidebar = ({ isMobileOpen, onClose, onNodeTap }) => {
         <div className="sidebar-header">
           <h2 className="sidebar-title">
             <Shapes size={14} /> 노드
-            <span className="sidebar-count">{EDITOR_NODE_CATALOG.length}</span>
+            <span className="sidebar-count">{catalog.length}</span>
           </h2>
           <button className="mobile-palette-close-btn editor-icon-button" onClick={onClose} aria-label="노드 팔레트 닫기">
             <X size={18} />
