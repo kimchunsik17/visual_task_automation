@@ -2029,6 +2029,31 @@ def _require_shared_app_visibility(db, request: Request, project):
             raise HTTPException(status_code=403, detail="Friends-only access required")
     return user
 
+# 공개 실행 입력 상한 — 익명 방문자(share 링크·부스 QR)가 넣는 값의 폭주 방어.
+# 정상 사용(긴 본문 붙여넣기)은 넉넉히 통과시키고, 프롬프트 덤프·용량 공격만 자른다.
+MAX_PUBLIC_INPUT_KEYS = 50
+MAX_PUBLIC_INPUT_VALUE_CHARS = 8000
+MAX_PUBLIC_INPUT_TOTAL_CHARS = 32000
+
+
+def _reject_oversized_inputs(user_inputs: dict) -> None:
+    if not user_inputs:
+        return
+    if len(user_inputs) > MAX_PUBLIC_INPUT_KEYS:
+        raise HTTPException(status_code=422, detail=f"입력 항목이 너무 많습니다(최대 {MAX_PUBLIC_INPUT_KEYS}개).")
+    total = 0
+    for key, value in user_inputs.items():
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+        if len(text) > MAX_PUBLIC_INPUT_VALUE_CHARS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"'{key}' 입력이 너무 깁니다(최대 {MAX_PUBLIC_INPUT_VALUE_CHARS:,}자) — 내용을 줄여 다시 시도해 주세요.")
+        total += len(text)
+    if total > MAX_PUBLIC_INPUT_TOTAL_CHARS:
+        raise HTTPException(status_code=422,
+                            detail=f"입력 전체가 너무 큽니다(최대 {MAX_PUBLIC_INPUT_TOTAL_CHARS:,}자).")
+
+
 @app.post("/api/apps/{share_token}/execute")
 def execute_app(share_token: str, request: Request, payload: AppExecutePayload = None, db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.share_token == share_token).first()
@@ -2045,9 +2070,12 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
     nodes = project.graph_data.get('nodes', [])
     edges = project.graph_data.get('edges', [])
     
+    # 입력 키 이름은 앱 제작자가 정하므로 **kwargs 로 펼치면 안 된다(ADR 없음 — 버그 수정).
+    # 상한 검사는 try 밖에서 — 아래 광역 except 가 HTTPException(422)을 500 으로 감싸면 안 된다.
+    user_inputs = dict(payload.inputs) if payload and payload.inputs else {}
+    _reject_oversized_inputs(user_inputs)
+
     try:
-        # 입력 키 이름은 앱 제작자가 정하므로 **kwargs 로 펼치면 안 된다(ADR 없음 — 버그 수정).
-        user_inputs = dict(payload.inputs) if payload and payload.inputs else {}
         result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id, user_inputs=user_inputs)
         
         db_log = record_usage(
@@ -2133,6 +2161,7 @@ def run_project_workflow(project_id: int, request: Request, payload: Optional[Pr
             user_inputs['default_input'] = payload.input_text
             user_inputs.setdefault('input_text', payload.input_text)
             user_inputs.setdefault('text', payload.input_text)
+    _reject_oversized_inputs(user_inputs)
 
     try:
         result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='custom_app_run', project_id=project.id, user_inputs=user_inputs)
