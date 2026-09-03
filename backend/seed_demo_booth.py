@@ -56,6 +56,11 @@ def chain(*nodes):
     return list(nodes), edges
 
 
+def link(a, b, source_handle=None):
+    return {"id": f"e-{a['id']}-{b['id']}-{source_handle or ''}", "source": a["id"],
+            "target": b["id"], "sourceHandle": source_handle, "targetHandle": None}
+
+
 # ── 전용 문서 포맷: 뉴스 브리핑 ──────────────────────────────────────────
 
 NEWS_BRIEFING_SPEC = {
@@ -134,10 +139,17 @@ def build_workflows(owner_email: str):
     """제목 → (설명, nodes, edges). 노드 id 는 앱 payload 키로도 쓰이므로 바꾸지 말 것."""
     flows = {}
 
-    # WF1 — 키워드 → 네이버 검색 → 한글(HWPX) 브리핑
+    # WF1 — 키워드 정제 → 네이버 검색 → (결과 유무 분기) → 구조화 → 한글(HWPX) 브리핑
     n_start = N("start1", "startNode")
     n_in = N("in_keyword", "dynamicInputNode", inputLabel="검색 키워드", testValue="생성형 AI")
+    n_refine = N("refine_llm", "llmNode", model="gpt-4o-mini",
+                 systemPrompt=("입력은 사용자가 적은 검색 요청이다. 조사·군더더기를 걷어내고 "
+                               "네이버 검색에 넣을 핵심 검색어 하나로 정제한다. 검색어만 한 줄로 출력한다."))
     n_news = N("news_search", "naverSearchNode", mode="blog", query="", display=10, sort="date")
+    n_cond = N("cond_hits", "conditionNode",
+               rules=[{"id": "empty", "operator": "Contains", "value": '"items": []'}])
+    n_empty = N("no_hits_msg", "valueNode",
+                value="검색 결과가 없습니다 — 키워드를 조금 더 일반적인 표현으로 바꿔 다시 시도해 주세요.")
     n_brief = N("brief_llm", "llmNode", model="gpt-4o-mini",
                 systemPrompt=("입력은 네이버 검색 결과다. 이것만 근거로 오늘의 브리핑을 만든다. "
                               "articles 는 실제 글에서 3~5건을 골라 [제목, 매체, 한 줄 요약] 로 적는다. "
@@ -145,56 +157,106 @@ def build_workflows(owner_email: str):
                               "reportDate 는 오늘 날짜를 한국어로 적는다."),
                 useStructuredOutput=True, jsonSchema=NEWS_BRIEFING_SCHEMA)
     n_doc = N("brief_doc", "formatNode", formatId=DEMO_FORMAT_ID, output="hwpx")
-    nodes, edges = chain(n_start, n_in, n_news, n_brief, n_doc, N("out1", "outputNode"))
+    n_merge = N("merge1", "mergeNode")
+    n_out = N("out1", "outputNode")
+    nodes = [n_start, n_in, n_refine, n_news, n_cond, n_empty, n_brief, n_doc, n_merge, n_out]
+    edges = [link(n_start, n_in), link(n_in, n_refine), link(n_refine, n_news), link(n_news, n_cond),
+             link(n_cond, n_empty, source_handle="empty"),
+             link(n_cond, n_brief, source_handle="else"),
+             link(n_brief, n_doc), link(n_doc, n_merge), link(n_empty, n_merge), link(n_merge, n_out)]
     flows["키워드 → 네이버 브리핑 문서"] = (
-        "키워드 하나를 넣으면 네이버 최신 글을 검색해 요약하고, 한/글(HWPX) 브리핑 문서를 만들어 줍니다. "
-        "한국형 검색 → AI 정리 → 한국형 문서까지 한 번에.", nodes, edges)
+        "키워드를 AI가 검색어로 정제해 네이버 최신 글을 모으고, 결과가 있으면 요약해 한/글(HWPX) 브리핑 "
+        "문서를 만듭니다. 결과가 없으면 분기해서 안내 문구를 돌려줍니다 — 검색 → 분기 → 문서화의 완결 흐름.",
+        nodes, edges)
 
-    # WF2 — 주소 정제 · 우편번호 찾기 (행정안전부 도로명주소)
+    # WF2 — 주소 정제 · 우편번호 (검색 → 결과 유무 분기 → 정본 카드 / 재시도 안내)
     n_start = N("start2", "startNode")
     n_in = N("in_addr", "dynamicInputNode", inputLabel="정리할 주소",
              testValue="부산 금정구 부산대학로63번길 2")
     n_juso = N("juso_search", "jusoNode", keyword="", count=3)
+    n_cond = N("cond_found", "conditionNode",
+               rules=[{"id": "none", "operator": "Contains", "value": '"total": 0'}])
+    n_none = N("not_found_msg", "valueNode",
+               value="주소를 찾지 못했습니다 — 동 이름이나 건물번호까지 포함해 다시 적어 주세요. (예: 부산대학로63번길 2)")
     n_pick = N("pick_llm", "llmNode", model="gpt-4o-mini",
-               systemPrompt=("입력은 행정안전부 도로명주소 검색 결과다. 가장 그럴듯한 것 하나를 골라 "
-                             "'도로명주소 (우편번호)' 형식 한 줄로만 답한다. 결과가 없으면 "
-                             "'주소를 찾지 못했습니다 — 조금 더 자세히 적어 주세요.' 라고만 답한다."))
-    nodes, edges = chain(n_start, n_in, n_juso, n_pick, N("out2", "outputNode"))
+               systemPrompt=("입력은 행정안전부 도로명주소 검색 결과다. 가장 그럴듯한 것 하나를 고른다. "
+                             "1줄: '도로명주소 (우편번호)', 2줄: '지번: <지번주소>', 3줄: 후보가 더 있으면 "
+                             "'다른 후보 N건이 있습니다'. 검색 결과에 없는 내용은 쓰지 않는다."))
+    n_merge = N("merge2", "mergeNode")
+    n_out = N("out2", "outputNode")
+    nodes = [n_start, n_in, n_juso, n_cond, n_none, n_pick, n_merge, n_out]
+    edges = [link(n_start, n_in), link(n_in, n_juso), link(n_juso, n_cond),
+             link(n_cond, n_none, source_handle="none"),
+             link(n_cond, n_pick, source_handle="else"),
+             link(n_pick, n_merge), link(n_none, n_merge), link(n_merge, n_out)]
     flows["주소 정제 · 우편번호 찾기"] = (
-        "대충 적은 주소를 행정안전부 정본 도로명주소와 우편번호로 3초 만에 정리합니다.", nodes, edges)
+        "대충 적은 주소를 행정안전부 정본 도로명주소·우편번호·지번까지 3초 만에 정리합니다. "
+        "못 찾으면 분기해서 어떻게 다시 적을지 안내합니다.", nodes, edges)
 
-    # WF3 — 아침 IT 정책 브리핑 (공공데이터포털 → 카카오톡)
+    # WF3 — 아침 IT 정책 브리핑 (공공데이터 → 새 자료 유무 분기 → 카카오톡 + 이메일 보관)
     n_sched = N("sched_am8", "scheduleNode", cronExpression="0 8 * * 1-5")
     n_gov = N("gov_press", "dataGoKrNode", dataset="msit_press_release", operation="list", rows=8)
+    n_cond = N("cond_press", "conditionNode",
+               rules=[{"id": "quiet", "operator": "Contains", "value": '"items": []'}])
+    n_quiet = N("quiet_msg", "valueNode", value="오늘은 새 보도자료가 없습니다 — 알림을 보내지 않습니다.")
     n_sum = N("sum_llm", "llmNode", model="gpt-4o-mini",
               systemPrompt=("입력은 과학기술정보통신부 보도자료 목록이다. 오늘 알아야 할 3건을 골라 "
                             "'· 제목 — 요점 한 줄' 형식으로 정리한다. 첫 줄은 '📋 오늘의 IT 정책 브리핑' 으로 "
-                            "시작한다. 목록에 없는 내용은 쓰지 않는다."))
+                            "시작하고, 마지막 줄에 '(공공데이터포털 · 과기정통부)' 출처를 적는다. "
+                            "목록에 없는 내용은 쓰지 않는다."))
     n_kakao = N("kakao_send", "kakaoNode", template="text")
-    nodes, edges = chain(n_sched, n_gov, n_sum, n_kakao, N("out3", "outputNode"))
+    n_archive = N("archive_mail", "emailNode", toEmail=owner_email, subject="[보관] 오늘의 IT 정책 브리핑")
+    n_merge = N("merge3", "mergeNode")
+    n_out = N("out3", "outputNode")
+    nodes = [n_sched, n_gov, n_cond, n_quiet, n_sum, n_kakao, n_archive, n_merge, n_out]
+    edges = [link(n_sched, n_gov), link(n_gov, n_cond),
+             link(n_cond, n_quiet, source_handle="quiet"),
+             link(n_cond, n_sum, source_handle="else"),
+             link(n_sum, n_kakao), link(n_kakao, n_archive),
+             link(n_archive, n_merge), link(n_quiet, n_merge), link(n_merge, n_out)]
     flows["아침 IT 정책 브리핑 → 카카오톡"] = (
-        "평일 아침 8시, 공공데이터포털의 과기정통부 보도자료를 훑어 핵심 3건을 카카오톡 '나에게 보내기'로 "
-        "받습니다. (카카오 연동은 API 센터에서)", nodes, edges)
+        "평일 아침 8시, 공공데이터포털의 과기정통부 보도자료를 확인해 새 자료가 있을 때만 핵심 3건을 "
+        "카카오톡으로 보내고 이메일로도 보관합니다. 새 자료가 없는 날은 조용히 넘어갑니다.", nodes, edges)
 
-    # WF4 — 브랜드 모니터링 → 이메일 경보 (네이버 새 글 트리거)
+    # WF4 — 브랜드 모니터링 (새 글 트리거 → 논조 분석 → 부정이면 경보, 평시엔 일지)
     n_watch = N("watch_naver", "naverSearchTriggerNode", mode="blog", query="업무 자동화", maxResults=5)
     n_judge = N("judge_llm", "llmNode", model="gpt-4o-mini",
                 systemPrompt=("입력은 우리 키워드가 언급된 네이버 새 글 목록이다. 글마다 '제목 — 논조(긍정/중립/부정) "
-                              "— 한 줄 요약' 으로 정리하고, 부정 논조가 있으면 맨 위에 '⚠️ 부정 언급 감지' 를 붙인다. "
-                              "글에 없는 내용을 추측하지 않는다."))
-    n_mail = N("alert_mail", "emailNode", toEmail=owner_email, subject="[모니터링] 네이버 새 글 알림")
-    nodes, edges = chain(n_watch, n_judge, n_mail, N("out4", "outputNode"))
+                              "— 한 줄 요약' 으로 정리하고, 부정 논조가 하나라도 있으면 맨 첫 줄에 정확히 "
+                              "'⚠️ 부정 언급 감지' 라고 쓴다. 글에 없는 내용을 추측하지 않는다."))
+    n_cond = N("cond_tone", "conditionNode",
+               rules=[{"id": "negative", "operator": "Contains", "value": "부정 언급 감지"}])
+    n_alert = N("alert_mail", "emailNode", toEmail=owner_email, subject="[경보] 부정 언급 감지 — 즉시 확인")
+    n_log = N("digest_msg", "valueNode",
+              value="새 글이 있었지만 부정 언급은 없습니다 — 실행 기록으로만 남깁니다.")
+    n_merge = N("merge4", "mergeNode")
+    n_out = N("out4", "outputNode")
+    nodes = [n_watch, n_judge, n_cond, n_alert, n_log, n_merge, n_out]
+    edges = [link(n_watch, n_judge), link(n_judge, n_cond),
+             link(n_cond, n_alert, source_handle="negative"),
+             link(n_cond, n_log, source_handle="else"),
+             link(n_alert, n_merge), link(n_log, n_merge), link(n_merge, n_out)]
     flows["브랜드 모니터링 → 이메일 경보"] = (
-        "네이버에 우리 키워드가 담긴 새 글이 올라오면 논조를 분석해 이메일로 알립니다. "
-        "부정 언급은 경보 표시가 붙습니다.", nodes, edges)
+        "네이버에 우리 키워드가 담긴 새 글이 올라오면 논조를 분석하고, 부정 언급이 있을 때만 경보 메일을 "
+        "보냅니다. 평시에는 실행 기록만 남습니다 — 감시 → 판정 → 분기 알림의 정석 구조.", nodes, edges)
 
-    # WF5 — 휴가 신청 전자결재 (LLM 정형화 → HWPX 신청서 → 승인 → 메일)
+    # WF5 — 휴가 신청 전자결재 (접수 검토 → 반려 분기 → 정형화 → HWPX → 승인 → 발급 메일)
     n_start = N("start5", "startNode")
     n_in = N("in_leave", "dynamicInputNode", inputLabel="휴가 신청 내용",
              testValue=("9월 10일부터 11일까지 연차 2일 신청합니다. 사유는 개인 사정입니다. "
                         "신청자 김워크, 운영1팀 대리, 비상연락처 010-0000-0000, 업무 인수자는 이플로입니다."))
+    n_review = N("review_llm", "llmNode", model="gpt-4o-mini",
+                 systemPrompt=("입력은 자연어 휴가 신청이다. 신청자 이름·휴가 기간·사유 세 가지가 모두 있는지 "
+                               "확인한다. 하나라도 없으면 첫 줄에 정확히 '보완 필요' 라고 쓰고 무엇이 빠졌는지 "
+                               "한 줄로 적는다. 모두 있으면 첫 줄에 '접수' 라고 쓰고, 다음 줄부터 신청 원문을 "
+                               "그대로 다시 적는다(뒷단계가 원문을 쓴다)."))
+    n_cond = N("cond_intake", "conditionNode",
+               rules=[{"id": "needfix", "operator": "Contains", "value": "보완 필요"}])
+    n_reject = N("reject_msg", "valueNode",
+                 value=("신청 내용에 누락이 있어 접수되지 않았습니다 — 신청자 이름, 휴가 기간(시작~종료), "
+                        "사유를 포함해 다시 신청해 주세요."))
     n_fill = N("fill_llm", "llmNode", model="gpt-4o-mini",
-               systemPrompt=("입력은 자연어 휴가 신청이다. 휴가신청서의 빈칸을 채운다. 날짜는 YYYY-MM-DD 로, "
+               systemPrompt=("입력은 검토를 통과한 휴가 신청이다. 휴가신청서의 빈칸을 채운다. 날짜는 YYYY-MM-DD 로, "
                              "days 는 숫자만 적는다. appliedAt 은 오늘 날짜를 한국어(예: 2026년 9월 3일)로 적는다. "
                              "입력에 없는 값은 지어내지 말고 빈 문자열로 둔다(필수가 아닌 칸)."),
                useStructuredOutput=True, jsonSchema=LEAVE_REQUEST_SCHEMA)
@@ -203,10 +265,18 @@ def build_workflows(owner_email: str):
                   message="휴가 신청 결재 요청입니다 — 생성된 신청서(HWPX)를 확인하고 승인해 주세요.",
                   notifyEmail=True)
     n_mail = N("issue_mail", "emailNode", toEmail=owner_email, subject="휴가 신청서 발급 완료")
-    nodes, edges = chain(n_start, n_in, n_fill, n_doc, n_approve, n_mail, N("out5", "outputNode"))
+    n_merge = N("merge5", "mergeNode")
+    n_out = N("out5", "outputNode")
+    nodes = [n_start, n_in, n_review, n_cond, n_reject, n_fill, n_doc, n_approve, n_mail, n_merge, n_out]
+    edges = [link(n_start, n_in), link(n_in, n_review), link(n_review, n_cond),
+             link(n_cond, n_reject, source_handle="needfix"),
+             link(n_cond, n_fill, source_handle="else"),
+             link(n_fill, n_doc), link(n_doc, n_approve), link(n_approve, n_mail),
+             link(n_mail, n_merge), link(n_reject, n_merge), link(n_merge, n_out)]
     flows["휴가 신청 전자결재 → 신청서 발급"] = (
-        "말로 적은 휴가 신청이 정식 휴가신청서(HWPX)가 되고, 결재 승인이 나면 이메일로 발급됩니다. "
-        "승인 대기함에서 결재 흐름을 볼 수 있습니다.", nodes, edges)
+        "말로 적은 휴가 신청을 AI가 접수 검토(누락 시 반려)하고, 통과하면 정식 휴가신청서(HWPX)를 만들어 "
+        "결재(승인 대기함)에 올립니다. 승인되면 신청서가 이메일로 발급됩니다 — 접수 → 검토 → 분기 → "
+        "문서화 → 전자결재 → 발급의 완결 흐름.", nodes, edges)
 
     return flows
 
