@@ -216,7 +216,7 @@ const advancedTracks = [
         id: 'kr-naver', title: '네이버 검색과 카페', shortTitle: '트리거 · 수집 · 게시', duration: '5분', icon: Search,
         description: '네이버 검색 트리거·검색 노드·카페 노드의 역할을 구분해 상황에 맞게 선택합니다.',
         objective: '제시된 세 상황에 알맞은 네이버 노드를 선택하세요.',
-        concepts: ['네이버 새 검색결과(시작)는 새 글이 발견될 때 Workflow를 시작합니다.', '네이버 검색은 Workflow 중간에서 최신 글을 수집하는 액션 노드입니다.', '네이버 카페 노드는 완성된 결과를 카페 게시글로 발행합니다.'], scenario: 'kr-naver',
+        concepts: ['네이버 새 글 감지는 새 글이 발견될 때 Workflow를 시작합니다.', '네이버 검색은 Workflow 중간에서 최신 글을 수집하는 액션 노드입니다.', '네이버 카페 노드는 완성된 결과를 카페 게시글로 발행합니다.'], scenario: 'kr-naver',
       },
       {
         id: 'kr-kakao', title: '카카오 알림톡', shortTitle: '템플릿 · 변수 · 발송', duration: '5분', icon: MessageCircle,

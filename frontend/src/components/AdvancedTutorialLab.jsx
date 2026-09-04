@@ -47,9 +47,9 @@ function ChoiceLab({ scenario, finish, feedback }) {
       { id: '429', prompt: '429 Too Many Requests · 요청 한도를 초과했습니다.', options: ['대기 후 재시도', 'API 키 공개', '응답 무시'], answer: '대기 후 재시도' },
     ],
     'kr-naver': [
-      { id: 'monitor', prompt: '우리 브랜드가 언급된 새 글이 올라오면 자동으로 Workflow를 시작하고 싶습니다.', options: ['네이버 새 검색결과 (시작)', '네이버 검색', '네이버 카페'], answer: '네이버 새 검색결과 (시작)' },
-      { id: 'collect', prompt: 'Workflow 중간에 최신 블로그 후기를 수집해 요약에 활용합니다.', options: ['네이버 새 검색결과 (시작)', '네이버 검색', '네이버 카페'], answer: '네이버 검색' },
-      { id: 'publish', prompt: '완성된 주간 소식지를 운영 중인 커뮤니티에 게시합니다.', options: ['네이버 새 검색결과 (시작)', '네이버 검색', '네이버 카페'], answer: '네이버 카페' },
+      { id: 'monitor', prompt: '우리 브랜드가 언급된 새 글이 올라오면 자동으로 Workflow를 시작하고 싶습니다.', options: ['네이버 새 글 감지', '네이버 검색', '네이버 카페'], answer: '네이버 새 글 감지' },
+      { id: 'collect', prompt: 'Workflow 중간에 최신 블로그 후기를 수집해 요약에 활용합니다.', options: ['네이버 새 글 감지', '네이버 검색', '네이버 카페'], answer: '네이버 검색' },
+      { id: 'publish', prompt: '완성된 주간 소식지를 운영 중인 커뮤니티에 게시합니다.', options: ['네이버 새 글 감지', '네이버 검색', '네이버 카페'], answer: '네이버 카페' },
     ],
   };
   const questions = configs[scenario] || [];
@@ -761,7 +761,7 @@ function BindingLab({ finish, feedback }) {
     <div className="advanced-split-layout">
       <section className="advanced-control-panel">
         <div className="advanced-panel-title">
-          <Cable size={17} /><div><strong>이메일 전송 노드</strong><span>필드 옆 ⚡ 로 앞 노드 값에 연결</span></div>
+          <Cable size={17} /><div><strong>이메일 발송 노드</strong><span>필드 옆 ⚡ 로 앞 노드 값에 연결</span></div>
         </div>
         <div className="tutorial-binding-fields">
           {FIELDS.map((field) => (
@@ -807,7 +807,7 @@ function BindingLab({ finish, feedback }) {
         <p>
           {needsLLM
             ? '연결하지 않은 필드는 앞에서 LLM 이 값을 만들어 넘겨야 합니다 — 매 실행 토큰이 들고, 값이 바뀌어 나올 수 있습니다.'
-            : '흐름이 웹훅 → 이메일 전송 두 노드로 끝납니다. 값은 실행할 때 그대로 꺼내 쓰므로 결과가 늘 같습니다.'}
+            : '흐름이 웹훅 → 이메일 발송 두 노드로 끝납니다. 값은 실행할 때 그대로 꺼내 쓰므로 결과가 늘 같습니다.'}
         </p>
       </section>
     </div>
