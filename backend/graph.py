@@ -710,6 +710,26 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=out_var, visited=visited)
             return
 
+        # 0.5 분기 형제 오염 복원 (2026-09-04) — 한 노드에서 두 갈래 이상이 나뉘면(병렬 분기)
+        #     생성 코드는 갈래를 **순차** 방출하므로, 두 번째 갈래가 시작할 때 last_result 에는
+        #     첫 갈래의 마지막 출력이 남아 있다(시연 포스터 그래프에서 실제 발견 — 배경 프롬프트
+        #     LLM 이 공고문 대신 앞 갈래의 문안 JSON 을 받았다). 갈래 진입 시점에 자기 상류의
+        #     기록(__node_results__, log_step 이 항상 남긴다)으로 되돌린다.
+        #     배타 분기(conditionNode·humanApprovalNode)는 한 갈래만 실행돼 오염이 없고,
+        #     loopNode 는 반복 값을 last_result 로 넘기므로 복원하면 안 된다 — 제외한다.
+        #     prev_res_var 가 노드 전용 변수(val_x, res_text_x 등)면 형제가 덮을 수 없어 안전하다.
+        if prev_res_var == 'last_result':
+            _ctl_incoming = [inc for inc in incoming_edges.get(node_id, [])
+                             if inc.get('targetHandle') not in ('template', 'tools', 'attachments')]
+            if len(_ctl_incoming) == 1:
+                _src_id = _ctl_incoming[0]['source']
+                _src_node = node_dict.get(_src_id)
+                if (_src_node is not None
+                        and _src_node.get('type') not in ('conditionNode', 'humanApprovalNode', 'loopNode')
+                        and len(forward_edges.get(_src_id, [])) >= 2):
+                    lines.append(f"{indent}last_result = str(__node_results__['{_src_id}']) "
+                                 f"if '{_src_id}' in __node_results__ else last_result")
+
         # 1. Use Registry if available (New Architecture)
         if node_registry.has_node(node['type']):
             generator = node_registry.get_generator(node['type'])
