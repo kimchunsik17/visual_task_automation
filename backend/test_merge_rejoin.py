@@ -211,3 +211,58 @@ def test_재합류가_있어도_생성_소스는_한_번씩만_방출된다():
     src = compile_workflow(nodes, edges)
     assert src.count("# --- Merge Node (m) ---") == 1
     assert src.count("# --- Output Node (o) ---") == 1
+
+
+def test_병렬_갈래의_둘째_갈래는_형제_출력이_아니라_자기_상류의_출력을_받는다():
+    """분기 형제 오염(2026-09-04) — 생성 코드는 갈래를 순차 방출하므로 둘째 갈래가 시작할 때
+    last_result 에 첫 갈래의 마지막 출력이 남아 있었다. 시연 포스터 그래프에서 실제로 배경
+    프롬프트 LLM 이 공고문 대신 형제 갈래의 문안 JSON 을 입력으로 받았다. 이제 갈래 진입
+    시점에 자기 상류의 기록(__node_results__)으로 복원된다.
+
+    dynamicInputNode 는 '직전 출력 + [라벨]: 값' 을 만들므로 갈래 입력 탐침으로 쓴다 —
+    둘째 갈래 출력에 첫 갈래의 라벨이 섞여 있으면 오염이다."""
+    nodes = [
+        {"id": "s", "type": "startNode", "data": {}},
+        {"id": "src", "type": "valueNode", "data": {"value": "원본"}},
+        {"id": "t1", "type": "dynamicInputNode", "data": {"inputLabel": "갈래1"}},
+        {"id": "t2", "type": "dynamicInputNode", "data": {"inputLabel": "갈래2"}},
+        {"id": "m", "type": "mergeNode", "data": {"mergeStrategy": "join_newline"}},
+        {"id": "o", "type": "outputNode", "data": {}},
+    ]
+    edges = [
+        {"source": "s", "target": "src"},
+        {"source": "src", "target": "t1"},
+        {"source": "src", "target": "t2"},
+        {"source": "t1", "target": "m"},
+        {"source": "t2", "target": "m"},
+        {"source": "m", "target": "o"},
+    ]
+    result, _, logs = run_workflow(nodes, edges, t1="하나", t2="둘")
+    t2_out = _executed(logs, "t2")[0]["result_data"]
+    assert "[갈래2]" in t2_out and "원본" in t2_out
+    assert "[갈래1]" not in t2_out and "하나" not in t2_out, (
+        "둘째 갈래가 형제 갈래의 출력을 입력으로 받았다(분기 형제 오염): " + t2_out)
+    # merge 에는 두 갈래가 각각 '원본'에서 출발한 결과가 모두 들어간다
+    assert "하나" in result and "둘" in result
+
+
+def test_배타_분기와_loop_는_복원_대상이_아니다():
+    """복원은 '병렬 fan-out' 에만 걸려야 한다 — 배타 분기(conditionNode)는 한 갈래만
+    실행돼 오염이 없고, loopNode 갈래(본문/탈출)에 복원을 걸면 반복 값이 덮인다.
+    소스 수준으로 복원 라인이 붙지 않았음을 단정한다."""
+    nodes = [
+        {"id": "s", "type": "startNode", "data": {}},
+        {"id": "v", "type": "valueNode", "data": {"value": "안녕"}},
+        {"id": "c", "type": "conditionNode",
+         "data": {"rules": [{"id": "r1", "operator": "Contains", "value": "안녕"}]}},
+        {"id": "b1", "type": "valueNode", "data": {"varName": "b1", "value": "왼쪽"}},
+        {"id": "b2", "type": "valueNode", "data": {"varName": "b2", "value": "오른쪽"}},
+    ]
+    edges = [
+        {"source": "s", "target": "v"},
+        {"source": "v", "target": "c"},
+        {"source": "c", "target": "b1", "sourceHandle": "r1"},
+        {"source": "c", "target": "b2", "sourceHandle": "else"},
+    ]
+    src = compile_workflow(nodes, edges)
+    assert "__node_results__['c']" not in src, "배타 분기 갈래에 복원 라인이 붙었다"
