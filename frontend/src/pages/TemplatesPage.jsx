@@ -15,6 +15,7 @@ import MainSidebar from '../MainSidebar';
 import SectionTabs from '../components/SectionTabs';
 import { COMMUNITY_SECTION_TABS } from '../navigation';
 import EmptyState from '../components/EmptyState';
+import { readListCache, writeListCache } from '../listCache';
 import { useAuth } from '../AuthContext';
 import { timeAgo } from '../timeFormat';
 import { CATEGORIES, CATEGORY_LABEL, RISK_LABEL, TRIGGER_LABEL, credentialLabel } from '../templateLabels';
@@ -148,21 +149,29 @@ function PublishDialog({ token, onClose, onPublished }) {
 export default function TemplatesPage() {
   const navigate = useNavigate();
   const { token } = useAuth();
-  const [items, setItems] = useState([]);
   const [category, setCategory] = useState('');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('quality');
-  const [loading, setLoading] = useState(true);
+  // 재방문 첫 프레임부터 마지막 목록을 그린다(listCache.js) — 출렁임 방지.
+  // 공개 목록이라 사용자 대신 필터 조합으로 캐시를 나눈다.
+  const cacheKey = `community-templates:${category}:${sort}:${query}`;
+  const [items, setItems] = useState(() => readListCache(cacheKey) ?? []);
+  const [loading, setLoading] = useState(() => readListCache(cacheKey) === null);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState(null);
 
   const load = useCallback(async () => {
+    const key = `community-templates:${category}:${sort}:${query}`;
+    const cached = readListCache(key);
+    if (cached !== null) setItems(cached); // 필터 전환도 캐시가 있으면 즉시 그린다
     setLoading(true);
     try {
       const res = await axios.get('/api/community/templates',
                                   { params: { category: category || undefined,
                                               q: query || undefined, sort } });
-      setItems(res.data.templates || []);
+      const rows = res.data.templates || [];
+      setItems(rows);
+      writeListCache(key, rows);
     } finally { setLoading(false); }
   }, [category, query, sort]);
 
@@ -217,7 +226,7 @@ export default function TemplatesPage() {
 
           {message && <p className="tpl-error">{message}</p>}
 
-          {loading ? (
+          {loading && items.length === 0 ? (
             <div className="management-loading" aria-label="템플릿을 불러오는 중">
               {[0, 1, 2, 3].map((item) => <span key={item} />)}
             </div>

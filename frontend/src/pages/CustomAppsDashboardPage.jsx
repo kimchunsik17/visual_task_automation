@@ -5,15 +5,26 @@ import { useAuth } from '../AuthContext';
 import { customConfirm } from '../CustomConfirm';
 import { formatManagementDate } from './managementFormatters';
 import MainSidebar from '../MainSidebar';
+import { readListCache, writeListCache } from '../listCache';
 import { ExternalLink, LayoutTemplate, PencilLine, Plus, Trash2 } from 'lucide-react';
 import './MainPage.css';
 import './ManagementPage.css';
 
 const CustomAppsDashboardPage = () => {
   const navigate = useNavigate();
-  const { token } = useAuth();
-  const [apps, setApps] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { user, token } = useAuth();
+  // 재방문 첫 프레임부터 마지막 목록을 그린다(listCache.js) — 출렁임 방지.
+  const cacheKey = `custom-apps:${user?.id ?? user?.email ?? 'anon'}`;
+  const [apps, setAppsState] = useState(() => readListCache(cacheKey) ?? []);
+  const [loading, setLoading] = useState(() => readListCache(cacheKey) === null);
+  // 목록이 바뀌는 모든 경로(조회·삭제)가 캐시도 함께 갱신한다.
+  const setApps = (next) => {
+    setAppsState((prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      writeListCache(cacheKey, resolved);
+      return resolved;
+    });
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -66,7 +77,7 @@ const CustomAppsDashboardPage = () => {
             <span className="management-toolbar-label">앱을 편집하거나 배포된 화면을 새 창에서 확인할 수 있습니다.</span>
           </div>
 
-          {loading ? (
+          {loading && apps.length === 0 ? (
             <div className="management-loading" aria-label="앱을 불러오는 중">{[0, 1, 2, 3].map(item => <span key={item} />)}</div>
           ) : apps.length === 0 ? (
             <div className="management-empty">

@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
 import SectionTabs from '../components/SectionTabs';
 import { OPERATIONS_SECTION_TABS } from '../navigation';
+import { readListCache, writeListCache } from '../listCache';
 import { formatManagementDateTime, shortResourceId } from './managementFormatters';
 import { Copy, Play, Square, ExternalLink, RefreshCw, Trash2, FileText, MoreVertical } from 'lucide-react';
 import './MainPage.css';
@@ -22,7 +23,14 @@ export default function WebhookManagerPage() {
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const [webhookLogs, setWebhookLogs] = useState([]);
 
-  const [webhooks, setWebhooks] = useState([]);
+  // 재방문 첫 프레임부터 마지막 목록을 그린다(listCache.js) — 출렁임 방지.
+  const cacheKey = `webhooks:${user?.id ?? user?.email ?? 'anon'}`;
+  const [webhooks, setWebhooksState] = useState(() => readListCache(cacheKey) ?? []);
+  // 목록이 바뀌는 모든 경로(조회·상태 토글·삭제)가 캐시도 함께 갱신한다.
+  const setWebhooks = (next) => {
+    setWebhooksState(next);
+    writeListCache(cacheKey, next);
+  };
 
   useEffect(() => {
     const closeDropdown = () => setActiveDropdown(null);
@@ -158,7 +166,7 @@ export default function WebhookManagerPage() {
             <button className="management-button" onClick={() => navigate('/editor')}><ExternalLink size={13} /> 에디터 열기</button>
           </div>
 
-          {loading ? (
+          {loading && webhooks.length === 0 ? (
             <div className="management-loading" aria-label="웹훅 목록을 불러오는 중">{[0, 1, 2, 3].map(item => <span key={item} />)}</div>
           ) : webhooks.length === 0 ? (
             <div className="management-empty">

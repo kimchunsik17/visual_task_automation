@@ -6,6 +6,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import MainSidebar from '../MainSidebar';
+import { readListCache, writeListCache } from '../listCache';
 import './MainPage.css';
 import './SchedulerPage.css';
 
@@ -16,10 +17,12 @@ const STATUS_LABEL = {
 };
 
 export default function ApprovalInboxPage() {
-  const { token } = useAuth();
+  const { user, token } = useAuth();
   const navigate = useNavigate();
-  const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // 재방문 첫 프레임부터 마지막 목록을 그린다(listCache.js) — 출렁임 방지.
+  const cacheKey = `approvals:${user?.id ?? user?.email ?? 'anon'}`;
+  const [requests, setRequests] = useState(() => readListCache(cacheKey) ?? []);
+  const [loading, setLoading] = useState(() => readListCache(cacheKey) === null);
   const [expanded, setExpanded] = useState(null);
   const [detail, setDetail] = useState({});
   const [comments, setComments] = useState({});
@@ -32,6 +35,7 @@ export default function ApprovalInboxPage() {
     try {
       const res = await axios.get('/api/approvals', authHeaders());
       setRequests(res.data.requests || []);
+      writeListCache(cacheKey, res.data.requests || []);
     } catch (e) { /* silent */ } finally {
       setLoading(false);
     }
@@ -158,7 +162,7 @@ export default function ApprovalInboxPage() {
             </div>
             <button className="btn-refresh" onClick={load} disabled={loading}>새로고침</button>
           </div>
-          {loading ? <p>불러오는 중...</p> : (
+          {loading && requests.length === 0 ? <p>불러오는 중...</p> : (
             <>
               <h3 style={{ fontSize: '0.95rem' }}>대기 중 ({pending.length})</h3>
               {pending.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>대기 중인 승인 요청이 없습니다.</p>}

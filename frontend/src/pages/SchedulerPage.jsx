@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
 import SectionTabs from '../components/SectionTabs';
 import { OPERATIONS_SECTION_TABS } from '../navigation';
+import { readListCache, writeListCache } from '../listCache';
 import { executionOutcomeLabel, formatManagementDateTime, shortResourceId } from './managementFormatters';
 import { Clock, Play, Square, ExternalLink, RefreshCw, Trash2, FileText, MoreVertical, Calendar } from 'lucide-react';
 import './MainPage.css';
@@ -15,8 +16,11 @@ import './ManagementPage.css';
 export default function SchedulerPage() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
-  const [schedules, setSchedules] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // 재방문 첫 프레임부터 마지막 목록을 그린다(listCache.js) — 매번 스켈레톤부터
+  // 그리면 탭을 옮길 때마다 내용 높이가 출렁인다. 백그라운드 재조회로 따라잡는다.
+  const cacheKey = `schedules:${user?.id ?? user?.email ?? 'anon'}`;
+  const [schedules, setSchedules] = useState(() => readListCache(cacheKey) ?? []);
+  const [loading, setLoading] = useState(() => readListCache(cacheKey) === null);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const [scheduleLogs, setScheduleLogs] = useState([]);
   const [activeDropdown, setActiveDropdown] = useState(null);
@@ -54,6 +58,7 @@ export default function SchedulerPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSchedules(res.data);
+      writeListCache(cacheKey, res.data);
     } catch (err) {
       console.error('Failed to fetch schedules:', err);
     } finally {
@@ -132,7 +137,7 @@ export default function SchedulerPage() {
             <button className="management-button" onClick={() => navigate('/editor')}><ExternalLink size={13} /> 에디터 열기</button>
           </div>
 
-          {loading ? (
+          {loading && schedules.length === 0 ? (
             <div className="management-loading" aria-label="스케줄 목록을 불러오는 중">{[0, 1, 2, 3].map(item => <span key={item} />)}</div>
           ) : schedules.length === 0 ? (
             <div className="management-empty">
