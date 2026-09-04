@@ -6,7 +6,7 @@ import { useAuth } from './AuthContext';
 import { Grid2X2, History, LogOut, Menu, User, X } from 'lucide-react';
 import { Icon } from './icons';
 import ChatSidebar from './ChatSidebar';
-import { getFeaturesData, isDemoUi, loadFeatures } from './features';
+import { getFeaturesData, isDemoGuest, isDemoUi, loadFeatures } from './features';
 import { readMainSidebarPanel, writeMainSidebarPanel } from './mainSidebarState';
 import logoImg from './logo.png';
 import './MainSidebar.css';
@@ -49,7 +49,7 @@ const NAV_GROUPS = [
 const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDeleted }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, login, logout, token } = useAuth();
+  const { user, login, logout, token, enterGuest } = useAuth();
   const sidebarStorage = typeof window !== 'undefined' ? window.sessionStorage : null;
   const [pendingCount, setPendingCount] = useState(0);
   const [approvalCount, setApprovalCount] = useState(0);
@@ -67,6 +67,9 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
   const [demoSeat, setDemoSeat] = useState(1);
   // 시연 UI 트림(DEMO_UI) — demoHidden 표시가 붙은 메뉴를 숨긴다.
   const [demoUi, setDemoUi] = useState(isDemoUi());
+  // 시연 게스트 입장(DEMO_GUEST) — 로그아웃 상태에서 "게스트로 입장" 버튼을 그린다
+  // (자동 입장은 AuthContext 가 담당; 이 버튼은 로그아웃 뒤 재입장용이다).
+  const [demoGuest, setDemoGuest] = useState(isDemoGuest());
   // 사이드바 안의 탭. 예전에는 사이드바가 둘이었고 한쪽을 누르면 다른 쪽이 접혔는데,
   // 접힌 상태의 위계가 불안정하고 가로 공간을 늘 두 벌 차지했다 — 하나로 합치고 탭으로 나눈다.
   const [panel, setPanel] = useState(() => readMainSidebarPanel(sidebarStorage)); // 'menu' | 'chat'
@@ -116,6 +119,7 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
     loadFeatures().then((data) => {
       if (!alive) return;
       setDemoUi(Boolean(data?.demo_ui));
+      setDemoGuest(Boolean(data?.demo_guest));
       setDemoLogin(data?.demo_login ? { seats: data.demo_login_seats || 3 } : null);
     });
     return () => { alive = false; };
@@ -249,6 +253,14 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
             <>
               <div className="login-container">
                 <p className="login-hint">로그인하여 워크플로우를 저장하세요</p>
+                {demoGuest && (
+                  <button type="button" className="demo-login-toggle"
+                          onClick={() => enterGuest().catch((error) => {
+                            alert('게스트 입장 실패: ' + (error.response?.data?.detail || error.message));
+                          })}>
+                    게스트로 입장하기 (시연 체험)
+                  </button>
+                )}
                 <GoogleLogin
                   onSuccess={handleGoogleSuccess}
                   onError={() => {

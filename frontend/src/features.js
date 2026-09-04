@@ -61,3 +61,6 @@ export const getHiddenNodeTypes = () => hiddenNodeTypes;
 
 // 시연 UI 트림(DEMO_UI) — API 센터·쪽지·통계처럼 부스에서 불필요한 표면을 숨길지.
 export const isDemoUi = () => demoUi;
+
+// 시연 게스트 입장(DEMO_GUEST) — 비로그인 방문자를 자동으로 게스트 계정으로 들여보낼지.
+export const isDemoGuest = () => Boolean(featuresData?.demo_guest);

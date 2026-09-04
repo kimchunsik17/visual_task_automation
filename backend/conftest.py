@@ -49,7 +49,8 @@ os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-not-for-any-real-deplo
 # 답이 아니다 — 지우면 .env 가 다시 채운다). 플래그가 필요한 테스트는 monkeypatch.setenv 나
 # 서브프로세스 시나리오 안의 명시적 대입으로 직접 켠다.
 for _demo_flag in ("DEMO_UI", "HIDDEN_NODE_TYPES", "DEMO_LOGIN_CODE", "DEMO_LOGIN_SEATS",
-                   "DEMO_SHARED_CREDENTIALS_USER_ID", "DEMO_SHARED_CREDENTIALS_PROVIDERS"):
+                   "DEMO_SHARED_CREDENTIALS_USER_ID", "DEMO_SHARED_CREDENTIALS_PROVIDERS",
+                   "DEMO_GUEST", "DEMO_GUEST_TOKENS", "DEMO_GUEST_MAX"):
     os.environ[_demo_flag] = ""
 
 

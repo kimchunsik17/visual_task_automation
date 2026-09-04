@@ -962,6 +962,66 @@ def auth_demo(payload: DemoLoginPayload, db: Session = Depends(get_db)):
                      "picture": user.picture, "is_admin": is_admin_user(user)}}
 
 
+def demo_guest_tokens() -> int:
+    """게스트 1명에게 주는 토큰 — 시연을 충분히 끝낼 만큼만. 소진되면 실행이 차단되고
+    (기존 token_balance<=0 게이트), 모자라면 어드민 화면에서 충전한다."""
+    try:
+        return max(1000, min(int(os.getenv("DEMO_GUEST_TOKENS", "50000")), 2_000_000))
+    except ValueError:
+        return 50000
+
+
+def demo_guest_max() -> int:
+    """게스트 계정 총량 상한 — 인증 없는 입구라 행 폭주를 막는다(공개 실행 입력 상한과 같은 취지)."""
+    try:
+        return max(1, min(int(os.getenv("DEMO_GUEST_MAX", "300")), 5000))
+    except ValueError:
+        return 300
+
+
+@app.post("/api/auth/guest")
+def auth_guest(db: Session = Depends(get_db)):
+    """시연 게스트 입장(opt-in) — DEMO_GUEST 가 설정된 동안에만 열린다.
+
+    부스 방문자는 계정 없이 바로 체험한다: 방문자마다 게스트 계정을 만들어 시연 콘텐츠
+    (워크플로우 5종 + 앱 2종 + 전용 포맷)를 복사해 주고, 토큰은 DEMO_GUEST_TOKENS 만
+    지급한다 — 게스트 한 명이 크레딧을 폭주시킬 수 없다. 관리자는 기존 구글 로그인을
+    그대로 쓴다(로그아웃하면 프론트가 자동 게스트 입장을 멈춘다). 시연 후 환경변수만
+    지우면 입구가 닫힌다. 게스트는 일반 사용자다(admin 아님).
+    """
+    if not os.getenv("DEMO_GUEST"):
+        raise HTTPException(status_code=404, detail="시연 게스트 입장이 꺼져 있습니다.")
+    guest_count = db.query(models.User).filter(models.User.google_id.like("demo-guest-%")).count()
+    if guest_count >= demo_guest_max():
+        raise HTTPException(status_code=429, detail="시연 게스트 정원이 가득 찼습니다 — 운영자에게 문의해 주세요.")
+
+    suffix = uuid.uuid4().hex[:10]
+    user = models.User(google_id=f"demo-guest-{suffix}", email=f"guest-{suffix}@demo.local",
+                       name=f"게스트 {suffix[:4].upper()}", token_balance=demo_guest_tokens())
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    # 시연 콘텐츠 복사 — 그래프는 test_demo_booth_seed 가 상시 검증하므로 여기선 복사만 한다.
+    # 실패해도 입장은 시킨다(빈 계정) — 입장 자체가 막히면 부스에서 손 쓸 방법이 없다.
+    try:
+        import seed_demo_booth
+        seed_demo_booth.seed(db, user, validate=False)
+    except Exception as exc:  # noqa: BLE001 — 시딩 실패는 입장 실패가 아니다
+        print(f"[demo-guest] 시연 콘텐츠 시딩 실패(빈 계정으로 입장): {exc}")
+    print(f"[demo-guest] 게스트 입장 user={user.id} ({user.google_id}) — "
+          f"토큰 {user.token_balance:,} · 게스트 {guest_count + 1}/{demo_guest_max()}")
+
+    access_token = jwt.encode(
+        {"user_id": user.id, "exp": datetime.datetime.utcnow() + datetime.timedelta(days=3)},
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM
+    )
+    return {"access_token": access_token,
+            "user": {"id": user.id, "name": user.name, "email": user.email,
+                     "picture": user.picture, "is_admin": is_admin_user(user)}}
+
+
 @app.get("/api/admin/users")
 def get_admin_users(user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
     users = db.query(models.User).all()
@@ -1266,6 +1326,9 @@ def get_features():
         # 시연 UI 트림(opt-in) — 켜져 있으면 프론트가 API 센터·쪽지·통계 등 부스에서
         # 불필요한 표면을 숨긴다. 백엔드 기능은 그대로다(운영 계정 작업용).
         "demo_ui": bool(os.getenv("DEMO_UI")),
+        # 시연 게스트 입장(opt-in) — 켜져 있으면 프론트가 비로그인 방문자를 자동으로
+        # 게스트 계정(/api/auth/guest)으로 들여보낸다. 관리자는 로그아웃 후 구글 로그인.
+        "demo_guest": bool(os.getenv("DEMO_GUEST")),
     }
 
 
