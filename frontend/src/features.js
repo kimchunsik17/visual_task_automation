@@ -5,6 +5,7 @@
 import axios from 'axios';
 
 let featuresPromise = null;
+let featuresData = null;
 let hiddenNodeTypes = new Set();
 let demoUi = false;
 
@@ -12,14 +13,21 @@ export const loadFeatures = () => {
   if (!featuresPromise) {
     featuresPromise = axios.get('/api/features')
       .then((res) => {
-        hiddenNodeTypes = new Set(res.data?.hidden_nodes || []);
-        demoUi = Boolean(res.data?.demo_ui);
-        return res.data || {};
+        featuresData = res.data || {};
+        hiddenNodeTypes = new Set(featuresData.hidden_nodes || []);
+        demoUi = Boolean(featuresData.demo_ui);
+        return featuresData;
       })
       .catch(() => ({}));
   }
   return featuresPromise;
 };
+
+// 마지막 응답 payload 동기 조회 — 아직 로드 전이면 null.
+// 재마운트되는 컴포넌트(예: MainSidebar)가 첫 렌더부터 올바른 상태로 그릴 때 쓴다.
+// 첫 렌더를 기본값으로 그렸다가 응답 후 바꾸면 플래그로 숨긴 메뉴가 한 프레임
+// 나타났다 사라지며 레이아웃이 출렁인다(잔상 버그).
+export const getFeaturesData = () => featuresData;
 
 // 동기 조회 — loadFeatures() 가 끝나기 전에는 빈 Set(아무것도 숨기지 않음)이다.
 export const getHiddenNodeTypes = () => hiddenNodeTypes;
