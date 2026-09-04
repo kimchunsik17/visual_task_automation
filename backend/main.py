@@ -5935,7 +5935,11 @@ mimetypes.add_type('text/css', '.css')
 # Calculate the absolute path to the frontend/dist directory
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 
-if os.path.exists(FRONTEND_DIST):
+# dist 는 있는데 assets 가 없는 순간이 실제로 있다 — vite build 가 outDir 을 비우고 다시
+# 쓰는 사이에 uvicorn --reload 가 재시작하면 StaticFiles 가 없는 디렉토리로 RuntimeError 를
+# 던져 서버가 통째로 죽는다(2026-09-04 로컬 재현). 정적 서빙 없이라도 API 는 떠야 하므로
+# assets 까지 확인하고, 없으면 마운트를 건너뛰고 경고만 남긴다(다음 reload 에서 회복).
+if os.path.exists(FRONTEND_DIST) and os.path.isdir(os.path.join(FRONTEND_DIST, "assets")):
     # Mount the static files (assets, JS, CSS)
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
@@ -5962,6 +5966,9 @@ if os.path.exists(FRONTEND_DIST):
         if os.path.isfile(candidate):
             return FileResponse(candidate)
         return FileResponse(index)
+else:
+    print(f"[static] frontend/dist(assets) 가 아직 없어 정적 서빙을 건너뛴다 — 빌드가 끝나면 "
+          f"다음 reload 에서 회복된다: {FRONTEND_DIST}")
 
 @app.delete("/api/chat/sessions/{session_id}")
 def delete_chat_session(session_id: int, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
