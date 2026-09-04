@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 import { Grid2X2, History, LogOut, Menu, User, X } from 'lucide-react';
 import { Icon } from './icons';
 import ChatSidebar from './ChatSidebar';
+import { getFeaturesData, isDemoUi, loadFeatures } from './features';
 import { readMainSidebarPanel, writeMainSidebarPanel } from './mainSidebarState';
 import logoImg from './logo.png';
 import './MainSidebar.css';
@@ -54,12 +55,18 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
   const [approvalCount, setApprovalCount] = useState(0);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   // 시연장 로그인(opt-in) — 서버의 DEMO_LOGIN_CODE 가 설정된 동안에만 입구가 열린다.
-  const [demoLogin, setDemoLogin] = useState(null);   // { seats } | null
+  // 사이드바는 페이지마다 다시 마운트되므로(각 페이지가 <MainSidebar/>를 직접 렌더),
+  // 플래그 초기값을 features.js 캐시에서 동기로 가져와야 한다 — 기본값으로 먼저
+  // 그렸다가 응답 후 바꾸면 이동할 때마다 메뉴가 한 프레임 출렁인다(잔상 버그).
+  const [demoLogin, setDemoLogin] = useState(() => {
+    const cached = getFeaturesData();
+    return cached?.demo_login ? { seats: cached.demo_login_seats || 3 } : null;
+  });   // { seats } | null
   const [demoOpen, setDemoOpen] = useState(false);
   const [demoCode, setDemoCode] = useState('');
   const [demoSeat, setDemoSeat] = useState(1);
   // 시연 UI 트림(DEMO_UI) — demoHidden 표시가 붙은 메뉴를 숨긴다.
-  const [demoUi, setDemoUi] = useState(false);
+  const [demoUi, setDemoUi] = useState(isDemoUi());
   // 사이드바 안의 탭. 예전에는 사이드바가 둘이었고 한쪽을 누르면 다른 쪽이 접혔는데,
   // 접힌 상태의 위계가 불안정하고 가로 공간을 늘 두 벌 차지했다 — 하나로 합치고 탭으로 나눈다.
   const [panel, setPanel] = useState(() => readMainSidebarPanel(sidebarStorage)); // 'menu' | 'chat'
@@ -104,12 +111,14 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
   }, [token]);
 
   useEffect(() => {
-    axios.get('/api/features')
-      .then((res) => {
-        setDemoUi(Boolean(res.data?.demo_ui));
-        if (res.data?.demo_login) setDemoLogin({ seats: res.data.demo_login_seats || 3 });
-      })
-      .catch(() => { /* 기능 조회 실패 = 입구·트림 없음 */ });
+    let alive = true;
+    // loadFeatures 는 앱 전체에서 한 번만 요청하고 캐시한다 — 실패하면 빈 플래그(= 입구·트림 없음).
+    loadFeatures().then((data) => {
+      if (!alive) return;
+      setDemoUi(Boolean(data?.demo_ui));
+      setDemoLogin(data?.demo_login ? { seats: data.demo_login_seats || 3 } : null);
+    });
+    return () => { alive = false; };
   }, [user]);
 
   const handleDemoLogin = async () => {
