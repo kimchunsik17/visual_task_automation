@@ -184,7 +184,7 @@ export default function BotManagerPage() {
             <div className="management-empty">
               <span className="management-empty-icon"><Bot size={20} /></span>
               <h2>연결된 봇이 없습니다</h2>
-              <p>에디터에서 '디스코드 봇 (시작)' 또는 '텔레그램 봇 (시작)' 노드를 추가한 프로젝트가 여기에 표시됩니다.</p>
+              <p>에디터에서 '디스코드 수신' 또는 '텔레그램 수신' 노드를 추가한 프로젝트가 여기에 표시됩니다.</p>
               <button className="management-button primary" onClick={() => navigate('/editor')}>에디터에서 추가하기</button>
             </div>
           ) : (

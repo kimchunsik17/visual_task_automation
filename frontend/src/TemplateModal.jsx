@@ -220,7 +220,7 @@ const BUILT_IN_TEMPLATES = [
     // 노드 고유색 #facc15 는 라이트 테마 카드 위에서 대비가 죽는다 (사이드바는 색칩 배경이
     // 받쳐주지만 카드 제목엔 칩이 없음). 같은 계열에서 한 단계 어두운 값으로 조정.
     iconColor: '#eab308',
-    description: '서버 상태를 확인하고, 200 OK가 아니면 카카오 알림톡을 전송합니다.',
+    description: '서버 상태를 확인하고, 200 OK가 아니면 카카오톡 경고 메시지를 발송합니다.',
     data: {
       nodes: [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 200 }, data: { label: '시작' } },
@@ -438,17 +438,17 @@ const BUILT_IN_TEMPLATES = [
   },
   {
     id: 'builtin-hackathon-1',
-    name: '스마트스토어 -> 카카오 알림톡 자동화 (해커톤 시연용)',
+    name: '스마트스토어 -> 카카오톡 자동화 (해커톤 시연용)',
     icon: 'node-webhook',
     iconColor: '#0ea5e9',
-    description: '웹훅으로 들어온 스마트스토어 주문 정보를 바탕으로 구매자에게 카카오 알림톡을 발송합니다.',
+    description: '웹훅으로 들어온 스마트스토어 주문 정보를 바탕으로 구매자에게 카카오톡 메시지를 발송합니다.',
     usage: 'Mock 서버(포트 3001)의 대시보드에서 가짜 주문 웹훅을 트리거하면, 이 워크플로우가 데이터를 받아 알림톡을 전송하게 됩니다.',
     data: {
       nodes: [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
         { id: 'node_in', type: 'webhookNode', position: { x: 300, y: 150 }, data: { label: '주문 웹훅 수신', webhookUrl: '/webhook/naver-order' } },
         { id: 'node_parse', type: 'jsonParserNode', position: { x: 600, y: 150 }, data: { label: '정보 추출 (ProductOrder)', mode: 'extract', extractKey: 'ProductOrder' } },
-        { id: 'node_kakao', type: 'kakaoNode', position: { x: 900, y: 150 }, data: { label: '카카오 알림톡 발송', receiver: '{{ProductOrder.BuyerId}}', templateCode: 'order_complete' } },
+        { id: 'node_kakao', type: 'kakaoNode', position: { x: 900, y: 150 }, data: { label: '카카오톡 발송', receiver: '{{ProductOrder.BuyerId}}', templateCode: 'order_complete' } },
         { id: 'node_out', type: 'outputNode', position: { x: 1200, y: 150 }, data: { label: '완료' } }
       ],
       edges: [
