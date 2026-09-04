@@ -1263,6 +1263,9 @@ def get_features():
         "demo_login_seats": demo_login_seats(),
         # 시연 노드 비가시화(opt-in) — 프론트가 팔레트·교체 후보에서 이 타입들을 뺀다.
         "hidden_nodes": sorted(hidden_nodes_module.hidden_types()),
+        # 시연 UI 트림(opt-in) — 켜져 있으면 프론트가 API 센터·쪽지·통계 등 부스에서
+        # 불필요한 표면을 숨긴다. 백엔드 기능은 그대로다(운영 계정 작업용).
+        "demo_ui": bool(os.getenv("DEMO_UI")),
     }
 
 

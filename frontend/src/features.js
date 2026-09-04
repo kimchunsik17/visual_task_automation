@@ -6,12 +6,14 @@ import axios from 'axios';
 
 let featuresPromise = null;
 let hiddenNodeTypes = new Set();
+let demoUi = false;
 
 export const loadFeatures = () => {
   if (!featuresPromise) {
     featuresPromise = axios.get('/api/features')
       .then((res) => {
         hiddenNodeTypes = new Set(res.data?.hidden_nodes || []);
+        demoUi = Boolean(res.data?.demo_ui);
         return res.data || {};
       })
       .catch(() => ({}));
@@ -21,3 +23,6 @@ export const loadFeatures = () => {
 
 // 동기 조회 — loadFeatures() 가 끝나기 전에는 빈 Set(아무것도 숨기지 않음)이다.
 export const getHiddenNodeTypes = () => hiddenNodeTypes;
+
+// 시연 UI 트림(DEMO_UI) — API 센터·쪽지·통계처럼 부스에서 불필요한 표면을 숨길지.
+export const isDemoUi = () => demoUi;

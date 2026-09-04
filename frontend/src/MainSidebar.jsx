@@ -29,8 +29,9 @@ const NAV_GROUPS = [
     items: [
       { id: 'operations', label: '운영', icon: 'nav-scheduler', path: '/operations', match: (p) => p.startsWith('/operations') },
       { id: 'community', label: '커뮤니티', icon: 'nav-templates', path: '/community/qna', match: (p) => p.startsWith('/community') },
-      { id: 'messages', label: '쪽지', icon: 'nav-messages', path: '/messages', match: (p) => p.startsWith('/messages') },
-      { id: 'statistics', label: '통계', icon: 'nav-statistics', path: '/statistics', match: (p) => p === '/statistics' },
+      // demoHidden: 시연 UI 트림(DEMO_UI) — 부스에서 방문자가 배회할 표면을 줄인다.
+      { id: 'messages', label: '쪽지', icon: 'nav-messages', path: '/messages', match: (p) => p.startsWith('/messages'), demoHidden: true },
+      { id: 'statistics', label: '통계', icon: 'nav-statistics', path: '/statistics', match: (p) => p === '/statistics', demoHidden: true },
     ],
   },
   {
@@ -38,7 +39,7 @@ const NAV_GROUPS = [
     items: [
       { id: 'approvals', label: '승인 대기함', icon: 'node-human-approval', path: '/approvals', match: (p) => p === '/approvals', badge: 'approvals' },
       { id: 'settings', label: '설정', icon: 'nav-settings', path: '/settings/profile', match: (p) => p.startsWith('/settings'), badge: 'friends' },
-      { id: 'patch-notes', label: '패치 노트', icon: 'nav-patch-notes', path: '/patch-notes', match: (p) => p === '/patch-notes' },
+      { id: 'patch-notes', label: '패치 노트', icon: 'nav-patch-notes', path: '/patch-notes', match: (p) => p === '/patch-notes', demoHidden: true },
       { id: 'intro', label: '서비스 소개', icon: 'nav-intro', path: '/intro', match: (p) => p === '/intro' },
     ],
   },
@@ -57,6 +58,8 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
   const [demoOpen, setDemoOpen] = useState(false);
   const [demoCode, setDemoCode] = useState('');
   const [demoSeat, setDemoSeat] = useState(1);
+  // 시연 UI 트림(DEMO_UI) — demoHidden 표시가 붙은 메뉴를 숨긴다.
+  const [demoUi, setDemoUi] = useState(false);
   // 사이드바 안의 탭. 예전에는 사이드바가 둘이었고 한쪽을 누르면 다른 쪽이 접혔는데,
   // 접힌 상태의 위계가 불안정하고 가로 공간을 늘 두 벌 차지했다 — 하나로 합치고 탭으로 나눈다.
   const [panel, setPanel] = useState(() => readMainSidebarPanel(sidebarStorage)); // 'menu' | 'chat'
@@ -101,10 +104,12 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
   }, [token]);
 
   useEffect(() => {
-    if (user) return;
     axios.get('/api/features')
-      .then((res) => { if (res.data?.demo_login) setDemoLogin({ seats: res.data.demo_login_seats || 3 }); })
-      .catch(() => { /* 기능 조회 실패 = 입구 없음 */ });
+      .then((res) => {
+        setDemoUi(Boolean(res.data?.demo_ui));
+        if (res.data?.demo_login) setDemoLogin({ seats: res.data.demo_login_seats || 3 });
+      })
+      .catch(() => { /* 기능 조회 실패 = 입구·트림 없음 */ });
   }, [user]);
 
   const handleDemoLogin = async () => {
@@ -180,7 +185,7 @@ const MainSidebar = ({ onSelectSession, currentChatSessionId, onChatSessionDelet
             <React.Fragment key={group.label}>
               {groupIndex > 0 && <div className="nav-divider"></div>}
               <div className="nav-group-label">{group.label}</div>
-              {group.items.map((item) => {
+              {group.items.filter((item) => !(demoUi && item.demoHidden)).map((item) => {
                 const active = item.match(location.pathname);
                 const badgeCount = item.badge === 'approvals' ? approvalCount
                   : item.badge === 'friends' ? pendingCount : 0;

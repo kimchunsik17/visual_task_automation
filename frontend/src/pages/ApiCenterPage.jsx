@@ -10,6 +10,7 @@ import MainSidebar from '../MainSidebar';
 import SectionTabs from '../components/SectionTabs';
 import DatabaseCredentialsCard from '../components/DatabaseCredentialsCard';
 import { SETTINGS_SECTION_TABS } from '../navigation';
+import { isDemoUi, loadFeatures } from '../features';
 import safeAutomationArt from '../assets/editorial/security/safe-automation-v2.webp';
 import './MainPage.css';
 import './ApiCenterPage.css';
@@ -97,6 +98,13 @@ export default function ApiCenterPage() {
   const { user, token } = useAuth();
   const [sudoToken, setSudoToken] = useState(null);
   const [apiKeys, setApiKeys] = useState([]);
+  // 시연 UI 트림(DEMO_UI) — 켜져 있으면 이 화면을 안내문으로 바꾼다.
+  const [demoUiOn, setDemoUiOn] = useState(isDemoUi());
+  useEffect(() => {
+    let alive = true;
+    loadFeatures().then(() => { if (alive) setDemoUiOn(isDemoUi()); });
+    return () => { alive = false; };
+  }, []);
   // 실행 오류 안내의 문맥형 바로가기(/settings/api-center?provider=google_oauth 등)가
   // 해당 공급자 카드를 강조하고 화면 안으로 스크롤한다(IA 계획 §3.2).
   const [searchParams] = useSearchParams();
@@ -239,6 +247,23 @@ export default function ApiCenterPage() {
       alert("삭제에 실패했습니다.");
     }
   };
+
+  // 시연 UI 트림(DEMO_UI) — 탭에서 숨겨도 URL 직접 진입이 남으므로 화면 자체를 안내로 바꾼다.
+  // 백엔드 기능은 그대로다(운영 계정이 시연 전 준비할 때는 변수를 끄고 쓴다).
+  if (demoUiOn) {
+    return (
+      <div className="main-page-layout">
+        <MainSidebar />
+        <div className="main-page-content" style={{ justifyContent: 'flex-start' }}>
+          <SectionTabs ariaLabel="설정 섹션" tabs={SETTINGS_SECTION_TABS} />
+          <div className="content-area centered" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
+            <h2>시연 모드에서는 API 센터가 잠시 닫혀 있어요</h2>
+            <p>체험에 필요한 연동은 부스에서 미리 연결해 두었습니다 — 별도 설정 없이 바로 사용하실 수 있습니다.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (

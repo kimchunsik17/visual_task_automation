@@ -16,11 +16,13 @@ export const OPERATIONS_SECTION_TABS = [
 
 export const SETTINGS_SECTION_TABS = [
   { label: '프로필', path: '/settings/profile' },
-  { label: '친구', path: '/settings/friends' },
+  { label: '친구', path: '/settings/friends', demoHidden: true },
   { label: '화면', path: '/settings/appearance' },
   { label: '토큰', path: '/settings/tokens' },
-  { label: '데이터', path: '/settings/privacy' },
-  { label: 'API 센터', path: '/settings/api-center' },
+  { label: '데이터', path: '/settings/privacy', demoHidden: true },
+  // demoHidden: 시연 UI 트림(DEMO_UI) 이 켜지면 SectionTabs 가 숨긴다 — 부스 계정의
+  // 승인키가 방문자 눈에 노출되는 표면을 줄인다(백엔드 기능은 그대로).
+  { label: 'API 센터', path: '/settings/api-center', demoHidden: true },
 ];
 
 // 커뮤니티 섹션 (ADR-0021). Q&A 가 기본 목적지다 — 템플릿은 그 위에서 승격되는 계층이라
