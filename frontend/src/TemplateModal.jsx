@@ -62,7 +62,7 @@ const BUILT_IN_TEMPLATES = [
         { id: 'node_start', type: 'startNode', position: { x: 50, y: 150 }, data: { label: '시작' } },
         { id: 'node_dyn', type: 'dynamicInputNode', position: { x: 300, y: 150 }, data: { label: '동적 입력', inputLabel: '무엇이든 물어보세요!' } },
         { id: 'node_llm', type: 'llmNode', position: { x: 650, y: 150 }, data: { label: 'LLM', model: 'gemini-1.5-flash', systemPrompt: '당신은 친절한 AI 어시스턴트입니다. 사용자의 질문에 답해주세요.' } },
-        { id: 'node_out', type: 'kakaoNode', position: { x: 1000, y: 150 }, data: { label: '카카오 알림톡', receiver: '기본 사용자' } }
+        { id: 'node_out', type: 'kakaoNode', position: { x: 1000, y: 150 }, data: { label: '카카오톡 발송', receiver: '기본 사용자' } }
       ],
       edges: [
         { id: 'e_start-dyn', source: 'node_start', target: 'node_dyn', sourceHandle: 'out', targetHandle: 'in' },
@@ -84,7 +84,7 @@ const BUILT_IN_TEMPLATES = [
         { id: 'node_crawl', type: 'webCrawlerNode', position: { x: 550, y: 150 }, data: { label: '웹 크롤러', url: '' } },
         { id: 'node_prompt', type: 'promptNode', position: { x: 850, y: 150 }, data: { label: '요약 프롬프트', userPrompt: '다음 텍스트를 읽고 핵심 내용을 3줄로 요약해줘.' } },
         { id: 'node_llm', type: 'llmNode', position: { x: 1150, y: 150 }, data: { label: 'LLM', model: 'gemini-1.5-flash', systemPrompt: '당신은 정확하고 빠른 뉴스 요약 전문가입니다.' } },
-        { id: 'node_email', type: 'emailNode', position: { x: 1450, y: 150 }, data: { label: '이메일 전송', toEmail: 'boss@company.com' } }
+        { id: 'node_email', type: 'emailNode', position: { x: 1450, y: 150 }, data: { label: '이메일 발송', toEmail: 'boss@company.com' } }
       ],
       edges: [
         { id: 'e_s-u', source: 'node_start', target: 'node_url', sourceHandle: 'out', targetHandle: 'in' },

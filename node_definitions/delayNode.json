@@ -3,7 +3,7 @@
   "version": 1,
   "category": "logic",
   "display": {
-    "label": "Delay (대기)",
+    "label": "대기",
     "icon": "node-delay",
     "color": "#3b82f6"
   },

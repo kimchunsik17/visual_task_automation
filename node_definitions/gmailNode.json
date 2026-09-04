@@ -3,7 +3,7 @@
   "version": 1,
   "category": "integration",
   "display": {
-    "label": "Gmail 발송/답장",
+    "label": "Gmail 발송",
     "icon": "node-email",
     "color": "#ea4335"
   },

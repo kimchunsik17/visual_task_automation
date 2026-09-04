@@ -7,7 +7,7 @@
       "collapsedLabel": "Switch\nBranch",
       "color": "#0ea5e9",
       "icon": "node-condition",
-      "label": "Switch / Branch"
+      "label": "조건 분기"
     },
     "dynamicOutputs": {
       "from": "rules",
@@ -754,7 +754,7 @@
     "display": {
       "color": "#3b82f6",
       "icon": "node-delay",
-      "label": "Delay (대기)"
+      "label": "대기"
     },
     "executor": "delayNode",
     "fields": [
@@ -925,7 +925,7 @@
     "display": {
       "color": "#f43f5e",
       "icon": "node-email",
-      "label": "이메일 전송"
+      "label": "이메일 발송"
     },
     "executor": "emailNode",
     "fields": [
@@ -1236,7 +1236,7 @@
     "display": {
       "color": "#ea4335",
       "icon": "node-email",
-      "label": "Gmail 발송/답장"
+      "label": "Gmail 발송"
     },
     "executor": "gmailNode",
     "fields": [
@@ -1577,7 +1577,7 @@
     "display": {
       "color": "#ea4335",
       "icon": "node-email",
-      "label": "Gmail 새 메일 (시작)"
+      "label": "Gmail 수신"
     },
     "executor": "gmailTriggerNode",
     "fields": [
@@ -2090,7 +2090,7 @@
     "display": {
       "color": "#0ea5e9",
       "icon": "node-http-request",
-      "label": "HTTP Request"
+      "label": "HTTP 요청"
     },
     "executor": "httpRequestNode",
     "fields": [
@@ -2465,7 +2465,7 @@
       "color": "#06b6d4",
       "headerColor": "linear-gradient(135deg, #0891b2, #7c3aed)",
       "icon": "node-poster-generator",
-      "label": "AI 이미지 생성·수정"
+      "label": "이미지 생성"
     },
     "executor": "imageGenerationNode",
     "fields": [
@@ -3134,7 +3134,7 @@
     "display": {
       "color": "#8b5cf6",
       "icon": "node-llm",
-      "label": "LLM Node"
+      "label": "LLM"
     },
     "executor": "llmNode",
     "fields": [
@@ -4041,7 +4041,7 @@
     "display": {
       "color": "#03c75a",
       "icon": "provider-naver-api-hub",
-      "label": "네이버 새 검색결과 (시작)"
+      "label": "네이버 새 글 감지"
     },
     "executor": "naverSearchTriggerNode",
     "fields": [
@@ -4270,7 +4270,7 @@
       "color": "#f59e0b",
       "headerColor": "linear-gradient(135deg, #f59e0b, #ea580c)",
       "icon": "node-poster-generator",
-      "label": "포스터/이미지 생성"
+      "label": "포스터 생성"
     },
     "executor": "posterGeneratorNode",
     "fields": [
@@ -4471,7 +4471,7 @@
     "display": {
       "color": "#f97316",
       "icon": "node-webhook",
-      "label": "RSS 새 글 (시작)"
+      "label": "RSS 새 글 감지"
     },
     "executor": "rssTriggerNode",
     "fields": [
@@ -4557,7 +4557,7 @@
     "display": {
       "color": "#8b5cf6",
       "icon": "node-schedule",
-      "label": "스케줄 (시작)"
+      "label": "스케줄 시작"
     },
     "executor": "scheduleNode",
     "fields": [
@@ -4602,7 +4602,7 @@
       "color": "#0ea5e9",
       "headerColor": "linear-gradient(135deg, #0ea5e9, #0284c7)",
       "icon": "node-slack",
-      "label": "Slack 메세지"
+      "label": "Slack 발송"
     },
     "executor": "slackNode",
     "fields": [
@@ -5127,7 +5127,7 @@
     "display": {
       "color": "#ff0033",
       "icon": "node-youtube",
-      "label": "YouTube 새 영상"
+      "label": "YouTube 새 영상 감지"
     },
     "executor": "youtubeTriggerNode",
     "fields": [

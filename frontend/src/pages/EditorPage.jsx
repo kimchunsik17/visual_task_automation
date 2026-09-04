@@ -681,7 +681,7 @@ function FlowContent() {
       ];
     }
     return [
-      { role: 'assistant', content: '안녕하세요! 워크플로우 수정을 도와드릴까요? 원하시는 구성을 말씀해 주세요. (예: 이메일 전송 노드를 추가하고 슬랙 알림을 연결해줘)' }
+      { role: 'assistant', content: '안녕하세요! 워크플로우 수정을 도와드릴까요? 원하시는 구성을 말씀해 주세요. (예: 이메일 발송 노드를 추가하고 슬랙 알림을 연결해줘)' }
     ];
   });
   const [chatInput, setChatInput] = useState('');

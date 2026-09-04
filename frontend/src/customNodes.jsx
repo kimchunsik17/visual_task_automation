@@ -817,7 +817,7 @@ export const ValueNode = ({ id, data }) => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Icon name="node-value" size={16} color="#ec4899" />
-          {varName ? <span title="변수 허브 — 하류 노드가 이 이름으로 값을 가져갑니다">변수 · {varName}</span> : '변수 (값)'}
+          {varName ? <span title="변수 허브 — 하류 노드가 이 이름으로 값을 가져갑니다">변수 · {varName}</span> : '변수'}
         </div>
         {!isExpanded && <BindingCountBadge count={bindingCount(data)} />}
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
@@ -1651,7 +1651,7 @@ export const EmailNode = ({ id, data }) => {
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-email" size={16} color="#f43f5e" /> 이메일 전송</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-email" size={16} color="#f43f5e" /> 이메일 발송</div>
         {!isExpanded && <BindingCountBadge count={bindingCount(data)} />}
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
@@ -1681,7 +1681,7 @@ export const KakaoNode = ({ id, data }) => {
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-kakao-alimtalk" size={16} color="#facc15" /> 카카오 알림톡</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-kakao-alimtalk" size={16} color="#facc15" /> 카카오톡 발송</div>
         {!isExpanded && <BindingCountBadge count={bindingCount(data)} />}
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
@@ -1722,7 +1722,7 @@ export const DelayNode = ({ id, data }) => {
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-delay" size={16} color="#3b82f6" /> Delay (대기)</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-delay" size={16} color="#3b82f6" /> 대기</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       {isExpanded && (
@@ -1780,7 +1780,7 @@ export const MergeNode = ({ id, data }) => {
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-merge" size={16} color="#ec4899" /> Merge (데이터 병합)</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-merge" size={16} color="#ec4899" /> 병합</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       {isExpanded && (
@@ -2329,7 +2329,7 @@ export const MultiAgentNode = ({ id, data }) => {
         <div className="special-node-title multi-agent-title">
           <span><Icon name="node-multi-agent" size={19} /></span>
           <div>
-            <strong>{data.label || 'Multi-Agent'}</strong>
+            <strong>{data.label || '멀티 에이전트'}</strong>
             <small>{modeMeta.shortLabel} / ORCHESTRATION</small>
           </div>
         </div>
@@ -2452,7 +2452,7 @@ export const ScheduleNode = ({ id, data }) => {
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-schedule" size={16} color="#8b5cf6" /> 스케줄 (시작)</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-schedule" size={16} color="#8b5cf6" /> 스케줄 시작</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       {isExpanded && (
@@ -2579,7 +2579,7 @@ export const DiscordTriggerNode = ({ id, data }) => {
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-discord-trigger" size={16} color="#5865F2" /> 디스코드 봇 (시작)</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-discord-trigger" size={16} color="#5865F2" /> 디스코드 수신</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       {isExpanded && (
@@ -2653,7 +2653,7 @@ export const TelegramTriggerNode = ({ id, data }) => {
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-telegram-trigger" size={16} color="#26A5E4" /> 텔레그램 봇 (시작)</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="node-telegram-trigger" size={16} color="#26A5E4" /> 텔레그램 수신</div>
         <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
       </div>
       {isExpanded && (

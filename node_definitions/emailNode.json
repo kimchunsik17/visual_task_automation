@@ -3,7 +3,7 @@
   "version": 1,
   "category": "integration",
   "display": {
-    "label": "이메일 전송",
+    "label": "이메일 발송",
     "icon": "node-email",
     "color": "#f43f5e"
   },

@@ -3,7 +3,7 @@
   "version": 1,
   "category": "ai",
   "display": {
-    "label": "AI 이미지 생성·수정",
+    "label": "이미지 생성",
     "collapsedLabel": "AI 이미지",
     "icon": "node-poster-generator",
     "color": "#06b6d4",

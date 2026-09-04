@@ -2,7 +2,7 @@ export const NodeRegistry = {
   slackNode: {
     type: 'slackNode',
     icon: 'node-slack',
-    label: 'Slack 메세지',
+    label: 'Slack 발송',
     category: 'integration',
     color: '#0ea5e9', // e.g., skyblue for Slack
     headerColor: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
@@ -31,7 +31,7 @@ export const NodeRegistry = {
   tossNode: {
     type: 'tossNode',
     icon: 'node-toss-payments',
-    label: '토스페이먼츠',
+    label: '토스 결제 조회',
     category: 'integration',
     color: '#3b82f6',
     headerColor: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
@@ -84,7 +84,7 @@ export const NodeRegistry = {
   imageGenerationNode: {
     type: 'imageGenerationNode',
     icon: 'node-poster-generator',
-    label: 'AI 이미지 생성·수정',
+    label: '이미지 생성',
     category: 'ai',
     color: '#06b6d4',
     headerColor: 'linear-gradient(135deg, #0891b2, #7c3aed)',
@@ -93,7 +93,7 @@ export const NodeRegistry = {
   posterGeneratorNode: {
     type: 'posterGeneratorNode',
     icon: 'node-poster-generator',
-    label: '포스터/이미지 생성',
+    label: '포스터 생성',
     category: 'action',
     color: '#f59e0b',
     headerColor: 'linear-gradient(135deg, #f59e0b, #ea580c)',

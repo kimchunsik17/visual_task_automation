@@ -3,7 +3,7 @@
   "version": 1,
   "category": "trigger",
   "display": {
-    "label": "스케줄 (시작)",
+    "label": "스케줄 시작",
     "icon": "node-schedule",
     "color": "#8b5cf6"
   },
