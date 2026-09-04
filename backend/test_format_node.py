@@ -239,7 +239,43 @@ try:
 except rt.FormatNodeError as e:
     assert e.reason == "FORMAT_NOT_FOUND"
 
-# 6) 삭제
+# 6) image 빈칸의 경로 → artifact 역조회 — 이미지 생성 노드가 하류로 넘기는 값은
+#    artifact id 가 아니라 파일 경로(uploads/…)라서, formatNode 런타임이 등록된 파일로
+#    역조회해 id 로 바꾼다(시연 포스터 흐름의 전제). 임의 경로는 그대로 남아 렌더 단계의
+#    검증(FORMAT_IMAGE_*)이 잡는다.
+import base64
+from pathlib import Path
+from upload_security import physical_output_path
+import artifacts
+
+png_physical = Path(physical_output_path("uploads/bg_seed_test.png", user.id))
+png_physical.parent.mkdir(parents=True, exist_ok=True)
+png_physical.write_bytes(base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+bg_ref = artifacts.register_generated_file(db, path="uploads/bg_seed_test.png", owner_user_id=user.id)
+assert bg_ref is not None and bg_ref.artifact_id
+
+poster_spec = {
+    "version": 1, "layout": "design",
+    "output": {"default": "png", "allowed": ["png"]},
+    "fields": [
+        {"name": "title", "label": "제목", "kind": "text", "required": True},
+        {"name": "bg", "label": "배경", "kind": "image", "required": False},
+    ],
+    "design": {"width": 100, "height": 100, "theme": {},
+               "html": '<div class="cv"><img data-field="bg" class="e e1"><div class="e e2">{{title}}</div></div>',
+               "css": ".cv{position:absolute;}"},
+}
+resolved_vals = rt._resolve_image_values(poster_spec, {"title": "t", "bg": "uploads/bg_seed_test.png"},
+                                         db=db, owner_user_id=user.id)
+assert resolved_vals["bg"] == bg_ref.artifact_id, resolved_vals
+# artifact id 는 그대로 통과하고, 등록되지 않은 경로는 바뀌지 않는다
+same_vals = rt._resolve_image_values(poster_spec, {"bg": bg_ref.artifact_id}, db=db, owner_user_id=user.id)
+assert same_vals["bg"] == bg_ref.artifact_id
+unknown_vals = rt._resolve_image_values(poster_spec, {"bg": "uploads/ghost.png"}, db=db, owner_user_id=user.id)
+assert unknown_vals["bg"] == "uploads/ghost.png"
+
+# 7) 삭제
 assert client.delete(f"/api/formats/{fmt_id}").status_code == 200
 assert client.get("/api/formats").json()["formats"] == []
 

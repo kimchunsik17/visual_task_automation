@@ -11,8 +11,10 @@ BACKEND_DIR = pathlib.Path(__file__).resolve().parent
 SCENARIO = r'''
 import os, sys
 os.environ["DATABASE_URL"] = sys.argv[1]
-os.environ.pop("DEMO_LOGIN_CODE", None)
-os.environ.pop("DEMO_LOGIN_SEATS", None)
+# pop 이 아니라 빈 문자열 대입 — 지우면 main 의 load_dotenv 가 로컬 .env 의 시연 플래그를
+# 다시 채워 "기본 꺼짐" 단계가 로컬에서만 깨진다(conftest 의 시연 플래그 중화와 같은 원리).
+os.environ["DEMO_LOGIN_CODE"] = ""
+os.environ["DEMO_LOGIN_SEATS"] = ""
 sys.path.insert(0, sys.argv[2])
 os.chdir(os.path.dirname(sys.argv[1].replace("sqlite:///", "")))
 
