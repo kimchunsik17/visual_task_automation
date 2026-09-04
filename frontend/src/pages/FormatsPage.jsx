@@ -12,6 +12,7 @@ import { useAuth } from '../AuthContext';
 import { customConfirm } from '../CustomConfirm';
 import { timeAgo } from '../timeFormat';
 import MainSidebar from '../MainSidebar';
+import { readListCache, writeListCache } from '../listCache';
 import documentFormatsBundle from '../generated/documentFormats.json';
 import './MainPage.css';
 import './ManagementPage.css';
@@ -22,8 +23,18 @@ const LAYOUT_LABELS = { document: '문서', design: '디자인' };
 function FormatsPage() {
   const navigate = useNavigate();
   const { user, token } = useAuth();
-  const [userFormats, setUserFormats] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // 재방문 첫 프레임부터 마지막 목록을 그린다(listCache.js) — 출렁임 방지.
+  const cacheKey = `formats:${user?.id ?? user?.email ?? 'anon'}`;
+  const [userFormats, setUserFormatsState] = useState(() => readListCache(cacheKey) ?? []);
+  const [loading, setLoading] = useState(() => readListCache(cacheKey) === null);
+  // 목록이 바뀌는 모든 경로(조회·삭제)가 캐시도 함께 갱신한다.
+  const setUserFormats = (next) => {
+    setUserFormatsState((prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      writeListCache(cacheKey, resolved);
+      return resolved;
+    });
+  };
 
   const presets = documentFormatsBundle.formats || [];
   const authHeaders = useCallback(
@@ -91,7 +102,7 @@ function FormatsPage() {
             <h2 className="formats-section-title">내 포맷</h2>
             {!user ? (
               <div className="management-empty"><h2>로그인이 필요합니다</h2><p>로그인 후 내 포맷을 관리할 수 있습니다.</p></div>
-            ) : loading ? (
+            ) : loading && userFormats.length === 0 ? (
               <div className="management-loading" aria-label="포맷을 불러오는 중">{[0, 1, 2].map((i) => <span key={i} />)}</div>
             ) : userFormats.length === 0 ? (
               <div className="management-empty">

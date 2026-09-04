@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import MainSidebar from '../MainSidebar';
 import SectionTabs from '../components/SectionTabs';
 import { OPERATIONS_SECTION_TABS } from '../navigation';
+import { readListCache, writeListCache } from '../listCache';
 import { formatManagementDateTime, shortResourceId } from './managementFormatters';
 import { GoogleLogin } from '@react-oauth/google';
 import { Bot, Play, Square, ExternalLink, RefreshCw, Trash2, Key, FileText, MoreVertical, Edit } from 'lucide-react';
@@ -16,8 +17,10 @@ import './ManagementPage.css';
 export default function BotManagerPage() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
-  const [bots, setBots] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // 재방문 첫 프레임부터 마지막 목록을 그린다(listCache.js) — 출렁임 방지.
+  const cacheKey = `bots:${user?.id ?? user?.email ?? 'anon'}`;
+  const [bots, setBots] = useState(() => readListCache(cacheKey) ?? []);
+  const [loading, setLoading] = useState(() => readListCache(cacheKey) === null);
   const [selectedProjectForToken, setSelectedProjectForToken] = useState(null);
   const [reAuthToken, setReAuthToken] = useState(null);
   const [editingDiscordToken, setEditingDiscordToken] = useState('');
@@ -100,6 +103,7 @@ export default function BotManagerPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       setBots(res.data);
+      writeListCache(cacheKey, res.data);
     } catch (err) {
       console.error('Failed to fetch bots:', err);
     } finally {
@@ -178,7 +182,7 @@ export default function BotManagerPage() {
             <button className="management-button" onClick={() => navigate('/editor')}><ExternalLink size={13} /> 에디터 열기</button>
           </div>
 
-          {loading ? (
+          {loading && bots.length === 0 ? (
             <div className="management-loading" aria-label="봇 목록을 불러오는 중">{[0, 1, 2, 3].map(item => <span key={item} />)}</div>
           ) : bots.length === 0 ? (
             <div className="management-empty">
