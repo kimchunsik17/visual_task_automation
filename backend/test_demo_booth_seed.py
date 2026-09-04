@@ -68,11 +68,17 @@ import seed_demo_booth
 result = seed_demo_booth.seed(db, user)
 
 assert len(result["projects"]) == 5 and len(result["apps"]) == 2
-assert result["formats"] == ["demo-news-briefing"]
+assert sorted(result["formats"]) == ["demo-notice-poster", "demo-travel-itinerary"]
 
-# 포맷이 저장 규칙(validate)을 통과한 상태로 존재한다
-fmt = db.query(models.DocumentFormat).get("demo-news-briefing")
+# 포맷이 저장 규칙(validate)을 통과한 상태로 존재한다 — 문서형 1 + 디자인형 1
+fmt = db.query(models.DocumentFormat).get("demo-travel-itinerary")
 assert fmt is not None and fmt.owner_user_id == 1 and fmt.spec["layout"] == "document"
+poster = db.query(models.DocumentFormat).get("demo-notice-poster")
+assert poster is not None and poster.owner_user_id == 1 and poster.spec["layout"] == "design"
+# 포스터의 배경 이미지 슬롯이 살아 있다(이미지 생성 노드 → formatNode 연결의 전제)
+assert any(f["name"] == "backgroundImage" and f["kind"] == "image"
+           for f in poster.spec["fields"])
+assert 'data-field="backgroundImage"' in poster.spec["design"]["html"]
 
 # 워크플로우 5개 — share_token(층 1 QR)과 그래프가 있다
 projects = db.query(models.Project).filter(models.Project.user_id == 1).all()

@@ -73,6 +73,34 @@ def _values_from(explicit_json: str, incoming: Any) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _resolve_image_values(spec: Dict[str, Any], values: Dict[str, Any], *,
+                          db=None, owner_user_id: Optional[int] = None) -> Dict[str, Any]:
+    """image 빈칸 값이 artifact id 가 아니라 파일 경로(uploads/…)면 등록된 artifact 로 역조회한다.
+
+    이미지 생성 노드가 다음 노드로 넘기는 값은 artifact id 가 아니라 파일 경로라서, LLM 이
+    그 경로를 빈칸 값에 옮겨 적으면 여기서 id 로 이어진다(시연 포스터 흐름: 이미지 생성 →
+    빈칸 JSON 조립 → formatNode). 임의 로컬 경로를 여는 통로가 아니다 — lookup_by_stored_path
+    는 **등록된 파일로 역조회되는 경우에만** 값을 주고, 소유·만료·경로·hash 검증은 렌더 시
+    _image_loader 의 resolve() 가 그대로 수행한다.
+    """
+    if db is None:
+        return values
+    image_fields = {f["name"] for f in spec.get("fields", []) if f.get("kind") == "image"}
+    if not image_fields:
+        return values
+    import artifacts
+
+    resolved = dict(values)
+    for name in image_fields:
+        raw = str(resolved.get(name) or "").strip()
+        if not raw or artifacts.lookup(db, raw) is not None:
+            continue  # 비었거나 이미 artifact id
+        ref = artifacts.lookup_by_stored_path(db, raw, owner_user_id=owner_user_id)
+        if ref is not None and ref.artifact_id:
+            resolved[name] = ref.artifact_id
+    return resolved
+
+
 def default_output_name(spec: Dict[str, Any], output: str) -> str:
     """포맷 이름을 따서 짓되, 실행마다 겹치지 않게 짧은 임의 문자열을 붙인다(hwpx_runtime 과 동일)."""
     import uuid
@@ -93,6 +121,7 @@ def run(*, format_id: str, output: str = "", values_json: str = "", incoming: An
             f"'{spec.get('name') or format_id}' 포맷의 출력은 {', '.join(allowed)} 만 가능합니다: "
             f"{chosen_output!r}", reason="FORMAT_OUTPUT_UNSUPPORTED")
     values = _values_from(values_json, incoming)
+    values = _resolve_image_values(spec, values, db=db, owner_user_id=owner_user_id)
 
     # 필수 빈칸 누락은 needs_input 성격 — 코드가 아니라 사용자가 채울 문제라서 먼저 알려준다.
     missing = missing_required_fields(spec, values)

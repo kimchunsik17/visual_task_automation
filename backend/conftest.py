@@ -41,6 +41,18 @@ elif _is_production_db(_env_url):
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-not-for-any-real-deployment")
 
 
+# ── 시연 플래그 중화 (2026-09-04) ─────────────────────────────────────────
+# 로컬 backend/.env 에 시연 플래그(DEMO_UI·HIDDEN_NODE_TYPES 등)를 켜 두면 load_dotenv 가
+# 테스트 프로세스에도 주입해 스위트가 비결정적으로 깨진다 — 실제로 HIDDEN_NODE_TYPES=jusoNode
+# 하나로 카탈로그·별칭·커뮤니티 정렬·시연 로그인 테스트 5건이 로컬에서만 실패했다.
+# 빈 문자열로 **미리 채워** 두면 load_dotenv(override=False)가 .env 값을 덮지 못한다(pop 은
+# 답이 아니다 — 지우면 .env 가 다시 채운다). 플래그가 필요한 테스트는 monkeypatch.setenv 나
+# 서브프로세스 시나리오 안의 명시적 대입으로 직접 켠다.
+for _demo_flag in ("DEMO_UI", "HIDDEN_NODE_TYPES", "DEMO_LOGIN_CODE", "DEMO_LOGIN_SEATS",
+                   "DEMO_SHARED_CREDENTIALS_USER_ID", "DEMO_SHARED_CREDENTIALS_PROVIDERS"):
+    os.environ[_demo_flag] = ""
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow_render: Chromium 렌더가 필요한 느린 테스트 (포맷 스튜디오 pdf/png)")
