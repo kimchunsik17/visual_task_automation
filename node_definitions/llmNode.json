@@ -3,7 +3,7 @@
   "version": 1,
   "category": "ai",
   "display": {
-    "label": "LLM Node",
+    "label": "LLM",
     "icon": "node-llm",
     "color": "#8b5cf6"
   },

@@ -3,7 +3,7 @@
   "version": 1,
   "category": "trigger",
   "display": {
-    "label": "Gmail 새 메일 (시작)",
+    "label": "Gmail 수신",
     "icon": "node-email",
     "color": "#ea4335"
   },

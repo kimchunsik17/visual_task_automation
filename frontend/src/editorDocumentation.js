@@ -62,7 +62,7 @@ export const EDITOR_CONVENIENCE_FEATURES = [
     description: '실행 없이 스키마·구조·컴파일을 검사하고, 문제를 클릭하면 해당 노드로 이동합니다.',
   },
   {
-    title: '메모 (주석)',
+    title: '메모',
     description: '캔버스 우클릭 → 메모 추가로 스티키 노트를 남깁니다. 실행에는 포함되지 않습니다.',
   },
   {

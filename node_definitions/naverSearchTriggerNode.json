@@ -3,7 +3,7 @@
   "version": 1,
   "category": "trigger",
   "display": {
-    "label": "네이버 새 검색결과 (시작)",
+    "label": "네이버 새 글 감지",
     "icon": "provider-naver-api-hub",
     "color": "#03c75a"
   },

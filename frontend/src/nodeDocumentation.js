@@ -27,7 +27,7 @@ export const NODE_DOCS = {
     usage: ['수동으로 실행하는 일반적인 Workflow', '앱 빌더 화면이나 API 호출로 시작되는 Workflow'],
     io: { input: '없음 — 흐름의 출발점입니다.', output: '빈 값으로 시작하며, 첫 데이터는 보통 다음의 프롬프트·입력 노드가 만듭니다.' },
     fields: {},
-    tips: ['정해진 시간에 자동 실행하려면 스케줄 (시작), 외부 요청으로 시작하려면 웹훅 수신으로 교체하세요.'],
+    tips: ['정해진 시간에 자동 실행하려면 스케줄 시작, 외부 요청으로 시작하려면 웹훅 수신으로 교체하세요.'],
     related: ['scheduleNode', 'webhookNode', 'dynamicInputNode', 'outputNode'],
   },
   scheduleNode: {
@@ -168,7 +168,7 @@ export const NODE_DOCS = {
     usage: ['특정 발신자의 메일 도착 시 자동 처리', '새 문의 메일 요약 → 메신저 알림'],
     io: { input: '없음 — 흐름의 출발점입니다.', output: '새 메일 요약 목록(JSON 배열 문자열).' },
     fields: { query: 'Gmail 검색 문법 그대로 씁니다. 비우면 모든 새 메일.', maxResults: '한 번에 통지할 최대 메일 수.' },
-    tips: ['답장까지 자동화하려면 message_id를 Gmail 발송/답장 노드의 답장 모드로 넘기세요.'],
+    tips: ['답장까지 자동화하려면 message_id를 Gmail 발송 노드의 답장 모드로 넘기세요.'],
     related: ['gmailNode', 'jsonParserNode', 'distributorNode'],
   },
   naverSearchTriggerNode: {
@@ -428,7 +428,7 @@ export const NODE_DOCS = {
       subject: '비우면 기본 제목이 쓰입니다.',
       attachments: '비워 두면 앞 노드가 만든 파일을 자동 첨부합니다.',
     },
-    tips: ['Gmail 계정으로 답장·라벨까지 다루려면 Gmail 발송/답장 노드를 쓰세요.'],
+    tips: ['Gmail 계정으로 답장·라벨까지 다루려면 Gmail 발송 노드를 쓰세요.'],
     related: ['gmailNode', 'fileModifierNode', 'posterGeneratorNode'],
   },
   kakaoNode: {
@@ -523,7 +523,7 @@ export const NODE_DOCS = {
       labelName: '적용할 라벨. 없으면 새로 만듭니다.',
       attachments: '비워 두면 앞 노드가 만든 파일을 자동 첨부합니다.',
     },
-    tips: ['단순 SMTP 발송만 필요하면 이메일 전송 노드로도 충분합니다.'],
+    tips: ['단순 SMTP 발송만 필요하면 이메일 발송 노드로도 충분합니다.'],
     related: ['gmailTriggerNode', 'emailNode', 'googleDriveNode'],
   },
   googleDriveNode: {
@@ -563,7 +563,7 @@ export const NODE_DOCS = {
     summary: '네이버에서 블로그·카페 글을 검색해 결과 목록을 가져오는 액션 노드입니다.',
     details: [
       'Workflow 중간에서 최신 글을 수집할 때 씁니다. 출력은 JSON 문자열이고 items 배열의 각 항목은 title·link·description·author·publishedAt입니다(제목의 강조 태그는 제거됨, 카페글에는 publishedAt 없음).',
-      '"새 글이 올라오면 시작"이 목적이라면 이 노드가 아니라 네이버 새 검색결과(시작) 트리거를 쓰세요.',
+      '"새 글이 올라오면 시작"이 목적이라면 이 노드가 아니라 네이버 새 글 감지 트리거를 쓰세요.',
     ],
     usage: ['최신 후기·리뷰를 모아 요약', '검색 결과 링크를 분배기로 순회하며 본문 수집'],
     io: { input: '사용하지 않습니다(검색어는 필드로 지정).', output: '검색 결과 목록(JSON 문자열).' },
@@ -638,14 +638,14 @@ export const NODE_DOCS = {
     related: ['discordNode', 'telegramNode', 'emailNode'],
   },
   paymentLinkNode: {
-    summary: '주문 정보를 받아 결제 링크를 생성합니다(조회인 토스페이먼츠 노드와 반대).',
+    summary: '주문 정보를 받아 결제 링크를 생성합니다(조회인 토스 결제 조회 노드와 반대).',
     details: [
       '"주문/결제 링크 만들어줘" 같은 요청에 씁니다. 주문 정보(JSON)를 직접 적거나, 비워 두면 직전 노드의 출력을 그대로 주문 데이터로 씁니다.',
     ],
     usage: ['주문 접수 → 결제 링크 생성 → 고객에게 발송'],
     io: { input: '주문 정보를 비우면 직전 노드의 출력(JSON).', output: '생성된 결제 링크.' },
     fields: { provider: '결제사(기본 toss).', orderData: '주문 정보 JSON. 직전 노드 출력을 쓸 거면 비워 둡니다.' },
-    tips: ['결제 정보 조회는 토스페이먼츠 노드를 쓰세요.'],
+    tips: ['결제 정보 조회는 토스 결제 조회 노드를 쓰세요.'],
     related: ['tossNode', 'kakaoNode', 'emailNode'],
   },
   tossNode: {

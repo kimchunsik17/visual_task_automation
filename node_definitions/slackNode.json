@@ -3,7 +3,7 @@
   "version": 1,
   "category": "integration",
   "display": {
-    "label": "Slack 메세지",
+    "label": "Slack 발송",
     "icon": "node-slack",
     "color": "#0ea5e9",
     "headerColor": "linear-gradient(135deg, #0ea5e9, #0284c7)"

@@ -3,7 +3,7 @@
   "version": 1,
   "category": "action",
   "display": {
-    "label": "HTTP Request",
+    "label": "HTTP 요청",
     "icon": "node-http-request",
     "color": "#0ea5e9"
   },

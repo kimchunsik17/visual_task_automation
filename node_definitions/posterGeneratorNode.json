@@ -3,7 +3,7 @@
   "version": 1,
   "category": "action",
   "display": {
-    "label": "포스터/이미지 생성",
+    "label": "포스터 생성",
     "icon": "node-poster-generator",
     "color": "#f59e0b",
     "headerColor": "linear-gradient(135deg, #f59e0b, #ea580c)"

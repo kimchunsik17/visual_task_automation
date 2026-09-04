@@ -140,13 +140,13 @@ const DeployModal = ({ isOpen, onClose, project, onDeployConfigSaved, previewOnl
           </div>
 
           {/* Integrations: 디스코드 봇은 이제 여기서 배포하는 게 아니라, 웹훅/스케줄과 동일하게
-              캔버스 안의 "디스코드 봇 (시작)" 노드 + 에디터 상단의 "라이브 시작" 토글로 켠다.
+              캔버스 안의 "디스코드 수신" 노드 + 에디터 상단의 "라이브 시작" 토글로 켠다.
               토큰을 모달에 매번 붙여넣을 필요 없이 API 센터에 등록해두면 자동으로 연결된다. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>Integrations</h3>
             <div style={{ padding: '1rem', border: '1px dashed var(--border-color)', borderRadius: '10px', color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: '1.5' }}>
               💬 <strong style={{ color: 'var(--text-color)' }}>디스코드 봇</strong>은 여기서 배포하지 않아요 —
-              캔버스에 <strong style={{ color: 'var(--text-color)' }}>"디스코드 봇 (시작)"</strong> 노드를 추가하고
+              캔버스에 <strong style={{ color: 'var(--text-color)' }}>"디스코드 수신"</strong> 노드를 추가하고
               봇 토큰을 입력한 뒤(또는 API 센터 연동), 에디터 상단의 <strong style={{ color: 'var(--text-color)' }}>"라이브 시작"</strong> 토글을
               켜면 그 순간부터 봇이 메시지를 기다립니다. 스케줄/웹훅 트리거와 동일한 방식이에요.
             </div>

@@ -3,7 +3,7 @@
   "version": 1,
   "category": "trigger",
   "display": {
-    "label": "RSS 새 글 (시작)",
+    "label": "RSS 새 글 감지",
     "icon": "node-webhook",
     "color": "#f97316"
   },

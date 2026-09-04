@@ -3,7 +3,7 @@
   "version": 1,
   "category": "flow",
   "display": {
-    "label": "Switch / Branch",
+    "label": "조건 분기",
     "collapsedLabel": "Switch\nBranch",
     "icon": "node-condition",
     "color": "#0ea5e9"
