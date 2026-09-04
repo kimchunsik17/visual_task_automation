@@ -46,9 +46,17 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
-TRAVEL_FORMAT_ID = "demo-travel-itinerary"
-POSTER_FORMAT_ID = "demo-notice-poster"
+# 포맷 id 는 소유자별로 나눈다 — DocumentFormat.id 가 PK 이고 formatNode 는 소유자 검증을
+# 하므로, 게스트 입장(DEMO_GUEST)처럼 여러 계정에 같은 콘텐츠를 심으면 계정마다 자기
+# 포맷 행이 필요하다. 워크플로우의 formatId 도 같은 규칙으로 만들어 참조가 맞는다.
+TRAVEL_FORMAT_BASE = "demo-travel-itinerary"
+POSTER_FORMAT_BASE = "demo-notice-poster"
 TITLE_PREFIX = "[시연] "
+
+
+def format_ids_for(user_id: int) -> dict:
+    return {TRAVEL_FORMAT_BASE: f"{TRAVEL_FORMAT_BASE}-u{int(user_id)}",
+            POSTER_FORMAT_BASE: f"{POSTER_FORMAT_BASE}-u{int(user_id)}"}
 
 EBS_CHANNEL_ID = "UCl_tB4AqPkkxuYcJQHz6dMw"  # EBSCulture (EBS 교양)
 PPOMPPU_HOTDEAL_RSS = "https://www.ppomppu.co.kr/rss.php?id=ppomppu"
@@ -186,7 +194,7 @@ NOTICE_POSTER_SPEC = {
     },
 }
 
-FORMAT_SPECS = {TRAVEL_FORMAT_ID: TRAVEL_ITINERARY_SPEC, POSTER_FORMAT_ID: NOTICE_POSTER_SPEC}
+FORMAT_SPECS = {TRAVEL_FORMAT_BASE: TRAVEL_ITINERARY_SPEC, POSTER_FORMAT_BASE: NOTICE_POSTER_SPEC}
 
 
 # ── LLM 구조화 출력 스키마 ───────────────────────────────────────────────
@@ -258,7 +266,8 @@ POSTER_ASSEMBLE_SCHEMA = json.dumps({
 
 # ── 워크플로우 5종 ───────────────────────────────────────────────────────
 
-def build_workflows(owner_email: str):
+def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE,
+                    poster_format_id: str = POSTER_FORMAT_BASE):
     """제목 → (설명, nodes, edges). 노드 id 는 앱 payload 키로도 쓰이므로 바꾸지 말 것."""
     flows = {}
 
@@ -374,7 +383,7 @@ def build_workflows(owner_email: str):
                              "3~5곳을 고른다. 검색 결과에 없는 곳을 지어내지 않는다. planDate 는 오늘 날짜를 "
                              "한국어로 쓴다."),
                useStructuredOutput=True, jsonSchema=TRAVEL_SCHEMA)
-    n_doc = N("plan_doc", "formatNode", formatId=TRAVEL_FORMAT_ID, output="hwpx")
+    n_doc = N("plan_doc", "formatNode", formatId=travel_format_id, output="hwpx")
     n_out = N("out4", "outputNode")
     nodes = [n_start, n_in, n_q1, n_s1, n_q2, n_s2, n_info, n_plan, n_doc, n_out]
     edges = [link(n_start, n_in), link(n_in, n_q1), link(n_in, n_q2),
@@ -412,7 +421,7 @@ def build_workflows(owner_email: str):
                             "문안 값은 한 글자도 바꾸지 말고, backgroundImage 에 그 파일 경로를 글자 그대로 "
                             "넣은 완전한 JSON 을 출력한다."),
               useStructuredOutput=True, jsonSchema=POSTER_ASSEMBLE_SCHEMA)
-    n_doc = N("poster_doc", "formatNode", formatId=POSTER_FORMAT_ID, output="png")
+    n_doc = N("poster_doc", "formatNode", formatId=poster_format_id, output="png")
     n_mail = N("issue_mail", "emailNode", toEmail=owner_email, subject="[포스터] 안내 포스터 생성 완료")
     n_out = N("out5", "outputNode")
     nodes = [n_start, n_in, n_copy, n_bgp, n_img, n_parts, n_asm, n_doc, n_mail, n_out]
@@ -517,25 +526,34 @@ def build_apps(project_ids: dict):
 
 # ── 시딩 본체 ────────────────────────────────────────────────────────────
 
-def seed(db, user) -> dict:
-    """검증 → upsert. 반환: {'formats': [...], 'projects': {제목: id}, 'apps': {제목: id}}."""
+def seed(db, user, validate: bool = True) -> dict:
+    """검증 → upsert. 반환: {'formats': [...], 'projects': {제목: id}, 'apps': {제목: id}}.
+
+    validate=False 는 게스트 입장(DEMO_GUEST)처럼 **이미 검증된 그래프를 복사만** 하는
+    경로용이다 — 테스트(test_demo_booth_seed)가 같은 그래프의 dry_run 을 상시 검증한다.
+    """
     import models
     from dry_run import dry_run_workflow
 
-    flows = build_workflows(owner_email=user.email or "booth@example.com")
+    fmt_ids = format_ids_for(user.id)
+    flows = build_workflows(owner_email=user.email or "booth@example.com",
+                            travel_format_id=fmt_ids[TRAVEL_FORMAT_BASE],
+                            poster_format_id=fmt_ids[POSTER_FORMAT_BASE])
 
     # 1) 전량 사전 검증 — 하나라도 실패하면 아무것도 쓰지 않는다.
-    failures = []
-    for title, (_desc, nodes, edges) in flows.items():
-        result = dry_run_workflow({"nodes": nodes, "edges": edges})
-        if not (result.success and result.compile_passed):
-            failures.append((title, [str(i) for i in (result.issues or [])]))
-    if failures:
-        raise SystemExit(f"dry_run 검증 실패 — 시딩 중단: {failures}")
+    if validate:
+        failures = []
+        for title, (_desc, nodes, edges) in flows.items():
+            result = dry_run_workflow({"nodes": nodes, "edges": edges})
+            if not (result.success and result.compile_passed):
+                failures.append((title, [str(i) for i in (result.issues or [])]))
+        if failures:
+            raise SystemExit(f"dry_run 검증 실패 — 시딩 중단: {failures}")
 
     # 2) 전용 포맷 (formatNode 가 참조하므로 워크플로우보다 먼저)
     from documents.format_spec import validate_format_spec
-    for format_id, raw_spec in FORMAT_SPECS.items():
+    for base_id, raw_spec in FORMAT_SPECS.items():
+        format_id = fmt_ids[base_id]
         spec = validate_format_spec({**raw_spec, "id": format_id})
         fmt = db.query(models.DocumentFormat).filter(models.DocumentFormat.id == format_id).first()
         if fmt is None:
@@ -596,7 +614,7 @@ def seed(db, user) -> dict:
             row.title = archive_prefix + row.title[len(TITLE_PREFIX):]
 
     db.commit()
-    return {"formats": list(FORMAT_SPECS), "projects": project_ids, "apps": app_ids}
+    return {"formats": sorted(fmt_ids.values()), "projects": project_ids, "apps": app_ids}
 
 
 def main():

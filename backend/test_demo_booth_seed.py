@@ -68,12 +68,14 @@ import seed_demo_booth
 result = seed_demo_booth.seed(db, user)
 
 assert len(result["projects"]) == 5 and len(result["apps"]) == 2
-assert sorted(result["formats"]) == ["demo-notice-poster", "demo-travel-itinerary"]
+# 포맷 id 는 소유자별로 나뉜다(-u<id>) — 게스트 입장(DEMO_GUEST)이 여러 계정에 같은
+# 콘텐츠를 심을 수 있어야 하기 때문(DocumentFormat.id 가 PK + formatNode 소유자 검증).
+assert sorted(result["formats"]) == ["demo-notice-poster-u1", "demo-travel-itinerary-u1"]
 
 # 포맷이 저장 규칙(validate)을 통과한 상태로 존재한다 — 문서형 1 + 디자인형 1
-fmt = db.query(models.DocumentFormat).get("demo-travel-itinerary")
+fmt = db.query(models.DocumentFormat).get("demo-travel-itinerary-u1")
 assert fmt is not None and fmt.owner_user_id == 1 and fmt.spec["layout"] == "document"
-poster = db.query(models.DocumentFormat).get("demo-notice-poster")
+poster = db.query(models.DocumentFormat).get("demo-notice-poster-u1")
 assert poster is not None and poster.owner_user_id == 1 and poster.spec["layout"] == "design"
 # 포스터의 배경 이미지 슬롯이 살아 있다(이미지 생성 노드 → formatNode 연결의 전제)
 assert any(f["name"] == "backgroundImage" and f["kind"] == "image"
