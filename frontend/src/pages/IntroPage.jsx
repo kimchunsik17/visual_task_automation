@@ -655,15 +655,19 @@ function IntroPage() {
     const layout = layoutRef.current;
     if (!layout || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
     layout.classList.add('intro-animate');
+    // threshold 0: 요소 높이와 무관하게 루트(뷰포트 상하 -5%)에 1px 이라도 들어오면 켜고, 완전히 벗어났을 때만
+    // 끈다(.intro-scene 만 리셋). 기존 0.1 은 섹션 높이의 10% 가 들어와야 켜져서 키 큰 섹션은 늦게 켜지고 10% 경계
+    // 근처에서 켜짐/꺼짐이 반복됐다. observe() 는 이미 보이는 대상에도 최초 관측 콜백을 보내므로 마운트 시점에
+    // 뷰포트 안에 있는 요소는 다음 프레임에 바로 visible 이 된다.
     const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
-        } else if (entry.target.classList.contains('intro-scene')) {
-          entry.target.classList.remove('visible');
+      entries.forEach(({ target, isIntersecting }) => {
+        if (isIntersecting) {
+          target.classList.add('visible');
+        } else if (target.classList.contains('intro-scene')) {
+          target.classList.remove('visible');
         }
       });
-    }, { root: layout, threshold: 0.1, rootMargin: '-5% 0px -5%' });
+    }, { root: layout, threshold: 0, rootMargin: '-5% 0px -5%' });
     layout.querySelectorAll('.fade-up-element, .intro-scene').forEach((element) => observer.observe(element));
     return () => observer.disconnect();
   }, []);
