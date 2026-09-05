@@ -27,6 +27,10 @@ TRIGGER_NODE_TYPE = "rssTriggerNode"
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 
 
+# 피드 서버가 봇으로 보고 막지 않게 브라우저형 UA 를 쓴다. 식별자는 뒤에 남겨 운영자가 우리 요청을 알아볼 수 있게 한다.
+RSS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WorkflowAI-RSS/1.0"
+
+
 def _session(definition, **kwargs: Any) -> ConnectorSession:
     return definition.new_session(**kwargs)
 
@@ -107,7 +111,12 @@ def poll_new_items(
     session = session or _session(definition)
     cursor = cursor or {}
 
-    body = session.get(feed_url).json()
+    # 브라우저형 User-Agent 를 명시한다 — 뽐뿌 등 국내 커뮤니티 피드는 python-requests 기본 UA 를
+    # 403 으로 막는다(2026-09-05 실측: 기본 UA 403, Mozilla 계열 UA 200). Accept 도 피드 MIME 을 앞세운다.
+    body = session.get(feed_url, headers={
+        "User-Agent": RSS_USER_AGENT,
+        "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8",
+    }).json()
     if not isinstance(body, str):
         raise ConnectorError(
             code=INVALID_REQUEST, service=SERVICE,

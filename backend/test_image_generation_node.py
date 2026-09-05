@@ -200,3 +200,42 @@ def test_moderation_error_is_not_retried(db, tmp_path):
             db=db, owner_user_id=1, post=post, upload_root=tmp_path,
         )
     assert calls == 1
+
+
+def test_generation_failure_is_node_error_not_flow_crash(monkeypatch, db, tmp_path):
+    """크레딧 소진·키 없음 같은 생성 실패가 워크플로우 전체를 죽이면 안 된다 — 시연 포스터에서
+    이미지 한 번 실패로 문안·조판까지 전부 사라졌다(2026-09-04 실행 로그). 이제 노드 오류로
+    남고 하류는 계속 실행된다(커넥터·발송 노드와 같은 관례)."""
+    import graph as graph_mod
+    import image_generation_runtime as igr
+
+    def _boom(**_kwargs):
+        raise ImageGenerationError("credit_balance_exhausted", "OpenAI 이미지 생성 요청 한도에 도달했습니다.")
+
+    monkeypatch.setattr(igr, "generate_or_edit_image", _boom)
+    monkeypatch.chdir(tmp_path)
+    user = models.User(id=1, google_id="img-fail", email="i@e.st", name="i")
+    db.add(user)
+    project = models.Project(user_id=1, title="이미지 실패", graph_data={"nodes": [], "edges": []})
+    db.add(project)
+    db.commit()
+
+    nodes = [
+        {"id": "s", "type": "startNode", "data": {}},
+        {"id": "p", "type": "valueNode", "data": {"value": "abstract background"}},
+        {"id": "img", "type": "imageGenerationNode",
+         "data": {"action": "generate", "model": "gpt-5.6", "size": "1024x1024", "quality": "low",
+                  "background": "opaque", "outputFormat": "png"}},
+        {"id": "after", "type": "valueNode", "data": {"varName": "after", "value": "하류 실행됨"}},
+        {"id": "o", "type": "outputNode", "data": {}},
+    ]
+    edges = [
+        {"source": "s", "target": "p"}, {"source": "p", "target": "img"},
+        {"source": "img", "target": "after"}, {"source": "after", "target": "o"},
+    ]
+    result, _tokens, logs = graph_mod.run_workflow(nodes, edges, db=db, project_id=project.id)
+    by_node = {log["node_id"]: log for log in logs}
+    assert by_node["img"]["status"] == "error", by_node["img"]
+    assert "이미지 생성 실패" in str(by_node["img"]["result_data"])
+    assert "after" in by_node and by_node["after"]["status"] == "success", "하류가 실행되지 않았다"
+    assert result == "하류 실행됨"
