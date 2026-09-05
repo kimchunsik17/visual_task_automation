@@ -310,7 +310,9 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
               systemPrompt=("입력은 EBS 채널의 새 영상 목록이다. 영상마다 '🎬 제목', "
                             "'  · 무엇을 다루는 영상인지 2~3문장(제목·설명에 근거)', '  · 링크' 순으로 정리한다. "
                             "첫 줄은 '📺 EBS 새 영상 브리핑' 으로 시작한다. 설명에 없는 내용을 추측하지 않는다."))
-    n_dc = N("dc_send", "discordNode", botToken="", channelId="")
+    # botToken 은 API 센터 자리표시자 — 실행 시 계정에 등록된 discord 자격증명(또는 DEMO_SHARED_CREDENTIALS 의
+    # 공유 키)으로 치환된다. 빈 문자열로 두면 키를 등록해도 연결되지 않는다(2026-09-05 확인).
+    n_dc = N("dc_send", "discordNode", botToken="{{API_CENTER:discord}}", channelId="")
     n_quiet = N("quiet_video", "valueNode", value="새 영상이 없습니다 — 알림을 보내지 않습니다.")
     n_merge = N("merge2", "mergeNode")
     n_out = N("out2", "outputNode")
