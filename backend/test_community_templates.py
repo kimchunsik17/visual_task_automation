@@ -26,7 +26,7 @@ from usage_tracking import OUTCOME_SUCCESS
 
 GRAPH = {"nodes": [
     {"id": "s1", "type": "startNode", "data": {}},
-    {"id": "llm", "type": "llmNode", "data": {"model": "gpt-5.6", "apiKey": "sk-SECRET",
+    {"id": "llm", "type": "llmNode", "data": {"model": "gpt-5.6-terra", "apiKey": "sk-SECRET",
                                               "systemPrompt": "요약해줘"}},
     {"id": "dc", "type": "discordNode", "data": {"botToken": "REAL.TOKEN",
                                                  "channelId": "123456789012345678"}},

@@ -2268,7 +2268,8 @@ def estimate_tokens(payload: FlowPayload):
     max_output_map = {
         'gpt-4o-mini': 16384,
         'gpt-5.4-mini': 16384,
-        'gpt-5.6': 16384,
+        'gpt-5.6': 16384,          # 예전 그래프에 남아 있을 수 있는 값
+        'gpt-5.6-terra': 16384,
     }
     
     for node in payload.nodes:

@@ -198,21 +198,21 @@ def test_unknown_type_is_left_to_legacy_validation():
         (
             "llmNode",
             {"model": "gpt-4", "systemPrompt": "s"},
-            ["n1(llmNode)의 model 'gpt-4'은 허용되지 않는다 (허용: gpt-4o-mini, gpt-5.4-mini, gpt-5.6)"],
+            ["n1(llmNode)의 model 'gpt-4'은 허용되지 않는다 (허용: gpt-4o-mini, gpt-5.4-mini, gpt-5.6-terra)"],
         ),
         (
             "llmNode",
-            {"model": "gpt-5.6", "systemPrompt": "s", "useStructuredOutput": True},
+            {"model": "gpt-5.6-terra", "systemPrompt": "s", "useStructuredOutput": True},
             ["n1(llmNode)는 useStructuredOutput이 true인데 jsonSchema가 없다"],
         ),
         (
             "llmNode",
-            {"model": "gpt-5.6", "systemPrompt": "s", "useStructuredOutput": True, "jsonSchema": "{oops"},
+            {"model": "gpt-5.6-terra", "systemPrompt": "s", "useStructuredOutput": True, "jsonSchema": "{oops"},
             ["n1(llmNode)의 jsonSchema가 유효한 JSON이 아니다 — 실행 시 파싱에서 그대로 실패한다"],
         ),
         (
             "llmNode",
-            {"model": "gpt-5.6", "systemPrompt": "s", "useStructuredOutput": True, "jsonSchema": '{"type":"object"}'},
+            {"model": "gpt-5.6-terra", "systemPrompt": "s", "useStructuredOutput": True, "jsonSchema": '{"type":"object"}'},
             [
                 "n1(llmNode)의 jsonSchema에 최상위 'title' 키가 없다 — OpenAI 구조적 출력이 title을 "
                 "함수 이름으로 쓰기 때문에 없으면 'Unsupported function' 오류로 실행이 즉시 실패한다. "
@@ -222,7 +222,7 @@ def test_unknown_type_is_left_to_legacy_validation():
         # useStructuredOutput이 꺼져 있으면 jsonSchema가 깨져 있어도 실행에 영향이 없다.
         (
             "llmNode",
-            {"model": "gpt-5.6", "systemPrompt": "s", "useStructuredOutput": False, "jsonSchema": "{oops"},
+            {"model": "gpt-5.6-terra", "systemPrompt": "s", "useStructuredOutput": False, "jsonSchema": "{oops"},
             [],
         ),
         # ── conditionNode ──
@@ -277,7 +277,7 @@ def test_validation_messages_match_pre_migration_behaviour(node_type, data, expe
 
 
 def test_allowed_values_are_derived_from_select_options():
-    assert node_definition.option_values("llmNode", "model") == {"gpt-4o-mini", "gpt-5.4-mini", "gpt-5.6"}
+    assert node_definition.option_values("llmNode", "model") == {"gpt-4o-mini", "gpt-5.4-mini", "gpt-5.6-terra"}
     assert node_definition.option_values("httpRequestNode", "method") == {"GET", "POST", "PUT", "DELETE"}
     assert node_definition.option_values("conditionNode", "rules.operator") == {
         "==", "Contains", ">", "<", ">=", "<=",
@@ -298,7 +298,7 @@ def test_frontend_bundle_carries_ui_metadata():
     bundle = json.loads(BUNDLE_PATH.read_text(encoding="utf-8"))
     model_field = next(f for f in bundle["llmNode"]["fields"] if f["name"] == "model")
     assert [option["value"] for option in model_field["options"]] == [
-        "gpt-4o-mini", "gpt-5.4-mini", "gpt-5.6",
+        "gpt-4o-mini", "gpt-5.4-mini", "gpt-5.6-terra",
     ]
     json_schema_field = next(f for f in bundle["llmNode"]["fields"] if f["name"] == "jsonSchema")
     assert json_schema_field["showWhen"] == {"field": "useStructuredOutput", "truthy": True}
