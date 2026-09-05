@@ -102,4 +102,4 @@ print(m.invoke('안녕하세요, 한 줄로 답해 주세요').content)"
 - 게이트웨이 에러 코드(`credit_exhausted` 등)를 실행 로그의 NodeError 코드로 매핑하지 않았다 —
   현재는 원문 메시지가 노드 오류 문구로 그대로 보인다. 필요해지면 `error_catalog.json` 에
   `LLM_*` 코드를 등록하고 `node_errors/adapters.py` 에서 분류한다.
-- 시연 콘텐츠의 `gpt-4o-mini` 가 키 허용 목록에 있는지는 발급 후 확인해야 한다.
+- ~~시연 콘텐츠의 `gpt-4o-mini` 가 키 허용 목록에 있는지 확인~~ → **2026-09-05 실측 확인**: 발급 키로 `gpt-4o-mini`·`gpt-5.4-mini`·`gpt-5.6-terra`·`gpt-5.6-sol`·`gpt-5.6-luna` 모두 200, 구조화 출력(response_format)과 usage 메타데이터도 정상.
