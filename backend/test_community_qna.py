@@ -63,7 +63,7 @@ def _question(db, author_id=1, **kw):
 # ── 1. 정화 — 이 기능의 보안 핵심 ────────────────────────────────────────
 SECRET_GRAPH = {"nodes": [
     {"id": "s1", "type": "startNode", "data": {}},
-    {"id": "llm", "type": "llmNode", "data": {"model": "gpt-5.6", "apiKey": "sk-REAL-SECRET",
+    {"id": "llm", "type": "llmNode", "data": {"model": "gpt-5.6-terra", "apiKey": "sk-REAL-SECRET",
                                               "systemPrompt": "문의는 me@corp.com 010-1234-5678"}},
     {"id": "db", "type": "databaseNode", "data": {"connectionString": "{{API_CENTER:database#42}}",
                                                   "query": "SELECT 1"}},
@@ -85,7 +85,7 @@ def test_sanitize_removes_every_known_secret(secret):
     assert secret not in json.dumps(clean, ensure_ascii=False)
 
 
-@pytest.mark.parametrize("kept", ["{{API_CENTER:database}}", "SELECT 1", "gpt-5.6"])
+@pytest.mark.parametrize("kept", ["{{API_CENTER:database}}", "SELECT 1", "gpt-5.6-terra"])
 def test_sanitize_keeps_what_makes_the_workflow_useful(kept):
     """자격증명 **reference** 는 남는다 — 가져간 사람이 자기 것을 채우는 자리다."""
     clean, _ = sanitize.sanitize_graph(SECRET_GRAPH)
@@ -329,7 +329,7 @@ SHARE_GRAPH = {"nodes": [
     # 자격증명 reference 는 살아남아야 한다 — 가져간 사람이 자기 것을 채우는 자리다.
     {"id": "db", "type": "databaseNode", "data": {"connectionString": "{{API_CENTER:database#42}}",
                                                   "query": "SELECT 1"}},
-    {"id": "llm", "type": "llmNode", "data": {"model": "gpt-5.6", "apiKey": "sk-REAL-SECRET",
+    {"id": "llm", "type": "llmNode", "data": {"model": "gpt-5.6-terra", "apiKey": "sk-REAL-SECRET",
                                               "systemPrompt": "문의는 me@corp.com 으로"}},
     {"id": "dc", "type": "discordNode", "data": {"botToken": "MTIz.REAL.TOKEN",
                                                  "channelId": "123456789012345678"}},

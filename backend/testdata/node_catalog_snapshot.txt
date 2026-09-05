@@ -2,7 +2,7 @@
 - startNode      : 플로우 시작점. data 없음. 모든 플로우는 이 노드에서 시작한다.
 - scheduleNode   : 주기적으로 자동 실행되는 플로우의 시작점. data.cronExpression(문자열, 예: "0 7 * * *"). startNode 대신 사용한다.
 - promptNode     : 사용자 프롬프트. data.userPrompt(문자열).
-- llmNode        : LLM 호출. data.model(gpt-4o-mini | gpt-5.4-mini | gpt-5.6),
+- llmNode        : LLM 호출. data.model(gpt-4o-mini | gpt-5.4-mini | gpt-5.6-terra),
                    data.systemPrompt(문자열). 사용자가 모델을 특정하지 않으면 gpt-4o-mini를 기본값으로 쓴다.
                    data.useStructuredOutput(불리언, 선택)+data.jsonSchema(문자열, 선택) — 이 노드의
                    출력이 반드시 유효한 JSON이어야 하는 경우(예: jsonParserNode/fileModifierNode로

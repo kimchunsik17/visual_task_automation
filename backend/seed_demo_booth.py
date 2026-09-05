@@ -279,7 +279,7 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
     n_feeds = N("merge_feeds", "mergeNode")
     n_cond = N("cond_deal", "conditionNode",
                rules=[{"id": "hit", "operator": "Contains", "value": HOTDEAL_KEYWORD}])
-    n_pick = N("pick_llm", "llmNode", model="gpt-4o-mini",
+    n_pick = N("pick_llm", "llmNode", model="gpt-5.4-mini",
                systemPrompt=(f"입력은 뽐뿌 핫딜 새 글 목록(JSON)과 루리웹 핫딜 RSS(XML)다. 두 목록에서 "
                              f"제목에 '{HOTDEAL_KEYWORD}' 가 들어간 글만 골라 각 건을 '· [커뮤니티] 제목' "
                              "한 줄과 '  링크' 한 줄로 정리한다. "
@@ -306,7 +306,7 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
     n_yt = N("yt_ebs", "youtubeTriggerNode", channelId=EBS_CHANNEL_ID, maxResults=5)
     n_cond = N("cond_video", "conditionNode",
                rules=[{"id": "has", "operator": "Contains", "value": "video_id"}])
-    n_sum = N("sum_llm", "llmNode", model="gpt-4o-mini",
+    n_sum = N("sum_llm", "llmNode", model="gpt-5.4-mini",
               systemPrompt=("입력은 EBS 채널의 새 영상 목록이다. 영상마다 '🎬 제목', "
                             "'  · 무엇을 다루는 영상인지 2~3문장(제목·설명에 근거)', '  · 링크' 순으로 정리한다. "
                             "첫 줄은 '📺 EBS 새 영상 브리핑' 으로 시작한다. 설명에 없는 내용을 추측하지 않는다."))
@@ -330,7 +330,7 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
     # WF3 — 회사 분석 → 입사지원서 (URL 입력 → 사이트 수집 → 분석 → 프로필 결합 → HWPX)
     n_start = N("start3", "startNode")
     n_in = N("in_url", "dynamicInputNode", inputLabel="회사 홈페이지 주소", testValue="https://toss.im")
-    n_url = N("url_llm", "llmNode", model="gpt-4o-mini",
+    n_url = N("url_llm", "llmNode", model="gpt-5.4-mini",
               systemPrompt="입력에서 회사 홈페이지 URL 을 찾아 URL 한 줄만 출력한다. 설명·따옴표 없이 URL 만.")
     n_fetch = N("fetch_site", "httpRequestNode", method="GET", url="",
                 bindings={"url": {"source": "url_llm"}})
@@ -338,11 +338,11 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
                rules=[{"id": "ok", "operator": "Contains", "value": "<"}])
     n_fail = N("fail_msg", "valueNode",
                value="회사 사이트에 접속하지 못했습니다 — 주소를 확인하거나 잠시 후 다시 시도해 주세요.")
-    n_analyze = N("analyze_llm", "llmNode", model="gpt-4o-mini",
+    n_analyze = N("analyze_llm", "llmNode", model="gpt-5.4-mini",
                   systemPrompt=("입력은 회사 웹사이트의 HTML 이다. 태그를 무시하고 (1) 회사명, (2) 주요 사업·제품, "
                                 "(3) 고객/시장, (4) 회사가 강조하는 가치·문화(인재상)를 한국어로 정리한다. "
                                 "페이지에 근거가 없는 항목은 일반적으로 알려진 정보로 보충하되 '(일반 정보)' 로 표시한다."))
-    n_fill = N("fill_llm", "llmNode", model="gpt-4o-mini",
+    n_fill = N("fill_llm", "llmNode", model="gpt-5.4-mini",
                systemPrompt=("입력은 회사 분석이다. 아래 지원자 프로필과 회사 분석을 결합해 입사지원서 빈칸을 채운다. "
                              "introduction(자기소개)과 motivation(지원 동기)은 회사의 사업·가치를 구체적으로 "
                              "인용해 맞춤으로 쓴다. position 은 회사 사업과 프로필에 맞는 직무로 정한다. "
@@ -372,10 +372,10 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
     # WF4 — 여행지 → 여행 일정표 (관광지·맛집 병렬 검색 → 합치기 → 일정 작성 → HWPX)
     n_start = N("start4", "startNode")
     n_in = N("in_place", "dynamicInputNode", inputLabel="여행지", testValue="전주")
-    n_q1 = N("q_tour_llm", "llmNode", model="gpt-4o-mini",
+    n_q1 = N("q_tour_llm", "llmNode", model="gpt-5.4-mini",
              systemPrompt="입력의 여행지로 '<여행지> 가볼만한 곳' 형태의 네이버 검색어를 만든다. 검색어 한 줄만 출력한다.")
     n_s1 = N("search_tour", "naverSearchNode", mode="blog", query="", display=8, sort="sim")
-    n_q2 = N("q_food_llm", "llmNode", model="gpt-4o-mini",
+    n_q2 = N("q_food_llm", "llmNode", model="gpt-5.4-mini",
              systemPrompt="입력의 여행지로 '<여행지> 맛집' 형태의 네이버 검색어를 만든다. 검색어 한 줄만 출력한다.")
     n_s2 = N("search_food", "naverSearchNode", mode="blog", query="", display=8, sort="sim")
     n_info = N("merge_info", "mergeNode")
@@ -385,7 +385,7 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
                rules=[{"id": "failed", "operator": "Contains", "value": "⚠️"}])
     n_fail = N("search_fail_msg", "valueNode",
                value="여행지 검색에 실패해 일정을 만들지 못했습니다 — API 센터의 네이버 검색 연동을 확인해 주세요.")
-    n_plan = N("plan_llm", "llmNode", model="gpt-4o-mini",
+    n_plan = N("plan_llm", "llmNode", model="gpt-5.4-mini",
                systemPrompt=("입력은 여행지의 관광지 검색 결과와 맛집 검색 결과다. 검색 결과에 실제로 언급된 "
                              "장소·가게만 사용해 1박 2일 일정을 만든다. days 는 [1일차, 오전, 오후, 저녁·먹거리] "
                              "와 [2일차, …] 2행으로, 동선이 자연스럽게 이어지게 짠다. foods 는 검색 결과에서 "
@@ -415,12 +415,12 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
                         "장소: 부산창업카페 2호점(서면), 접수는 이메일로도 가능합니다. "
                         "대상: 만 19~39세 부산 거주 청년 누구나. 총상금 1,000만 원(대상 1팀 500만 원). "
                         "문의: 051-000-0000, startup@busan.go.kr"))
-    n_copy = N("copy_llm", "llmNode", model="gpt-4o-mini",
+    n_copy = N("copy_llm", "llmNode", model="gpt-5.4-mini",
                systemPrompt=("입력은 공고문이다. 포스터에 실을 문안을 만든다 — 공고문에 있는 내용만 쓰고, "
                              "날짜·장소·대상·혜택·문의처 같은 필수 정보를 빠뜨리지 않는다. bodyText 는 "
                              "대상·혜택·핵심 정보를 3~4줄로, 각 줄을 줄바꿈으로 구분한다."),
                useStructuredOutput=True, jsonSchema=POSTER_SCHEMA)
-    n_bgp = N("bg_prompt_llm", "llmNode", model="gpt-4o-mini",
+    n_bgp = N("bg_prompt_llm", "llmNode", model="gpt-5.4-mini",
               systemPrompt=("입력은 공고문이다. 이 공고의 주제·분위기에 어울리는 포스터 배경 이미지 생성 "
                             "프롬프트를 영어 한 단락으로 출력한다. 조건: 글자·텍스트가 전혀 없는 배경 전용 "
                             "일러스트, 세로 포스터 비율, 위쪽은 밝고 아래로 갈수록 어두워지는 톤(하단에 밝은 "
@@ -428,7 +428,7 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
     n_img = N("bg_image", "imageGenerationNode", action="generate", model="gpt-5.6",
               size="1024x1536", quality="medium", background="opaque", outputFormat="png")
     n_parts = N("merge_parts", "mergeNode")
-    n_asm = N("assemble_llm", "llmNode", model="gpt-4o-mini",
+    n_asm = N("assemble_llm", "llmNode", model="gpt-5.4-mini",
               systemPrompt=("입력에는 포스터 문안 JSON 과, 배경 이미지 생성 결과가 있다. 문안 값은 한 글자도 "
                             "바꾸지 않는다. 생성 결과가 실제 파일 경로(예: uploads/xxxx.png 처럼 확장자가 있는 "
                             "경로)면 backgroundImage 에 그 경로를 글자 그대로 넣고, 경로가 없거나 '⚠️' 오류 문구만 "

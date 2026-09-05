@@ -35,8 +35,8 @@
           "label": "GPT-5.4 Mini"
         },
         {
-          "value": "gpt-5.6",
-          "label": "GPT-5.6"
+          "value": "gpt-5.6-terra",
+          "label": "GPT-5.6 Terra"
         }
       ],
       "ui": {
@@ -149,6 +149,6 @@
   "executor": "llmNode",
   "mock": {},
   "llm": {
-    "description": "LLM 호출. data.model(gpt-4o-mini | gpt-5.4-mini | gpt-5.6),\n                   data.systemPrompt(문자열). 사용자가 모델을 특정하지 않으면 gpt-4o-mini를 기본값으로 쓴다.\n                   data.useStructuredOutput(불리언, 선택)+data.jsonSchema(문자열, 선택) — 이 노드의\n                   출력이 반드시 유효한 JSON이어야 하는 경우(예: jsonParserNode/fileModifierNode로\n                   이어지거나, conditionNode가 특정 키 값을 검사하는 경우) systemPrompt에 \"JSON으로만\n                   답해\"라고 글로만 지시하지 말고, useStructuredOutput을 true로 하고 jsonSchema에\n                   기대하는 출력 구조를 표준 JSON Schema 문자열로 채워라 — 모델이 그 스키마를 반드시\n                   따르도록 강제되므로 프롬프트 지시만 쓸 때보다 훨씬 안정적이다(파싱 실패 방지).\n                   ⚠️ jsonSchema는 반드시 최상위에 \"title\" 키를 포함해야 한다(예: \"title\":\"Result\") —\n                   OpenAI 구조적 출력이 이 스키마를 함수로 등록할 때 title을 함수 이름으로 쓰기 때문에,\n                   title이 없으면 \"Unsupported function\" 오류로 실행이 즉시 실패한다.\n                   ⚠️ OpenAI 구조적 출력은 \"properties\"에 미리 나열되지 않은 키는 절대 만들어내지\n                   못한다 — \"additionalProperties\"만 열어두고 \"properties\"를 비워두면(필드를 미리 모를\n                   때 쓰고 싶은 유혹이 있지만) 모델이 빈 객체만 반환한다. 그래서 fileModifierNode 앞에서\n                   templateAnalyzerNode가 찾아낸 빈칸처럼 필드 이름이 실행 전엔 알 수 없고 개수도\n                   가변적인 경우에는 이 노드에 useStructuredOutput을 쓰지 말고, systemPrompt에 \"반드시\n                   유효한 JSON 객체 하나만 답하고 다른 텍스트는 절대 넣지 마라\"라고 명확히 글로 지시해서\n                   일반 프롬프트 방식으로 JSON을 받아라.\n"
+    "description": "LLM 호출. data.model(gpt-4o-mini | gpt-5.4-mini | gpt-5.6-terra),\n                   data.systemPrompt(문자열). 사용자가 모델을 특정하지 않으면 gpt-4o-mini를 기본값으로 쓴다.\n                   data.useStructuredOutput(불리언, 선택)+data.jsonSchema(문자열, 선택) — 이 노드의\n                   출력이 반드시 유효한 JSON이어야 하는 경우(예: jsonParserNode/fileModifierNode로\n                   이어지거나, conditionNode가 특정 키 값을 검사하는 경우) systemPrompt에 \"JSON으로만\n                   답해\"라고 글로만 지시하지 말고, useStructuredOutput을 true로 하고 jsonSchema에\n                   기대하는 출력 구조를 표준 JSON Schema 문자열로 채워라 — 모델이 그 스키마를 반드시\n                   따르도록 강제되므로 프롬프트 지시만 쓸 때보다 훨씬 안정적이다(파싱 실패 방지).\n                   ⚠️ jsonSchema는 반드시 최상위에 \"title\" 키를 포함해야 한다(예: \"title\":\"Result\") —\n                   OpenAI 구조적 출력이 이 스키마를 함수로 등록할 때 title을 함수 이름으로 쓰기 때문에,\n                   title이 없으면 \"Unsupported function\" 오류로 실행이 즉시 실패한다.\n                   ⚠️ OpenAI 구조적 출력은 \"properties\"에 미리 나열되지 않은 키는 절대 만들어내지\n                   못한다 — \"additionalProperties\"만 열어두고 \"properties\"를 비워두면(필드를 미리 모를\n                   때 쓰고 싶은 유혹이 있지만) 모델이 빈 객체만 반환한다. 그래서 fileModifierNode 앞에서\n                   templateAnalyzerNode가 찾아낸 빈칸처럼 필드 이름이 실행 전엔 알 수 없고 개수도\n                   가변적인 경우에는 이 노드에 useStructuredOutput을 쓰지 말고, systemPrompt에 \"반드시\n                   유효한 JSON 객체 하나만 답하고 다른 텍스트는 절대 넣지 마라\"라고 명확히 글로 지시해서\n                   일반 프롬프트 방식으로 JSON을 받아라.\n"
   }
 }
