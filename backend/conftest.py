@@ -53,6 +53,14 @@ for _demo_flag in ("DEMO_UI", "HIDDEN_NODE_TYPES", "DEMO_LOGIN_CODE", "DEMO_LOGI
                    "DEMO_GUEST", "DEMO_GUEST_TOKENS", "DEMO_GUEST_MAX"):
     os.environ[_demo_flag] = ""
 
+# LLM 라우팅 설정도 같은 이유로 중화한다(2026-09-05) — 로컬 .env 가 PICKLE 게이트웨이
+# (LLM_PROVIDER=openrouter, OPENROUTER_BASE_URL=https://llm.pcl.kr/v1)로 바뀌면서 "기본 provider 는
+# openai", "openrouter 기본 주소는 openrouter.ai" 같은 단정이 로컬에서만 깨진다. 빈 문자열은
+# load_llm_settings 가 미설정으로 읽는다. provider 를 바꿔 보는 테스트는 monkeypatch.setenv 로 켠다.
+for _llm_flag in ("LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "OPENROUTER_BASE_URL",
+                  "OPENROUTER_API_KEY", "PICKLE_API_KEY", "OPENROUTER_STRICT_FIELDS"):
+    os.environ[_llm_flag] = ""
+
 
 def pytest_configure(config):
     config.addinivalue_line(

@@ -14,6 +14,7 @@
 | [기능정의서.md](기능정의서.md) | 기능 목록 | 무엇이 있는지 훑을 때 |
 | [ERROR_CATALOG.md](ERROR_CATALOG.md) | **생성물** | 오류 code 를 찾을 때 |
 | [LOCAL_LLM_RUNBOOK.md](LOCAL_LLM_RUNBOOK.md) | 운영 절차 | 로컬 LLM 을 띄울 때 |
+| [PICKLE_LLM_GATEWAY.md](PICKLE_LLM_GATEWAY.md) | 운영 절차 | 지원처 LLM 게이트웨이(llm.pcl.kr) 설정·허용 필드·에러 대응을 볼 때 |
 
 > **`ERROR_CATALOG.md` 를 직접 고치지 않는다.** 정본은 저장소 루트의 `error_catalog.json` 이고,
 > 이 파일은 `python backend/export_node_definitions.py` 가 만든다. 경로도 그 스크립트에 박혀 있어

@@ -82,7 +82,9 @@ def test_openrouter_without_key_is_a_clear_error(monkeypatch, reload_providers):
 
 
 def test_default_provider_still_openai(monkeypatch, reload_providers):
-    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    # delenv 가 아니라 빈 문자열 — 지우면 reload 의 load_dotenv 가 로컬 .env 값을 다시 채운다.
+    # load_llm_settings 는 빈 문자열을 "미설정"(=openai)으로 읽는다.
+    monkeypatch.setenv("LLM_PROVIDER", "")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("LLM_BASE_URL", raising=False)
@@ -105,3 +107,102 @@ def test_embeddings_never_go_through_openrouter(monkeypatch):
     emb = rag_utils.OpenAIEmbeddings(model="text-embedding-3-small")
     base = str(getattr(emb, "openai_api_base", "") or "")
     assert "openrouter" not in base, "임베딩이 OpenRouter 로 샜다 — 거기엔 임베딩 API 가 없다"
+
+
+# ── PICKLE 게이트웨이 (OpenRouter 호환, 허용 필드 화이트리스트) ─────────────
+
+PICKLE_BASE_URL = "https://llm.pcl.kr/v1"
+
+
+def _payload_keys(model, messages=None):
+    from langchain_core.messages import HumanMessage, SystemMessage
+    msgs = messages or [SystemMessage(content="s"), HumanMessage(content="u")]
+    return model._get_request_payload(msgs)
+
+
+def test_gateway_uses_pickle_key_and_base_url(monkeypatch, reload_providers):
+    """지원처 문서의 변수명(PICKLE_API_KEY) 그대로 받고, base_url 은 게이트웨이로 간다."""
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", PICKLE_BASE_URL)
+    monkeypatch.setenv("PICKLE_API_KEY", "pk-test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    monkeypatch.setenv("LLM_BASE_URL", "")
+    pkg = reload_providers()
+
+    settings = pkg.load_llm_settings()
+    assert settings.base_url == PICKLE_BASE_URL and settings.api_key == "pk-test"
+    model = pkg.create_runtime_chat_model(model="gpt-5.6-luna")
+    assert str(model.openai_api_base) == PICKLE_BASE_URL
+    assert model.model_name == "openai/gpt-5.6-luna"     # OpenRouter 식 vendor 접두
+
+
+def test_gateway_payload_stays_inside_allowed_fields(monkeypatch, reload_providers):
+    """게이트웨이는 허용 17개 필드 밖이면 400 이다 — gpt-5 계열에 붙이던 reasoning_effort 를
+    보내지 않아야 하고, Responses API 로 자동 전환되면 안 된다(chat/completions 만 제공)."""
+    from llm.providers.adapters import GATEWAY_ALLOWED_FIELDS
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", PICKLE_BASE_URL)
+    monkeypatch.setenv("PICKLE_API_KEY", "pk-test")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    monkeypatch.setenv("LLM_BASE_URL", "")
+    pkg = reload_providers()
+
+    for name in ("gpt-4o-mini", "gpt-5.6-luna", "openai/gpt-5.4-mini", "gpt-5.4-pro"):
+        model = pkg.create_runtime_chat_model(model=name)
+        payload = _payload_keys(model)
+        extra = set(payload) - GATEWAY_ALLOWED_FIELDS
+        assert not extra, f"{name}: 게이트웨이 비허용 필드 {sorted(extra)}"
+        assert model._use_responses_api(payload) is False, f"{name}: Responses API 로 전환됐다"
+
+    # 구조화 출력(response_format)도 허용 필드 안이다
+    model = pkg.create_runtime_chat_model(model="gpt-5.6-luna")
+    schema = {"title": "T", "type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}
+    bound = model.with_structured_output(schema, include_raw=True)
+    # RunnableAssign(raw=bound model | ...) 안의 bound 모델 kwargs 를 꺼내 실제 페이로드를 본다
+    def _find_bound(x, depth=0):
+        if depth > 6:
+            return None
+        if hasattr(x, "bound") and hasattr(x, "kwargs"):
+            return x
+        for attr in ("first", "last", "default", "mapper", "steps__", "steps"):
+            v = getattr(x, attr, None)
+            if v is None:
+                continue
+            items = v.values() if isinstance(v, dict) else (v if isinstance(v, (list, tuple)) else [v])
+            for vv in items:
+                found = _find_bound(vv, depth + 1)
+                if found is not None:
+                    return found
+        return None
+    b = _find_bound(bound)
+    assert b is not None
+    # ls_structured_output_format 은 LangSmith 추적 인자 — langchain_core 가 전송 전에 제거한다.
+    kwargs = {k: v for k, v in b.kwargs.items() if k != "ls_structured_output_format"}
+    payload = b.bound._get_request_payload([("system", "s"), ("user", "u")], **kwargs)
+    assert "response_format" in payload
+    assert not (set(payload) - GATEWAY_ALLOWED_FIELDS), sorted(set(payload) - GATEWAY_ALLOWED_FIELDS)
+
+
+def test_official_openrouter_keeps_reasoning_effort(monkeypatch, reload_providers):
+    """엄격 모드는 게이트웨이(openrouter.ai 아님)에서만 — 공식 OpenRouter 동작은 그대로다."""
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-xxx")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    monkeypatch.setenv("LLM_BASE_URL", "")
+    pkg = reload_providers()
+
+    model = pkg.create_runtime_chat_model(model="gpt-5.6-luna")
+    assert "reasoning_effort" in _payload_keys(model)
+
+
+def test_strict_mode_can_be_forced_either_way(monkeypatch, reload_providers):
+    from llm.providers.adapters import is_strict_gateway
+    monkeypatch.setenv("OPENROUTER_STRICT_FIELDS", "")
+    assert is_strict_gateway(PICKLE_BASE_URL) is True
+    assert is_strict_gateway("https://openrouter.ai/api/v1") is False
+    monkeypatch.setenv("OPENROUTER_STRICT_FIELDS", "1")
+    assert is_strict_gateway("https://openrouter.ai/api/v1") is True
+    monkeypatch.setenv("OPENROUTER_STRICT_FIELDS", "0")
+    assert is_strict_gateway(PICKLE_BASE_URL) is False
