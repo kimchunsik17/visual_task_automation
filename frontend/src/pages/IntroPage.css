@@ -1967,6 +1967,10 @@
   border-top: 1px solid var(--lab-line);
 }
 
+/* 이 섹션 안에서는 노드 마퀴가 매 프레임 움직이므로, 진입·이탈마다 섹션 전체를 blur 로 다시 합성하는
+   .intro-scene 의 filter 트랜지션만 끈다(슬라이드·페이드 진입은 그대로). */
+.intro-animate .lab-integrations.intro-scene { filter: none; }
+
 .lab-integrations-copy {
   display: grid;
   grid-template-columns: minmax(190px, 0.42fr) 1fr;
@@ -2003,6 +2007,9 @@
   background-size: 28px 28px, 28px 28px, auto, auto;
   box-shadow: 0 36px 100px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
   isolation: isolate;
+  /* 마퀴 트랙을 품는 스테이지를 상시 합성 레이어로 고정해, 진입 트랜지션 때 100px 그림자를 포함한 큰 배경이
+     레이어 승격/해제로 다시 래스터되며 생기는 프레임 스파이크를 없앤다. */
+  will-change: transform;
 }
 
 .lab-integration-stage::before,
@@ -2069,14 +2076,14 @@
   display: flex;
   flex-direction: column;
   gap: 11px;
-  perspective: 900px;
 }
 
+/* perspective + rotateX(1.2deg) 는 화면에서 1px 미만의 차이지만, 움직이는 트랙을 3D 로 기울어진 overflow 클립으로
+   잘라 레인마다 매 프레임 오프스크린 합성을 강제하고 글자를 리샘플링해 흐릿하게 했다. 축 정렬 클립으로 되돌린다. */
 .lab-integration-lane {
   width: 104%;
   margin-left: -2%;
   overflow: hidden;
-  transform: rotateX(1.2deg);
 }
 
 .lab-integration-track {
@@ -2090,7 +2097,10 @@
 .lab-integration-lane.lane-2 .lab-integration-track { animation-duration: 37s; animation-direction: reverse; }
 .lab-integration-lane.lane-3 .lab-integration-track { animation-duration: 33s; }
 
-.lab-integration-stage:hover .lab-integration-track { animation-play-state: paused; }
+/* 터치 기기에서는 탭 이후 :hover 가 고정돼 마퀴가 멈춘 채로 남으므로, 실제 hover 가 되는 포인터에서만 일시정지한다. */
+@media (hover: hover) and (pointer: fine) {
+  .lab-integration-stage:hover .lab-integration-track { animation-play-state: paused; }
+}
 
 @keyframes integration-stream {
   to { transform: translateX(calc(-50% - 5.5px)); }
@@ -2167,14 +2177,15 @@
 }
 
 .lab-integration-stage-footer > span { display: flex; align-items: center; gap: 4px; }
-.lab-integration-stage-footer > span i { width: 3px; height: 9px; display: block; border-radius: 2px; background: #3b82f6; animation: footer-signal 0.9s ease-in-out infinite alternate; }
-.lab-integration-stage-footer > span i:nth-child(2) { height: 14px; animation-delay: -0.3s; }
-.lab-integration-stage-footer > span i:nth-child(3) { height: 6px; animation-delay: -0.6s; }
+/* 막대는 height(레이아웃) 대신 scaleY 로 줄인다. 4px 까지 줄어드는 기존 모양을 막대별 비율로 재현. */
+.lab-integration-stage-footer > span i { --signal-min: calc(4 / 9); width: 3px; height: 9px; display: block; border-radius: 2px; background: #3b82f6; animation: footer-signal 0.9s ease-in-out infinite alternate; }
+.lab-integration-stage-footer > span i:nth-child(2) { --signal-min: calc(4 / 14); height: 14px; animation-delay: -0.3s; }
+.lab-integration-stage-footer > span i:nth-child(3) { --signal-min: calc(4 / 6); height: 6px; animation-delay: -0.6s; }
 .lab-integration-stage-footer > em { color: #48566a; font-style: normal; }
 .lab-integration-stage-footer > strong { justify-self: end; color: #6682a8; font-size: 0.45rem; }
 
 @keyframes footer-signal {
-  to { height: 4px; opacity: 0.45; }
+  to { transform: scaleY(var(--signal-min)); opacity: 0.45; }
 }
 
 /* Final CTA and footer */
