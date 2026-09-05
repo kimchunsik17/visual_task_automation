@@ -112,6 +112,33 @@ def _attachment_note(report: Sequence[Dict[str, Any]]) -> str:
     return f"\n\n[📎 첨부 {len(report)}개: {names}]"
 
 
+USER_EMAIL_PLACEHOLDER = "{{USER_EMAIL}}"
+
+
+def resolve_recipient(to_email: str, *, db=None, owner_user_id: int = 0) -> str:
+    """수신자 자리표시자 `{{USER_EMAIL}}` 을 실행 계정(프로젝트 소유자)의 이메일로 푼다.
+
+    시연 콘텐츠(seed_demo_booth)는 게스트 입장 시 복사되는데, 게스트의 실제 이메일은 입장 뒤
+    최초 1회 입력받으므로 시딩 시점에는 알 수 없다. 그래서 노드에는 자리표시자를 두고 발송 직전에
+    푼다. 게스트의 임시 주소(@demo.local)는 실제로 받을 수 없는 주소라 빈 값으로 돌려 "수신자
+    없음" 안내로 이어지게 한다 — 존재하지 않는 주소로 발송을 시도하는 것보다 낫다.
+    """
+    raw = str(to_email or "")
+    if USER_EMAIL_PLACEHOLDER not in raw:
+        return raw
+    email = ""
+    if db is not None and owner_user_id:
+        try:
+            import models
+            owner = db.query(models.User).filter(models.User.id == int(owner_user_id)).first()
+            email = str(getattr(owner, "email", "") or "")
+        except Exception:  # noqa: BLE001 — 조회 실패는 "수신자 없음" 과 같은 안내로 끝난다
+            email = ""
+    if email.lower().endswith("@demo.local"):
+        email = ""
+    return raw.replace(USER_EMAIL_PLACEHOLDER, email).strip(" ,;")
+
+
 def _failure(error, *, passthrough: str, prefix: str = "") -> NodeResult:
     """실패해도 만들려던 본문은 버리지 않는다.
 
@@ -284,7 +311,9 @@ def send_smtp(
     node_type = "emailNode"
     message_body = str(body or "")
     policy = policy_for("smtp")
-    recipients = split_recipients(to_email)
+    resolved_to = resolve_recipient(to_email, db=db, owner_user_id=owner_user_id)
+    recipient_unregistered = USER_EMAIL_PLACEHOLDER in str(to_email or "") and not resolved_to
+    recipients = split_recipients(resolved_to)
 
     if not smtp_user or not smtp_password:
         return _failure(delivery_errors.credential_missing(
@@ -294,7 +323,11 @@ def send_smtp(
     if not recipients:
         return _failure(make_error(
             "VALIDATION_REQUIRED", field="toEmail", effect_state="not_started",
-            safe_details={"field": "toEmail"}, node_type=node_type, node_id=node_id,
+            safe_details={"field": "toEmail"},   # safeDetails 키는 카탈로그 허용 목록(field·label)만
+            node_type=node_type, node_id=node_id,
+            # 시연 게스트가 이메일을 아직 등록하지 않은 경우 — 노드 설정 문제가 아니라 안내로 이어져야 한다
+            user_message=("받을 이메일이 등록되지 않아 보내지 못했습니다 — 화면의 이메일 입력창에서 "
+                          "먼저 등록해 주세요.") if recipient_unregistered else None,
         ), passthrough=message_body, prefix="이메일 발송 실패: ")
 
     try:

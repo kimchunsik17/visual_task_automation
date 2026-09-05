@@ -72,6 +72,23 @@ os.environ["DEMO_GUEST_MAX"] = "2"
 too_many = client.post("/api/auth/guest")
 assert too_many.status_code == 429, too_many.text
 
+# 7) 최초 1회 프로필 등록 — 실제 이메일 + '(시연용)이름'. 잘못된 주소·임시 도메인은 422
+hdr = {"Authorization": f"Bearer {body['access_token']}"}
+assert client.post("/api/auth/guest/profile", json={"email": "not-an-email"}, headers=hdr).status_code == 422
+assert client.post("/api/auth/guest/profile", json={"email": "x@demo.local"}, headers=hdr).status_code == 422
+ok = client.post("/api/auth/guest/profile", json={"email": "visitor@example.com", "name": "홍길동"}, headers=hdr)
+assert ok.status_code == 200, ok.text
+assert ok.json()["user"]["name"] == "(시연용)홍길동" and ok.json()["user"]["email"] == "visitor@example.com"
+db.expire_all()
+assert db.query(models.User).get(uid).email == "visitor@example.com"
+# 이름을 비우면 이메일 앞부분을 쓴다 (다시 호출 = 수정)
+ok2 = client.post("/api/auth/guest/profile", json={"email": "jane@example.com", "name": ""}, headers=hdr)
+assert ok2.status_code == 200 and ok2.json()["user"]["name"] == "(시연용)jane"
+# 8) 복사된 이메일 노드의 수신자는 자리표시자다 — 등록한 이메일로 발송 직전에 풀린다
+from seed_demo_booth import USER_EMAIL_PLACEHOLDER
+mail_nodes = [n for p in db.query(models.Project).filter(models.Project.user_id == uid).all()
+              for n in p.graph_data["nodes"] if n["type"] == "emailNode"]
+assert mail_nodes and all(n["data"]["toEmail"] == USER_EMAIL_PLACEHOLDER for n in mail_nodes)
 print("DEMO GUEST ALL OK")
 '''
 
