@@ -47,12 +47,38 @@ def filter_definitions(payload: Dict) -> Dict:
     return {node_type: defn for node_type, defn in payload.items() if node_type not in hidden}
 
 
-def filter_templates(rows: Iterable) -> List:
-    """숨긴 노드를 쓰는 템플릿을 갤러리 목록에서 뺀다. 이미 설치된 프로젝트는 무관하다."""
+def template_node_types(db, templates: Iterable) -> dict:
+    """템플릿 id → 최신 버전이 쓰는 노드 타입 목록.
+
+    노드 타입은 Template 이 아니라 최신 TemplateVersion 이 가리키는 WorkflowShare.node_types 에
+    있다. 목록 한 번에 조인 쿼리 한 번으로 모아 두고 filter_templates 가 쓴다.
+    """
+    import models
+
+    version_ids = [t.latest_version_id for t in templates if t.latest_version_id]
+    if not version_ids:
+        return {}
+    pairs = (db.query(models.TemplateVersion.template_id, models.WorkflowShare.node_types)
+             .join(models.WorkflowShare,
+                   models.WorkflowShare.id == models.TemplateVersion.workflow_share_id)
+             .filter(models.TemplateVersion.id.in_(version_ids)).all())
+    return {template_id: list(node_types or []) for template_id, node_types in pairs}
+
+
+def filter_templates(rows: Iterable, db) -> List:
+    """숨긴 노드를 쓰는 템플릿을 갤러리 목록에서 뺀다. 이미 설치된 프로젝트는 무관하다.
+
+    2026-09-05 운영 회귀: 처음엔 row.node_types 를 읽었는데 Template 에는 그 열이 없어서
+    HIDDEN_NODE_TYPES 를 켠 순간 갤러리 목록 전체가 500 이 났다(홈 화면 인기 템플릿 포함).
+    가짜 행으로 통과하던 테스트가 놓친 것이라, 지금 테스트는 실제 모델 행으로 돈다.
+    버전이 없는 템플릿은 판단할 근거가 없으니 남긴다(published 는 항상 버전이 있다).
+    """
+    rows = list(rows)
     hidden = hidden_types()
-    if not hidden:
-        return list(rows)
-    return [row for row in rows if not (set(row.node_types or []) & hidden)]
+    if not hidden or not rows:
+        return rows
+    types_by_template = template_node_types(db, rows)
+    return [row for row in rows if not (set(types_by_template.get(row.id, [])) & hidden)]
 
 
 def warn_unknown(known_types: Iterable[str]) -> None:

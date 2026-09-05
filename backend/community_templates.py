@@ -733,7 +733,7 @@ def list_templates(db, *, category: Optional[str] = None, tag: Optional[str] = N
     # 시연 노드 비가시화(opt-in, hidden_nodes.py) — 숨긴 노드를 쓰는 템플릿은 갤러리에서 뺀다.
     # 팔레트·생성 카탈로그만 막으면 갤러리 설치가 그 노드를 다시 캔버스에 올린다(계획 표면 3).
     import hidden_nodes
-    rows = hidden_nodes.filter_templates(rows)
+    rows = hidden_nodes.filter_templates(rows, db)
 
     if sort == "quality":
         # **첫 실행 성공률**이 1차 기준이다. 측정된 실행이 없으면 뒤로 보낸다 — 설치 수로
