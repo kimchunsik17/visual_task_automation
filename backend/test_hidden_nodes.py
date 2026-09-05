@@ -37,18 +37,59 @@ def test_strip_catalog_removes_entry_and_fixes_count(monkeypatch):
     assert after == len(re.findall(r"(?m)^- \w+\s*:", section))
 
 
-def test_filter_definitions_and_templates(monkeypatch):
+def test_filter_definitions(monkeypatch):
     monkeypatch.setenv("HIDDEN_NODE_TYPES", "formatNode")
     payload = hidden_nodes.filter_definitions(node_definition.definitions_payload())
     assert "formatNode" not in payload and "llmNode" in payload
 
-    class Row:
-        def __init__(self, node_types):
-            self.node_types = node_types
 
-    rows = [Row(["startNode", "formatNode"]), Row(["startNode", "llmNode"]), Row(None)]
-    kept = hidden_nodes.filter_templates(rows)
-    assert len(kept) == 2 and all("formatNode" not in (r.node_types or []) for r in kept)
+def _sqlite_session():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    import models
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    models.Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine)()
+
+
+def _publish(db, slug, node_types):
+    """실제 갤러리 행 모양 — Template → latest TemplateVersion → WorkflowShare.node_types."""
+    import models
+
+    share = models.WorkflowShare(owner_type="template", owner_id=0, node_types=node_types,
+                                 graph_snapshot={"nodes": [], "edges": []})
+    db.add(share); db.flush()
+    template = models.Template(slug=slug, title=slug, status="published")
+    db.add(template); db.flush()
+    version = models.TemplateVersion(template_id=template.id, version="1.0.0", workflow_share_id=share.id)
+    db.add(version); db.flush()
+    template.latest_version_id = version.id
+    db.commit()
+    return template
+
+
+def test_filter_templates_reads_node_types_from_latest_version(monkeypatch):
+    """2026-09-05 운영 회귀: Template 에는 node_types 열이 없다(WorkflowShare 에 있다). 가짜 행으로
+    통과하던 테스트가 놓쳤으므로 실제 모델 행과 실제 갤러리 경로(list_templates)로 확인한다."""
+    import models
+    import community_templates
+
+    db = _sqlite_session()
+    _publish(db, "with-juso", ["startNode", "jusoNode", "llmNode"])
+    _publish(db, "without-juso", ["startNode", "llmNode"])
+    db.add(models.Template(slug="no-version", title="no-version", status="published")); db.commit()
+    rows = db.query(models.Template).order_by(models.Template.id).all()
+
+    monkeypatch.delenv("HIDDEN_NODE_TYPES", raising=False)
+    assert hidden_nodes.filter_templates(rows, db) == rows                 # 꺼져 있으면 무변경
+
+    monkeypatch.setenv("HIDDEN_NODE_TYPES", "jusoNode")
+    kept = hidden_nodes.filter_templates(rows, db)
+    assert [t.slug for t in kept] == ["without-juso", "no-version"]        # 버전 없는 행은 판단 불가 → 남김
+    listed = community_templates.list_templates(db, sort="installs", limit=8)
+    assert {t.slug for t in listed} == {"without-juso", "no-version"}
 
 
 def test_warn_unknown_never_raises(monkeypatch, capsys):
