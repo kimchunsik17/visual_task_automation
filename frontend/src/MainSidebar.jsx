@@ -32,7 +32,8 @@ const NAV_GROUPS = [
       { id: 'community', label: '커뮤니티', icon: 'nav-templates', path: '/community/qna', match: (p) => p.startsWith('/community') },
       // demoHidden: 시연 UI 트림(DEMO_UI) — 부스에서 방문자가 배회할 표면을 줄인다.
       { id: 'messages', label: '쪽지', icon: 'nav-messages', path: '/messages', match: (p) => p.startsWith('/messages'), demoHidden: true },
-      { id: 'statistics', label: '통계', icon: 'nav-statistics', path: '/statistics', match: (p) => p === '/statistics', demoHidden: true },
+      // 통계는 시연에서도 보인다 — 게스트가 자기 잔여 토큰(DEMO_GUEST_TOKENS 상한)을 확인하는 곳이다.
+      { id: 'statistics', label: '통계', icon: 'nav-statistics', path: '/statistics', match: (p) => p === '/statistics' },
     ],
   },
   {

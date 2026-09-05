@@ -85,19 +85,26 @@ def _resolve_image_values(spec: Dict[str, Any], values: Dict[str, Any], *,
     """
     if db is None:
         return values
-    image_fields = {f["name"] for f in spec.get("fields", []) if f.get("kind") == "image"}
+    image_fields = {f["name"]: bool(f.get("required"))
+                    for f in spec.get("fields", []) if f.get("kind") == "image"}
     if not image_fields:
         return values
     import artifacts
 
     resolved = dict(values)
-    for name in image_fields:
+    for name, required in image_fields.items():
         raw = str(resolved.get(name) or "").strip()
         if not raw or artifacts.lookup(db, raw) is not None:
             continue  # 비었거나 이미 artifact id
         ref = artifacts.lookup_by_stored_path(db, raw, owner_user_id=owner_user_id)
         if ref is not None and ref.artifact_id:
             resolved[name] = ref.artifact_id
+        elif not required:
+            # 선택 이미지 빈칸에 실체 없는 값이 왔다 — LLM 이 프롬프트의 예시 문구("uploads/…")를 그대로
+            # 옮겨 적는 일이 실제로 있었다(시연 포스터: 이미지 생성이 실패한 뒤 조판까지 죽었다).
+            # 선택 슬롯은 비워서 문서를 완성하는 쪽이 낫다(필수 슬롯은 그대로 두어 렌더 검증이 잡는다).
+            print(f"[format] 선택 이미지 빈칸 '{name}' 의 값이 등록된 파일이 아니라 비운다: {raw[:80]!r}")
+            resolved[name] = ""
     return resolved
 
 

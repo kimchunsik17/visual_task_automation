@@ -269,11 +269,16 @@ poster_spec = {
 resolved_vals = rt._resolve_image_values(poster_spec, {"title": "t", "bg": "uploads/bg_seed_test.png"},
                                          db=db, owner_user_id=user.id)
 assert resolved_vals["bg"] == bg_ref.artifact_id, resolved_vals
-# artifact id 는 그대로 통과하고, 등록되지 않은 경로는 바뀌지 않는다
+# artifact id 는 그대로 통과한다
 same_vals = rt._resolve_image_values(poster_spec, {"bg": bg_ref.artifact_id}, db=db, owner_user_id=user.id)
 assert same_vals["bg"] == bg_ref.artifact_id
+# 등록되지 않은 값: 선택 슬롯은 비워서 문서를 완성한다(LLM 이 예시 문구 "uploads/…" 를 옮겨 적은 사례),
+# 필수 슬롯은 그대로 남겨 렌더 검증(FORMAT_*)이 잡는다
 unknown_vals = rt._resolve_image_values(poster_spec, {"bg": "uploads/ghost.png"}, db=db, owner_user_id=user.id)
-assert unknown_vals["bg"] == "uploads/ghost.png"
+assert unknown_vals["bg"] == ""
+required_spec = {**poster_spec, "fields": [poster_spec["fields"][0], {**poster_spec["fields"][1], "required": True}]}
+kept = rt._resolve_image_values(required_spec, {"bg": "uploads/ghost.png"}, db=db, owner_user_id=user.id)
+assert kept["bg"] == "uploads/ghost.png"
 
 # 7) 삭제
 assert client.delete(f"/api/formats/{fmt_id}").status_code == 200

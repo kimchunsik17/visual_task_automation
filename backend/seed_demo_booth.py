@@ -376,6 +376,12 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
              systemPrompt="입력의 여행지로 '<여행지> 맛집' 형태의 네이버 검색어를 만든다. 검색어 한 줄만 출력한다.")
     n_s2 = N("search_food", "naverSearchNode", mode="blog", query="", display=8, sort="sim")
     n_info = N("merge_info", "mergeNode")
+    # 검색 자격증명이 없거나 조회가 실패하면 커넥터가 '[⚠️ …]' 문구를 남긴다 — 그대로 LLM 에 넘기면
+    # 검색 결과 없이 일정을 지어낸다(실측: 전주를 묻자 '서울' 일정을 만들었다). 분기해서 안내한다.
+    n_cond = N("cond_info", "conditionNode",
+               rules=[{"id": "failed", "operator": "Contains", "value": "⚠️"}])
+    n_fail = N("search_fail_msg", "valueNode",
+               value="여행지 검색에 실패해 일정을 만들지 못했습니다 — API 센터의 네이버 검색 연동을 확인해 주세요.")
     n_plan = N("plan_llm", "llmNode", model="gpt-4o-mini",
                systemPrompt=("입력은 여행지의 관광지 검색 결과와 맛집 검색 결과다. 검색 결과에 실제로 언급된 "
                              "장소·가게만 사용해 1박 2일 일정을 만든다. days 는 [1일차, 오전, 오후, 저녁·먹거리] "
@@ -384,16 +390,19 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
                              "한국어로 쓴다."),
                useStructuredOutput=True, jsonSchema=TRAVEL_SCHEMA)
     n_doc = N("plan_doc", "formatNode", formatId=travel_format_id, output="hwpx")
+    n_merge = N("merge4", "mergeNode")
     n_out = N("out4", "outputNode")
-    nodes = [n_start, n_in, n_q1, n_s1, n_q2, n_s2, n_info, n_plan, n_doc, n_out]
+    nodes = [n_start, n_in, n_q1, n_s1, n_q2, n_s2, n_info, n_cond, n_fail, n_plan, n_doc, n_merge, n_out]
     edges = [link(n_start, n_in), link(n_in, n_q1), link(n_in, n_q2),
              link(n_q1, n_s1), link(n_q2, n_s2),
-             link(n_s1, n_info), link(n_s2, n_info),
-             link(n_info, n_plan), link(n_plan, n_doc), link(n_doc, n_out)]
+             link(n_s1, n_info), link(n_s2, n_info), link(n_info, n_cond),
+             link(n_cond, n_fail, source_handle="failed"),
+             link(n_cond, n_plan, source_handle="else"),
+             link(n_plan, n_doc), link(n_doc, n_merge), link(n_fail, n_merge), link(n_merge, n_out)]
     flows["여행지 → 여행 일정표"] = (
         "여행지를 넣으면 관광지와 맛집을 네이버에서 병렬로 검색해 모으고, 실제 검색 결과만으로 1박 2일 "
-        "일정과 먹거리 목록을 짜서 여행 일정표 문서(HWPX)로 만듭니다 — 입력 → 병렬 수집 → 병합 → "
-        "일정 작성 → 문서화. (층 1 QR 체험용)", nodes, edges)
+        "일정과 먹거리 목록을 짜서 여행 일정표 문서(HWPX)로 만듭니다. 검색이 실패하면 분기해 안내합니다 — "
+        "입력 → 병렬 수집 → 병합 → 분기 → 일정 작성 → 문서화. (층 1 QR 체험용)", nodes, edges)
 
     # WF5 — 공고문 → 안내 포스터 (문안 정리 ∥ 배경 생성 → 병합 → 조립 → 디자인 포맷 PNG)
     n_start = N("start5", "startNode")
@@ -417,9 +426,11 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
               size="1024x1536", quality="medium", background="opaque", outputFormat="png")
     n_parts = N("merge_parts", "mergeNode")
     n_asm = N("assemble_llm", "llmNode", model="gpt-4o-mini",
-              systemPrompt=("입력에는 포스터 문안 JSON 과 배경 이미지 파일 경로(uploads/…)가 있다. "
-                            "문안 값은 한 글자도 바꾸지 말고, backgroundImage 에 그 파일 경로를 글자 그대로 "
-                            "넣은 완전한 JSON 을 출력한다."),
+              systemPrompt=("입력에는 포스터 문안 JSON 과, 배경 이미지 생성 결과가 있다. 문안 값은 한 글자도 "
+                            "바꾸지 않는다. 생성 결과가 실제 파일 경로(예: uploads/xxxx.png 처럼 확장자가 있는 "
+                            "경로)면 backgroundImage 에 그 경로를 글자 그대로 넣고, 경로가 없거나 '⚠️' 오류 문구만 "
+                            "있으면 backgroundImage 는 빈 문자열(\"\")로 둔다. 예시 문구나 자리표시자를 경로로 "
+                            "쓰지 않는다. 완전한 JSON 만 출력한다."),
               useStructuredOutput=True, jsonSchema=POSTER_ASSEMBLE_SCHEMA)
     n_doc = N("poster_doc", "formatNode", formatId=poster_format_id, output="png")
     n_mail = N("issue_mail", "emailNode", toEmail=owner_email, subject="[포스터] 안내 포스터 생성 완료")
