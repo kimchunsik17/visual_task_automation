@@ -898,6 +898,11 @@ export const OutputNode = ({ id, data }) => {
   );
 };
 
+// 연산자는 정의(node_definitions/conditionNode.json)의 값을 그대로 쓰고, 표시만 한국어로 — 값이 바뀌면 생성 코드가 깨진다.
+const CONDITION_OPERATOR_LABELS = {
+  '==': '같음 (==)', Contains: '포함', '>': '보다 큼 (>)', '<': '보다 작음 (<)', '>=': '이상 (>=)', '<=': '이하 (<=)',
+};
+
 export const ConditionNode = ({ id, data }) => {
   const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
@@ -913,9 +918,10 @@ export const ConditionNode = ({ id, data }) => {
     : [{ id: `${id}_rule_default`, operator: CONDITION_DEFAULT_OPERATOR, value: '' }];
   const updateNodeInternals = useUpdateNodeInternals();
 
+  // 펼침에서는 핸들이 규칙 줄 안에, 접힘에서는 오른쪽 가장자리에 놓인다 — 상태가 바뀔 때마다 위치를 다시 잰다.
   useEffect(() => {
     updateNodeInternals(id);
-  }, [rules.length, id, updateNodeInternals]);
+  }, [rules.length, isExpanded, id, updateNodeInternals]);
 
   const addRule = () => {
     const newRules = [...rules, { id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, operator: CONDITION_DEFAULT_OPERATOR, value: '' }];
@@ -932,107 +938,82 @@ export const ConditionNode = ({ id, data }) => {
     data.onChange(id, 'rules', newRules);
   };
 
+  // 접힘 상태: 규칙 수 + 그 외 를 오른쪽 가장자리에 고르게 배치한다(예전과 같은 셈).
+  const collapsedTop = (slot) => `${(100 / (rules.length + 2)) * slot}%`;
+
   return (
-    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} condition ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ width: isExpanded ? '280px' : undefined, position: 'relative', overflow: 'visible' }}>
+    <div className={`custom-node ${isExpanded ? 'expanded' : 'collapsed'} condition ${isAIModified ? 'ai-highlight' : ''}`} onClick={handleNodeClick} style={{ width: isExpanded ? '300px' : undefined, position: 'relative', overflow: 'visible' }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="node-header" onClick={toggleExpand} style={{ cursor: 'pointer' }}>
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Icon name={CONDITION_DISPLAY.icon} size={isExpanded ? 14 : 28} color={CONDITION_DISPLAY.color} />
           {isExpanded ? CONDITION_DISPLAY.label : CONDITION_DISPLAY.collapsedLabel}
         </div>
-        <button className="btn-delete" onClick={() => data.onDelete(id)}>✕</button>
+        {isExpanded && <span className="condition-count">규칙 {rules.length}</span>}
+        <button className="btn-delete" onClick={(event) => { event.stopPropagation(); data.onDelete?.(id); }} aria-label="노드 삭제">✕</button>
       </div>
       {isExpanded && (
-        <div className="node-body">
-
-          {rules.map((rule, index) => (
-            <div key={rule.id} style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem', position: 'relative' }}>
-              <select
-                className="nodrag"
-                value={rule.operator}
-                onChange={(e) => updateRule(rule.id, 'operator', e.target.value)}
-                style={{ width: '35%', padding: '0.25rem', marginRight: '5px', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem' }}
-              >
-                {CONDITION_OPERATORS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-
-              <input
-                type="text"
-                className="nodrag"
-                value={rule.value}
-                onChange={(e) => updateRule(rule.id, 'value', e.target.value)}
-                placeholder="Value"
-                style={{ flex: 1, padding: '0.25rem', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem', minWidth: 0 }}
-              />
-
-              <button
-                onClick={() => removeRule(rule.id)}
-                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', marginLeft: '5px', padding: '0 5px' }}
-                title="Remove Rule"
-              >✕</button>
-            </div>
-          ))}
-
-          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.5rem', marginBottom: '1rem' }}>
-            <button
-              className="nodrag"
-              onClick={addRule}
-              style={{ background: 'var(--btn-active-bg)', border: '1px dashed var(--border-color)', color: 'var(--text-muted)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', width: '100%' }}
-            >
-              + Add Condition
-            </button>
+        <div className="node-body condition-body">
+          <div className="condition-section">
+            <span>규칙</span>
+            <small>위에서부터 차례로 검사하고, 처음 맞는 줄의 선으로 나갑니다.</small>
           </div>
-
-          <div style={{ position: 'relative', marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Else (Fallback)</span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '8px' }}>→</span>
+          <div className="condition-rules">
+            {rules.map((rule, index) => (
+              <div key={rule.id} className="condition-rule">
+                <span className="condition-rule-index" aria-hidden="true">{index + 1}</span>
+                <select
+                  className="nodrag"
+                  value={rule.operator}
+                  onChange={(e) => updateRule(rule.id, 'operator', e.target.value)}
+                  aria-label={`규칙 ${index + 1} 연산자`}
+                >
+                  {CONDITION_OPERATORS.map((option) => (
+                    <option key={option.value} value={option.value}>{CONDITION_OPERATOR_LABELS[option.value] || option.label}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  className="nodrag"
+                  value={rule.value}
+                  onChange={(e) => updateRule(rule.id, 'value', e.target.value)}
+                  placeholder="비교할 값"
+                  aria-label={`규칙 ${index + 1} 값`}
+                />
+                <button
+                  type="button"
+                  className="nodrag condition-rule-remove"
+                  onClick={() => removeRule(rule.id)}
+                  title="규칙 삭제"
+                  aria-label="규칙 삭제"
+                  disabled={rules.length === 1}
+                >✕</button>
+                {/* 규칙 줄 안의 출력 핸들 — 줄과 같은 높이에 놓이므로 규칙 수가 바뀌어도 어긋나지 않는다 */}
+                <Handle className="node-port-handle condition-port" type="source" position={Position.Right} id={rule.id} />
+              </div>
+            ))}
           </div>
-
+          <button type="button" className="nodrag condition-add" onClick={addRule}>+ 조건 추가</button>
+          <div className="condition-else">
+            <span className="condition-rule-index is-else" aria-hidden="true">else</span>
+            <div><strong>그 외</strong><small>어느 조건에도 맞지 않을 때</small></div>
+            <Handle className="node-port-handle condition-port is-else" type="source" position={Position.Right} id="else" />
+          </div>
         </div>
       )}
 
-      {/* ── Handles always rendered outside isExpanded block ── */}
-      {rules.map((rule, index) => (
-        <Handle
-          key={rule.id}
-          type="source"
-          position={Position.Right}
-          id={rule.id}
-          style={isExpanded
-            ? { right: '-8px', top: `${48 + index * 38}px`, background: '#0ea5e9', zIndex: 20 }
-            : {
-                right: '-8px',
-                top: `${(100 / (rules.length + 2)) * (index + 1)}%`,
-                background: '#0ea5e9',
-                zIndex: 20
-              }
-          }
-        />
+      {!isExpanded && rules.map((rule, index) => (
+        <Handle key={rule.id} type="source" position={Position.Right} id={rule.id}
+                style={{ right: '-8px', top: collapsedTop(index + 1), background: '#0ea5e9', zIndex: 20 }} />
       ))}
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="else"
-        style={isExpanded
-          ? { right: '-8px', bottom: '16px', top: 'auto', background: '#94a3b8', zIndex: 20 }
-          : {
-              right: '-8px',
-              top: `${(100 / (rules.length + 2)) * (rules.length + 1)}%`,
-              background: '#94a3b8',
-              zIndex: 20
-            }
-        }
-      />
-
-
+      {!isExpanded && (
+        <Handle type="source" position={Position.Right} id="else"
+                style={{ right: '-8px', top: collapsedTop(rules.length + 1), background: '#94a3b8', zIndex: 20 }} />
+      )}
     </div>
   );
 };
-
 export const LoopNode = ({ id, data, selected }) => {
   const isAIModified = data.isAIModified;
   const handleNodeClick = () => {
@@ -1253,6 +1234,11 @@ export const TokenizerNode = ({ id, data }) => {
 export const DistributorNode = ({ id, data }) => {
   const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
+  const updateNodeInternals = useUpdateNodeInternals();
+  // 펼침에서는 핸들이 포트 줄 안에, 접힘에서는 가장자리에 — 전환마다 위치를 다시 잰다.
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [isExpanded, id, updateNodeInternals]);
   const handleNodeClick = () => {
     if (data.isAIModified && data.onClearAIHighlight) {
       data.onClearAIHighlight(id);
@@ -1266,30 +1252,48 @@ export const DistributorNode = ({ id, data }) => {
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <div className="special-node-title">
           <span><Icon name="node-distributor" size={18} /></span>
-          <div><strong>{data.label || '분배기'}</strong><small>FOR EACH / DISTRIBUTE</small></div>
+          <div><strong>{data.label || '분배기'}</strong><small>FOR EACH · 목록 → 항목</small></div>
         </div>
-        <button className="btn-delete" onClick={(event) => { event.stopPropagation(); data.onDelete?.(id); }}>✕</button>
+        <button className="btn-delete" onClick={(event) => { event.stopPropagation(); data.onDelete?.(id); }} aria-label="노드 삭제">✕</button>
       </div>
       {isExpanded && (
-        <div className="node-body">
-          <div className="special-node-callout">
-            <span><Icon name="node-distributor" size={18} /></span>
-            <div><strong>목록을 개별 항목으로 분배</strong><small>입력 배열의 항목을 하나씩 다음 노드로 전달합니다.</small></div>
+        <div className="node-body distributor-body">
+          <div className="distributor-flow" aria-hidden="true">
+            <div className="distributor-stack"><i /><i /><i /><span>목록</span></div>
+            <span className="distributor-arrow">→</span>
+            <div className="distributor-one"><i /><span>항목 1개씩</span></div>
+          </div>
+          <p className="distributor-hint">
+            입력 배열의 항목을 하나씩 꺼내 <b>항목마다</b> 선으로 보내고, 모두 끝나면 <b>완료 후</b> 선으로 한 번 나갑니다.
+          </p>
+          {/* 반복 본체로 나가는 선(out)과 반복이 끝난 뒤 한 번만 나가는 선(done)은 다르다 — 라벨 달린 포트 줄로 구분한다.
+              예전에는 두 핸들이 전역 정렬 규칙(top 50% !important)에 밀려 같은 자리에 겹쳐 있었다(2026-09-06 확인).
+              done 핸들이 없으면 sourceHandle:"done" 엣지가 붙을 자리가 없어 선이 아예 그려지지 않는다(loopNode 와 같은 이름). */}
+          <div className="flow-ports">
+            <div className="flow-port flow-port-each">
+              <span className="flow-port-dot" aria-hidden="true" />
+              <div><strong>항목마다</strong><small>FOR EACH</small></div>
+              <Handle className="node-port-handle flow-port-handle" type="source" position={Position.Right} id="out" />
+            </div>
+            <div className="flow-port flow-port-done">
+              <span className="flow-port-dot" aria-hidden="true" />
+              <div><strong>완료 후</strong><small>DONE · 한 번</small></div>
+              <Handle className="node-port-handle flow-port-handle" type="source" position={Position.Right} id="done" />
+            </div>
           </div>
         </div>
       )}
-      {/* 반복 본체로 나가는 선(out)과 **반복이 끝난 뒤** 한 번만 나가는 선(done)은 다르다.
-          done 핸들이 없으면 `sourceHandle: "done"` 엣지가 붙을 자리가 없어 **선이 아예
-          그려지지 않는다** — 데이터에는 있는데 캔버스에서만 끊겨 보인다(실제로 겪음).
-          loopNode 와 같은 이름을 쓴다(node_generators/flow_nodes.py 가 'done' 을 읽는다). */}
-      <Handle type="source" position={Position.Right} id="out" style={{ top: '36%' }} />
-      <Handle type="source" position={Position.Right} id="done"
-              title="반복 완료 후" style={{ top: '68%', background: '#f97316' }} />
-
+      {!isExpanded && (
+        <>
+          <Handle className="node-port-handle" type="source" position={Position.Right} id="out" title="항목마다"
+                  style={{ top: '38%', background: 'var(--special-node-accent)' }} />
+          <Handle className="node-port-handle" type="source" position={Position.Right} id="done" title="완료 후"
+                  style={{ top: '66%', background: '#f97316' }} />
+        </>
+      )}
     </div>
   );
 };
-
 export const FileModifierNode = ({ id, data }) => {
   const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
@@ -2330,38 +2334,43 @@ export const MultiAgentNode = ({ id, data }) => {
           <span><Icon name="node-multi-agent" size={19} /></span>
           <div>
             <strong>{data.label || '멀티 에이전트'}</strong>
-            <small>{modeMeta.shortLabel} / ORCHESTRATION</small>
+            <small>{modeMeta.label} · 오케스트레이션</small>
           </div>
         </div>
-        <span className="multi-agent-tools-label">TOOLS IN <i>↑</i></span>
+        <span className="multi-agent-tools-label">도구 입력 <i>↑</i></span>
         <NodeResultBadge id={id} data={data} />
-        <button className="btn-delete" onClick={(event) => { event.stopPropagation(); data.onDelete?.(id); }}>✕</button>
+        <button className="btn-delete" onClick={(event) => { event.stopPropagation(); data.onDelete?.(id); }} aria-label="노드 삭제">✕</button>
       </div>
       {isExpanded && (
         <div className="node-body">
           <div className="multi-agent-network" aria-hidden="true">
             <div className="multi-agent-orbit"><i /><i /><i /><span><Icon name="node-multi-agent" size={20} /></span></div>
-            <div><small>ACTIVE STRATEGY</small><strong>{modeMeta.label}</strong><p>{modeMeta.description}</p></div>
+            <div><small>작동 방식</small><strong>{modeMeta.label}</strong><p>{modeMeta.description}</p></div>
           </div>
 
           <div className="special-node-field">
-            <label htmlFor={`multi-agent-mode-${id}`}>에이전트 작동 방식</label>
-            <select
-              id={`multi-agent-mode-${id}`}
-              className="nodrag"
-              value={mode}
-              onChange={(event) => data.onChange?.(id, 'mode', event.target.value)}
-            >
-              <option value="supervisor">감독자 위임</option>
-              <option value="group_chat">그룹 토론</option>
-              <option value="tool_agent">도구 실행 에이전트</option>
-            </select>
+            <label id={`multi-agent-mode-label-${id}`}>에이전트 작동 방식</label>
+            {/* select 대신 세그먼트 — 세 방식이 한눈에 보이고, 고른 것이 강조된다 */}
+            <div className="multi-agent-modes nodrag" role="tablist" aria-labelledby={`multi-agent-mode-label-${id}`}>
+              {Object.entries(MULTI_AGENT_MODE_META).map(([key, meta]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === key}
+                  className={`multi-agent-mode${mode === key ? ' is-active' : ''}`}
+                  onClick={() => data.onChange?.(id, 'mode', key)}
+                >
+                  {meta.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {mode === 'supervisor' && (
             <div className="special-node-field">
               <label>감독자 지침</label>
-              <DraggableTextarea id={id} fieldKey="supervisorPrompt" value={data.supervisorPrompt} onChange={data.onChange} placeholder="System prompt for supervisor..." />
+              <DraggableTextarea id={id} fieldKey="supervisorPrompt" value={data.supervisorPrompt} onChange={data.onChange} placeholder="감독 에이전트가 작업을 어떻게 나누고 누구에게 맡길지 적어 주세요." />
             </div>
           )}
 
@@ -2377,14 +2386,14 @@ export const MultiAgentNode = ({ id, data }) => {
                 min="1"
                 max="20"
               />
-              <span>ROUNDS</span>
+              <span>라운드</span>
             </div>
           )}
 
           {mode === 'tool_agent' && (
             <div className="special-node-field">
               <label>에이전트 지침</label>
-              <DraggableTextarea id={id} fieldKey="agentPrompt" value={data.agentPrompt} onChange={data.onChange} placeholder="System prompt for tool agent..." />
+              <DraggableTextarea id={id} fieldKey="agentPrompt" value={data.agentPrompt} onChange={data.onChange} placeholder="어떤 도구를 언제 쓰고, 결과를 어떻게 정리할지 적어 주세요." />
             </div>
           )}
         </div>
@@ -2394,6 +2403,7 @@ export const MultiAgentNode = ({ id, data }) => {
     </div>
   );
 };
+
 
 const SCHEDULE_WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 
