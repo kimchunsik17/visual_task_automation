@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Send, Bot, User, Paperclip, X, Upload, Download } from 'lucide-react';
-import { downloadUploadFile } from '../fileDownload';
+import { downloadUploadFile, matchUploadPath } from '../fileDownload';
 import './MainPage.css'; // Reuse existing layout classes if needed
 
 // 실행 결과 문자열 안에 uploads/로 시작하는 생성 파일 경로가 섞여 있으면(예: fileModifierNode/
@@ -10,11 +10,11 @@ import './MainPage.css'; // Reuse existing layout classes if needed
 // 실제로 눌러서 받을 수 있는 다운로드 버튼을 함께 보여준다. 에디터의 테스트 실행 화면에는 이미
 // 있던 기능인데, 배포된 챗봇/폼 화면에는 이 처리가 아예 없어서 파일 이름만 텍스트로 노출되고
 // 다운로드할 방법이 없었다.
-const FILE_PATH_REGEX = /uploads\/[^\s"'<>]+/;
+// 경로 추출은 fileDownload.matchUploadPath 한 곳 — 공백 든 파일명·첨부 안내 처리(2026-09-06).
 
 const renderContentWithDownload = (content) => {
   if (typeof content !== 'string') return content;
-  const match = content.match(FILE_PATH_REGEX);
+  const match = matchUploadPath(content);
   if (!match) return <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>;
 
   const filePath = match[0].replace(/\\/g, '/');
