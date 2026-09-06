@@ -37,7 +37,9 @@ export default function DemoGuestOnboarding() {
     setBusy(true);
     setError('');
     try {
-      const res = await axios.post('/api/auth/guest/profile', { email, name });
+      // 이 앱은 axios 전역 인증 헤더를 쓰지 않는다 — 요청마다 붙인다(빠뜨리면 401 'Not authenticated', 2026-09-06 부스 점검).
+      const res = await axios.post('/api/auth/guest/profile', { email, name },
+        { headers: { Authorization: `Bearer ${token}` } });
       login(res.data.user, token);   // 사이드바의 이름·이메일이 곧바로 바뀌고, @demo.local 이 아니므로 이 모달은 사라진다
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
