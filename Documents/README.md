@@ -6,9 +6,9 @@
 
 | 문서 | 성격 | 언제 여는가 |
 | --- | --- | --- |
-| [ROADMAP.md](ROADMAP.md) | 남은 작업 | 다음에 무엇을 할지 정할 때. **완료분은 여기에 없다** |
-| [UNIMPLEMENTED_BACKLOG.md](UNIMPLEMENTED_BACKLOG.md) | 미구현 항목 색인 | 11개 문서에 흩어진 미구현 항목을 한 번에 볼 때. **지시 필요 여부로 갈라 놓았다** |
-| [ADR.md](ADR.md) | 결정 기록 | "왜 이렇게 만들었나"를 물을 때. ADR-0001~0024 |
+| [ROADMAP.md](ROADMAP.md) | 남은 작업 | 다음에 무엇을 할지 정할 때. **완료분은 여기에 없다.** v3.0(2026-09-06) — 백로그 32~38번(실행 엔진 v2·앱 빌더 통합·개발 도구 노드 등)이 여기 §2·§3 에만 있다 |
+| [UNIMPLEMENTED_BACKLOG.md](UNIMPLEMENTED_BACKLOG.md) | 미구현 항목 색인 | 11개 문서에 흩어진 미구현 항목을 한 번에 볼 때. **지시 필요 여부로 갈라 놓았다.** 08-30 기준 — 그 뒤 항목은 ROADMAP §2 |
+| [ADR.md](ADR.md) | 결정 기록 | "왜 이렇게 만들었나"를 물을 때. ADR-0001~0026 |
 | [PRD.md](PRD.md) | 제품 요구사항 | 제품의 범위와 대상을 확인할 때 |
 | [TDD.md](TDD.md) | 기술 설계 | 시스템 구조를 확인할 때 |
 | [기능정의서.md](기능정의서.md) | 기능 목록 | 무엇이 있는지 훑을 때 |
@@ -24,12 +24,17 @@
 
 | 문서 | 상태 |
 | --- | --- |
-| [KOREAN_SERVICE_NODE_EXPANSION_PLAN.md](plans/KOREAN_SERVICE_NODE_EXPANSION_PLAN.md) | Phase 0~2 완료. 남은 활성 범위는 공공데이터포털·도로명주소 (백로그 29번) |
+| [기능갭_및_프로덕션_준비_보고서.md](plans/기능갭_및_프로덕션_준비_보고서.md) | **보고서(2026-09-01)** — n8n·Make 대비 기능 갭과 프로덕션 전환 항목. ROADMAP v3.0 의 32·35~38번 근거. 노드 수(28)·루프/병합/웹훅 부재 주장은 ROADMAP §1.2 가 정정했다 |
+| [실행엔진_앱빌더_시연준비_종합보고서.md](plans/실행엔진_앱빌더_시연준비_종합보고서.md) | **보고서(2026-09-02)** — 위 보고서의 후속. 실행 엔진 4단계(32번)·앱 빌더 5축(33번)·시연 체크리스트의 정본 |
+| [노드_비가시화_시연플래그_계획.md](plans/노드_비가시화_시연플래그_계획.md) | **구현 완료(2026-09-03~04)** — 시연 플래그 5종(`HIDDEN_NODE_TYPES`·`DEMO_*`)의 설계·구현 기록·시연 전 수동 단계. 시연 뒤 제거 절차는 ROADMAP 37번 O-9 |
+| [DOCUMENT_FORMAT_STUDIO_PLAN.md](plans/DOCUMENT_FORMAT_STUDIO_PLAN.md) | **Phase 0~5 완료(2026-08-31~09-03)** — FormatSpec·formatNode·스튜디오·역변환·포맷 탭·디자인 캔버스. 보류 항목은 ROADMAP §3.14 |
+| [DATA_FLOW_SEPARATION_PLAN.md](plans/DATA_FLOW_SEPARATION_PLAN.md) | **Phase 0~3 완료(2026-08-31, ADR-0026)** — 필드 바인딩. 남은 측정 2건은 ROADMAP §3.14, 반복 항목 바인딩은 35번 |
+| [KOREAN_SERVICE_NODE_EXPANSION_PLAN.md](plans/KOREAN_SERVICE_NODE_EXPANSION_PLAN.md) | **Phase 0~3 완료(2026-08-30)** — 백로그 29번 종결. §8 보류표(X·Instagram·커머스·NAVER WORKS 등)만 살아 있다 |
 | [DATABASE_OPERATIONS_EXPLORER_PLAN.md](plans/DATABASE_OPERATIONS_EXPLORER_PLAN.md) | 계획 완료, 미착수 (백로그 31번) |
-| [INCOMPLETE_NODE_STRUCTURE_REVIEW.md](plans/INCOMPLETE_NODE_STRUCTURE_REVIEW.md) | P0 완료(ADR-0014·0015), P1 이후 미착수 |
-| [LLM_GENERATION_QUALITY_PLAN.md](plans/LLM_GENERATION_QUALITY_PLAN.md) | 생성 품질·로컬 전환 계획 |
+| [INCOMPLETE_NODE_STRUCTURE_REVIEW.md](plans/INCOMPLETE_NODE_STRUCTURE_REVIEW.md) | P0 완료(ADR-0014·0015), P1 부분 완료, P2·P3 미착수 — ROADMAP §3.14 |
+| [LLM_GENERATION_QUALITY_PLAN.md](plans/LLM_GENERATION_QUALITY_PLAN.md) | 생성 품질·로컬 전환 계획. 로컬 LLM 검증은 PICKLE 전환으로 우선순위 하락 |
 | [TROUBLESHOOTING_AUDIT_INTERIM.md](plans/TROUBLESHOOTING_AUDIT_INTERIM.md) | **중단됨** — 전반 감사 7/12축, 발견 55건(미검증). 재개 방법과 남은 축이 적혀 있다 |
-| [TROUBLESHOOTING_EXECUTION_PLAN.md](plans/TROUBLESHOOTING_EXECUTION_PLAN.md) | **실행 계획** — 12축 감사 종합. P0 보안·0단계 상당수 완료. 여기서부터 이어간다 |
+| [TROUBLESHOOTING_EXECUTION_PLAN.md](plans/TROUBLESHOOTING_EXECUTION_PLAN.md) | **0~5단계 완료(2026-09-02)** — 12축 감사 종합. "일부러 하지 않는 것" 11항의 조건부 승격 트리거는 ROADMAP 37번으로 이월 |
 | [TROUBLESHOOTING_REVERIFICATION.md](plans/TROUBLESHOOTING_REVERIFICATION.md) | **실측 재검증(2026-09-01)** — 위 계획의 주장 약 110건을 코드와 대조했다. 개수 정정 5건·줄번호 표류 12곳·결정이 뒤집힌 항목 2개. **계획서보다 이걸 먼저 읽어라** |
 
 ## [design/](design/) — 디자인 계획과 기준
@@ -50,6 +55,7 @@
 읽기용이다. 새 작업을 여기에 쓰지 않는다. 자세한 것은 [archive/README.md](archive/README.md).
 
 - [COMPLETED_WORK_2026-08.md](archive/COMPLETED_WORK_2026-08.md) — 백로그 1~10·12·15~25번의 설계 근거와 구현 기록
+- [COMPLETED_WORK_2026-09.md](archive/COMPLETED_WORK_2026-09.md) — 08-30~09-06: 29번·결함 10건·POINT-0·1·트러블슈팅·포맷 스튜디오·데이터 흐름 분리·시연 준비·PICKLE 전환. 로드맵 v2.3 의 완료 절 원문 포함
 - [LONG_TERM_PRODUCT_ROADMAP_v1.9.md](archive/LONG_TERM_PRODUCT_ROADMAP_v1.9.md) — 분리 전 원본(4072줄)
 - 구현이 끝난 계획 3건과 [assets/](archive/assets/) 의 아이콘·래스터 작업 산출물
 
@@ -116,7 +122,10 @@ CREDENTIAL_ENCRYPTION_KEY  →  JWT_SECRET      (둘 다 sha256 으로 키 유�
 
 ## 이 문서들을 고칠 때
 
-- **새 작업**은 `ROADMAP.md` §2 백로그에 추가한다. 번호는 이어서 매긴다(현재 31번까지).
+- **새 작업**은 `ROADMAP.md` §2 백로그에 추가한다. 번호는 이어서 매긴다(현재 38번까지).
+- **외부 보고서**(조사·감사 결과)는 `plans/` 에 넣고 로드맵 문서 정보 표의 "편입한 보고서" 에 적는다.
+  로드맵 밖에 두면 참조가 끊긴다 — 실제로 종합보고서가 가리키던 기능갭 보고서가 09-01~06 동안
+  저장소 밖(다운로드 폴더)에 있었다.
 - **끝난 작업**은 `ROADMAP.md` 에서 지우고 `archive/COMPLETED_WORK_*.md` 에 완료일·ADR·마이그레이션과
   함께 남긴다. 로드맵이 다시 4000줄이 되지 않게 하는 유일한 방법이다.
 - **결정**은 `ADR.md` 에 번호를 이어 붙인다. ADR 은 로드맵의 옛 §4.x 번호를 참조하므로
