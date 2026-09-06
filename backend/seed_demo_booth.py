@@ -15,7 +15,7 @@
   포맷   demo-travel-itinerary     여행 일정표 (document)
   포맷   demo-notice-poster        안내 포스터 (design — 생성 배경 이미지 슬롯)
   WF1    핫딜 키워드 알림 → 이메일            rssTriggerNode(뽐뿌) + httpRequestNode(루리웹)
-  WF2    EBS 새 영상 요약 → 이메일             youtubeTriggerNode + emailNode
+  WF2    유튜브 채널 최신 영상 요약 → 이메일    httpRequestNode(Data API 키·공개 RSS) + emailNode
   WF3    회사 분석 → 입사지원서(Word)          httpRequestNode + formatNode(job-application, docx) + emailNode
   WF4    여행지 → 여행 일정표                  naverSearchNode ×2 병렬 + formatNode(docx) + emailNode
   WF5    공고문 → 안내 포스터                  imageGenerationNode + formatNode(디자인)
@@ -26,8 +26,9 @@
   - WF1 의 아카라이브는 Cloudflare 가 서버 요청을 차단해 제외 — 공식 RSS 를 주는
     뽐뿌·루리웹 핫딜을 함께 살핀다(시작 노드는 그래프당 1개 규칙이라 뽐뿌가 트리거,
     루리웹은 실행 시 HTTP 로 병렬 수집. 키워드는 조건 분기 노드에서 수정).
-  - WF2 는 구글 OAuth(youtube.readonly) 연결이 필요하다(계정별 — 관리자 계정에서만 시연).
-    채널은 EBSCulture(EBS 교양, UCl_tB4AqPkkxuYcJQHz6dMw — 2026-09-04 실측 확인).
+  - WF2 는 API 센터의 YouTube Data API 키(youtube_data_api)를 쓴다 — 게스트에게 공유하려면 .env 의
+    DEMO_SHARED_CREDENTIALS_PROVIDERS 에 youtube_data_api 를 넣는다(공개 데이터 키라 공유해도 된다).
+    구글 OAuth 는 더 이상 필요 없다. 검색은 하루 할당량 10,000 단위 중 100 을 쓴다(핸들 입력은 1).
   - WF5 의 이미지 생성은 API 센터의 OpenAI 키가 필요하다.
   - 이메일 발송은 서비스 SMTP 설정을 따른다. 수신자는 {{USER_EMAIL}} 자리표시자 — 발송 직전 실행
     계정(게스트가 입장 뒤 등록한 이메일)으로 풀린다. 결과 문서는 부스 노트북에 한/글이 없을 수
@@ -63,7 +64,6 @@ def format_ids_for(user_id: int) -> dict:
     return {TRAVEL_FORMAT_BASE: f"{TRAVEL_FORMAT_BASE}-u{int(user_id)}",
             POSTER_FORMAT_BASE: f"{POSTER_FORMAT_BASE}-u{int(user_id)}"}
 
-EBS_CHANNEL_ID = "UCl_tB4AqPkkxuYcJQHz6dMw"  # EBSCulture (EBS 교양)
 PPOMPPU_HOTDEAL_RSS = "https://www.ppomppu.co.kr/rss.php?id=ppomppu"
 RULIWEB_HOTDEAL_RSS = "https://bbs.ruliweb.com/market/board/1020/rss"
 HOTDEAL_KEYWORD = "아이폰"
@@ -307,29 +307,58 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
         "조용히 기록만 남깁니다 — 감지 → 병렬 수집 → 병합 → 키워드 분기 → 알림의 완결 흐름. "
         "(키워드는 조건 분기 노드에서 수정)", nodes, edges)
 
-    # WF2 — EBS 새 영상 요약 → 이메일 (트리거 → 새 영상 유무 분기 → 요약 → 발송)
-    n_yt = N("yt_ebs", "youtubeTriggerNode", channelId=EBS_CHANNEL_ID, maxResults=5)
-    n_cond = N("cond_video", "conditionNode",
-               rules=[{"id": "has", "operator": "Contains", "value": "video_id"}])
+    # WF2 — 유튜브 채널 최신 영상 요약 → 이메일 (채널 입력 → 채널 ID 조회 → 분기 → 공개 RSS → 요약 → 발송)
+    # 2026-09-05 재설계: 예전 EBS *트리거* 는 (1) 계정별 구글 OAuth 가 필요해 게스트가 쓸 수 없고,
+    # (2) "마지막 실행 이후 새 영상" 만 알려 첫 실행이 늘 빈손이었다. 방문자가 채널을 적으면 그 채널의
+    # 최신 영상을 바로 요약한다. 채널 ID 조회는 YouTube Data API **키**(공개 데이터, 공유 자격증명
+    # youtube_data_api — 헤더 X-Goog-Api-Key 로 실림)로, 영상 목록은 인증이 필요 없는 공개 RSS 로 가져온다.
+    n_start = N("start2", "startNode")
+    n_in = N("in_channel", "dynamicInputNode", inputLabel="유튜브 채널 (이름, @핸들, 또는 채널 주소)",
+             testValue="@EBSCulture")
+    n_q = N("channel_query_llm", "llmNode", model="gpt-5.4-mini",
+            systemPrompt=("입력은 유튜브 채널을 가리키는 글이다(채널 이름, @핸들, 또는 youtube.com 주소). "
+                          "YouTube Data API v3 요청 URL 한 줄만 출력한다.\n"
+                          "- 입력에 @핸들이 있거나 주소가 youtube.com/@… 형태면: "
+                          "https://www.googleapis.com/youtube/v3/channels?part=id,snippet&forHandle=<핸들(@ 제외)>\n"
+                          "- 주소가 youtube.com/channel/UC… 형태면: "
+                          "https://www.googleapis.com/youtube/v3/channels?part=id,snippet&id=<UC로 시작하는 채널 ID>\n"
+                          "- 그 외(채널 이름)는: "
+                          "https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&maxResults=1&q=<이름을 URL 인코딩>\n"
+                          "설명·따옴표·코드블록 없이 URL 만 출력한다."))
+    n_lookup = N("lookup_channel", "httpRequestNode", method="GET", url="",
+                 headers={"X-Goog-Api-Key": "{{API_CENTER:youtube_data_api}}"},
+                 bindings={"url": {"source": "channel_query_llm"}})
+    n_feed_url = N("feed_url_llm", "llmNode", model="gpt-5.4-mini",
+                   systemPrompt=("입력은 YouTube Data API 의 channels 또는 search 응답(JSON)이다. 첫 항목의 채널 ID"
+                                 "(channels 응답은 items[0].id, search 응답은 items[0].snippet.channelId 또는 "
+                                 "items[0].id.channelId)를 찾아 "
+                                 "https://www.youtube.com/feeds/videos.xml?channel_id=<채널 ID> 한 줄만 출력한다. "
+                                 "items 가 비어 있거나 오류 응답이면 정확히 NOT_FOUND 만 출력한다."))
+    n_cond = N("cond_channel", "conditionNode",
+               rules=[{"id": "missing", "operator": "Contains", "value": "NOT_FOUND"}])
+    n_fail = N("channel_fail_msg", "valueNode",
+               value="채널을 찾지 못했습니다 — 채널 이름이나 @핸들, 채널 주소를 다시 확인해 주세요.")
+    n_feed = N("fetch_feed", "httpRequestNode", method="GET", url="",
+               bindings={"url": {"source": "feed_url_llm"}})
     n_sum = N("sum_llm", "llmNode", model="gpt-5.4-mini",
-              systemPrompt=("입력은 EBS 채널의 새 영상 목록이다. 영상마다 '🎬 제목', "
-                            "'  · 무엇을 다루는 영상인지 2~3문장(제목·설명에 근거)', '  · 링크' 순으로 정리한다. "
-                            "첫 줄은 '📺 EBS 새 영상 브리핑' 으로 시작한다. 설명에 없는 내용을 추측하지 않는다."))
-    # 발송은 이메일로 한다(2026-09-05 변경). 디스코드는 방문자가 채널에 들어와 있어야 결과를 볼 수 있어
-    # 부스 체험에 맞지 않았다 — 게스트가 입장 뒤 등록한 이메일({{USER_EMAIL}})로 바로 받는다.
-    n_dc = N("ebs_mail", "emailNode", toEmail=owner_email, subject="[EBS] 새 영상 브리핑")
-    n_quiet = N("quiet_video", "valueNode", value="새 영상이 없습니다 — 알림을 보내지 않습니다.")
+              systemPrompt=("입력은 유튜브 채널의 최신 영상 RSS(XML)다. 첫 줄은 '📺 <채널명> 최신 영상 브리핑' 으로 "
+                            "시작한다. 게시일이 최신인 영상 5개까지, 영상마다 '🎬 제목', '  · 게시: YYYY-MM-DD', "
+                            "'  · 내용: 제목과 설명(media:description)에 근거해 2~3문장', '  · 링크' 순으로 정리한다. "
+                            "설명에 없는 내용을 추측하지 않는다."))
+    n_mail = N("channel_mail", "emailNode", toEmail=owner_email, subject="[유튜브] 채널 최신 영상 브리핑")
     n_merge = N("merge2", "mergeNode")
     n_out = N("out2", "outputNode")
-    nodes = [n_yt, n_cond, n_sum, n_dc, n_quiet, n_merge, n_out]
-    edges = [link(n_yt, n_cond),
-             link(n_cond, n_sum, source_handle="has"),
-             link(n_cond, n_quiet, source_handle="else"),
-             link(n_sum, n_dc), link(n_dc, n_merge), link(n_quiet, n_merge), link(n_merge, n_out)]
-    flows["EBS 새 영상 요약 → 이메일"] = (
-        "구독 채널(EBS 교양)에 새 영상이 올라오면 제목·설명을 근거로 내용을 요약해 이메일로 보냅니다. "
-        "새 영상이 없으면 조용히 넘어갑니다 — 감시 → 분기 → 요약 → 발송. "
-        "(수신 주소는 입장 시 등록한 이메일)", nodes, edges)
+    nodes = [n_start, n_in, n_q, n_lookup, n_feed_url, n_cond, n_fail, n_feed, n_sum, n_mail, n_merge, n_out]
+    edges = [link(n_start, n_in), link(n_in, n_q), link(n_q, n_lookup), link(n_lookup, n_feed_url),
+             link(n_feed_url, n_cond),
+             link(n_cond, n_fail, source_handle="missing"),
+             link(n_cond, n_feed, source_handle="else"),
+             link(n_feed, n_sum), link(n_sum, n_mail), link(n_mail, n_merge), link(n_fail, n_merge),
+             link(n_merge, n_out)]
+    flows["유튜브 채널 최신 영상 요약 → 이메일"] = (
+        "유튜브 채널 이름이나 @핸들, 주소를 넣으면 채널을 찾아 최신 영상 5개를 제목·설명에 근거해 요약하고 "
+        "이메일로 보냅니다. 채널을 못 찾으면 분기해 안내합니다 — 입력 → 조회 → 분기 → 수집 → 요약 → 발송의 "
+        "완결 흐름. (수신 주소는 입장 시 등록한 이메일)", nodes, edges)
 
     # WF3 — 회사 분석 → 입사지원서 (URL 입력 → 사이트 수집 → 분석 → 프로필 결합 → Word → 이메일)
     n_start = N("start3", "startNode")
