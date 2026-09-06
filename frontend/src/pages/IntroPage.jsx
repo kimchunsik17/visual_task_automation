@@ -650,6 +650,7 @@ function IntroPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const layoutRef = useRef(null);
+  const integrationStageRef = useRef(null);
 
   useEffect(() => {
     const layout = layoutRef.current;
@@ -669,7 +670,14 @@ function IntroPage() {
       });
     }, { root: layout, threshold: 0, rootMargin: '-5% 0px -5%' });
     layout.querySelectorAll('.fade-up-element, .intro-scene').forEach((element) => observer.observe(element));
-    return () => observer.disconnect();
+    // 연동 마퀴의 일시정지(.is-inspecting)는 스크롤이 일어나면 푼다 — 커서를 가만히 두고 휠로 넘기다 마퀴가
+    // 커서 밑에 들어온 것은 "살펴보려는 hover" 가 아니다. 다시 포인터를 움직이면 pointermove 가 다시 붙인다.
+    const releaseInspecting = () => integrationStageRef.current?.classList.remove('is-inspecting');
+    layout.addEventListener('scroll', releaseInspecting, { passive: true });
+    return () => {
+      observer.disconnect();
+      layout.removeEventListener('scroll', releaseInspecting);
+    };
   }, []);
 
   const startLabel = user ? '워크스페이스 열기' : '무료로 시작하기';
@@ -925,6 +933,11 @@ function IntroPage() {
           </div>
           <div
             className="lab-integration-stage fade-up-element"
+            ref={integrationStageRef}
+            // 실제 포인터 이동에만 반응한다(스크롤로 밑에 들어온 경우엔 pointermove 가 없다). className 을 React 로
+            // 바꾸면 관측기가 붙인 .visible 이 지워지므로 classList 로만 토글한다.
+            onPointerMove={(event) => { if (event.pointerType === 'mouse') event.currentTarget.classList.add('is-inspecting'); }}
+            onPointerLeave={(event) => event.currentTarget.classList.remove('is-inspecting')}
             role="group"
             aria-label={`사용 가능한 외부 연결 ${INTEGRATION_LABELS.length}개: ${INTEGRATION_LABELS.map(({ label }) => label).join(', ')}`}
           >
