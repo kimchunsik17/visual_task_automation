@@ -8,7 +8,6 @@ trigger_source 는 거부한다 · (4) 아직 없는 엔진 모드는 legacy 로
 from __future__ import annotations
 
 import ast
-import logging
 import pathlib
 
 import pytest
@@ -128,10 +127,18 @@ def test_unknown_trigger_source_is_rejected_before_running(monkeypatch):
     ("", False), ("legacy", False), ("LEGACY", False),
     ("shadow", True), ("interpreter", True), ("turbo", True),
 ])
-def test_engine_mode_falls_back_to_legacy_loudly(monkeypatch, caplog, raw, expect_warning):
+def test_engine_mode_falls_back_to_legacy_loudly(monkeypatch, raw, expect_warning):
+    # caplog 대신 로거를 직접 바꿔 끼운다 — 다른 테스트 파일이 로깅 설정을 갈아엎으면(dictConfig 등)
+    # "execution" 로거의 레코드가 caplog 에 닿지 않아 전체 회귀에서만 이 테스트가 깨졌다(2026-09-06).
+    warnings = []
+
+    class _Recorder:
+        def warning(self, msg, *args, **kwargs):
+            warnings.append(msg % args if args else msg)
+
+    monkeypatch.setattr(execution, "logger", _Recorder())
     monkeypatch.setenv("EXECUTION_ENGINE", raw)
     execution._warned_engine_values.clear()
-    with caplog.at_level(logging.WARNING, logger="execution"):
-        assert execution.engine_mode() == execution.ENGINE_LEGACY
-    warned = any("legacy 로 실행" in r.getMessage() for r in caplog.records)
+    assert execution.engine_mode() == execution.ENGINE_LEGACY
+    warned = any("legacy 로 실행" in w for w in warnings)
     assert warned == expect_warning

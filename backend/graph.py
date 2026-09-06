@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 
 from node_registry import node_registry
 import node_generators
-from workflow_security import WorkflowSecurityError, validate_compiled_workflow, validate_workflow_graph
+from workflow_security import WorkflowSecurityError, validate_compiled_workflow
 import node_bindings
+import graph_traversal
 
 load_dotenv()
 
@@ -32,122 +33,15 @@ def add_tracking(res_var, track_id, indent_str):
 {indent_str}    __token_usage__['total_output'] += o_tok
 {indent_str}    __token_usage__['total_tokens'] += t_tok"""
 
-def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=None,
-                     stop_node_id=None, scope_node_ids=None, pinned_outputs=None) -> str:
+def emit_module_prelude(lines: list, nodes: list, project_id=None) -> None:
+    """생성 소스의 모듈 수준 프렐류드 — import, 공용 헬퍼(_safe_user_path·_compose_llm_input·_resolve_binding …),
+    실행 상태 전역(__token_usage__·__execution_logs__·__node_results__·__node_meta__), log_step.
+
+    노드 본문이 참조하는 이름은 전부 여기서 정의된다. 인터프리터(ENGINE-0)는 이 프렐류드를 한 번 exec 해
+    네임스페이스를 만들고, 노드 본문(node_bodies.render_node_body)을 그 위에서 실행한다 — 그래서 본문이
+    참조하는 이름이 바뀌면 여기와 인터프리터가 같이 움직인다.
+    nodes 는 필드 바인딩 맵(__node_bindings__, ADR-0026)에만 쓰인다.
     """
-    Parses the graph data (순방향 탐색) and generates imperative Python LangChain code.
-
-    entry_node_id: 승인 재개(ADR-0015)와 범위 실행의 진입점. 지정하면 시작 노드 대신 그 노드부터
-    걷고, 직전 노드 출력 자리는 kwargs['__approval_payload__'](승인자가 본 payload 또는 샘플 입력)로
-    채운다.
-
-    범위 실행(EDITOR_SHORTCUTS §7.4)은 그래프를 잘라내는 방식으로 구현한다 — 노드 생성기는
-    자기 하류를 스스로 순회하므로, 생성기마다 조건을 넣는 대신 순회할 간선 자체를 줄인다.
-
-    stop_node_id:   이 노드까지만 실행한다(하류로 나가는 간선을 지운다). entry 와 같으면 "이 노드만".
-    scope_node_ids: 이 노드들만 실행한다(선택 영역 실행). 그 밖의 노드와 간선은 없는 것으로 본다.
-    pinned_outputs: {node_id: 출력 문자열} — 그 노드는 실행하지 않고 고정 값을 결과로 흘린다(§7.3).
-                    상류 외부 API 를 다시 부르지 않고 하류만 반복 테스트하기 위한 것이다.
-    """
-    if not nodes:
-        return "Error: Graph is empty. Please drag and drop nodes from the sidebar."
-
-    # 캔버스 주석(memoNode)은 실행 대상이 아니다 — 남겨두면 "들어오는 엣지가 없는 노드"라서
-    # 폴백 루트로 잡혀 'Unsupported node type' 결과를 만들 수 있다.
-    nodes = [n for n in nodes if n.get('type') != 'memoNode']
-    if not nodes:
-        return "Error: Graph is empty. Please drag and drop nodes from the sidebar."
-
-    pinned_outputs = {str(k): v for k, v in (pinned_outputs or {}).items() if v is not None}
-
-    if scope_node_ids:
-        keep = {str(n) for n in scope_node_ids}
-        nodes = [n for n in nodes if str(n.get('id')) in keep]
-        edges = [e for e in edges if str(e.get('source')) in keep and str(e.get('target')) in keep]
-        if not nodes:
-            return "Error: 선택한 실행 범위에 실행할 노드가 없습니다."
-    if stop_node_id is not None:
-        # 여기까지 실행 — 이 노드의 결과는 만들되 하류로는 넘기지 않는다.
-        edges = [e for e in edges if str(e.get('source')) != str(stop_node_id)]
-
-    try:
-        validate_workflow_graph(nodes, edges)
-    except WorkflowSecurityError as exc:
-        return f"Error: Security validation failed: {exc}"
-
-    node_dict = {n['id']: n for n in nodes}
-    
-    tool_node_ids = set()
-    for e in edges:
-        if e.get('targetHandle') == 'tools':
-            tool_node_ids.add(e['source'])
-
-    
-    forward_edges = {}
-    incoming_edges = {}
-    control_flow_edges = []
-    
-    # 첨부 포트(ADR-0018)는 값이 아니라 파일을 잇는 자리라 실행 순서로 세지 않는다 — 세면 같은
-    # 노드가 두 번 실행된다. 다만 발송 노드에 **첨부 간선만** 연결된 경우(편집기에서 본문 포트를
-    # 빼먹은 그래프)까지 제외하면 그 노드는 아예 실행되지 않는다. 그건 사용자가 의도한 바가
-    # 아니므로, 본문 간선이 하나도 없을 때만 첨부 간선을 제어 흐름으로도 인정한다.
-    _body_fed = {
-        e['target'] for e in edges
-        if e.get('targetHandle') not in ('template', 'tools', 'attachments')
-    }
-
-    for e in edges:
-        source = e['source']
-        target = e['target']
-        target_handle = e.get('targetHandle')
-        
-        if target not in incoming_edges:
-            incoming_edges[target] = []
-        incoming_edges[target].append({
-            'source': source,
-            'targetHandle': target_handle
-        })
-        
-        is_attachment_only = target_handle == 'attachments' and target not in _body_fed
-        if target_handle not in ('template', 'tools', 'attachments') or is_attachment_only:
-            control_flow_edges.append(e)
-            if source not in forward_edges:
-                forward_edges[source] = []
-            forward_edges[source].append((target, e.get('sourceHandle')))
-        
-    has_incoming = set(e['target'] for e in control_flow_edges)
-    
-    # 1. Prioritize explicit Start Nodes
-    if entry_node_id is not None:
-        if entry_node_id not in node_dict:
-            return f"Error: 재개 지점 노드({entry_node_id})를 그래프에서 찾을 수 없다."
-        roots = [node_dict[entry_node_id]]
-    else:
-        # 정의 기반 트리거(youtube/rss/gmail 등)도 루트로 인정한다 — 하드코딩 5종만 보면
-        # 새 트리거 노드가 폴백 휴리스틱에 의존하게 된다.
-        import node_definition as _node_definition
-        _trigger_types = ('startNode', 'scheduleNode', 'webhookNode', 'discordTriggerNode', 'telegramTriggerNode')
-        roots = [n for n in nodes if (n['type'] in _trigger_types or n['type'] in _node_definition.trigger_types()) and n['id'] not in tool_node_ids]
-    
-    # 2. Fallback to old heuristic if no start nodes are found
-    if not roots and entry_node_id is None:
-        roots = [n for n in nodes if n['id'] not in has_incoming and not n.get('parentNode') and n['type'] != 'llmNode' and n['id'] not in tool_node_ids]
-        
-        if not roots:
-            # Final fallback: probably a cycle with no start node. Pick the first top-level node.
-            top_level = [n for n in nodes if not n.get('parentNode')]
-            roots = [top_level[0]] if top_level else []
-            
-    if not roots:
-        return "Error: No valid starting node found."
-        
-    # Filter out roots that have no forward connections (unless it's the only one)
-    if len(roots) > 1:
-        connected_roots = [r for r in roots if r['id'] in forward_edges]
-        if connected_roots:
-            roots = connected_roots
-    
-    lines = []
     lines.append("import os")
     lines.append("has_langfuse = bool(os.getenv('LANGFUSE_PUBLIC_KEY')) and bool(os.getenv('LANGFUSE_SECRET_KEY'))")
     lines.append("if has_langfuse:")
@@ -530,6 +424,11 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     # legacy 감지가 못 잡는 문구도 노드 스스로는 오류로 표시할 수 있어야 한다.
     lines.append("    elif (__node_meta__.get(node_id) or {}).get('status') != 'error':")
     lines.append("        _set_node_meta(node_id, status='success')")
+
+
+def emit_run_header(lines: list) -> None:
+    """`def run_workflow(**kwargs):` 와 실행 상태 초기화. 생성 코드 전용 — 인터프리터는 함수 대신
+    네임스페이스의 전역을 직접 초기화한다."""
     lines.append("def run_workflow(**kwargs):")
     lines.append("    global __token_usage__")
     lines.append("    global __execution_logs__")
@@ -542,112 +441,82 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     lines.append("    __node_meta__ = {}")
     lines.append("    __legacy_seen__ = set()")
     lines.append("    last_result = 'No execution occurred.'")
-    
-    # Generate all LLM configurations at the top of the workflow
+
+
+def emit_llm_setup(lines: list, nodes: list, project_id=None, indent: str = "    ") -> None:
+    """llmNode 마다 모델 객체(llm_<id>)와 시스템 프롬프트(sys_prompt_<id>)를 만든다.
+
+    생성 코드에서는 run_workflow 본문 첫머리(indent 4칸)에 들어가고, 인터프리터는 indent='' 로
+    네임스페이스에 직접 만든다 — promptNode/llmNode 본문이 이 이름들을 참조한다.
+    """
     for node in nodes:
         if node['type'] == 'llmNode':
             node_id = node['id']
             model = node.get('data', {}).get('model', 'gpt-4o-mini')
             api_key = node.get('data', {}).get('apiKey', '')
-            
+
             sys_prompt = node.get('data', {}).get('systemPrompt', 'You are a helpful assistant.').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
-            lines.append(f"    # --- LLM Node ({node_id}) ---")
-            
+            lines.append(f"{indent}# --- LLM Node ({node_id}) ---")
+
             lines.append(
-                f"    llm_{node_id} = create_runtime_chat_model("
+                f"{indent}llm_{node_id} = create_runtime_chat_model("
                 f"model={model!r}, api_key={api_key or None!r}, max_retries=0)"
             )
-                
-            lines.append(f"    if langfuse_handler:")
+
+            lines.append(f"{indent}if langfuse_handler:")
             if project_id:
-                lines.append(f"        llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler], metadata={{'langfuse_session_id': 'project-{project_id}'}}, tags=['workflow_execution'])")
+                lines.append(f"{indent}    llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler], metadata={{'langfuse_session_id': 'project-{project_id}'}}, tags=['workflow_execution'])")
             else:
-                lines.append(f"        llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler], tags=['workflow_execution'])")
-            lines.append(f"    sys_prompt_{node_id} = \"{sys_prompt}\"")
+                lines.append(f"{indent}    llm_{node_id} = llm_{node_id}.with_config(callbacks=[langfuse_handler], tags=['workflow_execution'])")
+            lines.append(f"{indent}sys_prompt_{node_id} = \"{sys_prompt}\"")
+
+
+def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=None,
+                     stop_node_id=None, scope_node_ids=None, pinned_outputs=None) -> str:
+    """
+    Parses the graph data (순방향 탐색) and generates imperative Python LangChain code.
+
+    entry_node_id: 승인 재개(ADR-0015)와 범위 실행의 진입점. 지정하면 시작 노드 대신 그 노드부터
+    걷고, 직전 노드 출력 자리는 kwargs['__approval_payload__'](승인자가 본 payload 또는 샘플 입력)로
+    채운다.
+
+    범위 실행(EDITOR_SHORTCUTS §7.4)은 그래프를 잘라내는 방식으로 구현한다 — 노드 생성기는
+    자기 하류를 스스로 순회하므로, 생성기마다 조건을 넣는 대신 순회할 간선 자체를 줄인다.
+
+    stop_node_id:   이 노드까지만 실행한다(하류로 나가는 간선을 지운다). entry 와 같으면 "이 노드만".
+    scope_node_ids: 이 노드들만 실행한다(선택 영역 실행). 그 밖의 노드와 간선은 없는 것으로 본다.
+    pinned_outputs: {node_id: 출력 문자열} — 그 노드는 실행하지 않고 고정 값을 결과로 흘린다(§7.3).
+                    상류 외부 API 를 다시 부르지 않고 하류만 반복 테스트하기 위한 것이다.
+    """
+    # 그래프 준비·간선 분류·루트 판정은 인터프리터와 공유하는 규칙이다(graph_traversal, ENGINE-0 3단계).
+    # 실패 문구는 예전과 같이 결과 문자열로 돌려준다.
+    try:
+        prepared = graph_traversal.prepare_graph(nodes, edges, stop_node_id=stop_node_id,
+                                                 scope_node_ids=scope_node_ids, pinned_outputs=pinned_outputs)
+        edge_index = graph_traversal.classify_edges(prepared.edges)
+        roots = graph_traversal.select_roots(prepared, edge_index, entry_node_id)
+    except graph_traversal.GraphPreparationError as exc:
+        return str(exc)
+
+    nodes, pinned_outputs, node_dict = prepared.nodes, prepared.pinned_outputs, prepared.node_dict
+    tool_node_ids = edge_index.tool_node_ids
+    forward_edges = edge_index.forward_edges
+    incoming_edges = edge_index.incoming_edges
     
-    # ── 재합류(join) 지점 계산 ──────────────────────────────────────────────
-    # 제어 간선이 2개 이상 들어오는 노드는 "재합류"다. 예전에는 갈래마다 generate_block 이
-    # 사본 visited 로 따로 내려가면서 재합류 노드와 그 **하류 전체**가 갈래 수만큼 방출됐다 —
-    # 제품이 오류 문구로 권하는 해법(mergeNode 를 사이에 두어라)을 그대로 따라도 발송 노드가
-    # 두 번 실행됐다(메일 두 통, 재검증 §2.1). 이제 재합류 노드는 모든 상류 갈래가 방출된
-    # 뒤 한 번만 방출한다. 루프 되돌림(back-edge) 상류는 기다리면 영원히 못 만나므로 기대
-    # 목록에서 뺀다(그 간선까지 세면 재합류가 아예 방출되지 않는다).
-    _join_edges = {}
-    for _e in control_flow_edges:
-        _join_edges.setdefault(_e['target'], []).append(_e['source'])
+    lines = []
+    emit_module_prelude(lines, nodes, project_id)
+    emit_run_header(lines)
+    emit_llm_setup(lines, nodes, project_id)
 
-    def _forward_reachable(start_id):
-        seen, stack = set(), [start_id]
-        while stack:
-            for _nxt, _h in forward_edges.get(stack.pop(), []):
-                if _nxt not in seen:
-                    seen.add(_nxt)
-                    stack.append(_nxt)
-        return seen
+    # ── 재합류(join) 게이트 ─────────────────────────────────────────────────
+    # 제어 간선이 2개 이상 들어오는 노드는 모든 상류 갈래가 방출된 뒤 한 번만 방출한다. 기대 도착 수와
+    # 자리 판정(분기 경로 계보)은 graph_traversal.JoinGate 가 갖는다 — 인터프리터가 같은 규칙을 쓴다.
+    gate = graph_traversal.JoinGate(graph_traversal.join_expectations(edge_index))
 
-    # 간선 단위로 센다 — 같은 source 에서 다른 핸들로 두 번 들어와도(조건의 r1/else 가 같은
-    # 노드로) 각각이 갈래 하나씩이라 도착을 따로 기다려야 한다.
-    join_expected = {}      # 재합류 노드 -> (기대 도착 수, back-edge 제외한 상류 집합)
-    for _target, _sources_list in _join_edges.items():
-        if len(_sources_list) >= 2:
-            _fwd = _forward_reachable(_target)
-            _live = [s for s in _sources_list if s not in _fwd]
-            if len(_live) >= 2:
-                join_expected[_target] = (len(_live), set(_live))
-
-    emitted_nodes = set()      # 본문이 이미 방출된 노드
-    emitted_paths = {}         # 노드 -> 방출 당시의 분기 경로(아래 branch_path 스냅샷)
-    pending_joins = {}         # 자리를 기다리는 재합류 노드: id -> {'visited': 도착 경로 합집합}
-
-    # 배타 분기(conditionNode/humanApprovalNode)의 "어느 갈래 안인가"를 나타내는 스택.
-    # 생성기가 갈래 하나를 방출하는 동안 (노드 id, 갈래 식별자) 프레임을 밀어 둔다.
-    # 재합류 노드를 어디에 방출할지 이 경로로 판정한다:
-    #   - 상류 전부가 현재 경로의 계보 안(같은 갈래·바깥 스코프·이미 닫힌 내부 구문)이면
-    #     지금 이 자리(분기 안 포함)에 방출해도 안전하다 — 분기 내부 다이아몬드는 분기 안에
-    #     남아야, 그 갈래가 실행되지 않을 때 하류(발송 노드)도 실행되지 않는다.
-    #   - 상류가 형제 갈래에 걸쳐 있으면 분기 안에 방출할 수 없다(다른 갈래가 타면 영영 못
-    #     만난다) — 분기 구문이 닫힌 자리에서 _flush_ready_joins 가 방출한다.
-    branch_path = []
-
-    def _path_compatible(source_path, current_path):
-        # 한쪽이 다른 쪽의 접두사면 같은 계보다(바깥 스코프 또는 같은 갈래 안).
-        shorter = min(len(source_path), len(current_path))
-        return source_path[:shorter] == tuple(current_path[:shorter])
-
-    def _join_placeable_here(jid):
-        # 지금 이 자리에 방출해도 되는가: (a) 기대한 갈래가 전부 도착했고 (b) 상류가 전부
-        # 방출됐고 (c) 상류·도착 지점이 모두 현재 분기 경로의 계보 안이어야 한다.
-        # (c)가 없으면 형제 갈래에 걸친 재합류가 마지막 갈래 "안"에 방출돼, 다른 갈래가
-        # 실행될 때 그 노드를 영영 못 만난다.
-        _count, _srcs = join_expected[jid]
-        _st = pending_joins.get(jid)
-        if _st is None or _st['arrivals'] < _count:
-            return False
-        if not _srcs <= emitted_nodes:
-            return False
-        return (
-            all(_path_compatible(emitted_paths.get(s, ()), branch_path) for s in _srcs)
-            and all(_path_compatible(p, branch_path) for p in _st['paths'])
-        )
-
-    def _flush_ready_joins(indent):
-        # 분기 구문이 닫힌 자리에서, 상류가 전부 방출됐고 계보가 맞는 재합류 노드를 방출한다.
-        progress = True
-        while progress:
-            progress = False
-            for _jid in list(pending_joins):
-                if _join_placeable_here(_jid):
-                    _st = pending_joins.pop(_jid)
-                    progress = True
-                    generate_block(_jid, indent, prev_res_var=None, visited=_st['visited'], _as_join=True)
-
-    def _flush_stranded_joins(indent):
-        # 상류 일부가 아예 생성되지 않아(도달 불가 갈래, 부분 실행 진입) 자리 잡지 못한
-        # 재합류 노드 — 마지막 루트 끝에서 한 번은 방출한다. 예전에는 도달한 갈래마다
-        # 방출됐으므로, 한 번 방출이 하위 호환이다(merge 는 없는 상류를 빈 값으로 건너뛴다).
-        while pending_joins:
-            _jid, _st = pending_joins.popitem()
-            generate_block(_jid, indent, prev_res_var=None, visited=_st['visited'], _as_join=True)
+    def _join_emitter(indent):
+        # 재합류 노드 방출 콜백. prev_res_var 를 넘기지 않는 것이 중요하다 — 특정 갈래의 지역 변수를
+        # 물려주면 다른 갈래가 실행됐을 때 NameError 가 난다. last_result/__node_results__ 로 받는다.
+        return lambda join_id, visited: generate_block(join_id, indent, prev_res_var=None, visited=visited, _as_join=True)
 
     def generate_block(node_id, indent, active_llm_id=None, prev_res_var=None, visited=None, _as_join=False):
         if visited is None:
@@ -659,29 +528,18 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
 
         # ── 재합류 게이트: 도착만 기록하고 자리는 나중에 잡는다 ──
         # 마지막 상류 갈래가 방출을 마친 시점(같은 들여쓰기의 fan-out 이면 그 자리에서 즉시,
-        # 배타 분기 안이면 분기 구문이 닫힌 뒤 _flush_ready_joins)에 한 번만 방출된다.
-        # prev_res_var 를 넘기지 않는 것이 중요하다 — 특정 갈래의 지역 변수를 물려주면
-        # 다른 갈래가 실행됐을 때 NameError 가 난다. last_result/__node_results__ 로 받는다.
-        if not _as_join and node_id in join_expected:
-            if node_id in emitted_nodes:
+        # 배타 분기 안이면 분기 구문이 닫힌 뒤 gate.flush_ready)에 한 번만 방출된다.
+        if not _as_join and gate.is_join(node_id):
+            merged_visited = gate.arrive(node_id, visited)
+            if merged_visited is None:
                 return
-            _st = pending_joins.setdefault(node_id, {'visited': set(), 'arrivals': 0, 'paths': set()})
-            _st['visited'] |= visited
-            _st['arrivals'] += 1
-            _st['paths'].add(tuple(branch_path))
-            if not _join_placeable_here(node_id):
-                return
-            pending_joins.pop(node_id, None)
-            visited = visited | _st['visited']
+            visited = merged_visited
             prev_res_var = None
 
-        # Tool nodes are generated inside MultiAgentNode
-        if node_id in tool_node_ids and node.get('type') != 'multiAgentNode':
-            pass # wait, if it's explicitly called, we should generate it.
-            # We should only skip if it's called from regular control flow.
-            # But the roots logic already excludes them? Let's exclude from roots instead.
+        # (tool 노드는 루트 판정에서 이미 제외된다 — graph_traversal.select_roots. 제어 간선으로 도달한
+        #  tool 노드는 보통 노드처럼 방출한다. 예전의 판정 블록은 node 가 정의되기 전에 읽어
+        #  UnboundLocalError 로 컴파일을 죽였다 — 2026-09-06 제거.)
 
-        
         # We only add to visited if it's a loop node, or we can add all nodes.
         # Wait, if a node is visited, it shouldn't be generated again anyway.
         visited = visited.copy()
@@ -693,8 +551,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
 
         # 재합류 게이트가 "상류가 전부 방출됐는지"를 이 집합으로 판정한다. 생성기 본문은
         # 아래에서 자기 코드를 먼저 쌓고 나서 다음 노드로 재귀하므로, 시작 시점에 넣는다.
-        emitted_nodes.add(node_id)
-        emitted_paths[node_id] = tuple(branch_path)
+        gate.mark_emitted(node_id)
 
         # 0. 고정된 출력(§7.3) — 이 노드는 실행하지 않고 저장해 둔 결과를 그대로 흘려보낸다.
         #    상류가 외부 API 를 부르는 노드여도 하류를 반복 테스트할 수 있다. 고정 사실은
@@ -710,25 +567,14 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=out_var, visited=visited)
             return
 
-        # 0.5 분기 형제 오염 복원 (2026-09-04) — 한 노드에서 두 갈래 이상이 나뉘면(병렬 분기)
-        #     생성 코드는 갈래를 **순차** 방출하므로, 두 번째 갈래가 시작할 때 last_result 에는
-        #     첫 갈래의 마지막 출력이 남아 있다(시연 포스터 그래프에서 실제 발견 — 배경 프롬프트
-        #     LLM 이 공고문 대신 앞 갈래의 문안 JSON 을 받았다). 갈래 진입 시점에 자기 상류의
-        #     기록(__node_results__, log_step 이 항상 남긴다)으로 되돌린다.
-        #     배타 분기(conditionNode·humanApprovalNode)는 한 갈래만 실행돼 오염이 없고,
-        #     loopNode 는 반복 값을 last_result 로 넘기므로 복원하면 안 된다 — 제외한다.
-        #     prev_res_var 가 노드 전용 변수(val_x, res_text_x 등)면 형제가 덮을 수 없어 안전하다.
-        if prev_res_var == 'last_result':
-            _ctl_incoming = [inc for inc in incoming_edges.get(node_id, [])
-                             if inc.get('targetHandle') not in ('template', 'tools', 'attachments')]
-            if len(_ctl_incoming) == 1:
-                _src_id = _ctl_incoming[0]['source']
-                _src_node = node_dict.get(_src_id)
-                if (_src_node is not None
-                        and _src_node.get('type') not in ('conditionNode', 'humanApprovalNode', 'loopNode')
-                        and len(forward_edges.get(_src_id, [])) >= 2):
-                    lines.append(f"{indent}last_result = str(__node_results__['{_src_id}']) "
-                                 f"if '{_src_id}' in __node_results__ else last_result")
+        # 0.5 분기 형제 오염 복원 (2026-09-04) — 병렬 분기의 둘째 갈래가 첫 갈래의 마지막 출력을
+        #     last_result 로 받는 문제. 판정 규칙은 graph_traversal.sibling_restore_source(인터프리터와
+        #     공유), 여기서는 상류 기록(__node_results__)으로 되돌리는 한 줄만 낸다.
+        _restore_src = graph_traversal.sibling_restore_source(node_id, prev_res_var,
+                                                              node_dict=node_dict, index=edge_index)
+        if _restore_src is not None:
+            lines.append(f"{indent}last_result = str(__node_results__['{_restore_src}']) "
+                         f"if '{_restore_src}' in __node_results__ else last_result")
 
         # 1. Use Registry if available (New Architecture)
         if node_registry.has_node(node['type']):
@@ -736,7 +582,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
             # 배타 분기(if/elif/else)를 방출하는 노드 — 형제 갈래에 걸친 재합류 노드는
             # 분기 안에 자리 잡지 못하고, 분기 구문이 닫힌 이 자리(같은 들여쓰기)에서 방출된다.
             # (생성기 안에서 갈래마다 begin_branch/end_branch 로 경로를 표시한다.)
-            is_exclusive = node['type'] in ('conditionNode', 'humanApprovalNode')
+            is_exclusive = node['type'] in graph_traversal.EXCLUSIVE_BRANCH_TYPES
             generator(
                 node_id=node_id,
                 node=node,
@@ -751,7 +597,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
                 generate_block_fn=generate_block
             )
             if is_exclusive:
-                _flush_ready_joins(indent)
+                gate.flush_ready(_join_emitter(indent))
             return
         else:
             lines.append(f"{indent}# --- Unsupported Node ({node_id}) ---")
@@ -764,14 +610,8 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     # 배타 분기 생성기(conditionNode/humanApprovalNode)가 갈래 하나를 방출하는 동안
     # 호출한다 — 재합류 게이트가 "이 노드가 어느 갈래 안에서 방출됐는지"를 알 수 있게.
     # 함수 속성으로 노출해 생성기 시그니처를 바꾸지 않는다(51종 공통 시그니처).
-    def _begin_branch(owner_id, branch_key):
-        branch_path.append((owner_id, str(branch_key)))
-
-    def _end_branch():
-        branch_path.pop()
-
-    generate_block.begin_branch = _begin_branch
-    generate_block.end_branch = _end_branch
+    generate_block.begin_branch = gate.begin_branch
+    generate_block.end_branch = gate.end_branch
 
     # Start generation for all roots
     lines.append("    __global_results = []")
@@ -788,7 +628,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
         # 루트 여러 개에 걸친 재합류는 마지막 루트에서야 상류가 모두 방출되므로 여기서 정리한다.
         # (그 전 루트에서 방출하면 아직 실행되지 않은 루트의 결과를 merge 가 못 본다.)
         if idx == len(roots) - 1:
-            _flush_stranded_joins("        ")
+            gate.flush_stranded(_join_emitter("        "))
 
         # If the block didn't explicitly return, add a fallback return
         if "return last_result" not in lines[-1]:
