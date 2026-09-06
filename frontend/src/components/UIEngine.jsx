@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Rnd } from 'react-rnd';
 import ReactMarkdown from 'react-markdown';
 import { DEFAULT_CANVAS, INPUT_COMPONENT_TYPES, LAYOUT_STYLE_KEYS, inferButtonActionMode } from '../appBuilderSchema';
+import { downloadUploadFile, matchUploadPath } from '../fileDownload';
 
 const LABEL_STYLE = { fontSize: '0.85rem', color: '#475569', fontWeight: 500 };
 
@@ -360,6 +361,9 @@ export default function UIEngine({
 
            if (nextNode.data.componentId) {
               writeComponentValue(nextNode.data.componentId, outputValue ?? '');
+              // 결과를 컴포넌트가 보여주므로 submitNode 가 채운 '실행 결과' 패널은 비운다 — 같은 내용이
+              // 두 번, 그것도 제목 위에 겹쳐 보였다(2026-09-06 부스 점검).
+              setActionResult(null);
            } else {
               setActionResult(outputValue ?? '');
            }
@@ -514,6 +518,33 @@ export default function UIEngine({
     if (record.value !== undefined) return record.value;
     if (record.text !== undefined) return record.text;
     return dynamicProps.text ?? dynamicProps.value ?? '';
+  };
+
+  // 결과 값에 생성 파일 경로(uploads/…)가 있으면 내려받기 버튼을 붙인다(미리보기·배포 화면에서만).
+  // 워크플로우가 만든 docx·png 는 경로 문자열로만 돌아오므로, 이 버튼이 없으면 커스텀 앱에서는 받을 길이
+  // 없었다(2026-09-06 부스 점검). 경로 추출은 fileDownload.matchUploadPath 한 곳 — 공백 든 파일명·첨부 안내 처리.
+  const renderDownload = (value) => {
+    if (!isPreview) return null;
+    const match = matchUploadPath(typeof value === 'string' ? value : '');
+    if (!match) return null;
+    const path = match[0].replace(/\\/g, '/');
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          downloadUploadFile(path, localStorage.getItem('token')).catch((err) => alert(err.message));
+        }}
+        style={{
+          alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+          marginTop: '0.35rem', padding: '0.45rem 0.8rem', borderRadius: '8px',
+          border: '1px solid #cbd5e1', background: '#f8fafc', color: '#1d4ed8',
+          fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
+        }}
+      >
+        ⬇ {path.split('/').pop()} 내려받기
+      </button>
+    );
   };
 
   // 파일 컴포넌트(백로그 18): 파일 자체가 아니라 서버가 검증해 저장한 경로를 값으로 갖는다.
@@ -974,12 +1005,14 @@ export default function UIEngine({
                 backgroundColor: style.backgroundColor || '#ffffff',
                 outline: 'none',
                 width: '100%',
-                height: '100%',
+                flex: 1,
+                minHeight: 0,
                 boxSizing: 'border-box',
                 resize: 'none',
                 pointerEvents: !isPreview ? 'none' : 'auto'
               }}
             />
+            {renderDownload(displayedInputValue(comp, dynamicProps))}
           </div>
         );
         break;
@@ -1196,6 +1229,7 @@ export default function UIEngine({
                 마크다운 출력 — Output 노드가 쓴 결과가 서식 있는 문서로 표시됩니다. 속성 패널에서 고정 내용을 넣을 수도 있습니다.
               </span>
             ) : null}
+            {renderDownload(content)}
           </div>
         );
         break;
@@ -1380,6 +1414,7 @@ export default function UIEngine({
   delete safeRootStyle.position;
 
   return (
+    <>
     <div style={{ position: 'relative', width: canvasWidth, height: canvasHeight, overflow: 'hidden', boxSizing: 'border-box', ...safeRootStyle }}>
       {/* map 은 콜백에 (element, index, array) 를 넘긴다. renderComponent 를 그대로 넘기면
           index 가 parentLayoutMode 로, 배열 전체가 ancestorIsTransforming 으로 들어가서
@@ -1387,16 +1422,19 @@ export default function UIEngine({
           않고(=드래그·리사이즈 불가), (2) 배열이 truthy 라 pointerEvents 까지 꺼졌다(=선택 불가).
           인자를 명시적으로 하나만 넘긴다. */}
       {components.map((comp) => renderComponent(comp))}
-      
-      {/* Result display area for deployed apps */}
-      {isPreview && actionResult && (
-        <div style={{ marginTop: '2rem', padding: '1.5rem', background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-          <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', color: '#0f172a' }}>실행 결과</h3>
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '0.9rem', color: '#334155', background: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
-            {typeof actionResult === 'object' ? JSON.stringify(actionResult, null, 2) : actionResult}
-          </pre>
-        </div>
-      )}
     </div>
+    {/* 실행 결과 패널 — 캔버스 *밖*에 그린다. 캔버스는 고정 높이·절대배치라 안에 두면 일반 흐름인 이 패널이
+        맨 위로 올라가 제목 위에 겹친다(2026-09-06 부스 점검). Output 노드가 결과를 컴포넌트에 쓴 경우에는
+        outputNode 처리에서 actionResult 를 비우므로 여기엔 나오지 않는다(Output 노드 없는 앱의 대비책). */}
+    {isPreview && actionResult && (
+      <div style={{ width: canvasWidth, maxWidth: '100%', boxSizing: 'border-box', marginTop: '1rem', padding: '1.25rem', background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column' }}>
+        <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '1.05rem', color: '#0f172a' }}>실행 결과</h3>
+        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '0.9rem', color: '#334155', background: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
+          {typeof actionResult === 'object' ? JSON.stringify(actionResult, null, 2) : actionResult}
+        </pre>
+        {renderDownload(typeof actionResult === 'string' ? actionResult : '')}
+      </div>
+    )}
+    </>
   );
 }
