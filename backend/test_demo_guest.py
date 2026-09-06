@@ -89,6 +89,16 @@ from seed_demo_booth import USER_EMAIL_PLACEHOLDER
 mail_nodes = [n for p in db.query(models.Project).filter(models.Project.user_id == uid).all()
               for n in p.graph_data["nodes"] if n["type"] == "emailNode"]
 assert mail_nodes and all(n["data"]["toEmail"] == USER_EMAIL_PLACEHOLDER for n in mail_nodes)
+# 9) 시연 콘텐츠 5종을 받은 뒤에도 게스트는 자기 워크플로우를 만들 수 있다 — 상한 셈에서 [시연] 접두 제외
+made = client.post("/api/projects", json={"title": "내 첫 워크플로우", "description": "테스트",
+                                          "graph_data": {"nodes": [{"id": "s", "type": "startNode", "data": {}, "position": {"x": 0, "y": 0}}], "edges": []}},
+                   headers=hdr)
+assert made.status_code == 200, made.text
+# 상한 자체는 살아 있다 — 시연 콘텐츠를 뺀 수동 워크플로우가 MAX_MANUAL_WORKFLOWS(기본 5)에 닿으면 400
+for i in range(4):
+    assert client.post("/api/projects", json={"title": f"wf{i}", "description": "t", "graph_data": {"nodes": [], "edges": []}}, headers=hdr).status_code == 200
+capped = client.post("/api/projects", json={"title": "wf-over", "description": "t", "graph_data": {"nodes": [], "edges": []}}, headers=hdr)
+assert capped.status_code == 400 and "최대 5개" in capped.json()["detail"], capped.text
 print("DEMO GUEST ALL OK")
 '''
 
