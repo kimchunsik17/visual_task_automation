@@ -1554,15 +1554,31 @@ def check_node_quotas(user_id: int, new_graph_data: dict, db: Session, exclude_p
     if total_schedules + new_schedules > 2:
         raise HTTPException(status_code=400, detail="Maximum 2 schedules allowed per user.")
 
+def _max_manual_workflows() -> int:
+    """사용자당 수동 워크플로우 상한. env MAX_MANUAL_WORKFLOWS 로 조절(기본 5, 1~1000)."""
+    try:
+        return max(1, min(int(os.getenv("MAX_MANUAL_WORKFLOWS", "5")), 1000))
+    except ValueError:
+        return 5
+
+
 @app.post("/api/projects")
 def create_project(payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     if not (payload.description and payload.description.startswith("Auto-generated backend workflow")):
+        # 사용자당 수동 워크플로우 상한(MAX_MANUAL_WORKFLOWS, 기본 5). 시연 게스트는 입장 때 시연 콘텍츠 5종을
+        # 복사받으므로 그것까지 세면 새 워크플로우를 하나도 못 만든다(2026-09-06 부스 점검에서 400 확인) —
+        # 부스가 심어 준 콘텍츠([시연] 접두)는 사용자가 만든 것이 아니니 셈에서 뺀다.
+        from seed_demo_booth import TITLE_PREFIX as _demo_prefix
         manual_projects_count = db.query(models.Project).filter(
             models.Project.user_id == user.id,
-            ~models.Project.description.startswith("Auto-generated backend workflow")
+            ~models.Project.description.startswith("Auto-generated backend workflow"),
+            ~models.Project.title.startswith(_demo_prefix),
         ).count()
-        if manual_projects_count >= 5:
-            raise HTTPException(status_code=400, detail="Maximum 5 workflows allowed per user.")
+        if manual_projects_count >= _max_manual_workflows():
+            raise HTTPException(
+                status_code=400,
+                detail=f"워크플로우는 최대 {_max_manual_workflows()}개까지 만들 수 있습니다. 기존 워크플로우를 삭제한 뒤 다시 시도해 주세요.",
+            )
 
     check_node_quotas(user.id, payload.graph_data, db)
     project = models.Project(
