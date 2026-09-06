@@ -1,6 +1,8 @@
 /* DemoGuestOnboarding.css — 시연 게스트의 최초 1회 입력(이름·이메일) 모달. */
 .demo-onboarding-overlay {
-  position: fixed; inset: 0; z-index: 1100;
+  /* 첫 방문 가이드 투어(TutorialOverlay, z-index 3000)와 같은 순간에 뜬다. 투어의 dim 층이 이 모달의
+     버튼 클릭을 가로채므로(2026-09-06 Playwright 로 확인) 그 위에 둔다 — 이메일 등록을 먼저 끝내고 투어를 이어 본다. */
+  position: fixed; inset: 0; z-index: 3100;
   display: flex; align-items: center; justify-content: center;
   background: rgba(15, 23, 42, 0.55); padding: 1.5rem; box-sizing: border-box;
 }
