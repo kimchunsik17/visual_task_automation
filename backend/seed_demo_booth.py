@@ -14,7 +14,7 @@
 콘텐츠 목록 (2026-09-04 교체 — 이전 세트는 "[시연-보관]" 으로 개명된다):
   포맷   demo-travel-itinerary     여행 일정표 (document)
   포맷   demo-notice-poster        안내 포스터 (design — 생성 배경 이미지 슬롯)
-  WF1    핫딜 키워드 알림 → 이메일            httpRequestNode(뽐뿌 RSS, UA 헤더) + llmNode + emailNode
+  WF1    핫딜 키워드 알림 → 이메일            httpRequestNode ×2 병렬(뽐뿌·어미새 RSS, UA 헤더) + llmNode + emailNode
   WF2    유튜브 채널 최신 영상 요약 → 이메일    httpRequestNode(Data API 키·공개 RSS) + emailNode
   WF3    회사 분석 → 입사지원서(Word)          httpRequestNode + formatNode(job-application, docx) + emailNode
   WF4    여행지 → 여행 일정표                  naverSearchNode ×2 병렬 + formatNode(docx) + emailNode
@@ -66,6 +66,9 @@ def format_ids_for(user_id: int) -> dict:
             POSTER_FORMAT_BASE: f"{POSTER_FORMAT_BASE}-u{int(user_id)}"}
 
 PPOMPPU_HOTDEAL_RSS = "https://www.ppomppu.co.kr/rss.php?id=ppomppu"
+# 2026-09-06 서버 실측: 클리앙·에펨코리아 404, 퀘이사존 403, 쿨엔조이·루리웹 무응답, 딜바다 RSS 금지 — 받아지는 것은
+# 뽐뿌와 어미새(인기정보) 둘이다.
+EOMISAE_HOTDEAL_RSS = "https://eomisae.co.kr/rss?mid=fs"
 # 뽐뿌는 python-requests 기본 UA 를 403 으로 막는다 — 트리거(rss.py)와 같은 브라우저형 UA 를 HTTP 노드 헤더에 명시
 from connectors.services.rss import RSS_USER_AGENT  # noqa: E402
 HOTDEAL_KEYWORD = "아이폰"
@@ -278,7 +281,7 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
     """제목 → (설명, nodes, edges). 노드 id 는 앱 payload 키로도 쓰이므로 바꾸지 말 것."""
     flows = {}
 
-    # WF1 — 핫딜 키워드 알림 → 이메일 (키워드 입력 → 뽐뿌 핫딜 RSS 수집 → 합치기 → 분기 → 골라내기 → 발송)
+    # WF1 — 핫딜 키워드 알림 → 이메일 (키워드 입력 → 뽐뿌·어미새 RSS 병렬 수집 → 합치기 → 골라내기 → 분기 → 발송)
     # 2026-09-06 재설계: 예전 RSS 트리거 시작은 첫 실행에 기준점만 잡아 "[]" 를 냈고(트리거로서는 맞는 동작),
     # 루리웹 병렬 수집은 이 서버에서 응답이 없어 매번 15초×재시도 타임아웃이 났다(부스 점검 실측 50초).
     # 방문자가 관심 키워드를 적으면 지금 올라와 있는 핫딜에서 골라 바로 보낸다 — 키워드 글이 없으면 빈손 대신
@@ -288,30 +291,39 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
              testValue=HOTDEAL_KEYWORD)
     n_fetch = N("fetch_ppomppu", "httpRequestNode", method="GET", url=PPOMPPU_HOTDEAL_RSS,
                 headers={"User-Agent": RSS_USER_AGENT})
+    n_fetch2 = N("fetch_eomisae", "httpRequestNode", method="GET", url=EOMISAE_HOTDEAL_RSS,
+                 headers={"User-Agent": RSS_USER_AGENT})
     n_join = N("merge_deal_input", "mergeNode")
-    n_cond = N("cond_fetch", "conditionNode",
-               rules=[{"id": "failed", "operator": "Contains", "value": "HTTP Request Error"}])
+    # 한쪽 커뮤니티만 실패해도 나머지로 정리하도록 실패 판정은 LLM 출력에서 한다 — 수집 결과에 조건을 걸면
+    # 한 목록의 오류 문구 때문에 다른 목록까지 버려진다.
+    n_pick = N("pick_llm", "llmNode", model="gpt-5.4-mini",
+               systemPrompt=("입력에는 관심 키워드 한 줄과 두 커뮤니티의 핫딜 RSS(XML) — 뽐뿌, 어미새 — 가 함께 있다. "
+                             "제목에 키워드(띄어쓰기·대소문자 무시, 흔한 표기 변형 포함)가 든 글을 골라 각 건을 '· [뽐뿌] 제목' "
+                             "또는 '· [어미새] 제목' 한 줄과 '  링크' 한 줄로 정리한다. 첫 줄은 '🛒 <키워드> 핫딜 알림' 으로 "
+                             "시작한다. 키워드 글이 하나도 없으면 첫 줄 다음에 '해당 키워드 글이 아직 없어 최신 핫딜을 대신 "
+                             "보냅니다' 라고 쓰고 두 커뮤니티 *각각* 에서 최신 3개씩을 같은 형식으로 정리한다(한 커뮤니티만 "
+                             "쓰지 않는다). 링크는 XML 엔티티를 풀어 쓴다 — &amp; 는 & 로(그대로 두면 잘못된 글로 연결된다). "
+                             "어느 한 목록이 'HTTP Request "
+                             "Error' 로 시작하는 오류 문구면 그 커뮤니티는 건너뛴다. 두 목록이 모두 오류면 다른 말 없이 정확히 "
+                             "'핫딜 목록을 가져오지 못했습니다 — 잠시 후 다시 시도해 주세요.' 한 줄만 출력한다. 목록에 없는 글을 "
+                             "지어내지 않고, 링크는 입력의 link 값을 그대로 쓴다."))
+    n_cond = N("cond_result", "conditionNode",
+               rules=[{"id": "failed", "operator": "Contains", "value": "가져오지 못했습니다"}])
     n_fail = N("fetch_fail_msg", "valueNode",
                value="핫딜 목록을 가져오지 못했습니다 — 잠시 후 다시 시도해 주세요.")
-    n_pick = N("pick_llm", "llmNode", model="gpt-5.4-mini",
-               systemPrompt=("입력에는 관심 키워드 한 줄과 뽐뿌 핫딜 RSS(XML)가 함께 있다. 제목에 키워드(띄어쓰기·"
-                             "대소문자 무시, 흔한 표기 변형 포함)가 든 글을 골라 각 건을 '· 제목' 한 줄과 '  링크' 한 줄로 "
-                             "정리한다. 첫 줄은 '🛒 <키워드> 핫딜 알림' 으로 시작한다. 키워드 글이 하나도 없으면 첫 줄 다음에 "
-                             "'해당 키워드 글이 아직 없어 최신 핫딜 5개를 대신 보냅니다' 라고 쓰고 최신 5개를 같은 형식으로 "
-                             "정리한다. 목록에 없는 글을 지어내지 않고, 링크는 입력의 link 값을 그대로 쓴다."))
     n_mail = N("alert_mail", "emailNode", toEmail=owner_email, subject="[핫딜] 관심 키워드 알림")
     n_merge = N("merge1", "mergeNode")
     n_out = N("out1", "outputNode")
-    nodes = [n_start, n_in, n_fetch, n_join, n_cond, n_fail, n_pick, n_mail, n_merge, n_out]
-    edges = [link(n_start, n_in), link(n_in, n_join), link(n_in, n_fetch), link(n_fetch, n_join),
-             link(n_join, n_cond),
+    nodes = [n_start, n_in, n_fetch, n_fetch2, n_join, n_pick, n_cond, n_fail, n_mail, n_merge, n_out]
+    edges = [link(n_start, n_in), link(n_in, n_join), link(n_in, n_fetch), link(n_in, n_fetch2),
+             link(n_fetch, n_join), link(n_fetch2, n_join), link(n_join, n_pick), link(n_pick, n_cond),
              link(n_cond, n_fail, source_handle="failed"),
-             link(n_cond, n_pick, source_handle="else"),
-             link(n_pick, n_mail), link(n_mail, n_merge), link(n_fail, n_merge), link(n_merge, n_out)]
+             link(n_cond, n_mail, source_handle="else"),
+             link(n_mail, n_merge), link(n_fail, n_merge), link(n_merge, n_out)]
     flows["핫딜 키워드 알림 → 이메일"] = (
-        "관심 키워드를 넣으면 뽐뿌 핫딜에 지금 올라온 글에서 그 키워드가 든 글의 제목과 링크를 골라 이메일로 "
-        "보냅니다. 해당 글이 없으면 최신 핫딜 5개를 대신 보내고, 목록을 못 가져오면 분기해 안내합니다 — "
-        "입력 → 수집 → 병합 → 분기 → 골라내기 → 발송의 완결 흐름.", nodes, edges)
+        "관심 키워드를 넣으면 뽐뿌·어미새 핫딜에 지금 올라온 글을 병렬로 모아 그 키워드가 든 글의 제목과 링크를 "
+        "골라 이메일로 보냅니다. 해당 글이 없으면 최신 핫딜 5개를 대신 보내고, 목록을 못 가져오면 분기해 안내합니다 — "
+        "입력 → 병렬 수집 → 병합 → 골라내기 → 분기 → 발송의 완결 흐름.", nodes, edges)
 
     # WF2 — 유튜브 채널 최신 영상 요약 → 이메일 (채널 입력 → 채널 ID 조회 → 분기 → 공개 RSS → 요약 → 발송)
     # 2026-09-05 재설계: 예전 EBS *트리거* 는 (1) 계정별 구글 OAuth 가 필요해 게스트가 쓸 수 없고,
