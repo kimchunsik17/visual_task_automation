@@ -4,14 +4,14 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { Play, Share2, Lock, Unlock, Users, Copy, Download, Check, XCircle, Clock } from 'lucide-react';
 import { Icon } from '../icons';
-import { downloadUploadFile } from '../fileDownload';
+import { downloadUploadFile, matchUploadPath } from '../fileDownload';
 import './AppRunnerPage.css';
 
 // 실행 결과가 fileModifierNode/posterGeneratorNode 등이 만든 실제 파일 경로(uploads/...)를
 // 담고 있을 때, "다운로드" 버튼이 그 원문 텍스트를 그냥 .txt로 감싸서 내려주는 바람에 실제
 // 파일(hwpx/docx/png/pdf 등) 대신 경로 문자열만 든 텍스트 파일이 받아지는 문제가 있었다.
 // 결과에서 실제 파일 경로를 찾아내면 그 파일을 그대로 받도록 한다.
-const FILE_PATH_REGEX = /uploads\/[^\s"'<>]+/;
+// 경로 추출은 fileDownload.matchUploadPath 한 곳 — 공백 든 파일명·첨부 안내 처리(2026-09-06).
 
 export default function AppRunnerPage() {
   const { shareToken } = useParams();
@@ -28,7 +28,7 @@ export default function AppRunnerPage() {
 
   const dynamicNodes = appInfo?.graph_data?.nodes?.filter(n => n.type === 'dynamicInputNode') || [];
 
-  const fileMatch = typeof result === 'string' ? result.match(FILE_PATH_REGEX) : null;
+  const fileMatch = typeof result === 'string' ? matchUploadPath(result) : null;
   const resultFilePath = fileMatch ? fileMatch[0].replace(/\\/g, '/') : null;
   const resultFileName = resultFilePath ? resultFilePath.split('/').pop() : null;
   // 마크다운 본문에는 파일 경로 원문 대신, 그 앞뒤에 남은 설명 텍스트만 보여준다
