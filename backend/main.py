@@ -1022,6 +1022,41 @@ def auth_guest(db: Session = Depends(get_db)):
                      "picture": user.picture, "is_admin": is_admin_user(user)}}
 
 
+
+class DemoGuestProfilePayload(BaseModel):
+    email: str
+    name: Optional[str] = None
+
+
+_DEMO_GUEST_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@app.post("/api/auth/guest/profile")
+def auth_guest_profile(payload: DemoGuestProfilePayload,
+                       user: models.User = Depends(get_current_user_required),
+                       db: Session = Depends(get_db)):
+    """시연 게스트가 결과를 받을 실제 이메일과 이름을 등록한다(DEMO_GUEST, 최초 1회).
+
+    게스트 계정은 `guest-…@demo.local` 이라는 받을 수 없는 주소로 만들어진다. 시연 워크플로우의
+    이메일 노드는 수신자를 `{{USER_EMAIL}}` 로 두고 발송 직전 소유자 이메일로 푸므로
+    (delivery_runtime.resolve_recipient), 여기서 등록한 주소가 곧 결과 수신처다. 표시 이름은
+    '(시연용)이름' — 부스 화면에서 시연 계정임이 바로 보인다. 오타를 고칠 수 있게 다시 호출해도 된다.
+    """
+    if not os.getenv("DEMO_GUEST") or not str(user.google_id or "").startswith("demo-guest-"):
+        raise HTTPException(status_code=404, detail="시연 게스트 전용입니다.")
+    email = str(payload.email or "").strip()
+    if len(email) > 254 or not _DEMO_GUEST_EMAIL_RE.match(email) or email.lower().endswith("@demo.local"):
+        raise HTTPException(status_code=422, detail="올바른 이메일 주소를 입력해 주세요.")
+    name = (str(payload.name or "").strip() or email.split("@", 1)[0])[:40]
+    user.email = email
+    user.name = name if name.startswith("(시연용)") else f"(시연용){name}"
+    db.commit()
+    db.refresh(user)
+    print(f"[demo-guest] 프로필 등록 user={user.id} name={user.name!r} email_domain={email.rsplit('@', 1)[-1]}")
+    return {"user": {"id": user.id, "name": user.name, "email": user.email,
+                     "picture": user.picture, "is_admin": is_admin_user(user)}}
+
+
 @app.get("/api/admin/users")
 def get_admin_users(user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
     users = db.query(models.User).all()

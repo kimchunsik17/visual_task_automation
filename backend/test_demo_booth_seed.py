@@ -21,6 +21,23 @@ def test_workflow_graphs_pass_dry_run():
         assert result.success and result.compile_passed, f"{title}: {result.issues}"
 
 
+def test_demo_flows_deliver_by_email_as_word():
+    """2026-09-05 부스 결정: 결과는 디스코드가 아니라 이메일로, 문서는 한/글이 아니라 Word 로.
+    수신자는 {{USER_EMAIL}} — 게스트의 실제 이메일은 입장 뒤 등록되므로 발송 시점에 푼다."""
+    from seed_demo_booth import USER_EMAIL_PLACEHOLDER, build_workflows
+
+    flows = build_workflows(owner_email=USER_EMAIL_PLACEHOLDER)
+    for title, (_desc, nodes, _edges) in flows.items():
+        types = [n["type"] for n in nodes]
+        assert "discordNode" not in types, title
+        mails = [n for n in nodes if n["type"] == "emailNode"]
+        assert mails, f"{title}: 이메일 발송 노드가 없다"
+        assert all(m["data"]["toEmail"] == USER_EMAIL_PLACEHOLDER for m in mails), title
+        for n in nodes:
+            if n["type"] == "formatNode":
+                assert n["data"]["output"] in {"docx", "png"}, (title, n["data"]["output"])
+
+
 def test_app_blueprints_reference_real_targets():
     """앱의 submit 필드가 (1) 실재하는 컴포넌트, (2) 워크플로우의 동적 입력 노드 id 를 가리킨다."""
     from seed_demo_booth import build_apps, build_workflows

@@ -32,7 +32,7 @@ def generate_http_request_node(node_id, node, indent, active_llm_id, prev_res_va
     data = node.get('data', {})
     method = data.get('method', 'GET')
     url = data.get('url', '')
-    headers_str = str(data.get('headers', '') or '')
+    headers_value = data.get('headers', '') or ''
     body_str = str(data.get('body', '') or '')
 
     if url == PLACEHOLDER_URL:
@@ -58,7 +58,15 @@ def generate_http_request_node(node_id, node, indent, active_llm_id, prev_res_va
     lines.append(f"{indent}        req_out_{node_id} = _http.call(")
     lines.append(f"{indent}            _node_definition.get_definition('httpRequestNode'),")
     lines.append(f"{indent}            method=\"{literal(method)}\", url=_http_url_{node_id},")
-    lines.append(f"{indent}            headers=\"{literal(headers_str)}\", body={bound_expr(node, node_id, 'body')})")
+    # dict 헤더는 파이썬 리터럴로 넘긴다(런타임 _parse_json_field 가 dict 를 그대로 받는다). str() 로 문자열화하면
+    # 홑따옴표 repr 이 되어 "headers 가 유효한 JSON 이 아니다" 로 실행이 깨진다(2026-09-06 시연 WF2 에서 발견).
+    # 헤더 값에 {{API_CENTER:*}} 자리표시자를 두는 경우 run_workflow 가 dict 안에서 치환한 뒤 여기로 온다 —
+    # JSON 문자열 안의 자리표시자는 치환되지 않으므로 자격증명 헤더는 dict 로 두어야 한다.
+    if isinstance(headers_value, dict):
+        headers_expr = repr(headers_value)
+    else:
+        headers_expr = f"\"{literal(str(headers_value))}\""
+    lines.append(f"{indent}            headers={headers_expr}, body={bound_expr(node, node_id, 'body')})")
     lines.append(f"{indent}except _ConnectorError as _e:")
     lines.append(f"{indent}    print(f'[HTTP Request 실패] {{_e.code}}: {{_e.user_message}}')")
     lines.append(f"{indent}    req_out_{node_id} = f'HTTP Request Error: {{_e.user_message}}'")

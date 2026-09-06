@@ -42,6 +42,7 @@ const LegacyRedirect = ({ to }) => {
   return <Navigate replace to={`${to}${location.search}${location.hash}`} />;
 };
 import MilestoneCelebrationHost from './MilestoneCelebration';
+import DemoGuestOnboarding from './DemoGuestOnboarding';
 
 function RootRoute() {
   const { user } = useAuth();
@@ -118,6 +119,7 @@ function App() {
       <CustomAlert />
       <CustomConfirm />
       <MilestoneCelebrationHost />
+      <DemoGuestOnboarding />
     </Router>
   );
 }

@@ -246,6 +246,8 @@ def test_registry_loads_every_provider_the_api_center_offers():
         "juso",
         # Phase 3 — 공공데이터포털. 키는 하나지만 데이터셋마다 활용신청이 따로다
         "data_go_kr",
+        # 시연 WF2(채널 최신 영상 요약) — OAuth 가 아닌 프로젝트 API 키, 공개 데이터 조회만. 게스트 공유 가능
+        "youtube_data_api",
     }
 
 
