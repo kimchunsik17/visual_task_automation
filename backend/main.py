@@ -2386,6 +2386,7 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db),
     try:
         result_text, tokens, logs = run_workflow(
             payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id,
+            executor_user_id=user.id,   # 저장 전 그래프도 실행한 사람을 소유자로 — {{USER_EMAIL}} 수신자 해석
             stop_node_id=payload.stop_node_id, scope_node_ids=payload.scope_node_ids,
             pinned_outputs=payload.pinned_outputs,
             **({"approval_decisions": payload.approval_decisions} if payload.approval_decisions else {}),
