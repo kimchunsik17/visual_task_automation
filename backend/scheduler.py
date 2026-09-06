@@ -4,7 +4,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
 from database import SessionLocal
 import models
-from graph import run_workflow
+import execution
 import traceback
 import json
 from usage_tracking import EVENT_WORKFLOW_EXECUTION, outcome_from_result, record_usage
@@ -14,7 +14,19 @@ scheduler = AsyncIOScheduler()
 def execute_scheduled_project(project_id: int):
     """
     Background job to execute a project workflow.
+
+    같은 프로젝트의 스케줄이 두 곳에서 동시에 발화하면(인스턴스 2개, 또는 misfire 뒤 재발화) 한쪽만
+    실행한다 — advisory lock(백로그 32 ENGINE 선행 항목). 잠금을 못 잡은 쪽은 실행하지 않고 끝낸다.
+    이메일·발송 노드가 든 스케줄이 두 번 돌면 사용자에게 두 통이 간다.
     """
+    with execution.advisory_lock(execution.SCHEDULE_LOCK_NAMESPACE, project_id) as acquired:
+        if not acquired:
+            print(f"[Scheduler] Project {project_id} skipped: 다른 실행이 잠금을 쥐고 있다(advisory lock).")
+            return
+        _execute_scheduled_project_locked(project_id)
+
+
+def _execute_scheduled_project_locked(project_id: int):
     print(f"[Scheduler] Executing scheduled project {project_id}")
     db = SessionLocal()
     try:
@@ -39,9 +51,10 @@ def execute_scheduled_project(project_id: int):
         
         # We pass a distinct session_id to maintain memory separately if needed,
         # or use a generic 'scheduled_task' session.
-        result_text, tokens, logs = run_workflow(
-            nodes, 
-            edges, 
+        result_text, tokens, logs = execution.start(
+            nodes,
+            edges,
+            trigger_source="schedule",
             db=db, 
             session_id=f"scheduled_{project_id}", 
             project_id=project_id

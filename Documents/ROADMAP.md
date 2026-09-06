@@ -44,7 +44,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | 계획 완료(종합보고서 §1) | 스케줄러 중복 발화 lock(독립 선행) → ENGINE-0 디스패처 |
+| 실행 엔진 v2 (32) | **착수(2026-09-06)** — 스케줄러 lock·실행 진입점 완료 | ENGINE-0 2단계 executor 레지스트리 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -130,7 +130,7 @@ v2.3 은 "근거가 문서에 있어 그대로 구현하면 되는 항목이 비
 
 | 순서 | 항목 | 크기 | 왜 먼저인가 |
 | ---: | --- | --- | --- |
-| 1 | 스케줄러 중복 발화 방지 — DB advisory lock (32번 선행 독립) | S | 다중 인스턴스 배포를 여는 가장 싼 안전장치. 지금은 `AsyncIOScheduler` 인프로세스 하나 |
+| 1 | ~~스케줄러 중복 발화 방지 — DB advisory lock~~ **완료(2026-09-06, `execution.advisory_lock`)** | S | 다중 인스턴스 배포를 여는 가장 싼 안전장치였다. 같은 프로젝트 스케줄은 이제 한쪽만 돈다 |
 | 2 | 웹훅 서명 검증(HMAC)·replay 방지·payload 상한 (34번 DEV-0) | S~M | `webhookNode` 문서가 "요청 검증을 흐름 안에서 하라"고 사용자에게 떠넘긴다. GitHub 웹훅이 첫 소비자 |
 | 3 | GitHub Actions 에 테스트·빌드·`export_node_definitions.py --check` (37번) | S | 저장소에 CI 가 없다. 테스트 2,700여 건이 사람 손으로만 돈다 |
 | 4 | 결정적 변환 노드 3종 — Set/Edit Fields·중복 제거·정렬/필터 (35번) | M | 근거는 ADR-0026. LLM 대신 결정적 변환 |
@@ -235,9 +235,9 @@ tenant 격리 계약을 그대로 쓰므로 반드시 26 뒤에 둔다.
 | 실행 방식 | `graph.compile_workflow()` 가 소스를 만들고 `run_workflow()` 가 `exec(python_code, namespace)` 한다(`graph.py:1011`) | 노드 하나가 실행되는 순간에 엔진이 개입할 지점이 없다. 보안은 AST 검사로 완화됐지만 개입 지점 부재는 완화가 아니다 |
 | 부분 실행·피닝 | `compile_workflow(entry_node_id, stop_node_id, scope_node_ids, pinned_outputs)` 가 **이미 있다.** 승인 스냅샷 재개(ADR-0015)도 이 위에 있다 | "순회할 간선을 잘라내는" 방식이라 인터프리터에서는 오히려 단순해진다. 파라미터는 엔진 인자로 그대로 승계 |
 | 흐름 노드 의미론 | `conditionNode`(규칙 N개+그 외), `loopNode`+`breakNode`, `mergeNode`(재합류 1회 방출 — PR #40), `distributorNode`(형제 오염 수정 — PR #69), `delayNode`, `humanApprovalNode` | 인터프리터가 **정확히 같은** 순회 규칙(트리거 루트 판정, `targetHandle` 구분, tool 노드 제외, 첨부 간선 예외, 재합류 게이트, 갈래 진입 시 상류 결과 복원)을 재현해야 한다. `test_merge_rejoin.py`·PR #69 회귀 2건이 첫 대조 기준 |
-| 호출 지점 | `run_workflow` 를 테스트 밖 **파일 17개**가 호출한다 — `main.py` 8곳, `scheduler.py`, `discord_bot.py`, `telegram_bot.py`, `approval_service.py`, `community_*`, `dry_run.py`, `mock_service.py`, `seed_demo_booth.py`, `flow_nodes.py`(서브 실행) 등 | 전부 동기 인라인 호출. 큐로 옮길 때 진입점을 한 함수로 먼저 모아야 한다(TEAM-0 이 권한 판정에 한 것과 같은 수법) |
+| 호출 지점 | `run_workflow` 를 테스트 밖 **7개 모듈 11곳**이 직접 호출했다 — `main.py` 5곳, `scheduler.py`, `discord_bot.py`, `telegram_bot.py`, `approval_service.py`, `evaluator.py`, `mock_service.py`. (v3.0 초판의 "17파일" 은 `dry_run_workflow` 를 함께 센 오류 — 2026-09-06 정정) | **2026-09-06 부터 전부 `execution.start` 를 지난다.** 전부 동기 인라인 호출이지만 큐 전환(ENGINE-2)은 이제 그 함수 한 곳만 바꾸면 된다(TEAM-0 이 권한 판정에 한 것과 같은 수법) |
 | 실행 상태 | 종료 후 `__execution_logs__` 일괄 수신. `FlowExecutionLog` 는 실행 단위 | 노드 단위 타임라인·재개 지점·진행률이 없다 |
-| 스케줄러 | `AsyncIOScheduler` 인프로세스 하나(`scheduler.py:12`), advisory lock 없음 | 인스턴스 2개면 cron 이 중복 발화한다 |
+| 스케줄러 | `AsyncIOScheduler` 인프로세스 하나(`scheduler.py:12`). **advisory lock 은 2026-09-06 추가** — `execution.advisory_lock`(PostgreSQL 세션 잠금을 전용 연결로, sqlite 는 프로세스 내 집합) | 인스턴스 2개여도 같은 프로젝트 스케줄은 한쪽만 돈다. 리더 선출·큐 폴링은 ENGINE-2 |
 | 프로세스 | uvicorn 워커 1개가 API·실행·스케줄을 겸한다(`docs/reports/load_assessment.md`) | 재시작 = 실행 중 워크플로우 유실. LLM 대기가 이벤트 루프를 점유 |
 | 재시도 | 커넥터 계층에는 `connectors/retry.py`·`RetryPolicy` 가 있다 | 노드 단위 설정(`retries`·`backoff`·`timeout`)과 에러 출력 핸들은 없다 |
 
@@ -267,8 +267,10 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 
 ##### ENGINE-0. 그래프 인터프리터(디스패처) — 2~3주
 
-1. **진입점 모으기.** `run_workflow` 호출 17파일을 `execution.start(...)` 하나로 모은다. 동작은 바뀌지 않는다
-   (TEAM-0 방식). 이것이 ENGINE-2 큐 전환의 자리다.
+1. ~~**진입점 모으기.**~~ **완료(2026-09-06)** — `backend/execution.py`. 직접 호출부 7개 모듈 11곳을 `execution.start(..., trigger_source=…)`
+   로 모았다. 동작은 바뀌지 않았고(반환·예외 동일), `trigger_source` 9종은 닫힌 목록이라 ENGINE-1 의 `workflow_runs.trigger_source` 가
+   그대로 쓴다. `EXECUTION_ENGINE` 모드 골격(legacy 만 실재, 나머지는 경고 후 legacy)도 여기 있다. `test_execution_entry.py` 가
+   AST 로 직접 호출을 막는다 — 새 실행 경로는 반드시 이 함수를 지난다. 이것이 ENGINE-2 큐 전환의 자리다.
 2. **executor 레지스트리.** `node_registry.register` 에 이미 49종이 있다. 각 등록 항목에 `executor` 를 붙이고,
    없는 노드는 "기존 생성 코드를 컴파일해 실행하는 래퍼 executor" 로 자동 채운다 — 하이브리드의 핵심.
 3. **순회 엔진.** `compile_workflow` 의 순회 규칙을 함수로 추출해 두 엔진이 **같은 함수**를 쓰게 한다.
@@ -295,7 +297,8 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 2. **실행 경로 이원화.** 에디터 수동 실행·dry-run 은 인라인 즉시 실행(타임아웃 부여)으로 반응성 유지.
    스케줄·웹훅·트리거·배포 앱 실행은 큐로.
 3. **스케줄러.** `schedules.next_fire_at` 을 워커가 같은 SKIP LOCKED 로 폴링하거나, APScheduler 를 워커 리더
-   하나로. **중복 발화 방지 advisory lock 은 이 단계를 기다리지 않고 지금 넣는다**(§2 "지시 없이" 1번).
+   하나로. ~~중복 발화 방지 advisory lock 은 이 단계를 기다리지 않고 지금 넣는다~~ **넣었다(2026-09-06)** — `scheduler.execute_scheduled_project`
+   가 `advisory_lock(SCHEDULE_LOCK_NAMESPACE, project_id)` 를 못 잡으면 실행 없이 끝낸다. `test_scheduler_lock.py`.
 4. **내구성.** 워커 heartbeat. 끊긴 `running` run 은 다른 워커가 회수해 마지막 완료 step 다음부터 재개하거나,
    부작용 노드를 지났으면 실패로 확정한다.
 5. 컨테이너/스테이징(37번)은 이 단계와 함께 — 워커 프로세스가 생기는 시점이 배포 단위가 바뀌는 시점이다.

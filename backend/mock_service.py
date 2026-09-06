@@ -143,7 +143,7 @@ def run(
     둘은 다른 축이라 함께 쓸 수 있다 — 범위 실행에서는 sample_input 이 직전 노드 출력 자리에 들어간다.
     이 조합이 Slice 4 의 완료 기준("외부 API 를 실제 호출하지 않고 한 노드를 검증")을 만든다.
     """
-    from graph import run_workflow
+    import execution
 
     nodes = _nodes(graph_data)
     edges = (graph_data or {}).get("edges") if isinstance(graph_data, dict) else None
@@ -165,8 +165,8 @@ def run(
     started = time.monotonic()
     with mock_runtime.activate(context):
         try:
-            result_text, tokens, logs = run_workflow(
-                nodes, edges, db=db, session_id=f"mock_{project_id}", project_id=project_id,
+            result_text, tokens, logs = execution.start(
+                nodes, edges, trigger_source="mock", db=db, session_id=f"mock_{project_id}", project_id=project_id,
                 user_inputs=inputs, **scope_kwargs
             )
             failed = False
