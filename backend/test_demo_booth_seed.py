@@ -30,6 +30,8 @@ def test_demo_flows_deliver_by_email_as_word():
     for title, (_desc, nodes, _edges) in flows.items():
         types = [n["type"] for n in nodes]
         assert "discordNode" not in types, title
+        # 부스는 버튼을 눌러 바로 결과를 봐야 한다 — 트리거 시작(첫 실행은 기준점만 잡고 빈 결과)은 시연 콘텐츠에 두지 않는다
+        assert not any(t.endswith("TriggerNode") for t in types), (title, types)
         mails = [n for n in nodes if n["type"] == "emailNode"]
         assert mails, f"{title}: 이메일 발송 노드가 없다"
         assert all(m["data"]["toEmail"] == USER_EMAIL_PLACEHOLDER for m in mails), title
