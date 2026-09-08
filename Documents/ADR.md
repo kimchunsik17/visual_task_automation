@@ -1992,7 +1992,7 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
 
 ## ADR-0027 · 그래프 인터프리터 이관: 순회 규칙 공유 · 생성기 본문 재사용 · 정적 계획
 
-| 상태 | 수락됨 · 2026-09-06 (ENGINE-0 2·3단계 — 순회 규칙 분리·본문 렌더러 구현. 인터프리터 본체·섀도는 다음 단계) |
+| 상태 | 수락됨 · 2026-09-06 · **4단계 인터프리터·섀도 구현 2026-09-08** (남은 것: 프로젝트별 flag, 커뮤니티 242종 오프라인 대조) |
 | --- | --- |
 | 결정자 | 백엔드 |
 | 관련 | ROADMAP §3.1(백로그 32), ADR-0015(승인 재개), ADR-0016(NodeError v1), ADR-0019(pythonNode 격리), `plans/실행엔진_앱빌더_시연준비_종합보고서.md` §1 |
@@ -2050,7 +2050,35 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
   옮길 후보다.
 - 죽은 코드 하나가 결함이었다: `generate_block` 의 tool 노드 판정 블록이 `node` 를 정의 전에 읽어, tool 노드가 보통
   간선으로도 연결된 그래프는 `UnboundLocalError` 로 컴파일이 죽었다. 제거했고 `test_graph_traversal.py` 가 회귀를 막는다.
-- 남은 일(ENGINE-0 4~6단계): 계획 빌더와 흐름 노드 6종 executor, 래퍼 executor, `execution.start` 의 shadow/interpreter
-  분기, 코퍼스 섀도 대조, pythonNode 격리, 프로젝트별 flag.
+- ~~남은 일(ENGINE-0 4~6단계): 계획 빌더와 흐름 노드 6종 executor, 래퍼 executor, `execution.start` 의 shadow/interpreter
+  분기, 코퍼스 섀도 대조, pythonNode 격리, 프로젝트별 flag.~~ → 아래 추기.
 - 검증: `test_graph_traversal.py` 26건 · `test_node_bodies.py` 108건 · `test_merge_rejoin.py` 9건 그대로 통과 ·
   회귀 31파일 1729 passed·28 skipped(test_format_node 1건은 실행 순서 의존 플레이크 — 단독·HEAD 모두 통과).
+
+**추기 (2026-09-08) — 4단계 구현**
+
+- `backend/engine_interpreter.py`: **계획 빌더**(`_PlanBuilder.block` — `compile_workflow.generate_block` 과 같은 지점에서 같은
+  판정: 재합류 게이트·형제 복원·고정 출력·배타 분기 뒤 방출·마지막 루트의 미아 방출)와 **실행기**(`_Executor.run_item` 이 유일한
+  개입 지점 — ENGINE-1 의 step 기록과 ENGINE-3 의 재시도는 여기에 얹는다). 흐름 노드 6종은 생성기와 **같은 함수**가 만드는 곧은
+  줄(`flow_nodes.emit_condition_header`·`emit_loop_header/tail`·`emit_distributor_header/tail`·`emit_break_body`,
+  `ui_nodes.emit_output_body`·`emit_approval_header`)을 exec 하고 제어(if/for/return/break)만 파이썬으로 한다. 판정식
+  (`condition_expr`)·반복 횟수(`range(int(<raw>))`)는 옛 엔진이 소스에 박던 것과 같은 텍스트를 같은 네임스페이스에서 평가한다 —
+  `maxIterations="abc"` 같은 잘못된 값도 같은 NameError 문구로 끝난다.
+- **엔진 선택은 `graph.run_workflow` 의 exec 지점**에서 한다(`execution.engine_mode()`): 두 엔진이 자격증명 치환·승인 스냅샷을
+  거친 같은 노드를 받아야 하기 때문이다. `interpreter` 는 생성 소스를 **compile 만** 먼저 한다 — `ast.parse` 는 통과하지만 compile
+  에서만 잡히는 오류(반복 밖 `break`)를 옛 엔진과 같은 자리·같은 문구(Dynamic Execution Error)로 내기 위해서다.
+- **`shadow` 의 뜻을 바꿨다**: legacy 로 실행하고 인터프리터는 **계획만** 세워 실패를 기록한다(`execution.shadow_plan_failures`).
+  운영에서 두 엔진을 나란히 실행하면 부작용(메일·게시)이 두 번 나가고 LLM 이 비결정적이라 대조가 성립하지 않는다. 실행 결과
+  대조는 오프라인 도구 `backend/engine_shadow_diff.py` 가 한다 — mock 커넥터(ADR-0009)·mock LLM(`LLM_PROVIDER=mock`)·소켓 수준
+  네트워크 차단·`time.sleep` 무시·포스터 렌더 스텁·임시 업로드 루트·`db=None`. 정규화는 시각·오류 requestId(결과 JSON 문자열 안
+  포함)·랜덤 파일명 셋뿐이다.
+- **검증**: 코퍼스 300 그래프(공식 107·큐레이션 142·스모크 51) 결과·로그·토큰 **차이 0**. 옛 엔진의 실행 테스트 7파일 171건
+  (`test_merge_rejoin`·`test_editor_execution`·`test_approval_flow`·`test_pipeline_channels`·`test_node_bindings`·
+  `test_artifact_delivery`·`test_python_isolation`)이 `EXECUTION_ENGINE=interpreter` 서브프로세스에서 그대로 통과 —
+  `test_engine_interpreter.py` 가 재생한다. 소스 층 835 그래프 여전히 바이트 동일(생성기 조각 함수 추출 뒤에도).
+- **발견**: conditionNode 규칙 값에 줄바꿈이 있으면 `condition_expr` 가 이스케이프하지 않아 생성 소스가 SyntaxError 로 거부된다
+  (두 엔진 모두 같은 문구 — 등가지만 사용자에게는 결함, ROADMAP §3.14 py_str 항목에 기록). pythonNode 격리는 ADR-0019 로 이미
+  있었다(인터프리터도 같은 본문을 쓰므로 같은 경로).
+- **남은 일**: 프로젝트별 feature flag(ENGINE-0 6단계) · 커뮤니티 242종 `--projects-json` 대조 · 스테이징 `shadow` 계획 검사.
+  executor 레지스트리 슬롯은 만들지 않았다 — 하이브리드에서 executor 는 두 종류(네이티브 6종·래퍼)뿐이고, 노드를 네이티브로
+  이식할 때(ENGINE-3) 타입별 슬롯이 처음 필요해진다.

@@ -471,6 +471,33 @@ def emit_llm_setup(lines: list, nodes: list, project_id=None, indent: str = "   
             lines.append(f"{indent}sys_prompt_{node_id} = \"{sys_prompt}\"")
 
 
+def emit_pinned_output(lines: list, node_id: str, node: dict, indent: str, value) -> str:
+    """고정 출력(§7.3) — 이 노드는 실행하지 않고 저장해 둔 결과를 그대로 흘려보낸다. 상류가 외부 API 를
+    부르는 노드여도 하류를 반복 테스트할 수 있다. 고정 사실은 실행 로그에 pinned 로 남아 UI 가 "실제
+    실행이 아니다" 라고 표시할 수 있다. 하류에 넘기는 변수 이름을 돌려준다. 인터프리터와 공유(ADR-0027)."""
+    out_var = f"pin_out_{node_id}"
+    lines.append(f"{indent}# --- Pinned Output ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    lines.append(f"{indent}{out_var} = {str(value)!r}")
+    lines.append(f"{indent}last_result = {out_var}")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result, pinned=True)")
+    return out_var
+
+
+def sibling_restore_line(indent: str, source_id: str) -> str:
+    """병렬 분기 갈래 진입 시 상류 기록으로 last_result 를 되돌리는 한 줄(graph_traversal.sibling_restore_source
+    가 판정한 뒤). 인터프리터와 공유(ADR-0027)."""
+    return (f"{indent}last_result = str(__node_results__['{source_id}']) "
+            f"if '{source_id}' in __node_results__ else last_result")
+
+
+def emit_unsupported_node(lines: list, node_id: str, node_type: str, indent: str) -> None:
+    """등록되지 않은 노드 타입 — 실행을 멈추지 않고 안내 문구를 값으로 흘린다. 인터프리터와 공유(ADR-0027)."""
+    lines.append(f"{indent}# --- Unsupported Node ({node_id}) ---")
+    lines.append(f"{indent}print('Unsupported node type: {node_type}')")
+    lines.append(f"{indent}last_result = 'Unsupported node type: {node_type}'")
+
+
 def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=None,
                      stop_node_id=None, scope_node_ids=None, pinned_outputs=None) -> str:
     """
@@ -557,12 +584,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
         #    상류가 외부 API 를 부르는 노드여도 하류를 반복 테스트할 수 있다. 고정 사실은
         #    실행 로그에 pinned 로 남아 UI 가 "실제 실행이 아니다" 라고 표시할 수 있다.
         if node_id in pinned_outputs:
-            out_var = f"pin_out_{node_id}"
-            lines.append(f"{indent}# --- Pinned Output ({node_id}) ---")
-            lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-            lines.append(f"{indent}{out_var} = {str(pinned_outputs[node_id])!r}")
-            lines.append(f"{indent}last_result = {out_var}")
-            lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result, pinned=True)")
+            out_var = emit_pinned_output(lines, node_id, node, indent, pinned_outputs[node_id])
             for target_id, handle in forward_edges.get(node_id, []):
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var=out_var, visited=visited)
             return
@@ -573,8 +595,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
         _restore_src = graph_traversal.sibling_restore_source(node_id, prev_res_var,
                                                               node_dict=node_dict, index=edge_index)
         if _restore_src is not None:
-            lines.append(f"{indent}last_result = str(__node_results__['{_restore_src}']) "
-                         f"if '{_restore_src}' in __node_results__ else last_result")
+            lines.append(sibling_restore_line(indent, _restore_src))
 
         # 1. Use Registry if available (New Architecture)
         if node_registry.has_node(node['type']):
@@ -600,9 +621,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
                 gate.flush_ready(_join_emitter(indent))
             return
         else:
-            lines.append(f"{indent}# --- Unsupported Node ({node_id}) ---")
-            lines.append(f"{indent}print('Unsupported node type: {node['type']}')")
-            lines.append(f"{indent}last_result = 'Unsupported node type: {node['type']}'")
+            emit_unsupported_node(lines, node_id, node['type'], indent)
             next_edges = forward_edges.get(node_id, [])
             for target_id, handle in next_edges:
                 generate_block(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result', visited=visited)
@@ -665,6 +684,17 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     except WorkflowSecurityError as exc:
         return f"Error: Security validation failed: {exc}"
     return source
+
+
+def _shadow_plan_check(nodes: list, edges: list, **plan_kwargs) -> None:
+    """EXECUTION_ENGINE=shadow — legacy 가 실행을 마친 뒤 인터프리터가 같은 그래프의 계획을 세울 수 있는지
+    본다. 실행하지 않으므로 부작용이 없고, 실패는 execution.record_shadow_plan_failure 가 남긴다."""
+    import engine_interpreter
+    import execution as _execution
+    try:
+        engine_interpreter.build_plan(nodes, edges, **plan_kwargs)
+    except Exception as exc:  # 계획 실패는 legacy 결과에 영향을 주지 않는다 — 기록만
+        _execution.record_shadow_plan_failure(plan_kwargs.get("project_id"), exc)
 
 
 def _pause_for_approval(signal, *, db, project_id, owner_user_id, session_id,
@@ -846,39 +876,58 @@ def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=
     # 공식 연동 노드는 실행 시점에 API 센터에서 토큰을 가져온다(graph_data 에 담지 않는다).
     # 그러려면 "누구의 자격증명인지"가 필요한데, kwargs 에는 없고 프로젝트 소유자가 기준이다.
     namespace = {'db': db, 'models': models, 'json': json, '__owner_user_id__': owner_user_id}
+    # 엔진 선택(백로그 32 ENGINE-0, ADR-0027). legacy 는 생성 소스를 exec 한다. interpreter 는 같은 프렐류드
+    # 네임스페이스 위에서 정적 계획을 따라 노드 본문을 직접 실행한다. shadow 는 legacy 로 실행하되, 인터프리터가
+    # 이 그래프의 계획을 세울 수 있는지만 확인해 실패를 기록한다 — 부작용 없이 실제 그래프 전수를 살피는 운영 신호.
+    # (두 엔진의 실행 결과 대조는 mock 모드 오프라인 도구 engine_shadow_diff.py 가 한다.)
+    import execution as _execution
+    engine = _execution.engine_mode()
     try:
         # We wrap it in a try-except to catch compile/runtime errors safely
-        exec(python_code, namespace)
-        if 'run_workflow' in namespace:
-            runtime_inputs = {**kwargs, **(user_inputs or {})}
-            # 생성된 코드는 실행 문맥을 kwargs 로 읽는다 — llmNode 의 대화 기억(NodeMemory)
-            # 키와 트리거 cursor 키가 여기에 달려 있다. 예전에는 이 둘을 안쪽으로 넘기지
-            # 않아서 session_id 가 항상 'default', project_id 가 항상 0 이었고, 결과적으로
-            # 모든 프로젝트·세션이 같은 기억 행을 공유했다.
-            if session_id is not None:
-                runtime_inputs['session_id'] = session_id
-            if project_id is not None:
-                runtime_inputs['project_id'] = project_id
-            if entry_node_id is not None:
-                # 승인 재개(ADR-0015): 승인자가 본 payload 가 재개 지점의 직전 노드 출력이 된다.
-                runtime_inputs['__approval_payload__'] = approval_payload if approval_payload is not None else ''
-            try:
+        runtime_inputs = {**kwargs, **(user_inputs or {})}
+        # 생성된 코드는 실행 문맥을 kwargs 로 읽는다 — llmNode 의 대화 기억(NodeMemory)
+        # 키와 트리거 cursor 키가 여기에 달려 있다. 예전에는 이 둘을 안쪽으로 넘기지
+        # 않아서 session_id 가 항상 'default', project_id 가 항상 0 이었고, 결과적으로
+        # 모든 프로젝트·세션이 같은 기억 행을 공유했다.
+        if session_id is not None:
+            runtime_inputs['session_id'] = session_id
+        if project_id is not None:
+            runtime_inputs['project_id'] = project_id
+        if entry_node_id is not None:
+            # 승인 재개(ADR-0015): 승인자가 본 payload 가 재개 지점의 직전 노드 출력이 된다.
+            runtime_inputs['__approval_payload__'] = approval_payload if approval_payload is not None else ''
+        try:
+            if engine == _execution.ENGINE_INTERPRETER:
+                import engine_interpreter
+                # 생성 소스를 컴파일만 한다(실행하지 않는다). ast.parse 는 통과하지만 compile 에서만 잡히는 오류
+                # ('break' outside loop 등)를 옛 엔진과 같은 자리·같은 문구(Dynamic Execution Error)로 드러내기 위해서다.
+                compile(python_code, "<string>", "exec")
+                result = engine_interpreter.run(
+                    nodes, edges, namespace=namespace, runtime_inputs=runtime_inputs, project_id=project_id,
+                    entry_node_id=entry_node_id, stop_node_id=stop_node_id, scope_node_ids=scope_node_ids,
+                    pinned_outputs=pinned_outputs)
+            else:
+                exec(python_code, namespace)
+                if 'run_workflow' not in namespace:
+                    return "Execution failed: run_workflow function not found.", {}, []
                 result = namespace['run_workflow'](**runtime_inputs)
-            except Exception as inner:
-                # 승인 노드의 대기 신호는 오류가 아니라 "여기서 멈추고 결정을 기다린다"는 뜻이다.
-                signal_cls = namespace.get('__ApprovalPendingSignal__')
-                if signal_cls is not None and isinstance(inner, signal_cls):
-                    return _pause_for_approval(
-                        inner, db=db, project_id=project_id, owner_user_id=owner_user_id,
-                        session_id=session_id, snapshot=approval_snapshot,
-                        runtime_inputs=runtime_inputs, namespace=namespace,
-                    )
-                raise
-            tokens = namespace.get('__token_usage__', {})
-            logs = namespace.get('__execution_logs__', [])
-            return str(result), tokens, logs
-        else:
-            return "Execution failed: run_workflow function not found.", {}, []
+        except Exception as inner:
+            # 승인 노드의 대기 신호는 오류가 아니라 "여기서 멈추고 결정을 기다린다"는 뜻이다.
+            signal_cls = namespace.get('__ApprovalPendingSignal__')
+            if signal_cls is not None and isinstance(inner, signal_cls):
+                return _pause_for_approval(
+                    inner, db=db, project_id=project_id, owner_user_id=owner_user_id,
+                    session_id=session_id, snapshot=approval_snapshot,
+                    runtime_inputs=runtime_inputs, namespace=namespace,
+                )
+            raise
+        tokens = namespace.get('__token_usage__', {})
+        logs = namespace.get('__execution_logs__', [])
+        if engine == _execution.ENGINE_SHADOW:
+            _shadow_plan_check(nodes, edges, project_id=project_id, entry_node_id=entry_node_id,
+                               stop_node_id=stop_node_id, scope_node_ids=scope_node_ids,
+                               pinned_outputs=pinned_outputs)
+        return str(result), tokens, logs
     except Exception as e:
         # 생성 코드 바깥에서 죽은 경우(컴파일·import 실패 등). 결과 문자열은 표시용으로 유지하고,
         # 판정은 구조화 step 으로 한다(ADR-0016) — 호출부가 문자열을 검색할 필요가 없다.
