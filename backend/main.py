@@ -1016,6 +1016,7 @@ def auth_guest(db: Session = Depends(get_db)):
         import demo_admin
         record_usage(db, billable_user_id=user.id, actor_user_id=user.id, total_tokens=0, deduct_balance=False,
                      event_type=demo_admin.EVENT_GUEST_ENTRY, outcome="success", trigger_type="guest_entry")
+        db.commit()   # record_usage 는 커밋하지 않는다 — 다른 세션(어드민 개요)이 바로 봐야 한다
     except Exception as exc:  # noqa: BLE001 — 집계 기록 실패는 입장 실패가 아니다
         print(f"[demo-guest] 입장 기록 실패: {exc}")
     print(f"[demo-guest] 게스트 입장 user={user.id} ({user.google_id}) — "
