@@ -727,6 +727,7 @@ def _pause_for_approval(signal, *, db, project_id, owner_user_id, session_id,
 def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=None,
                  user_inputs: dict | None = None, entry_node_id=None, approval_payload=None,
                  stop_node_id=None, scope_node_ids=None, pinned_outputs=None,
+                 executor_user_id=None,
                  **kwargs):
     """
     Compiles the graph into Python code and dynamically executes it using exec().
@@ -770,7 +771,11 @@ def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=
     # 평문 접속 문자열 차단(sentinel)은 이미 적용된 뒤라 비밀 값이 스냅샷에 들어가지 않는다.
     approval_snapshot = {"nodes": copy.deepcopy(nodes), "edges": copy.deepcopy(edges)}
 
-    owner_user_id = 0
+    # 프로젝트가 없는 실행(에디터에서 저장 전 그래프)은 소유자가 0 이었다. 그러면 이메일 노드의 {{USER_EMAIL}}
+    # 이 빈 값으로 풀려 "받을 이메일이 등록되지 않았다" 로 끝난다 — 부스 점검(2026-09-06)에서 게스트가 저장 상한에
+    # 막혀 저장 못 한 그래프를 실행하자 메일이 한 통도 가지 않았다. 호출부가 실행한 사용자를 알려 주면 그 사람을
+    # 소유자로 삼는다(자격증명 지도는 종전처럼 프로젝트가 있을 때만 만든다).
+    owner_user_id = int(executor_user_id or 0)
     if db and project_id:
         project = db.query(models.Project).filter(models.Project.id == project_id).first()
         if project and project.user_id:

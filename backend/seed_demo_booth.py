@@ -14,22 +14,24 @@
 콘텐츠 목록 (2026-09-04 교체 — 이전 세트는 "[시연-보관]" 으로 개명된다):
   포맷   demo-travel-itinerary     여행 일정표 (document)
   포맷   demo-notice-poster        안내 포스터 (design — 생성 배경 이미지 슬롯)
-  WF1    핫딜 키워드 알림 → 이메일            rssTriggerNode(뽐뿌) + httpRequestNode(루리웹)
+  WF1    핫딜 키워드 알림 → 이메일            httpRequestNode ×2 병렬(뽐뿌·어미새 RSS, UA 헤더) + llmNode + emailNode
   WF2    유튜브 채널 최신 영상 요약 → 이메일    httpRequestNode(Data API 키·공개 RSS) + emailNode
   WF3    회사 분석 → 입사지원서(Word)          httpRequestNode + formatNode(job-application, docx) + emailNode
   WF4    여행지 → 여행 일정표                  naverSearchNode ×2 병렬 + formatNode(docx) + emailNode
-  WF5    공고문 → 안내 포스터                  imageGenerationNode + formatNode(디자인)
+  WF5    공고문 → 안내 포스터                  llmNode + formatNode(디자인, PNG) + emailNode
   APP1   여행 플래너            (WF4 연결 — 층 1 QR 체험용)
   APP2   입사 지원서 도우미      (WF3 연결 — 층 1 QR 체험용)
 
 주의(시연 계정 운영 준비):
-  - WF1 의 아카라이브는 Cloudflare 가 서버 요청을 차단해 제외 — 공식 RSS 를 주는
-    뽐뿌·루리웹 핫딜을 함께 살핀다(시작 노드는 그래프당 1개 규칙이라 뽐뿌가 트리거,
-    루리웹은 실행 시 HTTP 로 병렬 수집. 키워드는 조건 분기 노드에서 수정).
+  - WF1 은 트리거가 아니라 방문자가 적은 키워드로 *현재* 뽐뿌 핫딜 RSS 를 골라 보낸다(2026-09-06 재설계).
+    rssTriggerNode 는 첫 실행에 기준점만 잡아 빈 결과를 내고(트리거의 올바른 동작), 루리웹은 이 서버에서
+    응답이 없어 매번 타임아웃이 났다. 뽐뿌는 기본 UA 를 403 으로 막으므로 HTTP 노드에 브라우저형 UA 헤더를
+    명시한다(rss.py 의 RSS_USER_AGENT 와 같은 값). 아카라이브는 Cloudflare 차단으로 여전히 제외.
   - WF2 는 API 센터의 YouTube Data API 키(youtube_data_api)를 쓴다 — 게스트에게 공유하려면 .env 의
     DEMO_SHARED_CREDENTIALS_PROVIDERS 에 youtube_data_api 를 넣는다(공개 데이터 키라 공유해도 된다).
     구글 OAuth 는 더 이상 필요 없다. 검색은 하루 할당량 10,000 단위 중 100 을 쓴다(핸들 입력은 1).
-  - WF5 의 이미지 생성은 API 센터의 OpenAI 키가 필요하다.
+  - WF5 는 이미지 생성 단계를 뺐다(2026-09-08, 시연 기간 안에 이미지 API 를 쓸 수 없어서). 배경 없는 디자인 포맷
+    (어두운 그라데이션 + 문안)으로 PNG 를 만든다. imageGenerationNode 는 HIDDEN_NODE_TYPES 로 팔레트에서도 숨긴다.
   - 이메일 발송은 서비스 SMTP 설정을 따른다. 수신자는 {{USER_EMAIL}} 자리표시자 — 발송 직전 실행
     계정(게스트가 입장 뒤 등록한 이메일)으로 풀린다. 결과 문서는 부스 노트북에 한/글이 없을 수
     있어 Word(DOCX) 로 만든다(2026-09-05 결정).
@@ -65,7 +67,11 @@ def format_ids_for(user_id: int) -> dict:
             POSTER_FORMAT_BASE: f"{POSTER_FORMAT_BASE}-u{int(user_id)}"}
 
 PPOMPPU_HOTDEAL_RSS = "https://www.ppomppu.co.kr/rss.php?id=ppomppu"
-RULIWEB_HOTDEAL_RSS = "https://bbs.ruliweb.com/market/board/1020/rss"
+# 2026-09-06 서버 실측: 클리앙·에펨코리아 404, 퀘이사존 403, 쿨엔조이·루리웹 무응답, 딜바다 RSS 금지 — 받아지는 것은
+# 뽐뿌와 어미새(인기정보) 둘이다.
+EOMISAE_HOTDEAL_RSS = "https://eomisae.co.kr/rss?mid=fs"
+# 뽐뿌는 python-requests 기본 UA 를 403 으로 막는다 — 트리거(rss.py)와 같은 브라우저형 UA 를 HTTP 노드 헤더에 명시
+from connectors.services.rss import RSS_USER_AGENT  # noqa: E402
 HOTDEAL_KEYWORD = "아이폰"
 
 
@@ -247,8 +253,8 @@ POSTER_FIELDS = {
     "posterTitle": {"type": "string", "description": "포스터 제목 — 공고문의 행사/공고 이름"},
     "tagline": {"type": "string", "description": "부제 한 줄 — 공고 내용에서 뽑은 핵심 문구, 마땅치 않으면 빈 문자열"},
     "bodyText": {"type": "string", "description": "본문 3~4줄 — 대상·혜택·핵심 정보를 줄바꿈으로 구분해 빠짐없이"},
-    "dateLine": {"type": "string", "description": "일시/기간 한 줄"},
-    "placeLine": {"type": "string", "description": "장소/방법 한 줄"},
+    "dateLine": {"type": "string", "description": "일시/기간 값만 한 줄, 30자 이내 — '접수 기간:' 같은 라벨은 넣지 않는다(포스터가 '일시' 라벨을 따로 찍는다). 기간과 발표일이 둘이면 접수 기간만"},
+    "placeLine": {"type": "string", "description": "장소명만 한 줄, 25자 이내 — '장소:' 라벨은 넣지 않는다(포스터가 '장소' 라벨을 따로 찍는다)"},
     "contactLine": {"type": "string", "description": "문의처 한 줄, 없으면 빈 문자열"},
 }
 
@@ -259,16 +265,6 @@ POSTER_SCHEMA = json.dumps({
     "required": ["posterTitle", "bodyText", "dateLine", "placeLine"],
 }, ensure_ascii=False)
 
-POSTER_ASSEMBLE_SCHEMA = json.dumps({
-    "title": "NoticePosterAssembled",
-    "type": "object",
-    "properties": {**POSTER_FIELDS,
-                   "backgroundImage": {"type": "string",
-                                       "description": "입력에 있는 배경 이미지 파일 경로(uploads/…)를 글자 그대로"}},
-    "required": ["posterTitle", "bodyText", "dateLine", "placeLine", "backgroundImage"],
-}, ensure_ascii=False)
-
-
 # ── 워크플로우 5종 ───────────────────────────────────────────────────────
 
 def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE,
@@ -276,36 +272,49 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
     """제목 → (설명, nodes, edges). 노드 id 는 앱 payload 키로도 쓰이므로 바꾸지 말 것."""
     flows = {}
 
-    # WF1 — 핫딜 키워드 알림 (뽐뿌 새 글 감지 + 루리웹 병렬 수집 → 키워드 분기 → 이메일)
-    # 시작(트리거) 노드는 그래프당 정확히 1개만 허용된다 — 뽐뿌를 새 글 트리거로 삼고,
-    # 실행될 때마다 루리웹 핫딜 RSS 를 HTTP 로 함께 걷어 두 커뮤니티를 같이 살핀다.
-    n_pp = N("rss_ppomppu", "rssTriggerNode", feedUrl=PPOMPPU_HOTDEAL_RSS, maxItems=10)
-    n_rw = N("fetch_ruliweb", "httpRequestNode", method="GET", url=RULIWEB_HOTDEAL_RSS)
-    n_feeds = N("merge_feeds", "mergeNode")
-    n_cond = N("cond_deal", "conditionNode",
-               rules=[{"id": "hit", "operator": "Contains", "value": HOTDEAL_KEYWORD}])
+    # WF1 — 핫딜 키워드 알림 → 이메일 (키워드 입력 → 뽐뿌·어미새 RSS 병렬 수집 → 합치기 → 골라내기 → 분기 → 발송)
+    # 2026-09-06 재설계: 예전 RSS 트리거 시작은 첫 실행에 기준점만 잡아 "[]" 를 냈고(트리거로서는 맞는 동작),
+    # 루리웹 병렬 수집은 이 서버에서 응답이 없어 매번 15초×재시도 타임아웃이 났다(부스 점검 실측 50초).
+    # 방문자가 관심 키워드를 적으면 지금 올라와 있는 핫딜에서 골라 바로 보낸다 — 키워드 글이 없으면 빈손 대신
+    # 최신 5개를 보낸다(막다른 분기 없음). 뽐뿌는 기본 UA 를 403 으로 막아 브라우저형 UA 헤더를 명시한다.
+    n_start = N("start1", "startNode")
+    n_in = N("in_keyword", "dynamicInputNode", inputLabel="관심 키워드 (예: 아이폰, 에어팟, 라면)",
+             testValue=HOTDEAL_KEYWORD)
+    n_fetch = N("fetch_ppomppu", "httpRequestNode", method="GET", url=PPOMPPU_HOTDEAL_RSS,
+                headers={"User-Agent": RSS_USER_AGENT})
+    n_fetch2 = N("fetch_eomisae", "httpRequestNode", method="GET", url=EOMISAE_HOTDEAL_RSS,
+                 headers={"User-Agent": RSS_USER_AGENT})
+    n_join = N("merge_deal_input", "mergeNode")
+    # 한쪽 커뮤니티만 실패해도 나머지로 정리하도록 실패 판정은 LLM 출력에서 한다 — 수집 결과에 조건을 걸면
+    # 한 목록의 오류 문구 때문에 다른 목록까지 버려진다.
     n_pick = N("pick_llm", "llmNode", model="gpt-5.4-mini",
-               systemPrompt=(f"입력은 뽐뿌 핫딜 새 글 목록(JSON)과 루리웹 핫딜 RSS(XML)다. 두 목록에서 "
-                             f"제목에 '{HOTDEAL_KEYWORD}' 가 들어간 글만 골라 각 건을 '· [커뮤니티] 제목' "
-                             "한 줄과 '  링크' 한 줄로 정리한다. "
-                             f"첫 줄은 '🛒 {HOTDEAL_KEYWORD} 핫딜 알림' 으로 시작한다. "
-                             "목록에 없는 글을 지어내지 않고, 링크는 입력의 link 값을 그대로 쓴다."))
-    n_mail = N("alert_mail", "emailNode", toEmail=owner_email,
-               subject=f"[핫딜] {HOTDEAL_KEYWORD} 키워드 감지 — 새 글 알림")
-    n_quiet = N("quiet_msg", "valueNode",
-                value=f"새 글은 있었지만 지정 키워드({HOTDEAL_KEYWORD}) 언급이 없습니다 — 기록만 남깁니다.")
+               systemPrompt=("입력에는 관심 키워드 한 줄과 두 커뮤니티의 핫딜 RSS(XML) — 뽐뿌, 어미새 — 가 함께 있다. "
+                             "제목에 키워드(띄어쓰기·대소문자 무시, 흔한 표기 변형 포함)가 든 글을 골라 각 건을 '· [뽐뿌] 제목' "
+                             "또는 '· [어미새] 제목' 한 줄과 '  링크' 한 줄로 정리한다. 첫 줄은 '🛒 <키워드> 핫딜 알림' 으로 "
+                             "시작한다. 키워드 글이 하나도 없으면 첫 줄 다음에 '해당 키워드 글이 아직 없어 최신 핫딜을 대신 "
+                             "보냅니다' 라고 쓰고 두 커뮤니티 *각각* 에서 최신 3개씩을 같은 형식으로 정리한다(한 커뮤니티만 "
+                             "쓰지 않는다). 링크는 XML 엔티티를 풀어 쓴다 — &amp; 는 & 로(그대로 두면 잘못된 글로 연결된다). "
+                             "어느 한 목록이 'HTTP Request "
+                             "Error' 로 시작하는 오류 문구면 그 커뮤니티는 건너뛴다. 두 목록이 모두 오류면 다른 말 없이 정확히 "
+                             "'핫딜 목록을 가져오지 못했습니다 — 잠시 후 다시 시도해 주세요.' 한 줄만 출력한다. 목록에 없는 글을 "
+                             "지어내지 않고, 링크는 입력의 link 값을 그대로 쓴다."))
+    n_cond = N("cond_result", "conditionNode",
+               rules=[{"id": "failed", "operator": "Contains", "value": "가져오지 못했습니다"}])
+    n_fail = N("fetch_fail_msg", "valueNode",
+               value="핫딜 목록을 가져오지 못했습니다 — 잠시 후 다시 시도해 주세요.")
+    n_mail = N("alert_mail", "emailNode", toEmail=owner_email, subject="[핫딜] 관심 키워드 알림")
     n_merge = N("merge1", "mergeNode")
     n_out = N("out1", "outputNode")
-    nodes = [n_pp, n_rw, n_feeds, n_cond, n_pick, n_mail, n_quiet, n_merge, n_out]
-    edges = [link(n_pp, n_feeds), link(n_pp, n_rw), link(n_rw, n_feeds), link(n_feeds, n_cond),
-             link(n_cond, n_pick, source_handle="hit"),
-             link(n_cond, n_quiet, source_handle="else"),
-             link(n_pick, n_mail), link(n_mail, n_merge), link(n_quiet, n_merge), link(n_merge, n_out)]
+    nodes = [n_start, n_in, n_fetch, n_fetch2, n_join, n_pick, n_cond, n_fail, n_mail, n_merge, n_out]
+    edges = [link(n_start, n_in), link(n_in, n_join), link(n_in, n_fetch), link(n_in, n_fetch2),
+             link(n_fetch, n_join), link(n_fetch2, n_join), link(n_join, n_pick), link(n_pick, n_cond),
+             link(n_cond, n_fail, source_handle="failed"),
+             link(n_cond, n_mail, source_handle="else"),
+             link(n_mail, n_merge), link(n_fail, n_merge), link(n_merge, n_out)]
     flows["핫딜 키워드 알림 → 이메일"] = (
-        f"뽐뿌 핫딜에 새 글이 올라오면 루리웹 핫딜도 함께 걷어 두 커뮤니티를 살피고, 제목에 "
-        f"키워드({HOTDEAL_KEYWORD})가 나오면 글 제목과 링크를 이메일로 알립니다. 키워드가 없으면 "
-        "조용히 기록만 남깁니다 — 감지 → 병렬 수집 → 병합 → 키워드 분기 → 알림의 완결 흐름. "
-        "(키워드는 조건 분기 노드에서 수정)", nodes, edges)
+        "관심 키워드를 넣으면 뽐뿌·어미새 핫딜에 지금 올라온 글을 병렬로 모아 그 키워드가 든 글의 제목과 링크를 "
+        "골라 이메일로 보냅니다. 해당 글이 없으면 최신 핫딜 5개를 대신 보내고, 목록을 못 가져오면 분기해 안내합니다 — "
+        "입력 → 병렬 수집 → 병합 → 골라내기 → 분기 → 발송의 완결 흐름.", nodes, edges)
 
     # WF2 — 유튜브 채널 최신 영상 요약 → 이메일 (채널 입력 → 채널 ID 조회 → 분기 → 공개 RSS → 요약 → 발송)
     # 2026-09-05 재설계: 예전 EBS *트리거* 는 (1) 계정별 구글 OAuth 가 필요해 게스트가 쓸 수 없고,
@@ -443,7 +452,10 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
         "일정과 먹거리 목록을 짜서 여행 일정표 Word(DOCX) 문서로 만들어 이메일로 보냅니다. 검색이 실패하면 "
         "분기해 안내합니다 — 입력 → 병렬 수집 → 병합 → 분기 → 일정 작성 → 문서화 → 발송. (층 1 QR 체험용)", nodes, edges)
 
-    # WF5 — 공고문 → 안내 포스터 (문안 정리 ∥ 배경 생성 → 병합 → 조립 → 디자인 포맷 PNG)
+    # WF5 — 공고문 → 안내 포스터 (문안 정리 → 디자인 포맷 PNG → 발송)
+    # 2026-09-08: 배경 이미지 생성 단계(bg_prompt_llm ∥ imageGenerationNode → 병합 → 조립)를 뺐다 — 시연 기간 안에
+    # 이미지 API 를 쓸 수 없다. 포스터 포맷의 backgroundImage 는 선택 필드라 문안 JSON 을 그대로 넣으면
+    # 어두운 그라데이션 배경 위에 문안만 놓인 PNG 가 나온다(실측 확인). 이미지 API 가 열리면 예전 4노드를 되살린다.
     n_start = N("start5", "startNode")
     n_in = N("in_notice", "dynamicInputNode", inputLabel="공고문 내용",
              testValue=("제10회 부산 청년 창업 아이디어 공모전을 개최합니다. "
@@ -454,34 +466,19 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
     n_copy = N("copy_llm", "llmNode", model="gpt-5.4-mini",
                systemPrompt=("입력은 공고문이다. 포스터에 실을 문안을 만든다 — 공고문에 있는 내용만 쓰고, "
                              "날짜·장소·대상·혜택·문의처 같은 필수 정보를 빠뜨리지 않는다. bodyText 는 "
-                             "대상·혜택·핵심 정보를 3~4줄로, 각 줄을 줄바꿈으로 구분한다."),
+                             "대상·혜택·핵심 정보를 3~4줄로, 각 줄을 줄바꿈으로 구분한다. dateLine·placeLine 은 "
+                             "값만 짧게 한 줄로 쓴다 — 포스터가 '일시'·'장소' 라벨을 따로 찍으므로 '접수 기간:', "
+                             "'장소:' 같은 라벨을 값에 넣지 않고, 상자가 한 줄이라 dateLine 30자·placeLine 25자를 넘기지 않는다."),
                useStructuredOutput=True, jsonSchema=POSTER_SCHEMA)
-    n_bgp = N("bg_prompt_llm", "llmNode", model="gpt-5.4-mini",
-              systemPrompt=("입력은 공고문이다. 이 공고의 주제·분위기에 어울리는 포스터 배경 이미지 생성 "
-                            "프롬프트를 영어 한 단락으로 출력한다. 조건: 글자·텍스트가 전혀 없는 배경 전용 "
-                            "일러스트, 세로 포스터 비율, 위쪽은 밝고 아래로 갈수록 어두워지는 톤(하단에 밝은 "
-                            "글자를 얹는다), 과하지 않은 현대적 스타일. 프롬프트만 출력한다."))
-    n_img = N("bg_image", "imageGenerationNode", action="generate", model="gpt-5.6",
-              size="1024x1536", quality="medium", background="opaque", outputFormat="png")
-    n_parts = N("merge_parts", "mergeNode")
-    n_asm = N("assemble_llm", "llmNode", model="gpt-5.4-mini",
-              systemPrompt=("입력에는 포스터 문안 JSON 과, 배경 이미지 생성 결과가 있다. 문안 값은 한 글자도 "
-                            "바꾸지 않는다. 생성 결과가 실제 파일 경로(예: uploads/xxxx.png 처럼 확장자가 있는 "
-                            "경로)면 backgroundImage 에 그 경로를 글자 그대로 넣고, 경로가 없거나 '⚠️' 오류 문구만 "
-                            "있으면 backgroundImage 는 빈 문자열(\"\")로 둔다. 예시 문구나 자리표시자를 경로로 "
-                            "쓰지 않는다. 완전한 JSON 만 출력한다."),
-              useStructuredOutput=True, jsonSchema=POSTER_ASSEMBLE_SCHEMA)
     n_doc = N("poster_doc", "formatNode", formatId=poster_format_id, output="png")
     n_mail = N("issue_mail", "emailNode", toEmail=owner_email, subject="[포스터] 안내 포스터 생성 완료")
     n_out = N("out5", "outputNode")
-    nodes = [n_start, n_in, n_copy, n_bgp, n_img, n_parts, n_asm, n_doc, n_mail, n_out]
-    edges = [link(n_start, n_in), link(n_in, n_copy), link(n_in, n_bgp),
-             link(n_bgp, n_img), link(n_copy, n_parts), link(n_img, n_parts),
-             link(n_parts, n_asm), link(n_asm, n_doc), link(n_doc, n_mail), link(n_mail, n_out)]
+    nodes = [n_start, n_in, n_copy, n_doc, n_mail, n_out]
+    edges = [link(n_start, n_in), link(n_in, n_copy), link(n_copy, n_doc), link(n_doc, n_mail), link(n_mail, n_out)]
     flows["공고문 → 안내 포스터"] = (
-        "공고문을 넣으면 문안 정리와 배경 이미지 생성을 병렬로 진행하고, 디자인 포맷(고정 골격)에 채워 "
-        "깨지지 않는 고품질 안내 포스터(PNG)를 만들어 이메일로 발송합니다 — 필수 정보(일시·장소·대상· "
-        "문의)가 빠짐없이 들어갑니다. 입력 → 병렬 생성 → 병합 → 조판 → 발송의 완결 흐름.", nodes, edges)
+        "공고문을 넣으면 필수 정보(일시·장소·대상·문의)를 빠짐없이 담은 포스터 문안을 정리하고, 디자인 포맷(고정 골격)에 "
+        "채워 깨지지 않는 안내 포스터(PNG)를 만들어 이메일로 발송합니다 — 입력 → 문안 정리 → 조판 → 발송의 완결 흐름.",
+        nodes, edges)
 
     return flows
 

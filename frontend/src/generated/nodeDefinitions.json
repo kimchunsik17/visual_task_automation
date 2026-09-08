@@ -4,7 +4,7 @@
     "category": "flow",
     "credentials": [],
     "display": {
-      "collapsedLabel": "Switch\nBranch",
+      "collapsedLabel": "조건\n분기",
       "color": "#0ea5e9",
       "icon": "node-condition",
       "label": "조건 분기"

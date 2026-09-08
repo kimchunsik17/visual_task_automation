@@ -21,7 +21,8 @@ from typing import Dict, Iterable, List
 
 
 def hidden_types() -> set:
-    return {t.strip() for t in os.getenv("HIDDEN_NODE_TYPES", "").split(",") if t.strip()}
+    import demo_settings  # 어드민 패널 오버라이드 → 없으면 .env
+    return set(demo_settings.get_list("HIDDEN_NODE_TYPES"))
 
 
 def strip_catalog(catalog: str) -> str:
