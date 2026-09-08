@@ -18,7 +18,7 @@
   WF2    유튜브 채널 최신 영상 요약 → 이메일    httpRequestNode(Data API 키·공개 RSS) + emailNode
   WF3    회사 분석 → 입사지원서(Word)          httpRequestNode + formatNode(job-application, docx) + emailNode
   WF4    여행지 → 여행 일정표                  naverSearchNode ×2 병렬 + formatNode(docx) + emailNode
-  WF5    공고문 → 안내 포스터                  imageGenerationNode + formatNode(디자인)
+  WF5    공고문 → 안내 포스터                  llmNode + formatNode(디자인, PNG) + emailNode
   APP1   여행 플래너            (WF4 연결 — 층 1 QR 체험용)
   APP2   입사 지원서 도우미      (WF3 연결 — 층 1 QR 체험용)
 
@@ -30,7 +30,8 @@
   - WF2 는 API 센터의 YouTube Data API 키(youtube_data_api)를 쓴다 — 게스트에게 공유하려면 .env 의
     DEMO_SHARED_CREDENTIALS_PROVIDERS 에 youtube_data_api 를 넣는다(공개 데이터 키라 공유해도 된다).
     구글 OAuth 는 더 이상 필요 없다. 검색은 하루 할당량 10,000 단위 중 100 을 쓴다(핸들 입력은 1).
-  - WF5 의 이미지 생성은 API 센터의 OpenAI 키가 필요하다.
+  - WF5 는 이미지 생성 단계를 뺐다(2026-09-08, 시연 기간 안에 이미지 API 를 쓸 수 없어서). 배경 없는 디자인 포맷
+    (어두운 그라데이션 + 문안)으로 PNG 를 만든다. imageGenerationNode 는 HIDDEN_NODE_TYPES 로 팔레트에서도 숨긴다.
   - 이메일 발송은 서비스 SMTP 설정을 따른다. 수신자는 {{USER_EMAIL}} 자리표시자 — 발송 직전 실행
     계정(게스트가 입장 뒤 등록한 이메일)으로 풀린다. 결과 문서는 부스 노트북에 한/글이 없을 수
     있어 Word(DOCX) 로 만든다(2026-09-05 결정).
@@ -264,16 +265,6 @@ POSTER_SCHEMA = json.dumps({
     "required": ["posterTitle", "bodyText", "dateLine", "placeLine"],
 }, ensure_ascii=False)
 
-POSTER_ASSEMBLE_SCHEMA = json.dumps({
-    "title": "NoticePosterAssembled",
-    "type": "object",
-    "properties": {**POSTER_FIELDS,
-                   "backgroundImage": {"type": "string",
-                                       "description": "입력에 있는 배경 이미지 파일 경로(uploads/…)를 글자 그대로"}},
-    "required": ["posterTitle", "bodyText", "dateLine", "placeLine", "backgroundImage"],
-}, ensure_ascii=False)
-
-
 # ── 워크플로우 5종 ───────────────────────────────────────────────────────
 
 def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE,
@@ -461,7 +452,10 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
         "일정과 먹거리 목록을 짜서 여행 일정표 Word(DOCX) 문서로 만들어 이메일로 보냅니다. 검색이 실패하면 "
         "분기해 안내합니다 — 입력 → 병렬 수집 → 병합 → 분기 → 일정 작성 → 문서화 → 발송. (층 1 QR 체험용)", nodes, edges)
 
-    # WF5 — 공고문 → 안내 포스터 (문안 정리 ∥ 배경 생성 → 병합 → 조립 → 디자인 포맷 PNG)
+    # WF5 — 공고문 → 안내 포스터 (문안 정리 → 디자인 포맷 PNG → 발송)
+    # 2026-09-08: 배경 이미지 생성 단계(bg_prompt_llm ∥ imageGenerationNode → 병합 → 조립)를 뺐다 — 시연 기간 안에
+    # 이미지 API 를 쓸 수 없다. 포스터 포맷의 backgroundImage 는 선택 필드라 문안 JSON 을 그대로 넣으면
+    # 어두운 그라데이션 배경 위에 문안만 놓인 PNG 가 나온다(실측 확인). 이미지 API 가 열리면 예전 4노드를 되살린다.
     n_start = N("start5", "startNode")
     n_in = N("in_notice", "dynamicInputNode", inputLabel="공고문 내용",
              testValue=("제10회 부산 청년 창업 아이디어 공모전을 개최합니다. "
@@ -476,32 +470,15 @@ def build_workflows(owner_email: str, travel_format_id: str = TRAVEL_FORMAT_BASE
                              "값만 짧게 한 줄로 쓴다 — 포스터가 '일시'·'장소' 라벨을 따로 찍으므로 '접수 기간:', "
                              "'장소:' 같은 라벨을 값에 넣지 않고, 상자가 한 줄이라 dateLine 30자·placeLine 25자를 넘기지 않는다."),
                useStructuredOutput=True, jsonSchema=POSTER_SCHEMA)
-    n_bgp = N("bg_prompt_llm", "llmNode", model="gpt-5.4-mini",
-              systemPrompt=("입력은 공고문이다. 이 공고의 주제·분위기에 어울리는 포스터 배경 이미지 생성 "
-                            "프롬프트를 영어 한 단락으로 출력한다. 조건: 글자·텍스트가 전혀 없는 배경 전용 "
-                            "일러스트, 세로 포스터 비율, 위쪽은 밝고 아래로 갈수록 어두워지는 톤(하단에 밝은 "
-                            "글자를 얹는다), 과하지 않은 현대적 스타일. 프롬프트만 출력한다."))
-    n_img = N("bg_image", "imageGenerationNode", action="generate", model="gpt-5.6",
-              size="1024x1536", quality="medium", background="opaque", outputFormat="png")
-    n_parts = N("merge_parts", "mergeNode")
-    n_asm = N("assemble_llm", "llmNode", model="gpt-5.4-mini",
-              systemPrompt=("입력에는 포스터 문안 JSON 과, 배경 이미지 생성 결과가 있다. 문안 값은 한 글자도 "
-                            "바꾸지 않는다. 생성 결과가 실제 파일 경로(예: uploads/xxxx.png 처럼 확장자가 있는 "
-                            "경로)면 backgroundImage 에 그 경로를 글자 그대로 넣고, 경로가 없거나 '⚠️' 오류 문구만 "
-                            "있으면 backgroundImage 는 빈 문자열(\"\")로 둔다. 예시 문구나 자리표시자를 경로로 "
-                            "쓰지 않는다. 완전한 JSON 만 출력한다."),
-              useStructuredOutput=True, jsonSchema=POSTER_ASSEMBLE_SCHEMA)
     n_doc = N("poster_doc", "formatNode", formatId=poster_format_id, output="png")
     n_mail = N("issue_mail", "emailNode", toEmail=owner_email, subject="[포스터] 안내 포스터 생성 완료")
     n_out = N("out5", "outputNode")
-    nodes = [n_start, n_in, n_copy, n_bgp, n_img, n_parts, n_asm, n_doc, n_mail, n_out]
-    edges = [link(n_start, n_in), link(n_in, n_copy), link(n_in, n_bgp),
-             link(n_bgp, n_img), link(n_copy, n_parts), link(n_img, n_parts),
-             link(n_parts, n_asm), link(n_asm, n_doc), link(n_doc, n_mail), link(n_mail, n_out)]
+    nodes = [n_start, n_in, n_copy, n_doc, n_mail, n_out]
+    edges = [link(n_start, n_in), link(n_in, n_copy), link(n_copy, n_doc), link(n_doc, n_mail), link(n_mail, n_out)]
     flows["공고문 → 안내 포스터"] = (
-        "공고문을 넣으면 문안 정리와 배경 이미지 생성을 병렬로 진행하고, 디자인 포맷(고정 골격)에 채워 "
-        "깨지지 않는 고품질 안내 포스터(PNG)를 만들어 이메일로 발송합니다 — 필수 정보(일시·장소·대상· "
-        "문의)가 빠짐없이 들어갑니다. 입력 → 병렬 생성 → 병합 → 조판 → 발송의 완결 흐름.", nodes, edges)
+        "공고문을 넣으면 필수 정보(일시·장소·대상·문의)를 빠짐없이 담은 포스터 문안을 정리하고, 디자인 포맷(고정 골격)에 "
+        "채워 깨지지 않는 안내 포스터(PNG)를 만들어 이메일로 발송합니다 — 입력 → 문안 정리 → 조판 → 발송의 완결 흐름.",
+        nodes, edges)
 
     return flows
 
