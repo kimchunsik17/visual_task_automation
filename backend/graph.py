@@ -886,7 +886,7 @@ def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=
     # 이 그래프의 계획을 세울 수 있는지만 확인해 실패를 기록한다 — 부작용 없이 실제 그래프 전수를 살피는 운영 신호.
     # (두 엔진의 실행 결과 대조는 mock 모드 오프라인 도구 engine_shadow_diff.py 가 한다.)
     import execution as _execution
-    engine = _execution.engine_mode()
+    engine = _execution.engine_mode(project_id=project_id)  # 프로젝트별 예외(ENGINE-0 6단계) 포함
     try:
         # We wrap it in a try-except to catch compile/runtime errors safely
         runtime_inputs = {**kwargs, **(user_inputs or {})}

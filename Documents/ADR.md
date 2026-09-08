@@ -2079,6 +2079,13 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
 - **발견**: conditionNode 규칙 값에 줄바꿈이 있으면 `condition_expr` 가 이스케이프하지 않아 생성 소스가 SyntaxError 로 거부된다
   (두 엔진 모두 같은 문구 — 등가지만 사용자에게는 결함, ROADMAP §3.14 py_str 항목에 기록). pythonNode 격리는 ADR-0019 로 이미
   있었다(인터프리터도 같은 본문을 쓰므로 같은 경로).
-- **남은 일**: 프로젝트별 feature flag(ENGINE-0 6단계) · 커뮤니티 242종 `--projects-json` 대조 · 스테이징 `shadow` 계획 검사.
-  executor 레지스트리 슬롯은 만들지 않았다 — 하이브리드에서 executor 는 두 종류(네이티브 6종·래퍼)뿐이고, 노드를 네이티브로
-  이식할 때(ENGINE-3) 타입별 슬롯이 처음 필요해진다.
+- **프로젝트별 전환(6단계, 2026-09-08)은 환경변수 예외로 한다** — `EXECUTION_ENGINE_PROJECT_OVERRIDES="12:interpreter,7:legacy"`.
+  `execution.engine_mode(project_id)` 가 기본값(`EXECUTION_ENGINE`) 위에 예외를 얹고, `run_workflow` 가 그 결과로 엔진을 고른다.
+  DB 컬럼·관리 API 를 두지 않은 이유: 켜고 끄는 주체가 운영자 한 사람이고 값이 바뀌는 시점이 배포와 같다. 형식이 틀린 항목은 한 번
+  경고하고 무시한다(오타 하나가 전체 실행을 바꾸면 안 된다). `/api/features` 가 기본값과 예외 수를 UI 힌트로 알린다.
+- **DB 전용 코퍼스 내보내기** `backend/export_community_graphs.py` — 게시된 템플릿의 최신 게시 버전 스냅샷(선택: 사용자 프로젝트)을
+  `[{title,nodes,edges}]` 로. 비밀 가림은 run_workflow 와 같은 규칙(접속 문자열 sentinel) + apiKey·accessToken 류 비움 — 두 엔진이
+  같은 가려진 그래프를 받으므로 대조는 성립한다. 내보낸 파일은 저장소 밖에 둔다.
+- **남은 일(운영 절차)**: PG 를 켜고 242종·사용자 프로젝트 대조 → 스테이징 `shadow` 계획 검사 → 프로젝트별 `:interpreter` → 기본값
+  interpreter. executor 레지스트리 슬롯은 만들지 않았다 — 하이브리드에서 executor 는 두 종류(네이티브 6종·래퍼)뿐이고, 노드를
+  네이티브로 이식할 때(ENGINE-3) 타입별 슬롯이 처음 필요해진다.
