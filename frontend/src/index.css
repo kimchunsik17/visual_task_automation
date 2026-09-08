@@ -2029,8 +2029,8 @@ button, input, textarea {
 
 /* Force Left/Right handles to align with the 140px square header vertically */
 /* Excludes condition nodes which have multiple handles with custom positions */
-.custom-node:not(.condition):not(.loop-node) .react-flow__handle-left:not(.fbind-port),
-.custom-node:not(.condition):not(.loop-node) .react-flow__handle-right:not(.fbind-port) {
+.custom-node:not(.condition):not(.loop-node) .react-flow__handle-left:not(.fbind-port):not(.node-port-handle),
+.custom-node:not(.condition):not(.loop-node) .react-flow__handle-right:not(.fbind-port):not(.node-port-handle) {
   top: 70px !important;
   transform: translateY(-50%) !important;
   z-index: 20 !important;
@@ -2053,8 +2053,8 @@ button, input, textarea {
 }
 
 /* Expanded nodes: handles should NOT be offset to collapsed center */
-.custom-node.expanded:not(.condition):not(.loop-node) .react-flow__handle-left:not(.fbind-port),
-.custom-node.expanded:not(.condition):not(.loop-node) .react-flow__handle-right:not(.fbind-port) {
+.custom-node.expanded:not(.condition):not(.loop-node) .react-flow__handle-left:not(.fbind-port):not(.node-port-handle),
+.custom-node.expanded:not(.condition):not(.loop-node) .react-flow__handle-right:not(.fbind-port):not(.node-port-handle) {
   top: 50% !important;
   transform: translateY(-50%) !important;
 }
@@ -2682,3 +2682,111 @@ button, input, textarea {
   cursor: default;
 }
 
+
+
+/* ── 흐름 노드 리프레시 (2026-09-06): 조건 분기·분배기·멀티 에이전트 ──────────────────────────────
+   .node-port-handle 은 포트 줄 *안*에 놓이는 핸들 — 위쪽의 전역 정렬 규칙(top 70px/50% !important)에서 뺀다.
+   분배기의 out/done 핸들이 그 규칙에 밀려 같은 자리에 겹쳐 있던 결함이 이걸로 사라진다. */
+.custom-node.condition { --cond-accent: #0ea5e9; --cond-pad: 14px; }
+.custom-node.condition .condition-count {
+  margin-left: auto; padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--cond-accent) 14%, transparent); color: var(--cond-accent);
+  font-size: 0.68rem; font-weight: 700; white-space: nowrap;
+}
+.custom-node.condition .condition-body { padding: 10px var(--cond-pad) 14px; gap: 10px; }
+.condition-section { display: flex; flex-direction: column; gap: 2px; }
+.condition-section > span { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.02em; }
+.condition-section > small { font-size: 0.68rem; line-height: 1.4; color: var(--text-muted); opacity: 0.85; }
+.condition-rules { display: flex; flex-direction: column; gap: 8px; }
+.condition-rule {
+  position: relative; display: grid; grid-template-columns: 22px 108px 1fr 22px;
+  align-items: center; gap: 6px; min-height: 36px;
+}
+.condition-rule-index {
+  width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px;
+  background: color-mix(in srgb, var(--cond-accent) 16%, transparent); color: var(--cond-accent);
+  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 800;
+}
+.condition-rule-index.is-else { background: color-mix(in srgb, #94a3b8 18%, transparent); color: #94a3b8; font-size: 0.56rem; }
+.condition-rule select, .condition-rule input {
+  height: 32px; padding: 0 8px; min-width: 0; border-radius: 8px;
+  border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);
+  font: inherit; font-size: 0.78rem;
+}
+.condition-rule select:focus, .condition-rule input:focus {
+  outline: none; border-color: var(--cond-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cond-accent) 25%, transparent);
+}
+.condition-rule-remove {
+  width: 22px; height: 22px; border: none; border-radius: 6px; background: transparent;
+  color: var(--text-muted); cursor: pointer; font-size: 0.75rem; line-height: 1; opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background-color 0.15s;
+}
+.condition-rule:hover .condition-rule-remove, .condition-rule-remove:focus-visible { opacity: 1; }
+.condition-rule-remove:hover { color: #ef4444; background: color-mix(in srgb, #ef4444 12%, transparent); }
+.condition-rule-remove:disabled { opacity: 0 !important; cursor: default; }
+.condition-add {
+  width: 100%; height: 32px; border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--cond-accent) 45%, var(--border-color));
+  background: transparent; color: var(--text-muted); font: inherit; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.condition-add:hover { background: color-mix(in srgb, var(--cond-accent) 10%, transparent); color: var(--cond-accent); }
+.condition-else {
+  position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center;
+  min-height: 36px; margin-top: 2px; padding-top: 10px; border-top: 1px dashed var(--border-color);
+}
+.condition-else > div { display: flex; flex-direction: column; gap: 1px; }
+.condition-else strong { font-size: 0.78rem; color: var(--text-color); }
+.condition-else small { font-size: 0.68rem; color: var(--text-muted); }
+.custom-node.condition .condition-port {
+  right: calc(-1 * var(--cond-pad) - 7px) !important; top: 50% !important; transform: translateY(-50%) !important;
+  width: 12px; height: 12px; border: 2px solid var(--card-bg); background: var(--cond-accent);
+}
+.custom-node.condition .condition-else .condition-port { top: calc(50% + 5px) !important; }
+.custom-node.condition .condition-port.is-else { background: #94a3b8; }
+
+.custom-node.special-flow-node .distributor-body { gap: 12px; }
+.distributor-flow {
+  display: flex; align-items: center; justify-content: center; gap: 14px; padding: 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--special-node-accent) 7%, var(--bg-color));
+  border: 1px solid color-mix(in srgb, var(--special-node-accent) 22%, var(--border-color));
+}
+.distributor-stack, .distributor-one { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.distributor-stack i, .distributor-one i { display: block; width: 44px; height: 8px; border-radius: 3px; background: color-mix(in srgb, var(--special-node-accent) 55%, transparent); }
+.distributor-stack i:nth-child(2) { opacity: 0.72; }
+.distributor-stack i:nth-child(3) { opacity: 0.45; }
+.distributor-one i { background: var(--special-node-accent); }
+.distributor-stack span, .distributor-one span { margin-top: 2px; font-size: 0.66rem; font-weight: 600; color: var(--text-muted); }
+.distributor-arrow { color: var(--special-node-accent); font-size: 1.05rem; font-weight: 700; }
+.distributor-hint { margin: 0; font-size: 0.72rem; line-height: 1.5; color: var(--text-muted); }
+.distributor-hint b { color: var(--text-color); font-weight: 600; }
+.flow-ports { display: flex; flex-direction: column; gap: 6px; }
+.flow-port {
+  position: relative; display: grid; grid-template-columns: 10px 1fr; align-items: center; gap: 10px;
+  min-height: 38px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-color);
+}
+.flow-port > div { display: flex; flex-direction: column; gap: 1px; }
+.flow-port strong { font-size: 0.78rem; color: var(--text-color); }
+.flow-port small { font-family: var(--font-mono); font-size: 0.55rem; letter-spacing: 0.06em; color: var(--text-muted); }
+.flow-port-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--special-node-accent); }
+.flow-port-done .flow-port-dot { background: #f97316; }
+.custom-node.special-flow-node .flow-port-handle {
+  right: -22px !important; top: 50% !important; transform: translateY(-50%) !important;
+  width: 12px; height: 12px; border: 2px solid var(--card-bg); background: var(--special-node-accent);
+}
+.custom-node.special-flow-node .flow-port-done .flow-port-handle { background: #f97316; }
+
+.multi-agent-modes {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 10px;
+  background: var(--bg-color); border: 1px solid var(--border-color);
+}
+.multi-agent-mode {
+  height: 30px; border: none; border-radius: 7px; background: transparent; color: var(--text-muted);
+  font: inherit; font-size: 0.74rem; font-weight: 600; cursor: pointer; transition: background-color 0.15s, color 0.15s;
+}
+.multi-agent-mode:hover { color: var(--text-color); }
+.multi-agent-mode.is-active {
+  background: color-mix(in srgb, #6366f1 18%, var(--card-bg)); color: #a5b4fc;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #6366f1 45%, transparent);
+}
