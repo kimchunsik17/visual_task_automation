@@ -293,14 +293,17 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    나란히 실행하지 않는 이유: 부작용(메일·게시)이 두 번 나가고 LLM 이 비결정적이라 대조가 성립하지 않는다.
    **남은 대조**: 커뮤니티 갤러리 242종·사용자 프로젝트는 DB 전용 — `backend/export_community_graphs.py`(비밀 가림: 접속 문자열은
    run_workflow 와 같은 sentinel, apiKey 류는 비움)로 내보내 `--projects-json` 으로 전환 전 한 번 돌린다. PG 가 켜져 있어야 한다.
-5. ~~**pythonNode 격리.**~~ **이미 있었다(ADR-0019)** — `python_runtime.run_isolated` 가 자식 프로세스(rlimit·시간 제한)에서
-   돌린다. 인터프리터도 같은 본문을 쓰므로 같은 경로다. 네트워크 차단은 아직이다 — 13번(커뮤니티 노드 SDK) 전에 확인.
+5. ~~**pythonNode 격리.**~~ **완료** — rlimit·시간 제한은 ADR-0019 로 이미 있었고, **네트워크 차단은 2026-09-08 추가**
+   (`python_sandbox._block_network`: 자식 프로세스 안에서 소켓 연결·이름 풀이 거부. 허용 목록이 import 를 막는 것이 첫 선,
+   이것이 둘째 선). 인터프리터도 같은 본문을 쓰므로 같은 경로다. 13번(커뮤니티 노드 SDK)의 전제 인프라가 갖춰졌다.
 6. ~~프로젝트별 feature flag~~ **구현(2026-09-08)** — `EXECUTION_ENGINE`(기본값) + `EXECUTION_ENGINE_PROJECT_OVERRIDES="12:interpreter,7:legacy"`
    (프로젝트별 예외, 재시작 없이 다음 실행부터). `graph.run_workflow` 가 `execution.engine_mode(project_id)` 로 판정하고 `/api/features`
    가 기본값과 예외 수를 알린다. DB 컬럼을 두지 않은 이유: 켜고 끄는 주체가 운영자 한 사람이고 값이 바뀌는 시점이 배포와 같다 —
    사용자 수만큼 늘어나면 그때 컬럼으로. **남은 운영 절차**: ① PG 켜고 `export_community_graphs.py out.json --include-projects` →
    `engine_shadow_diff.py --projects-json out.json` 차이 0 확인 ② 시연 뒤 스테이징 `EXECUTION_ENGINE=shadow` 로 실 그래프 계획 검사
    (`execution.shadow_plan_failures` 가 비어 있는지) ③ 몇 프로젝트를 `:interpreter` 로 ④ 기본값 interpreter, 문제 프로젝트만 `:legacy`.
+   **①의 로컬 결과(2026-09-08)**: 로컬 DB 에는 게시 템플릿 0건·프로젝트 10건뿐 — 내장 300 + 10 = 310 그래프 차이 0. 갤러리 242종은
+   **운영 DB** 에만 있으므로 서버에서 `export_community_graphs.py` 를 돌리거나 덤프를 받아 로컬에서 돌린다. 도구는 준비돼 있다.
 
 **설계 메모(2026-09-06, ADR-0027).** ① 인터프리터는 실행 전에 **정적 계획**을 세운다 — 재합류 자리는 실행 시점 도착 수로
 판정할 수 없다(배타 분기의 한 갈래만 실행돼도 merge 는 분기 뒤에서 한 번 실행돼야 한다). 옛 엔진과 같은 순서로 걷되 코드

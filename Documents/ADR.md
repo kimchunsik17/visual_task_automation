@@ -2086,6 +2086,12 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
 - **DB 전용 코퍼스 내보내기** `backend/export_community_graphs.py` — 게시된 템플릿의 최신 게시 버전 스냅샷(선택: 사용자 프로젝트)을
   `[{title,nodes,edges}]` 로. 비밀 가림은 run_workflow 와 같은 규칙(접속 문자열 sentinel) + apiKey·accessToken 류 비움 — 두 엔진이
   같은 가려진 그래프를 받으므로 대조는 성립한다. 내보낸 파일은 저장소 밖에 둔다.
-- **남은 일(운영 절차)**: PG 를 켜고 242종·사용자 프로젝트 대조 → 스테이징 `shadow` 계획 검사 → 프로젝트별 `:interpreter` → 기본값
+- **pythonNode 샌드박스 네트워크 차단(2026-09-08)** — `python_sandbox._block_network` 가 자식 프로세스 안에서 `socket` 의 연결·
+  이름 풀이·bind 를 거부한다. 허용 목록이 import 를 막아 사용자 코드가 socket 에 닿을 길은 없지만, 허용 목록이 느슨해지는 날
+  자식 프로세스가 마지막 선이어야 한다(로드맵 5단계의 '네트워크 차단'). `resource` import 를 guard 해 Windows 에서도 차단 함수를
+  검증할 수 있게 했다 — 한도는 여전히 POSIX 에서만 걸리고, 없으면 실행을 거부한다.
+- **DB 코퍼스 대조(2026-09-08)**: 로컬 DB(게시 템플릿 0·프로젝트 10) 포함 310 그래프 차이 0. 갤러리 242종은 운영 DB 에만 있어
+  서버에서 내보내야 한다.
+- **남은 일(운영 절차)**: 운영 DB 에서 242종 내보내 대조 → 스테이징 `shadow` 계획 검사 → 프로젝트별 `:interpreter` → 기본값
   interpreter. executor 레지스트리 슬롯은 만들지 않았다 — 하이브리드에서 executor 는 두 종류(네이티브 6종·래퍼)뿐이고, 노드를
   네이티브로 이식할 때(ENGINE-3) 타입별 슬롯이 처음 필요해진다.
