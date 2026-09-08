@@ -302,7 +302,7 @@ def test_frontend_bundle_carries_ui_metadata():
     ]
     json_schema_field = next(f for f in bundle["llmNode"]["fields"] if f["name"] == "jsonSchema")
     assert json_schema_field["showWhen"] == {"field": "useStructuredOutput", "truthy": True}
-    assert bundle["conditionNode"]["display"]["collapsedLabel"] == "Switch\nBranch"
+    assert bundle["conditionNode"]["display"]["collapsedLabel"] == "조건\n분기"
 
 
 # ── 화면 등록 ───────────────────────────────────────────────────────────

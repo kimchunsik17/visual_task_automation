@@ -6,8 +6,11 @@ Database Query 는 운영에서 SQLite URI 를 열지 않는다(서버 파일 �
 
 import os
 import sys
+import tempfile
 
 os.environ.setdefault("DATABASE_QUERY_ALLOW_SQLITE", "1")
+# 시연 런타임 설정 오버라이드(demo_settings)는 테스트 전용 빈 파일로 — 운영 backend 에서 돌릴 때 운영 값을 읽지 않게
+os.environ.setdefault("DEMO_RUNTIME_SETTINGS_PATH", os.path.join(tempfile.gettempdir(), "wf-test-demo-settings.json"))
 
 # ── 운영 DB 차단 가드 (2026-08-31) ────────────────────────────────────────
 # test_auth_enforcement.py 가 SessionLocal() 을 그대로 써서 운영 RDS 에 붙어, 테스트가 만든

@@ -111,3 +111,6 @@ backend/test_run.db
 
 # 런타임 오류 로그 (전역 예외 핸들러가 씀)
 backend/error_log.txt
+# 어드민 시연 패널의 런타임 설정 오버라이드(서버 로컬 상태)
+backend/demo_runtime_settings.json
+backend/demo_runtime_settings.json.tmp
