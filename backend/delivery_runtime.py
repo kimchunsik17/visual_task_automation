@@ -139,6 +139,21 @@ def resolve_recipient(to_email: str, *, db=None, owner_user_id: int = 0) -> str:
     return raw.replace(USER_EMAIL_PLACEHOLDER, email).strip(" ,;")
 
 
+def _record_email_sent(db, *, owner_user_id: int, project_id, recipients: int, attachments: int) -> None:
+    """발송 성공 1건을 flow_execution_logs 에 event_type="email_sent" 로 남긴다 — 어드민 시연 패널이 오늘 발송 수
+    (Gmail 일 한도 500통)를 이걸로 센다. 기록 실패가 발송 결과를 바꾸면 안 된다."""
+    if db is None or not owner_user_id:
+        return
+    try:
+        import usage_tracking
+        usage_tracking.record_usage(
+            db, billable_user_id=int(owner_user_id), actor_user_id=int(owner_user_id), project_id=project_id,
+            total_tokens=0, deduct_balance=False, event_type="email_sent", outcome="success", trigger_type="smtp",
+            result=json.dumps({"recipients": recipients, "attachments": attachments}))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[delivery] 발송 기록 실패(발송은 완료): {exc}")
+
+
 def _failure(error, *, passthrough: str, prefix: str = "") -> NodeResult:
     """실패해도 만들려던 본문은 버리지 않는다.
 
@@ -368,6 +383,8 @@ def send_smtp(
         ), passthrough=message_body, prefix="이메일 발송 실패: ")
 
     report = attachment_report(resolved)
+    _record_email_sent(db, owner_user_id=owner_user_id, project_id=project_id,
+                       recipients=len(recipients), attachments=len(resolved))
     return NodeResult.success(
         # SMTP 는 provider message ID 를 돌려주지 않는다. 우리가 만든 Message-ID 를 쓴다 —
         # 재시도 판단은 effectState 로 하지 이 값으로 하지 않는다.

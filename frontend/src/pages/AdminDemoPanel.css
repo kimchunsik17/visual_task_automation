@@ -1,0 +1,44 @@
+/* AdminDemoPanel.css — 어드민 '시연 관리' 탭. AdminPage.css 의 카드·표 클래스를 그대로 쓰고 여기엔 이 탭만의 것만 둔다. */
+.demo-admin { display: flex; flex-direction: column; gap: 1.25rem; }
+.demo-admin-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1.25rem; }
+@media (max-width: 1100px) { .demo-admin-grid { grid-template-columns: 1fr; } }
+.demo-admin .admin-metric-card small.quota { color: var(--text-muted); }
+.demo-admin .admin-metric-card.warn strong { color: #f59e0b; }
+.demo-admin .admin-metric-card.danger strong { color: #ef4444; }
+
+.demo-settings { display: flex; flex-direction: column; gap: 0.9rem; padding: 0 1.25rem 1.25rem; }
+.demo-setting-row { display: grid; grid-template-columns: 1fr auto; gap: 0.75rem; align-items: center; padding: 0.7rem 0; border-top: 1px solid var(--border-color); }
+.demo-setting-row:first-child { border-top: none; }
+.demo-setting-row > div strong { display: block; font-size: 0.9rem; color: var(--text-color); }
+.demo-setting-row > div small { display: block; margin-top: 2px; font-size: 0.74rem; color: var(--text-muted); line-height: 1.45; }
+.demo-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 0.66rem; font-weight: 700; vertical-align: middle;
+  background: color-mix(in srgb, #3b82f6 16%, transparent); color: #60a5fa; }
+.demo-badge.env { background: color-mix(in srgb, #94a3b8 16%, transparent); color: #94a3b8; }
+.demo-switch { position: relative; width: 44px; height: 24px; border-radius: 999px; border: none; cursor: pointer;
+  background: var(--border-color); transition: background-color 0.18s; }
+.demo-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.18s; }
+.demo-switch.on { background: #3b82f6; }
+.demo-switch.on::after { transform: translateX(20px); }
+.demo-setting-row input[type='number'] { width: 120px; height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-color);
+  background: var(--bg-color); color: var(--text-color); font: inherit; font-size: 0.88rem; text-align: right; }
+.demo-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.demo-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border-color);
+  background: var(--bg-color); color: var(--text-muted); font-size: 0.74rem; cursor: pointer; user-select: none; }
+.demo-chip.on { border-color: color-mix(in srgb, #ef4444 45%, var(--border-color)); background: color-mix(in srgb, #ef4444 10%, var(--bg-color)); color: #fca5a5; }
+.demo-chip input { display: none; }
+.demo-settings-actions { display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+.demo-settings-actions .hint { margin-right: auto; font-size: 0.74rem; color: var(--text-muted); }
+.demo-btn { height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-color);
+  color: var(--text-color); font: inherit; font-size: 0.84rem; font-weight: 600; cursor: pointer; }
+.demo-btn.primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+.demo-btn.danger { border-color: color-mix(in srgb, #ef4444 45%, var(--border-color)); color: #f87171; }
+.demo-btn:disabled { opacity: 0.55; cursor: default; }
+.demo-inline-check { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--text-muted); }
+.demo-status-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; }
+.demo-status-pill.success { background: color-mix(in srgb, #34d399 16%, transparent); color: #34d399; }
+.demo-status-pill.error { background: color-mix(in srgb, #ef4444 16%, transparent); color: #f87171; }
+.demo-guest-tag { margin-left: 6px; font-size: 0.66rem; color: #a5b4fc; }
+.demo-error-list { display: flex; flex-direction: column; gap: 6px; padding: 0 1.25rem 1.25rem; }
+.demo-error-list > div { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--bg-color); border: 1px solid var(--border-color); font-size: 0.8rem; }
+.demo-error-list code { font-family: var(--font-mono); font-size: 0.74rem; color: #fca5a5; }
+.demo-note { margin: 0; padding: 0 1.25rem 1rem; font-size: 0.76rem; color: var(--text-muted); line-height: 1.5; }

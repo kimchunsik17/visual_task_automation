@@ -966,7 +966,8 @@ def demo_guest_tokens() -> int:
     """게스트 1명에게 주는 토큰 — 시연을 충분히 끝낼 만큼만. 소진되면 실행이 차단되고
     (기존 token_balance<=0 게이트), 모자라면 어드민 화면에서 충전한다."""
     try:
-        return max(1000, min(int(os.getenv("DEMO_GUEST_TOKENS", "50000")), 2_000_000))
+        import demo_settings
+        return max(1000, min(demo_settings.get_int("DEMO_GUEST_TOKENS", 50000), 2_000_000))
     except ValueError:
         return 50000
 
@@ -974,7 +975,8 @@ def demo_guest_tokens() -> int:
 def demo_guest_max() -> int:
     """게스트 계정 총량 상한 — 인증 없는 입구라 행 폭주를 막는다(공개 실행 입력 상한과 같은 취지)."""
     try:
-        return max(1, min(int(os.getenv("DEMO_GUEST_MAX", "300")), 5000))
+        import demo_settings
+        return max(1, min(demo_settings.get_int("DEMO_GUEST_MAX", 300), 5000))
     except ValueError:
         return 300
 
@@ -989,7 +991,8 @@ def auth_guest(db: Session = Depends(get_db)):
     그대로 쓴다(로그아웃하면 프론트가 자동 게스트 입장을 멈춘다). 시연 후 환경변수만
     지우면 입구가 닫힌다. 게스트는 일반 사용자다(admin 아님).
     """
-    if not os.getenv("DEMO_GUEST"):
+    import demo_settings
+    if not demo_settings.get_bool("DEMO_GUEST"):
         raise HTTPException(status_code=404, detail="시연 게스트 입장이 꺼져 있습니다.")
     guest_count = db.query(models.User).filter(models.User.google_id.like("demo-guest-%")).count()
     if guest_count >= demo_guest_max():
@@ -1009,6 +1012,13 @@ def auth_guest(db: Session = Depends(get_db)):
         seed_demo_booth.seed(db, user, validate=False)
     except Exception as exc:  # noqa: BLE001 — 시딩 실패는 입장 실패가 아니다
         print(f"[demo-guest] 시연 콘텐츠 시딩 실패(빈 계정으로 입장): {exc}")
+    try:
+        import demo_admin
+        record_usage(db, billable_user_id=user.id, actor_user_id=user.id, total_tokens=0, deduct_balance=False,
+                     event_type=demo_admin.EVENT_GUEST_ENTRY, outcome="success", trigger_type="guest_entry")
+        db.commit()   # record_usage 는 커밋하지 않는다 — 다른 세션(어드민 개요)이 바로 봐야 한다
+    except Exception as exc:  # noqa: BLE001 — 집계 기록 실패는 입장 실패가 아니다
+        print(f"[demo-guest] 입장 기록 실패: {exc}")
     print(f"[demo-guest] 게스트 입장 user={user.id} ({user.google_id}) — "
           f"토큰 {user.token_balance:,} · 게스트 {guest_count + 1}/{demo_guest_max()}")
 
@@ -1042,7 +1052,8 @@ def auth_guest_profile(payload: DemoGuestProfilePayload,
     (delivery_runtime.resolve_recipient), 여기서 등록한 주소가 곧 결과 수신처다. 표시 이름은
     '(시연용)이름' — 부스 화면에서 시연 계정임이 바로 보인다. 오타를 고칠 수 있게 다시 호출해도 된다.
     """
-    if not os.getenv("DEMO_GUEST") or not str(user.google_id or "").startswith("demo-guest-"):
+    import demo_settings
+    if not demo_settings.get_bool("DEMO_GUEST") or not str(user.google_id or "").startswith("demo-guest-"):
         raise HTTPException(status_code=404, detail="시연 게스트 전용입니다.")
     email = str(payload.email or "").strip()
     if len(email) > 254 or not _DEMO_GUEST_EMAIL_RE.match(email) or email.lower().endswith("@demo.local"):
@@ -1055,6 +1066,71 @@ def auth_guest_profile(payload: DemoGuestProfilePayload,
     print(f"[demo-guest] 프로필 등록 user={user.id} name={user.name!r} email_domain={email.rsplit('@', 1)[-1]}")
     return {"user": {"id": user.id, "name": user.name, "email": user.email,
                      "picture": user.picture, "is_admin": is_admin_user(user)}}
+
+
+
+class DemoSettingsPayload(BaseModel):
+    DEMO_UI: Optional[bool] = None
+    DEMO_GUEST: Optional[bool] = None
+    DEMO_GUEST_TOKENS: Optional[int] = None
+    DEMO_GUEST_MAX: Optional[int] = None
+    HIDDEN_NODE_TYPES: Optional[List[str]] = None
+    # 지울 키 — .env 값으로 되돌린다
+    reset: Optional[List[str]] = None
+
+
+class DemoCleanupPayload(BaseModel):
+    keep_active_minutes: int = 0
+
+
+@app.get("/api/admin/demo/overview")
+def admin_demo_overview(user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    """시연 관리 패널 — 게스트 현황·오늘 실행/발송/공유키 사용·런타임 설정을 한 번에."""
+    import demo_admin
+    return demo_admin.overview(db)
+
+
+@app.get("/api/admin/demo/guests")
+def admin_demo_guests(user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    import demo_admin
+    return {"guests": demo_admin.guests(db)}
+
+
+@app.post("/api/admin/demo/guests/cleanup")
+def admin_demo_cleanup(payload: DemoCleanupPayload = Body(default=DemoCleanupPayload()),
+                       user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    """게스트 계정 전부 삭제(옵션: 최근 N분 안에 실행한 게스트는 유지). 예전엔 SSH 로 스크립트를 돌렸다."""
+    import demo_admin
+    result = demo_admin.cleanup_guests(db, keep_active_minutes=max(0, min(int(payload.keep_active_minutes), 1440)))
+    print(f"[demo-admin] 정리 요청 by user={user.id}: {result}")
+    return result
+
+
+@app.get("/api/admin/demo/runs")
+def admin_demo_runs(limit: int = 30, user: models.User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
+    import demo_admin
+    return {"runs": demo_admin.recent_runs(db, limit=limit)}
+
+
+@app.get("/api/admin/demo/settings")
+def admin_demo_settings(user: models.User = Depends(get_current_admin_user)):
+    import demo_settings
+    return demo_settings.snapshot()
+
+
+@app.put("/api/admin/demo/settings")
+def admin_demo_settings_update(payload: DemoSettingsPayload, user: models.User = Depends(get_current_admin_user)):
+    """재기동 없이 시연 플래그를 바꾼다. 값은 파일에 오버라이드로 저장되고, reset 에 든 키는 .env 로 되돌린다."""
+    import demo_settings
+    patch = {k: v for k, v in payload.model_dump(exclude={"reset"}).items() if v is not None}
+    for key in payload.reset or []:
+        patch[key] = None
+    try:
+        result = demo_settings.update(patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    print(f"[demo-admin] 설정 변경 by user={user.id}: {patch}")
+    return result
 
 
 @app.get("/api/admin/users")
@@ -1347,6 +1423,7 @@ def get_features():
     import db_query_runtime
     import python_runtime
     import hidden_nodes as hidden_nodes_module
+    import demo_settings
     return {
         "database_query_v2": db_query_runtime.v2_enabled(),
         "node_error_v1": node_error_runtime.is_enabled(),
@@ -1360,10 +1437,10 @@ def get_features():
         "hidden_nodes": sorted(hidden_nodes_module.hidden_types()),
         # 시연 UI 트림(opt-in) — 켜져 있으면 프론트가 API 센터·쪽지·통계 등 부스에서
         # 불필요한 표면을 숨긴다. 백엔드 기능은 그대로다(운영 계정 작업용).
-        "demo_ui": bool(os.getenv("DEMO_UI")),
+        "demo_ui": demo_settings.get_bool("DEMO_UI"),
         # 시연 게스트 입장(opt-in) — 켜져 있으면 프론트가 비로그인 방문자를 자동으로
         # 게스트 계정(/api/auth/guest)으로 들여보낸다. 관리자는 로그아웃 후 구글 로그인.
-        "demo_guest": bool(os.getenv("DEMO_GUEST")),
+        "demo_guest": demo_settings.get_bool("DEMO_GUEST"),
     }
 
 
@@ -1554,15 +1631,31 @@ def check_node_quotas(user_id: int, new_graph_data: dict, db: Session, exclude_p
     if total_schedules + new_schedules > 2:
         raise HTTPException(status_code=400, detail="Maximum 2 schedules allowed per user.")
 
+def _max_manual_workflows() -> int:
+    """사용자당 수동 워크플로우 상한. env MAX_MANUAL_WORKFLOWS 로 조절(기본 5, 1~1000)."""
+    try:
+        return max(1, min(int(os.getenv("MAX_MANUAL_WORKFLOWS", "5")), 1000))
+    except ValueError:
+        return 5
+
+
 @app.post("/api/projects")
 def create_project(payload: ProjectCreate, user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
     if not (payload.description and payload.description.startswith("Auto-generated backend workflow")):
+        # 사용자당 수동 워크플로우 상한(MAX_MANUAL_WORKFLOWS, 기본 5). 시연 게스트는 입장 때 시연 콘텍츠 5종을
+        # 복사받으므로 그것까지 세면 새 워크플로우를 하나도 못 만든다(2026-09-06 부스 점검에서 400 확인) —
+        # 부스가 심어 준 콘텍츠([시연] 접두)는 사용자가 만든 것이 아니니 셈에서 뺀다.
+        from seed_demo_booth import TITLE_PREFIX as _demo_prefix
         manual_projects_count = db.query(models.Project).filter(
             models.Project.user_id == user.id,
-            ~models.Project.description.startswith("Auto-generated backend workflow")
+            ~models.Project.description.startswith("Auto-generated backend workflow"),
+            ~models.Project.title.startswith(_demo_prefix),
         ).count()
-        if manual_projects_count >= 5:
-            raise HTTPException(status_code=400, detail="Maximum 5 workflows allowed per user.")
+        if manual_projects_count >= _max_manual_workflows():
+            raise HTTPException(
+                status_code=400,
+                detail=f"워크플로우는 최대 {_max_manual_workflows()}개까지 만들 수 있습니다. 기존 워크플로우를 삭제한 뒤 다시 시도해 주세요.",
+            )
 
     check_node_quotas(user.id, payload.graph_data, db)
     project = models.Project(
@@ -2370,6 +2463,7 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db),
     try:
         result_text, tokens, logs = run_workflow(
             payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id,
+            executor_user_id=user.id,   # 저장 전 그래프도 실행한 사람을 소유자로 — {{USER_EMAIL}} 수신자 해석
             stop_node_id=payload.stop_node_id, scope_node_ids=payload.scope_node_ids,
             pinned_outputs=payload.pinned_outputs,
             **({"approval_decisions": payload.approval_decisions} if payload.approval_decisions else {}),

@@ -94,6 +94,7 @@ function App() {
           <Route path="/admin/users" element={<AdminRoute><AdminPage view="users" /></AdminRoute>} />
           <Route path="/admin/llm" element={<AdminRoute><AdminPage view="llm" /></AdminRoute>} />
           <Route path="/admin/feedback" element={<AdminRoute><AdminPage view="feedback" /></AdminRoute>} />
+          <Route path="/admin/demo" element={<AdminRoute><AdminPage view="demo" /></AdminRoute>} />
           <Route path="/moderation" element={<RequireAuth><LegacyRedirect to="/admin/moderation" /></RequireAuth>} />
           <Route path="/patch-notes" element={<RequireAuth><PatchNotesPage /></RequireAuth>} />
           <Route path="/editor/:projectId?" element={<RequireAuth><EditorPage /></RequireAuth>} />

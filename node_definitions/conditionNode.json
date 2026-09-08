@@ -4,7 +4,7 @@
   "category": "flow",
   "display": {
     "label": "조건 분기",
-    "collapsedLabel": "Switch\nBranch",
+    "collapsedLabel": "조건\n분기",
     "icon": "node-condition",
     "color": "#0ea5e9"
   },

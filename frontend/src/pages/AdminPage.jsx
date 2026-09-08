@@ -9,6 +9,7 @@ import {
 import MainSidebar from '../MainSidebar';
 import { useAuth } from '../AuthContext';
 import { ModerationPanel } from './ModerationPage';
+import AdminDemoPanel from './AdminDemoPanel';
 import './AdminPage.css';
 
 const formatNumber = (value) => Number(value ?? 0).toLocaleString('ko-KR');
@@ -19,6 +20,7 @@ const ADMIN_SECTIONS = [
   { id: 'users', label: '사용자', path: '/admin/users', icon: Users, adminOnly: true },
   { id: 'llm', label: 'LLM 운영', path: '/admin/llm', icon: BrainCircuit, adminOnly: true },
   { id: 'feedback', label: '피드백', path: '/admin/feedback', icon: MessageSquareText, adminOnly: true },
+  { id: 'demo', label: '시연 관리', path: '/admin/demo', icon: Sparkles, adminOnly: true },
 ];
 
 const VIEW_COPY = {
@@ -27,6 +29,7 @@ const VIEW_COPY = {
   users: ['사용자 관리', '계정 정보와 토큰 잔액을 확인하고 조정합니다.'],
   llm: ['LLM 운영', '생성 품질, 라우팅, 로컬 모델 상태를 확인합니다.'],
   feedback: ['사용자 피드백', '사이트 평가 점수와 정성 의견을 함께 검토합니다.'],
+  demo: ['시연 관리', '게스트 현황·정리, 시연 모드 전환, 오늘의 실행·발송·할당량을 한 화면에서 봅니다.'],
 };
 
 function averageScore(scores) {
@@ -84,6 +87,8 @@ function AdminPage({ view = 'overview' }) {
         ]);
         setLlmOperations(operationsResponse.data);
         setLlmHealth(healthResponse.data);
+      } else if (view === 'demo') {
+        // 시연 패널은 스스로 불러온다(AdminDemoPanel)
       } else if (view === 'feedback') {
         const response = await axios.get('/api/admin/feedbacks', config);
         setFeedbacks(Array.isArray(response.data) ? response.data : []);
@@ -209,9 +214,12 @@ function AdminPage({ view = 'overview' }) {
                 <button type="button" onClick={() => navigate('/admin/moderation')}><span className="amber"><ShieldCheck size={17} /></span><div><strong>신고 검수</strong><small>{moderationSummary?.openReports ?? 0}건의 접수 신고 확인</small></div><ArrowRight size={15} /></button>
                 <button type="button" onClick={() => navigate('/admin/users')}><span><Users size={17} /></span><div><strong>사용자 관리</strong><small>계정과 토큰 잔액 관리</small></div><ArrowRight size={15} /></button>
                 <button type="button" onClick={() => navigate('/admin/llm')}><span className="violet"><BrainCircuit size={17} /></span><div><strong>LLM 운영</strong><small>품질과 라우팅 상태 확인</small></div><ArrowRight size={15} /></button>
+                <button type="button" onClick={() => navigate('/admin/demo')}><span className="amber"><Sparkles size={17} /></span><div><strong>시연 관리</strong><small>게스트 정리·시연 모드·오늘 현황</small></div><ArrowRight size={15} /></button>
               </div>
             </section>
           </div>
+        ) : view === 'demo' ? (
+          <AdminDemoPanel token={token} />
         ) : view === 'users' ? (
           <section className="admin-panel admin-users-panel">
             <div className="admin-panel-head admin-users-head">

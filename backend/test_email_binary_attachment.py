@@ -57,3 +57,8 @@ def test_binary_attachments_arrive_intact_with_their_type(uploads, db):
     # ZIP 서명을 가진 문서(docx·xlsx·hwpx)는 'application/zip' 이 아니라 문서 형식으로 나가야 한다 —
     # zip 으로 실리면 일부 메일 앱이 압축 파일로 다뤄 열지 못한다.
     assert parts["여행 일정표.docx"].get_content_type() == DOCX_MIME
+
+    # 어드민 시연 패널의 "오늘 발송 수" 근거 — 성공 1건마다 email_sent 이벤트 한 행
+    import models
+    events = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.event_type == "email_sent").all()
+    assert len(events) == 1 and events[0].actor_user_id == 1 and events[0].total_tokens == 0
