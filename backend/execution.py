@@ -9,7 +9,8 @@
 이 모듈이 하는 것
   - start(...)          호출부가 쓰는 유일한 함수. trigger_source 를 받아 contextvar 에 두고
                         `graph.run_workflow` 로 넘긴다. 인자·반환·예외는 run_workflow 와 같다.
-  - engine_mode()       EXECUTION_ENGINE 환경변수. 지금 실제로 있는 엔진은 legacy 하나다.
+                        실행마다 workflow_runs 행을 만들고 끝나면 step 을 채운다(run_records, ENGINE-1).
+  - engine_mode(pid)    EXECUTION_ENGINE 기본값 + 프로젝트별 예외. legacy | shadow | interpreter.
   - advisory_lock(...)  "같은 일을 두 곳에서 동시에 하지 않는다" 를 위한 잠금. 스케줄러 중복 발화
                         방지가 첫 소비자고, ENGINE-2 의 워커가 두 번째다.
 
@@ -56,6 +57,39 @@ _current_trigger: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar
 def current_trigger_source() -> Optional[str]:
     """지금 실행 중인 워크플로우가 무엇으로 시작됐는가. 실행 밖에서는 None."""
     return _current_trigger.get()
+
+
+# ── 실행 기록 (ENGINE-1, ADR-0028) ──────────────────────────────────────────
+# start 가 실행마다 workflow_runs 행을 만들고(run_records.begin) 끝나면 step 을 채운다(finish/fail). 호출자의 세션에
+# flush 만 하고 커밋은 호출자가 FlowExecutionLog 를 남길 때 함께 한다. 직전 실행의 run id 는 contextvar 에 두어
+# usage_tracking.record_usage 가 **한 번만** 꺼내 FlowExecutionLog.run_id 에 붙인다 — 호출부 11곳을 고치지 않고 두 표를 잇는다.
+_last_run: contextvars.ContextVar[Optional[tuple]] = contextvars.ContextVar("execution_last_run", default=None)
+
+
+def take_last_run_id(project_id=None) -> Optional[int]:
+    """직전 start 가 만든 실행 기록 id 를 한 번만 꺼낸다. 프로젝트가 다르면(다른 사건이다) None."""
+    value = _last_run.get()
+    if value is None:
+        return None
+    _last_run.set(None)
+    run_id, run_project_id = value
+    if project_id is not None and run_project_id is not None:
+        try:
+            if int(project_id) != int(run_project_id):
+                return None
+        except (TypeError, ValueError):
+            return None
+    return run_id
+
+
+def _record_guarded(action, *args, **kwargs):
+    """기록은 부수 기능이다 — 실패해도 실행 결과를 바꾸지 않고 경고만 남긴다."""
+    try:
+        return action(*args, **kwargs)
+    except Exception as exc:
+        logger.warning("[run-records] %s 실패(실행은 영향 없음): %s: %s", getattr(action, "__name__", action),
+                       type(exc).__name__, exc)
+        return None
 
 
 # ── 엔진 모드 ─────────────────────────────────────────────────────────────
@@ -156,12 +190,31 @@ def start(nodes: list, edges: list, *, trigger_source: str, **kwargs: Any) -> Tu
     # 엔진 선택(legacy/interpreter/shadow)은 run_workflow 가 자격증명 치환 뒤 exec 지점에서 한다 — 두 엔진이
     # 같은 전처리를 거친 노드를 받아야 하기 때문이다(ADR-0027).
     import graph as _graph
+    import run_records
+
+    db = kwargs.get("db")
+    run = None
+    if db is not None and run_records.enabled() and run_records.looks_like_session(db):
+        run = _record_guarded(
+            run_records.begin, db, trigger_source=trigger_source, engine=engine_mode(kwargs.get("project_id")),
+            project_id=kwargs.get("project_id"), executor_user_id=kwargs.get("executor_user_id"),
+            session_id=kwargs.get("session_id"))
+        if run is not None:
+            _last_run.set((run.id, run.project_id))
 
     token = _current_trigger.set(trigger_source)
     try:
-        return _graph.run_workflow(nodes, edges, **kwargs)
+        result = _graph.run_workflow(nodes, edges, **kwargs)
+    except Exception as exc:
+        if run is not None:
+            _record_guarded(run_records.fail, db, run, exc)
+        raise
     finally:
         _current_trigger.reset(token)
+    if run is not None:
+        result_text, tokens, logs = result
+        _record_guarded(run_records.finish, db, run, result_text=result_text, tokens=tokens, logs=logs)
+    return result
 
 
 # ── 배타 잠금 ─────────────────────────────────────────────────────────────
