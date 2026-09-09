@@ -2147,4 +2147,23 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
   `engine` 컬럼으로 전환 기간에 두 엔진의 실패율을 나눠 볼 수 있다.
 - 검증: `test_run_records.py` 14건(run/step 모양·failed 요약·paused·pinned·인터프리터 동일·엔진 예외·기록 실패 무해·run_id 한 번만·
   프로젝트 불일치·비실행 사건·db 없음·RUN_RECORDS=0·마이그레이션만으로 만든 스키마), `test_schema_drift.py` 통과.
-- 다음: 승인 대기 전용 스냅샷 재개의 일반화(2단계), `/api/projects/{id}/runs` 타임라인 + SSE(3단계, 33번 APP-2 진행률의 원천).
+- 다음: 승인 대기 전용 스냅샷 재개의 일반화(2단계). 3단계는 아래 추기.
+
+**추기 (2026-09-09) — 3단계 타임라인·진행 이벤트**
+
+- **타임라인 API**: `GET /api/projects/{id}/workflow-runs`(최신 먼저, step 없이) · `GET /api/projects/{id}/workflow-runs/{run_id}`
+  (step 포함). 경로가 `workflow-runs` 인 이유: `/api/projects/{id}/runs` 는 FlowExecutionLog 목록으로 이미 쓰이고(거기엔 `run_id` 만
+  덧붙였다), `/api/runs/{run_id}` 가 int 경로라 `/api/runs/stream` 을 가로챈다. 권한은 RUN(`_require_project_action`) — 결과 미리보기를
+  담으므로 기존 runs 라우트와 같은 이유로 공개 범위에 열지 않는다. 직렬화는 `run_records.public_run/public_step`.
+- **진행 이벤트 `run_events.py`**: 실행한 사용자(executor_user_id) 채널의 thread-safe 큐 pub/sub + SSE `GET /api/workflow-runs/stream`.
+  생성 소스를 바꾸지 않는다 — 프렐류드가 정의한 `log_step` 을 네임스페이스에서 감싸(attach_step_observer) 기록이 붙을 때마다
+  node_finished 를 내므로 legacy exec·interpreter 가 같은 이벤트를 낸다. node_started 는 인터프리터만 낸다(`_Executor.run_item`
+  이 body·pinned·header 항목과 Output·Break 에서 노드 경계를 안다). run_finished 는 `execution.start` 가 기록을 닫으며 낸다.
+- **왜 `message_stream` 을 재사용하지 않았나**: 그 모듈은 DB 를 정본으로 놓친 구간을 재전송(Last-Event-ID)한다. 실행 기록은
+  호출자 트랜잭션이 끝나야 보이므로 그 모델이 맞지 않다. 진행 이벤트는 지연 최적화이고 정본은 타임라인이다 — 재전송 없음.
+- **채널 키가 사용자인 이유**: run id 는 실행이 시작돼야 생기고 저장 전 그래프는 project id 가 없다. 실행 전에 구독할 수 있는
+  유일한 키다. 익명 공개 앱 실행은 아직 이벤트가 없다 — 33번 APP-2 가 익명 세션 키를 더한다.
+- **스위치**: `RUN_RECORDS=0`(기록 끔), `RUN_EVENTS=0`(이벤트 끔·스트림 404). 둘 다 실행 결과에는 영향이 없다.
+- 검증: `test_run_events.py` 11건(두 엔진 이벤트 순서·흐름 노드 시작 1회·실패/예외 run_finished·결과 불변·사용자 없음·큐 포화·
+  SSE 본문), `test_run_timeline_api.py`(라우트 배선·권한·404·스트림 스위치).
+- 남은 것: 에디터·앱 빌더가 `/api/workflow-runs/stream` 을 구독해 노드 상태를 그리는 프론트 작업(33번 APP-2 와 함께), 2단계 재개 일반화.
