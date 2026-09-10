@@ -285,23 +285,32 @@ def decide_and_resume(
     db.refresh(request)
 
     import execution
+    import run_records
 
-    snapshot = request.graph_snapshot or {}
-    runtime_inputs = dict(request.runtime_inputs or {})
-    runtime_inputs.pop("session_id", None)
-    runtime_inputs.pop("project_id", None)
-    result_text, tokens, logs = execution.start(
-        snapshot.get("nodes") or [],
-        snapshot.get("edges") or [],
-        trigger_source="approval",
-        db=db,
-        session_id=request.session_id,
-        project_id=request.project_id,
-        entry_node_id=request.node_id,
-        approval_payload=request.payload,
-        approval_decisions={request.node_id: "Y" if decision == "approve" else "N"},
-        **runtime_inputs,
-    )
+    decisions = {request.node_id: "Y" if decision == "approve" else "N"}
+    paused_run = run_records.find_paused_by_approval(db, request.request_id)
+    if paused_run is not None:
+        # 실행 상태 기록(ENGINE-1)이 있는 대기 — 같은 run 행에 이어서 실행한다(재개 방법은 execution.resume 한 곳).
+        result_text, tokens, logs = execution.resume(
+            paused_run.id, db=db, trigger_source="approval", extra_inputs={"approval_decisions": decisions})
+    else:
+        # 기록이 없는 대기(마이그레이션 전 요청·기록 꺼짐) — 요청 행의 스냅샷으로 예전처럼 새 실행을 만든다.
+        snapshot = request.graph_snapshot or {}
+        runtime_inputs = dict(request.runtime_inputs or {})
+        runtime_inputs.pop("session_id", None)
+        runtime_inputs.pop("project_id", None)
+        result_text, tokens, logs = execution.start(
+            snapshot.get("nodes") or [],
+            snapshot.get("edges") or [],
+            trigger_source="approval",
+            db=db,
+            session_id=request.session_id,
+            project_id=request.project_id,
+            entry_node_id=request.node_id,
+            approval_payload=request.payload,
+            approval_decisions=decisions,
+            **runtime_inputs,
+        )
 
     if "Rejected" in result_text and decision == "reject":
         # 거절 갈래가 연결되지 않은 그래프 — 예외 중단이 아니라 의도된 결과로 기록한다.

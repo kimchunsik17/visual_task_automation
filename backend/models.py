@@ -242,6 +242,16 @@ class WorkflowRun(Base):
     error_summary = Column(String, nullable=True)
     total_tokens = Column(Integer, nullable=False, default=0, server_default="0")
     step_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # ── 재개 상태 (ENGINE-1 2단계, 마이그레이션 0025) ──
+    # paused 인 run 은 스스로 재개에 필요한 것을 갖는다. 승인 결정·대기·워커 재시작이 같은 execution.resume 을 쓴다.
+    paused_reason = Column(String, nullable=True)            # approval | (ENGINE-2) wait · worker_restart
+    resume_node_id = Column(String, nullable=True)           # 재개 지점(entry_node_id)
+    resume_payload = Column(String, nullable=True)           # 재개 지점의 직전 노드 출력 자리 값
+    graph_snapshot = Column(JSON, nullable=True)             # {nodes, edges} — 자격증명은 reference 상태
+    runtime_inputs = Column(JSON, nullable=True)             # 직렬화 가능한 런타임 입력
+    approval_request_id = Column(String, nullable=True, index=True)
+    resume_count = Column(Integer, nullable=False, default=0, server_default="0")
+    resumed_at = Column(DateTime, nullable=True)
 
     steps = relationship("RunStep", back_populates="run", cascade="all, delete-orphan", order_by="RunStep.sequence")
 

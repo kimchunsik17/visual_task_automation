@@ -102,6 +102,17 @@ def _record_guarded(action, *args, **kwargs):
         return None
 
 
+record_guarded = _record_guarded  # graph._pause_for_approval 등 바깥에서 기록을 남길 때 같은 규칙으로
+
+# 지금 실행 중인 run 행(ENGINE-1). graph._pause_for_approval 이 durable 대기로 전환하며 재개 상태를 여기 남긴다.
+_current_run: contextvars.ContextVar[Optional[Any]] = contextvars.ContextVar("execution_current_run", default=None)
+
+
+def current_run():
+    """지금 실행 중인 워크플로우의 workflow_runs 행. 기록이 꺼져 있거나 db 가 없으면 None."""
+    return _current_run.get()
+
+
 # ── 엔진 모드 ─────────────────────────────────────────────────────────────
 # graph.run_workflow 가 exec 지점에서 읽는다(ADR-0027). 세 값의 뜻:
 #   legacy       compile_workflow → exec(). 기본값이고 출시 상태.
@@ -187,11 +198,13 @@ def record_shadow_plan_failure(project_id, exc: BaseException) -> None:
 
 
 # ── 진입점 ─────────────────────────────────────────────────────────────────
-def start(nodes: list, edges: list, *, trigger_source: str, **kwargs: Any) -> Tuple[str, dict, list]:
+def start(nodes: list, edges: list, *, trigger_source: str, resume_run_id: Optional[int] = None,
+          **kwargs: Any) -> Tuple[str, dict, list]:
     """워크플로우를 실행한다. `graph.run_workflow(nodes, edges, **kwargs)` 와 인자·반환·예외가 같다.
 
     trigger_source 만 추가 인자다 — 생성 코드의 runtime_inputs 로 새지 않게 여기서 떼어 contextvar 에
     둔다(사용자 입력 키와 충돌하지 않도록 kwargs 에 섞지 않는다).
+    resume_run_id 를 주면 새 run 을 만들지 않고 그 paused run 을 다시 열어 같은 행에 기록을 이어 붙인다(resume 이 쓴다).
     """
     if trigger_source not in TRIGGER_SOURCES:
         raise ValueError(f"trigger_source={trigger_source!r} 는 허용 목록에 없다: {sorted(TRIGGER_SOURCES)}")
@@ -209,11 +222,17 @@ def start(nodes: list, edges: list, *, trigger_source: str, **kwargs: Any) -> Tu
     engine = engine_mode(project_id)
     run = None
     if db is not None and run_records.enabled() and run_records.looks_like_session(db):
-        run = _record_guarded(
-            run_records.begin, db, trigger_source=trigger_source, engine=engine, project_id=project_id,
-            executor_user_id=executor_user_id, session_id=kwargs.get("session_id"))
+        if resume_run_id is not None:
+            # 재개는 기록 실패로 삼키지 않는다 — paused 가 아닌 run 을 재개하는 것은 호출자의 상태 오류다.
+            run = run_records.reopen(db, resume_run_id)
+        else:
+            run = _record_guarded(
+                run_records.begin, db, trigger_source=trigger_source, engine=engine, project_id=project_id,
+                executor_user_id=executor_user_id, session_id=kwargs.get("session_id"))
         if run is not None:
             _last_run.set((run.id, run.project_id))
+    elif resume_run_id is not None:
+        raise ValueError("resume_run_id 는 db 가 있는 실행에서만 쓸 수 있다")
 
     observer = None
     if run_events.enabled() and executor_user_id is not None:
@@ -223,6 +242,7 @@ def start(nodes: list, edges: list, *, trigger_source: str, **kwargs: Any) -> Tu
 
     token = _current_trigger.set(trigger_source)
     observer_token = _current_observer.set(observer)
+    run_token = _current_run.set(run)
     try:
         result = _graph.run_workflow(nodes, edges, **kwargs)
     except Exception as exc:
@@ -235,6 +255,7 @@ def start(nodes: list, edges: list, *, trigger_source: str, **kwargs: Any) -> Tu
     finally:
         _current_trigger.reset(token)
         _current_observer.reset(observer_token)
+        _current_run.reset(run_token)
     result_text, tokens, logs = result
     if run is not None:
         _record_guarded(run_records.finish, db, run, result_text=result_text, tokens=tokens, logs=logs)
@@ -243,6 +264,35 @@ def start(nodes: list, edges: list, *, trigger_source: str, **kwargs: Any) -> Tu
         _record_guarded(observer.finished, status, error_summary=run.error_summary if run is not None else None,
                         total_tokens=run.total_tokens if run is not None else None)
     return result
+
+
+def resume(run_id: int, *, db, trigger_source: str, extra_inputs: Optional[dict] = None) -> Tuple[str, dict, list]:
+    """paused 인 run 을 그 run 이 가진 재개 상태(스냅샷·입력·재개 노드·직전 값)로 이어서 실행한다 (ENGINE-1 2단계).
+
+    승인 결정(approval_service)·대기 노드·워커 재시작(ENGINE-2)이 전부 이 함수를 쓴다 — 재개 방법이 한 곳에 있어야
+    "승인한 견본이 그대로 이어진다" 같은 불변식이 경로마다 다르게 깨지지 않는다. extra_inputs 는 재개하는 쪽이 더하는
+    런타임 입력(예: approval_decisions)이다. 기록은 같은 run 행에 이어 붙는다(resume_run_id).
+    """
+    import run_records
+
+    run = db.query(_models().WorkflowRun).filter(_models().WorkflowRun.id == int(run_id)).first()
+    if run is None:
+        raise LookupError(f"실행 기록 {run_id} 를 찾을 수 없다")
+    if run.status != run_records.STATUS_PAUSED:
+        raise ValueError(f"paused 상태만 재개할 수 있다 (현재 {run.status})")
+    args = run_records.resume_arguments(run)
+    inputs = dict(args["runtime_inputs"])
+    inputs.update(extra_inputs or {})
+    return start(
+        args["nodes"], args["edges"], trigger_source=trigger_source, resume_run_id=run.id, db=db,
+        session_id=args["session_id"], project_id=args["project_id"], executor_user_id=args["executor_user_id"],
+        entry_node_id=args["entry_node_id"], approval_payload=args["approval_payload"], **inputs,
+    )
+
+
+def _models():
+    import models
+    return models
 
 
 # ── 배타 잠금 ─────────────────────────────────────────────────────────────

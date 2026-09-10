@@ -44,7 +44,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-1 1·3단계 백엔드 완료(2026-09-09)** — `workflow_runs`·`run_steps`(0024), 진입점 기록, 타임라인 API, 노드 경계 SSE(ADR-0028). ENGINE-0 은 운영 절차만 남음 | ENGINE-1 2단계 재개 일반화 · 에디터 진행 표시(프론트) → ENGINE-2 |
+| 실행 엔진 v2 (32) | **ENGINE-1 백엔드 완료(2026-09-10)** — 실행 상태 기록(0024)·재개 일반화(0025)·타임라인 API·노드 경계 SSE(ADR-0028). ENGINE-0 은 운영 절차만 남음 | 에디터 진행 표시(프론트, APP-2 와 함께) → ENGINE-2 큐/워커 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -327,7 +327,12 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    기록 하나를 step 하나로 남긴다(finish) — 두 엔진이 같은 기록을 남기므로 엔진과 무관하게 같은 step. 엔진 예외는 failed 로 닫고
    예외는 그대로 올린다. **호출자 세션에 flush 만** 하고 커밋은 호출자가 FlowExecutionLog 를 남길 때 함께 한다. 기록 실패는
    경고만 남기고 실행에 영향을 주지 않는다(`RUN_RECORDS=0` 으로 끌 수 있다). 노드 경계 **실시간** 기록은 3단계(SSE)에서.
-2. 승인 대기 전용이던 스냅샷 재개(ADR-0015)를 일반화 — 승인·wait·워커 재시작이 같은 메커니즘.
+2. ~~승인 대기 전용이던 스냅샷 재개(ADR-0015)를 일반화~~ **완료(2026-09-10)** — 마이그레이션 0025: paused 인 run 이 재개 상태
+   (`graph_snapshot`·`runtime_inputs`·`resume_node_id`·`resume_payload`·`paused_reason`·`approval_request_id`)를 갖고,
+   `execution.resume(run_id, db=…, trigger_source=…, extra_inputs=…)` 하나가 재개한다 — `start(resume_run_id=…)` 가 새 run 을 만들지
+   않고 **같은 run 행을 다시 열어** step(sequence 이어 붙임)·토큰(누적)·진행 이벤트(같은 runId)를 이어 간다. 승인 결정
+   (`approval_service.decide_and_resume`)이 첫 소비자고, 대기 노드·워커 재시작(ENGINE-2)이 같은 함수를 쓴다. `approval_requests`
+   는 알림·결정 UI 의 정본으로 그대로 두고 run 이 request_id 를 가리킨다; 기록이 없는 옛 요청은 예전 방식(새 실행)으로 재개된다.
 3. ~~`/api/projects/{id}/runs` 를 노드 단위 타임라인으로. step 기록을 SSE 로 흘려 에디터 실시간 진행 표시~~ **백엔드 완료
    (2026-09-09)** — `GET /api/projects/{id}/workflow-runs`(목록, RUN 권한) · `GET /api/projects/{id}/workflow-runs/{run_id}`(step 포함) ·
    `GET /api/workflow-runs/stream`(SSE, 실행한 사용자 채널). 옛 `/api/projects/{id}/runs`(FlowExecutionLog 목록)에는 `run_id` 를 덧붙였다. `backend/run_events.py`: 프렐류드의 `log_step` 을 네임스페이스에서 감싸
