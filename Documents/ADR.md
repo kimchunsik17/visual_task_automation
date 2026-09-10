@@ -2233,5 +2233,22 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
   웹훅·앱)는 아직 인라인이다 — 다음 PR 에서 `EXECUTION_QUEUE` 플래그 뒤로 전환하고, 배포 단위를 바꾸지 않고 검증할 인프로세스
   워커 스레드 옵션을 함께 넣는다. systemd 워커 유닛은 그 뒤 배포 문서에.
 - 큐잉된 실행의 과금은 워커가 남긴다(`trigger_type` 은 인라인 호출부 표기를 따른다 — schedule→scheduler, app→shared_app).
+
+**추기 (2026-09-10) — 2단계 생산자 전환·인프로세스 워커**
+
+- **스위치 `EXECUTION_QUEUE`(기본 0).** 켜면 결과를 기다리지 않는 두 경로가 큐로 간다: 스케줄러(`_execute_scheduled_project_locked`
+  이 enqueue 만 — advisory lock 은 misfire 재발화의 중복 enqueue 방지로 남는다)와 웹훅(`/webhook/{endpoint_id}` 가 enqueue 뒤
+  **202 `{status: queued, run_id, project_id}`** — 발신자는 10초 안 2xx 를 기대하고, 결과는 타임라인에서). 결과를 동기로 기다리는
+  경로(에디터 수동 실행·dry-run·앱·봇·`/api/call`)는 인라인 그대로 — 큐로 보내면 클라이언트가 폴링·구독으로 바뀌어야 하고 그건
+  33번 APP-2 의 몫이다. `/api/features.execution_queue` 가 스위치를 알린다.
+- **인프로세스 워커 `EXECUTION_WORKER_INPROCESS`(기본 0).** API 프로세스 시작 훅이 `run_worker.start_inprocess_worker(SessionLocal)`
+  로 daemon 스레드를 띄우고 종료 훅이 현재 run 을 마치고 멈춘다. 실행이 API 와 같은 프로세스에서 도는 점은 인라인과 같지만 경로
+  (큐 → claim → 같은 run 행 → 워커 과금)는 별도 프로세스와 같다 — 배포 단위를 바꾸지 않고 큐 경로를 검증하기 위한 것. 큐만
+  켜고 워커가 없으면 시작 로그에 경고한다(queued 가 쌓이기만 한다).
+- 검증: `test_run_producers.py` 7건 — 꺼짐이면 인라인 그대로 · 켜지면 스케줄러는 queued 만 · 워커가 실행하고 `scheduler` 표기로
+  과금 · lock 이 큐 모드에서도 중복 enqueue 방지 · 인프로세스 워커 켜고/끄기·큐 비움 · 스위치 기본값 · 웹훅 서브프로세스 시나리오
+  (200 인라인 → 202 queued → 워커 실행 → `webhook` 표기 과금 → 타임라인에서 결과).
+- 남은 것(3단계): systemd 워커 유닛·배포 문서(`scripts/deploy.sh` 에 `alembic upgrade head` 뒤 워커 재시작), 스테이징에서 큐 모드
+  리허설(재시작 중 실행 중 run 이 heartbeat 끊김 → failed 확정으로 드러나는지), 인스턴스 2개 시 APScheduler 리더 선출.
 - 검증: `test_run_queue.py` 13건(enqueue·claim 단조·워커 처리+과금·옵션/재개 인자·실행 예외 생존·run_forever·heartbeat·stale
   확정·주기 회수·adopt 거부·마이그레이션·PostgreSQL 동시 claim). PostgreSQL 동시 claim: 통과(2026-09-10, 로컬 PG 를 사용자 프로세스로 띄우고 개발 DB 안 임시 스키마 engine_test 에서 — 두 세션이 서로 다른 run 을 잡았다; 스키마는 지웠다).

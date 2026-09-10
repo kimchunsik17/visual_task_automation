@@ -154,6 +154,46 @@ class Worker:
                     self.reclaimed)
 
 
+# ── 인프로세스 워커 (배포 단위를 바꾸지 않고 큐 경로를 검증하기 위한 것) ─────────────────
+# EXECUTION_WORKER_INPROCESS=1 이면 API 프로세스가 시작할 때 워커 스레드를 하나 띄운다. 실행이 API 와 같은 프로세스에서 도는 것은
+# 인라인과 같지만, 경로(큐 → claim → 같은 run 행)는 별도 프로세스와 같다. 제대로 된 분리는 run_worker.py 프로세스(systemd 유닛).
+INPROCESS_ENV = "EXECUTION_WORKER_INPROCESS"
+_inprocess: dict = {"thread": None, "stop": None, "worker": None}
+
+
+def inprocess_enabled() -> bool:
+    return (os.getenv(INPROCESS_ENV) or "0").strip().lower() in {"1", "true", "on", "yes"}
+
+
+def start_inprocess_worker(session_factory: Callable, **worker_kwargs) -> Worker:
+    """워커 스레드를 띄운다(이미 떠 있으면 그것을 돌려준다). daemon 스레드라 프로세스 종료를 막지 않는다."""
+    if _inprocess["thread"] is not None and _inprocess["thread"].is_alive():
+        return _inprocess["worker"]
+    worker_kwargs.setdefault("worker_id", f"inprocess:{default_worker_id()}")
+    worker = Worker(session_factory, **worker_kwargs)
+    stop = threading.Event()
+    thread = threading.Thread(target=worker.run_forever, args=(stop,), name="run-worker-inprocess", daemon=True)
+    thread.start()
+    _inprocess.update(thread=thread, stop=stop, worker=worker)
+    logger.info("[run-worker] 인프로세스 워커 시작 %s", worker.worker_id)
+    return worker
+
+
+def stop_inprocess_worker(timeout: float = 5.0) -> None:
+    """현재 run 을 마치고 멈춘다(최대 timeout 초 기다린다)."""
+    stop, thread = _inprocess.get("stop"), _inprocess.get("thread")
+    if stop is not None:
+        stop.set()
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=timeout)
+    _inprocess.update(thread=None, stop=None, worker=None)
+
+
+def inprocess_worker() -> Optional[Worker]:
+    thread = _inprocess.get("thread")
+    return _inprocess.get("worker") if thread is not None and thread.is_alive() else None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="workflow_runs 큐 워커 (ENGINE-2)")
     ap.add_argument("--worker-id", default=None)

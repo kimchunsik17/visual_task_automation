@@ -48,7 +48,17 @@ def _execute_scheduled_project_locked(project_id: int):
 
         nodes = project.graph_data.get('nodes', [])
         edges = project.graph_data.get('edges', [])
-        
+
+        # 큐가 켜져 있으면(ENGINE-2) 실행하지 않고 넣는다 — 워커가 같은 run 행 위에서 실행하고 과금도 남긴다.
+        # advisory lock 은 그대로 둔다: misfire 재발화가 같은 프로젝트를 두 번 enqueue 하는 것을 막는다.
+        import run_queue
+        if run_queue.queue_enabled():
+            run = run_queue.enqueue(db, nodes=nodes, edges=edges, trigger_source="schedule", project_id=project_id,
+                                    session_id=f"scheduled_{project_id}")
+            db.commit()
+            print(f"[Scheduler] Project {project_id} queued as run {run.id}")
+            return
+
         # We pass a distinct session_id to maintain memory separately if needed,
         # or use a generic 'scheduled_task' session.
         result_text, tokens, logs = execution.start(

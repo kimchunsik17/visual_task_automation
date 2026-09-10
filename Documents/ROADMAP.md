@@ -44,7 +44,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-2 착수(2026-09-10)** — 큐(0026, workflow_runs 를 큐로)·워커·heartbeat·stale 확정(ADR-0029). ENGINE-1 백엔드 완료, ENGINE-0 은 운영 절차만 남음 | ENGINE-2 2·3단계 생산자 전환(스케줄·웹훅·앱)·인프로세스 워커 → 배포 유닛 |
+| 실행 엔진 v2 (32) | **ENGINE-2 2단계까지(2026-09-10)** — 큐(0026)·워커·heartbeat·stale 확정 + 스케줄·웹훅 생산자 전환(`EXECUTION_QUEUE`)·인프로세스 워커(ADR-0029). ENGINE-1 백엔드 완료, ENGINE-0 은 운영 절차만 남음 | ENGINE-2 3단계 systemd 워커 유닛·스테이징 → ENGINE-3 재시도·멱등성 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -353,16 +353,25 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    (Worker.run_once/run_forever, heartbeat 스레드, 과금 기록, CLI `python run_worker.py --worker-id w1`). 실행은 `execution.start
    (existing_run_id=…)` 로 같은 행 위에서 돈다 — 타임라인·이벤트·FlowExecutionLog 연결이 그대로 통한다. Redis/Celery 를 먼저 권하지
    않는 이유는 그대로다. PostgreSQL SKIP LOCKED 동시 claim 테스트: 통과(2026-09-10, 로컬 PG 를 사용자 프로세스로 띄우고 개발 DB 안 임시 스키마 engine_test 에서 — 두 세션이 서로 다른 run 을 잡았다; 스키마는 지웠다).
-2. **실행 경로 이원화.** 에디터 수동 실행·dry-run 은 인라인 즉시 실행(타임아웃 부여)으로 반응성 유지.
-   스케줄·웹훅·트리거·배포 앱 실행은 큐로.
+2. **실행 경로 이원화 — 스케줄·웹훅 구현(2026-09-10).** `EXECUTION_QUEUE=1` 이면 스케줄러는 `run_queue.enqueue` 만 하고
+   웹훅(`/webhook/{endpoint_id}`)은 큐에 넣고 **202 + run_id** 로 곧바로 답한다(GitHub 등 발신자의 10초 2xx 규칙, 34번 DEV-0 와
+   맞물린다). 결과는 `/api/projects/{id}/workflow-runs/{run_id}`. 에디터 수동 실행·dry-run 은 인라인 유지. **앱·봇·`/api/call` 도
+   아직 인라인** — 결과를 동기로 기다리는 경로라 큐로 보내면 클라이언트가 폴링·구독으로 바뀌어야 하고, 그건 33번 APP-2 의 몫이다.
+   기본값은 꺼짐(`EXECUTION_QUEUE=0`) — 켰으면 워커가 있어야 한다(아래 인프로세스 워커 또는 `run_worker.py` 프로세스).
 3. **스케줄러.** `schedules.next_fire_at` 을 워커가 같은 SKIP LOCKED 로 폴링하거나, APScheduler 를 워커 리더
    하나로. ~~중복 발화 방지 advisory lock 은 이 단계를 기다리지 않고 지금 넣는다~~ **넣었다(2026-09-06)** — `scheduler.execute_scheduled_project`
    가 `advisory_lock(SCHEDULE_LOCK_NAMESPACE, project_id)` 를 못 잡으면 실행 없이 끝낸다. `test_scheduler_lock.py`.
+   **2026-09-10**: 큐 모드에서 APScheduler 는 enqueue 만 하고 워커가 실행한다 — advisory lock 은 misfire 재발화의 중복 enqueue 방지로
+   남는다. 리더 선출·`next_fire_at` 폴링 전환은 인스턴스가 둘 이상이 될 때(3단계 스테이징).
 4. **내구성 — 절반 구현(2026-09-10).** 워커 heartbeat(별도 스레드, `RUN_WORKER_HEARTBEAT_SECONDS`)와 stale 확정
    (`run_queue.reclaim_stale`, `RUN_WORKER_STALE_SECONDS`) 은 들어갔다. 끊긴 run 은 **failed 로 확정만** 한다 — step 은 실행이
    끝난 뒤 쓰이므로 어디까지 갔는지(부작용 노드를 지났는지) 알 수 없다. 마지막 완료 step 부터의 재개는 노드 멱등성(ENGINE-3)과
    함께 — 그때 `execution.resume` 을 쓴다.
 5. 컨테이너/스테이징(37번)은 이 단계와 함께 — 워커 프로세스가 생기는 시점이 배포 단위가 바뀌는 시점이다.
+   **인프로세스 워커(2026-09-10)**: `EXECUTION_WORKER_INPROCESS=1` 이면 API 프로세스가 시작할 때 워커 스레드를 하나 띄운다
+   (`run_worker.start_inprocess_worker`, 종료 훅에서 현재 run 을 마치고 멈춤) — 배포 단위를 바꾸지 않고 큐 경로를 먼저 검증하기
+   위한 것. 큐만 켜고 워커가 없으면 시작 로그에 경고. 제대로 된 분리는 `python run_worker.py --worker-id w1` 프로세스 + systemd
+   유닛(3단계, 배포 문서·`scripts/deploy.sh`).
 
 ##### ENGINE-3. 재시도 · 에러 분기 · 멱등성 — 1~2주
 

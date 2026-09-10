@@ -220,6 +220,27 @@ async def startup_event():
         print(f"Failed to boot scheduler: {e}")
     finally:
         db.close()
+    # 실행 큐(ENGINE-2, ADR-0029). 큐가 켜져 있으면 워커가 있어야 한다 — 인프로세스 스레드를 켰으면 여기서 띄우고, 아니면
+    # 별도 프로세스(run_worker.py)가 떠 있어야 한다는 것을 경고로 남긴다(없으면 queued 가 쌓이기만 한다).
+    try:
+        import run_queue
+        import run_worker
+        if run_worker.inprocess_enabled():
+            from database import SessionLocal as _worker_sessions
+            run_worker.start_inprocess_worker(_worker_sessions)
+        elif run_queue.queue_enabled():
+            print(f"[run-worker] {run_queue.QUEUE_ENV}=1 인데 인프로세스 워커가 꺼져 있다 — python run_worker.py 가 떠 있어야 queued 가 실행된다.")
+    except Exception as e:
+        print(f"Failed to start run worker: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        import run_worker
+        run_worker.stop_inprocess_worker()
+    except Exception as e:
+        print(f"Failed to stop run worker: {e}")
     # 노드 지식 색인(ADR-0013)을 백그라운드에서 증분 동기화한다. embedding provider가 없거나
     # 실패하면 hybrid 선별이 lexical 폴백으로만 동작할 뿐, 서버 기동과 생성에는 영향이 없다.
     try:
@@ -1418,6 +1439,11 @@ class DatabasePreviewPayload(BaseModel):
     output_format: str = "rows"
 
 
+def _run_queue_module():
+    import run_queue
+    return run_queue
+
+
 @app.get("/api/features")
 def get_features():
     """클라이언트가 어떤 경로의 UI 를 그릴지 정하는 배포 플래그."""
@@ -1435,6 +1461,8 @@ def get_features():
         # (EXECUTION_ENGINE_PROJECT_OVERRIDES)는 여기 드러나지 않는다. UI 힌트이고 판정은 실행 시점에 다시 한다.
         "execution_engine": execution.default_engine_mode(),
         "execution_engine_overrides": len(execution.project_engine_overrides()),
+        # 실행 큐(ENGINE-2) — 켜져 있으면 스케줄·웹훅은 202 로 큐에 들어가고 워커가 실행한다. 결과는 workflow-runs 타임라인.
+        "execution_queue": _run_queue_module().queue_enabled(),
         # 시연장 로그인(opt-in) — 켜져 있으면 로그인 화면에 "시연 로그인" 입구를 그린다.
         "demo_login": bool(os.getenv("DEMO_LOGIN_CODE")),
         "demo_login_seats": demo_login_seats(),
@@ -3671,7 +3699,20 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
     # Run the workflow
     import json
     inputs = {webhook_node_id: json.dumps(payload, ensure_ascii=False)}
-    
+
+    # 큐가 켜져 있으면(ENGINE-2) 실행하지 않고 넣고 202 로 곧바로 답한다 — 웹훅 발신자(GitHub 등)는 10초 안 2xx 를 기대한다.
+    # 워커가 같은 run 행 위에서 실행하고 과금(FlowExecutionLog)도 남긴다. 결과는 /api/projects/{id}/workflow-runs/{run_id} 로.
+    import run_queue
+    if run_queue.queue_enabled():
+        try:
+            run = run_queue.enqueue(db, nodes=nodes, edges=edges, trigger_source="webhook", project_id=project.id,
+                                    session_id='webhook_' + str(project.id), runtime_inputs=inputs)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
+        return JSONResponse(status_code=202, content={"status": "queued", "run_id": run.id, "project_id": project.id})
+
     try:
         result_text, tokens, logs = execution.start(nodes, edges, trigger_source="webhook", db=db, session_id='webhook_' + str(project.id), project_id=project.id, **inputs)
         # 성공/실패는 실행 로그의 구조화 오류(NodeError v1)로 판정한다 — 결과 문자열 검색은
