@@ -64,3 +64,5 @@ if [ "$READY_CODE" != "200" ]; then
 fi
 
 echo "롤백 완료: $TARGET (이전 HEAD 는 $CURRENT)"
+# 되돌린 뒤 HEAD 는 detached 다. deploy.sh 는 브랜치 위에서만 돌므로, 다음 배포 전에 돌아가야 한다는 것을 여기서 알린다.
+echo "HEAD 가 detached 상태다. 다음 배포 전에: git checkout ${DEPLOY_BRANCH:-release} && git pull"

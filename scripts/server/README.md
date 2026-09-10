@@ -5,11 +5,27 @@
 
 > 이 디렉터리의 스크립트는 서버에서 실행하는 것이 전제다. 개발 머신(Windows)에서 돌리지 말 것.
 
+## 브랜치 규약 (2026-09-11)
+
+**서버는 `release` 브랜치를 추적한다.** main 에 머지되는 것과 서버에 반영되는 것을 분리하기 위한 것이다 —
+시연 빌드를 그대로 둔 채 main 에 큰 스택(실행 엔진 v2 등)을 머지할 수 있어야 했다. 이 저장소에는 CI/CD 가
+없으므로 서버는 사람이 `git pull` 하고 `scripts/deploy.sh` 를 돌릴 때만 바뀐다. `deploy.sh` 는 현재 브랜치가
+`DEPLOY_BRANCH`(기본 `release`)가 아니면 첫 단계에서 멈춘다.
+
+| 하려는 일 | 어디서 | 명령 |
+| --- | --- | --- |
+| main 을 서버에 내보낸다 | 로컬 | `git checkout release && git merge --ff-only origin/main && git push` (ff 가 안 되면 `git merge origin/main`) |
+| 서버 반영 | 서버 | `cd /home/ubuntu/app && git pull && scripts/deploy.sh` |
+| 핫픽스만 서버에 | 로컬 | main 에 머지한 뒤 `git checkout release && git cherry-pick <sha> && git push` |
+| release 가 아닌 브랜치를 일부러 | 서버 | `DEPLOY_BRANCH=<branch> scripts/deploy.sh` |
+
+`rollback.sh` 는 HEAD 를 detached 로 두므로, 되돌린 뒤 다시 배포하려면 `git checkout release && git pull` 부터.
+
 ## 시작 전에
 
 ```bash
 cd /home/ubuntu/app
-git fetch origin && git log --oneline -3 origin/main   # PR #33 이 머지됐는지
+git fetch origin && git log --oneline -3 origin/release   # 내보낼 커밋이 release 에 있는지
 git pull
 ```
 
