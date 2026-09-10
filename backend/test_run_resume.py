@@ -162,10 +162,10 @@ def test_paused_가_아닌_run_은_재개를_거부한다(db):
         execution.resume(999999, db=db, trigger_source="approval")
 
 
-def test_resume_run_id_는_db_없이_쓸_수_없다():
+def test_existing_run_id_는_db_없이_쓸_수_없다():
     nodes, edges = approval_graph()
     with pytest.raises(ValueError, match="db"):
-        execution.start(nodes, edges, trigger_source="approval", resume_run_id=1)
+        execution.start(nodes, edges, trigger_source="approval", existing_run_id=1)
 
 
 # ── 4. 기록이 없는 옛 승인 요청 ─────────────────────────────────────────────

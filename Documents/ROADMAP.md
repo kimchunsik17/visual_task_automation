@@ -44,7 +44,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-1 백엔드 완료(2026-09-10)** — 실행 상태 기록(0024)·재개 일반화(0025)·타임라인 API·노드 경계 SSE(ADR-0028). ENGINE-0 은 운영 절차만 남음 | 에디터 진행 표시(프론트, APP-2 와 함께) → ENGINE-2 큐/워커 |
+| 실행 엔진 v2 (32) | **ENGINE-2 착수(2026-09-10)** — 큐(0026, workflow_runs 를 큐로)·워커·heartbeat·stale 확정(ADR-0029). ENGINE-1 백엔드 완료, ENGINE-0 은 운영 절차만 남음 | ENGINE-2 2·3단계 생산자 전환(스케줄·웹훅·앱)·인프로세스 워커 → 배포 유닛 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -347,16 +347,21 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 
 ##### ENGINE-2. 큐와 워커 분리 — 2주
 
-1. **PostgreSQL 큐** — `SELECT ... FOR UPDATE SKIP LOCKED`. Redis/Celery 를 먼저 권하지 않는 이유: 이미
-   PostgreSQL 이 있고, 단일 VM 규모에서 새 인프라 하나는 운영 부담 하나다. `enqueue/dequeue` 인터페이스만
-   추상화해 두면 교체 비용이 작다.
+1. ~~**PostgreSQL 큐**~~ **구현(2026-09-10, ADR-0029)** — 별도 표가 아니라 **`workflow_runs` 가 큐다**: status=queued 인 run 이 큐
+   항목이고 워커가 `SELECT … FOR UPDATE SKIP LOCKED` 로 잡아 running 으로 바꾼다(마이그레이션 0026: queued_at·claimed_at·worker_id·
+   run_options·attempts). `backend/run_queue.py`(enqueue·claim·heartbeat·reclaim_stale·execute_claimed), `backend/run_worker.py`
+   (Worker.run_once/run_forever, heartbeat 스레드, 과금 기록, CLI `python run_worker.py --worker-id w1`). 실행은 `execution.start
+   (existing_run_id=…)` 로 같은 행 위에서 돈다 — 타임라인·이벤트·FlowExecutionLog 연결이 그대로 통한다. Redis/Celery 를 먼저 권하지
+   않는 이유는 그대로다. PostgreSQL SKIP LOCKED 동시 claim 테스트: 통과(2026-09-10, 로컬 PG 를 사용자 프로세스로 띄우고 개발 DB 안 임시 스키마 engine_test 에서 — 두 세션이 서로 다른 run 을 잡았다; 스키마는 지웠다).
 2. **실행 경로 이원화.** 에디터 수동 실행·dry-run 은 인라인 즉시 실행(타임아웃 부여)으로 반응성 유지.
    스케줄·웹훅·트리거·배포 앱 실행은 큐로.
 3. **스케줄러.** `schedules.next_fire_at` 을 워커가 같은 SKIP LOCKED 로 폴링하거나, APScheduler 를 워커 리더
    하나로. ~~중복 발화 방지 advisory lock 은 이 단계를 기다리지 않고 지금 넣는다~~ **넣었다(2026-09-06)** — `scheduler.execute_scheduled_project`
    가 `advisory_lock(SCHEDULE_LOCK_NAMESPACE, project_id)` 를 못 잡으면 실행 없이 끝낸다. `test_scheduler_lock.py`.
-4. **내구성.** 워커 heartbeat. 끊긴 `running` run 은 다른 워커가 회수해 마지막 완료 step 다음부터 재개하거나,
-   부작용 노드를 지났으면 실패로 확정한다.
+4. **내구성 — 절반 구현(2026-09-10).** 워커 heartbeat(별도 스레드, `RUN_WORKER_HEARTBEAT_SECONDS`)와 stale 확정
+   (`run_queue.reclaim_stale`, `RUN_WORKER_STALE_SECONDS`) 은 들어갔다. 끊긴 run 은 **failed 로 확정만** 한다 — step 은 실행이
+   끝난 뒤 쓰이므로 어디까지 갔는지(부작용 노드를 지났는지) 알 수 없다. 마지막 완료 step 부터의 재개는 노드 멱등성(ENGINE-3)과
+   함께 — 그때 `execution.resume` 을 쓴다.
 5. 컨테이너/스테이징(37번)은 이 단계와 함께 — 워커 프로세스가 생기는 시점이 배포 단위가 바뀌는 시점이다.
 
 ##### ENGINE-3. 재시도 · 에러 분기 · 멱등성 — 1~2주
@@ -1800,6 +1805,7 @@ flowchart LR
 - `backend/graph.py`: `compile_workflow`(entry/stop/scope/pinned)·`run_workflow`(`exec`)·`emit_module_prelude`. 순회 규칙은 `backend/graph_traversal.py`, 노드 본문 렌더러는 `backend/node_bodies.py`, 인터프리터는 `backend/engine_interpreter.py`, 등가성 도구는 `backend/codegen_corpus_diff.py`·`engine_shadow_diff.py` — 32번 ENGINE-0 의 본체(ADR-0027)
 - `backend/run_records.py`: `workflow_runs`·`run_steps` 기록·조회(ENGINE-1, ADR-0028). `execution.start` 가 부른다
 - `backend/run_events.py`: 노드 경계 진행 이벤트 pub/sub + SSE(`/api/workflow-runs/stream`). `log_step` 래퍼와 인터프리터 훅이 낸다
+- `backend/run_queue.py`·`run_worker.py`: 실행 큐(workflow_runs 를 큐로, SKIP LOCKED)와 워커(ENGINE-2, ADR-0029)
 - `backend/node_generators/`: 실행기 49종 등록(`node_registry.register`). executor 매핑이 붙을 자리. `flow_nodes.py` 의
   loop/merge/distributor 의미론이 첫 대조 기준
 - `backend/scheduler.py`: `AsyncIOScheduler` 인프로세스. advisory lock 과 큐 폴링이 들어갈 자리

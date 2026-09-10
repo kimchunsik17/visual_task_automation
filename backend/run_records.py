@@ -32,6 +32,7 @@ from node_errors import runtime as node_error_runtime
 
 RUN_RECORDS_ENV = "RUN_RECORDS"   # "0" 이면 기록하지 않는다(장애 시 끄는 스위치)
 
+STATUS_QUEUED = "queued"       # 큐에 들어가 워커를 기다린다(ENGINE-2, run_queue)
 STATUS_RUNNING = "running"
 STATUS_SUCCEEDED = "succeeded"
 STATUS_FAILED = "failed"
@@ -287,3 +288,17 @@ def find_paused_by_approval(db, request_id: str) -> Optional[models.WorkflowRun]
     return (db.query(models.WorkflowRun)
             .filter(models.WorkflowRun.approval_request_id == request_id, models.WorkflowRun.status == STATUS_PAUSED)
             .order_by(models.WorkflowRun.id.desc()).first())
+
+
+def adopt(db, run_id: int) -> models.WorkflowRun:
+    """기존 run 행 위에서 실행을 잇는다(execution.start(existing_run_id=…)).
+    paused 는 다시 열고(reopen), 워커가 claim 한 running(worker_id 있음)은 그대로 쓴다. 그 밖(queued 인데 claim 안 됨,
+    이미 끝난 run)은 ValueError — 재개/실행 자체가 틀린 것이라 기록 실패로 삼키지 않는다."""
+    run = db.query(models.WorkflowRun).filter(models.WorkflowRun.id == int(run_id)).first()
+    if run is None:
+        raise LookupError(f"실행 기록 {run_id} 를 찾을 수 없다")
+    if run.status == STATUS_PAUSED:
+        return reopen(db, run.id)
+    if run.status == STATUS_RUNNING and run.worker_id:
+        return run
+    raise ValueError(f"이어서 실행할 수 없는 상태다 (현재 {run.status}) — paused 또는 워커가 claim 한 running 만")

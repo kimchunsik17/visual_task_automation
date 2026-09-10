@@ -16,6 +16,8 @@ import execution
 
 BACKEND = pathlib.Path(__file__).resolve().parent
 ALLOWED_DIRECT_CALLERS = {"graph.py", "execution.py"}
+# 저장된 run 의 출처를 되풀이하는 곳 — 리터럴 대신 run.trigger_source 를 넘겨도 된다(enqueue 가 이미 허용 목록으로 검증한다).
+DYNAMIC_TRIGGER_SOURCE_OK = {"run_queue.py"}
 SKIP_PARTS = {"venv", ".venv", "node_modules", "__pycache__", ".git", "chroma_db"}
 
 
@@ -66,6 +68,9 @@ def test_every_start_call_declares_a_known_trigger_source():
                 continue
             where = f"{path.relative_to(BACKEND)}:{node.lineno}"
             kw = next((k for k in node.keywords if k.arg == "trigger_source"), None)
+            if kw is not None and path.name in DYNAMIC_TRIGGER_SOURCE_OK and not isinstance(kw.value, ast.Constant):
+                # 큐 워커는 enqueue 때 검증된 출처(run.trigger_source)를 그대로 되풀이한다 — 새 표기를 만들 수 없다.
+                continue
             if kw is None or not isinstance(kw.value, ast.Constant):
                 problems.append(f"{where}: trigger_source 리터럴이 없다")
                 continue

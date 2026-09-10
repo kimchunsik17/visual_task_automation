@@ -252,6 +252,12 @@ class WorkflowRun(Base):
     approval_request_id = Column(String, nullable=True, index=True)
     resume_count = Column(Integer, nullable=False, default=0, server_default="0")
     resumed_at = Column(DateTime, nullable=True)
+    # ── 큐 (ENGINE-2, 마이그레이션 0026) ── status=queued 인 run 이 곧 큐 항목이다(run_queue). 워커가 claim 해 running 으로.
+    queued_at = Column(DateTime, nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
+    worker_id = Column(String, nullable=True, index=True)
+    run_options = Column(JSON, nullable=True)                # stop_node_id·scope_node_ids·pinned_outputs·user_inputs
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")   # claim 된 횟수
 
     steps = relationship("RunStep", back_populates="run", cascade="all, delete-orphan", order_by="RunStep.sequence")
 
