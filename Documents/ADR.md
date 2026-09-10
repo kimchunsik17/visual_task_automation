@@ -2252,3 +2252,25 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
   리허설(재시작 중 실행 중 run 이 heartbeat 끊김 → failed 확정으로 드러나는지), 인스턴스 2개 시 APScheduler 리더 선출.
 - 검증: `test_run_queue.py` 13건(enqueue·claim 단조·워커 처리+과금·옵션/재개 인자·실행 예외 생존·run_forever·heartbeat·stale
   확정·주기 회수·adopt 거부·마이그레이션·PostgreSQL 동시 claim). PostgreSQL 동시 claim: 통과(2026-09-10, 로컬 PG 를 사용자 프로세스로 띄우고 개발 DB 안 임시 스키마 engine_test 에서 — 두 세션이 서로 다른 run 을 잡았다; 스키마는 지웠다).
+
+**추기 (2026-09-11) — 3단계 systemd 유닛 · deploy.sh · 큐 정지 판정 · 스케줄 슬롯 키**
+
+- **systemd 템플릿 유닛 `run-worker@.service`** — `scripts/server/08-run-worker-unit.sh` 가 fastapi 유닛의 User/Group 을 읽어 유닛을 쓰고
+  `run-worker@1`(INSTANCES=N 이면 N개) 을 켠다. `.env` 는 systemd EnvironmentFile 이 아니라 앱(`database.py` load_dotenv)이 읽는다 — API 와
+  같은 방식이라 형식 차이로 깨질 곳이 없다. `KillSignal=SIGTERM`·`TimeoutStopSec=900`: run_worker 가 현재 run 을 마치고 종료할 시간을 준다.
+  넘기면 SIGKILL 이고 그 run 은 heartbeat 끊김으로 failed 확정(결정 5 그대로 — 재실행하지 않는다).
+- **`scripts/deploy.sh`** — alembic 뒤·API 재기동 앞에 `run-worker@*` 를 재기동한다(유닛이 없으면 건너뜀 — 인라인·인프로세스 배포는 그대로).
+  스모크가 유닛 is-active 를 본다. 워커가 코드를 import 한 채 돌므로 API 와 같은 코드로 올라가야 한다는 것이 이유다.
+- **큐 정지 판정** `run_queue.queue_health` — queued 가 `RUN_QUEUE_STALL_SECONDS`(기본 300) 넘게 기다리는데 최근(`RUN_WORKER_STALE_SECONDS`)
+  heartbeat 를 찍은 running 이 없으면 stalled. `/api/ready` 가 큐가 켜져 있을 때 `checks.queue`(stalled → 503) 와 `detail.queue` 로 알린다.
+  적체(워커가 긴 run 을 잡고 있음)는 정지가 아니다 — worker_id 없는 인라인 running 은 증거로 세지 않는다. 로드맵 37번 O-2 의 "큐 적체" 항.
+- **스케줄 슬롯 키 — 리더 선출 대신.** 큐 모드에서 advisory lock 은 enqueue 하는 몇 ms 만 쥐므로 인스턴스 둘이 몇 초 차로 발화하면 둘 다
+  잡는다. `run_queue.schedule_slot_key(project_id)` = `schedule:{pid}:{YYYY-MM-DDTHH:MM}`(분 단위, cron 최소 단위)를 `idempotency_key`
+  (unique, 0024 부터 자리) 에 넣는다. 조회에서 보이면 스킵, 경쟁에서 지면 IntegrityError 를 "다른 인스턴스가 먼저 넣었다" 로 읽는다.
+  웹훅(`X-GitHub-Delivery`·payload 해시)·RSS 키는 ENGINE-3 에서 같은 컬럼을 쓴다.
+- 검증: `test_run_queue.py` +4(queue_health 빈 큐·적체·정지·stale heartbeat, 인라인 running 제외, 임계값 env, 슬롯 키 unique),
+  `test_run_producers.py` +2(같은 슬롯 두 인스턴스 → run 1·다음 분은 새 run, IntegrityError 경쟁 → 스킵), `test_health_endpoints.py`
+  +2(큐 꺼짐 → queue None, 워커 없이 오래된 queued → 503 → heartbeat 생기면 200), `test_deploy_script.py` +2(워커 단계 순서, 스크립트 파싱).
+- **남은 것은 서버 리허설이다(사용자 몫)** — 절차는 `scripts/server/README.md` "큐 모드 켜기": 08 로 유닛 → `.env` `EXECUTION_QUEUE=1` → API
+  재기동 → `/api/ready` checks.queue → 긴 run 실행 중 `systemctl restart run-worker@1`(SIGTERM 에 마치고 재기동) 과 `kill -9`(stale 뒤
+  failed 확정) 두 가지를 타임라인에서 확인. 통과하면 출시 게이트 "ENGINE-2 뒤 재시작이 run 을 잃지 않는지" 가 닫힌다.

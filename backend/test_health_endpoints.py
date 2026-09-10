@@ -74,3 +74,47 @@ def test_ready_is_503_when_the_database_is_unreachable(monkeypatch):
 def test_head_revision_is_readable_without_a_database():
     """head 는 스크립트만 읽으면 나온다 — DB 가 없어도 배포 도구가 기대값을 알 수 있다."""
     assert db_migrate.head_revision() is not None
+
+
+# ── 실행 큐 (ENGINE-2 3단계, 로드맵 37번 O-2 "큐 적체") ────────────────────────────
+
+def test_ready_reports_queue_as_not_applicable_when_the_queue_is_off(monkeypatch):
+    monkeypatch.delenv("EXECUTION_QUEUE", raising=False)
+    r = client.get("/api/ready")
+    assert r.status_code == 200, r.text
+    assert r.json()["checks"]["queue"] is None
+
+
+def test_ready_is_503_when_queued_runs_wait_with_no_worker_heartbeat(monkeypatch):
+    """큐를 켰는데 워커가 없으면 스케줄·웹훅 실행이 조용히 멈춘다 — 그것을 ready 가 503 으로 드러내야 한다.
+    워커가 잡아 heartbeat 를 찍기 시작하면(정지가 아니라 적체) 다시 200 이다."""
+    import datetime
+
+    import models
+    import run_queue
+    from database import SessionLocal
+
+    monkeypatch.setenv("EXECUTION_QUEUE", "1")
+    db = SessionLocal()
+    try:
+        run = run_queue.enqueue(db, nodes=[], edges=[], trigger_source="schedule", runtime_inputs={}, session_id="ready-test")
+        run.queued_at = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
+        db.commit()
+        run_id = run.id
+
+        r = client.get("/api/ready")
+        assert r.status_code == 503, r.text
+        body = r.json()
+        assert body["checks"]["queue"] is False
+        assert body["detail"]["queue"]["stalled"] is True and body["detail"]["queue"]["depth"] >= 1
+
+        run = db.get(models.WorkflowRun, run_id)
+        run.status, run.worker_id, run.heartbeat_at = "running", "w-test", datetime.datetime.utcnow()
+        db.commit()
+        r = client.get("/api/ready")
+        assert r.status_code == 200, r.text
+        assert r.json()["checks"]["queue"] is True
+    finally:
+        db.query(models.WorkflowRun).filter(models.WorkflowRun.session_id == "ready-test").delete()
+        db.commit()
+        db.close()

@@ -15,6 +15,7 @@ import threading
 
 import pytest
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -271,3 +272,67 @@ def test_postgres_에서_두_세션이_동시에_claim_해도_다른_run_을_잡
         setup.commit()
         setup.close()
         engine.dispose()
+
+
+# ── 7. 큐 상태(/api/ready 가 본다)와 스케줄 슬롯 키 (ENGINE-2 3단계) ────────────────
+
+def test_queue_health_는_빈_큐_적체_정지를_구분한다(db):
+    now = datetime.datetime(2026, 9, 11, 9, 0, 0)
+    empty = run_queue.queue_health(db, now=now)
+    assert (empty["depth"], empty["oldest_wait_seconds"], empty["stalled"]) == (0, None, False)
+
+    waiting = _enqueue(db)
+    waiting.queued_at = now - datetime.timedelta(seconds=400)
+    db.commit()
+    # 임계 미만이면 기다리는 중일 뿐
+    assert run_queue.queue_health(db, stall_after_seconds=600, now=now)["stalled"] is False
+    # 임계를 넘었고 heartbeat 를 찍는 워커가 없다 → 정지
+    stalled = run_queue.queue_health(db, stall_after_seconds=300, now=now)
+    assert (stalled["depth"], stalled["oldest_wait_seconds"], stalled["running_fresh"], stalled["stalled"]) == (1, 400, 0, True)
+
+    # 워커가 긴 run 을 잡고 있다(heartbeat 신선) → 적체지 정지가 아니다
+    busy = _enqueue(db)
+    busy.status, busy.worker_id, busy.heartbeat_at = run_records.STATUS_RUNNING, "w1", now - datetime.timedelta(seconds=5)
+    db.commit()
+    backlog = run_queue.queue_health(db, stall_after_seconds=300, heartbeat_fresh_seconds=120, now=now)
+    assert (backlog["depth"], backlog["running"], backlog["running_fresh"], backlog["stalled"]) == (1, 1, 1, False)
+
+    # 그 heartbeat 가 stale 이면 워커의 증거가 아니다 → 다시 정지
+    busy.heartbeat_at = now - datetime.timedelta(seconds=1000)
+    db.commit()
+    dead = run_queue.queue_health(db, stall_after_seconds=300, heartbeat_fresh_seconds=120, now=now)
+    assert (dead["running"], dead["running_fresh"], dead["stalled"]) == (1, 0, True)
+
+
+def test_queue_health_는_worker_id_없는_인라인_running_을_워커_증거로_세지_않는다(db):
+    now = datetime.datetime(2026, 9, 11, 9, 0, 0)
+    waiting = _enqueue(db)
+    waiting.queued_at = now - datetime.timedelta(seconds=400)
+    inline = _enqueue(db)
+    inline.status, inline.worker_id, inline.heartbeat_at = run_records.STATUS_RUNNING, None, now
+    db.commit()
+    state = run_queue.queue_health(db, stall_after_seconds=300, now=now)
+    assert (state["running"], state["running_fresh"], state["stalled"]) == (0, 0, True)
+
+
+def test_임계값은_환경변수에서_읽고_잘못된_값은_기본값이다(monkeypatch):
+    monkeypatch.setenv(run_queue.STALL_ENV, "45")
+    assert run_queue.stall_threshold_seconds() == 45.0
+    monkeypatch.setenv(run_queue.STALL_ENV, "많이")
+    assert run_queue.stall_threshold_seconds() == run_queue.STALL_AFTER_SECONDS_DEFAULT
+    monkeypatch.delenv(run_queue.STALL_ENV, raising=False)
+    assert run_queue.stall_threshold_seconds() == run_queue.STALL_AFTER_SECONDS_DEFAULT
+
+
+def test_스케줄_슬롯_키는_분_단위이고_같은_키는_한_번만_들어간다(db):
+    now = datetime.datetime(2026, 9, 11, 9, 7, 42)
+    key = run_queue.schedule_slot_key(10, now=now)
+    assert key == "schedule:10:2026-09-11T09:07"
+    assert run_queue.schedule_slot_key(10, now=now.replace(second=59)) == key, "같은 분은 같은 슬롯"
+    assert run_queue.find_by_idempotency_key(db, key) is None
+    run = _enqueue(db, idempotency_key=key)
+    assert run_queue.find_by_idempotency_key(db, key).id == run.id
+    with pytest.raises(IntegrityError):
+        _enqueue(db, idempotency_key=key)
+    db.rollback()
+    assert db.query(models.WorkflowRun).count() == 1

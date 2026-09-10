@@ -91,15 +91,30 @@ fi
 step "DB 마이그레이션 (alembic upgrade head)"
 run "cd '$BACKEND' && '$VENV_PY' -m alembic upgrade head"
 
-# ── 5) 재기동 ───────────────────────────────────────────────────────────────
+# ── 5) 큐 워커 재기동 (유닛이 있을 때만) ────────────────────────────────────
+# 큐 워커(run-worker@N, scripts/server/08-run-worker-unit.sh)는 코드를 import 한 채 돌므로 API 와 같은 코드로 올라가야 한다.
+# 스키마(4) 뒤 워커, 그 다음 API 순. 워커는 SIGTERM 에 현재 run 을 마치고 멈추므로(유닛의 TimeoutStopSec) 여기서 몇 분
+# 기다릴 수 있다 — 정상이다. 유닛이 없으면(인라인 실행 또는 EXECUTION_WORKER_INPROCESS) 건너뛴다.
+step "큐 워커 재기동 (run-worker@*)"
+WORKER_UNITS=""
+if command -v systemctl >/dev/null 2>&1; then
+  WORKER_UNITS="$(systemctl list-units --type=service --all --plain --no-legend 'run-worker@*' 2>/dev/null | awk '{print $1}' | xargs echo)"
+fi
+if [ -n "$WORKER_UNITS" ]; then
+  run "sudo systemctl restart $WORKER_UNITS"
+else
+  echo "   워커 유닛 없음 — 건너뜀 (인라인 실행 또는 EXECUTION_WORKER_INPROCESS)"
+fi
+
+# ── 6) 재기동 ───────────────────────────────────────────────────────────────
 step "서비스 재기동 ($SERVICE)"
 run "sudo systemctl restart '$SERVICE'"
 
-# ── 6) 스모크 ───────────────────────────────────────────────────────────────
+# ── 7) 스모크 ───────────────────────────────────────────────────────────────
 # 프로브가 없으면 여기서 확인할 수 있는 것이 index.html 뿐이고, 그러면 반영 실패를 못 잡는다.
 step "스모크"
 if [ "$DRY_RUN" = 1 ]; then
-  echo "   [dry-run] $BASE_URL/api/health · /api/ready · 없는 라우트 404 확인"
+  echo "   [dry-run] $BASE_URL/api/health · /api/ready(checks.queue 포함) · 없는 라우트 404 · 워커 유닛 is-active 확인"
 else
   for _ in $(seq 1 30); do
     curl -fsS -o /dev/null "$BASE_URL/api/health" 2>/dev/null && break
@@ -117,6 +132,13 @@ else
   MISS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/__deploy_smoke_no_such_route__")"
   [ "$MISS" = "404" ] || fail "없는 API 경로가 $MISS 를 돌려준다 (200 이면 배포 반영이 안 된 것이다)"
   echo "   404 규약 ok"
+
+  # 워커 유닛이 있으면 재기동 뒤 살아 있어야 한다. 큐 정지(queued 가 쌓이는데 heartbeat 를 찍는 워커가 없다)는 위 /api/ready 가
+  # checks.queue=false·503 으로 이미 잡는다 — 여기서는 프로세스가 떠 있는지만 본다.
+  for unit in $WORKER_UNITS; do
+    systemctl is-active --quiet "$unit" || fail "$unit 이 살아 있지 않다 (journalctl -u $unit -n 50)"
+  done
+  [ -z "$WORKER_UNITS" ] || echo "   워커     ok ($WORKER_UNITS)"
 fi
 
 step "배포 완료 (태그 $TAG)"

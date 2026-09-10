@@ -77,3 +77,19 @@ def test_deploy_branch_env_overrides_default(repo):
     proc = _deploy(repo, env={"DEPLOY_BRANCH": "hotfix"})
     assert proc.returncode == 0, proc.stderr
     assert "hotfix ok" in proc.stdout
+
+
+def test_dry_run_has_a_worker_restart_step_that_skips_without_units(repo):
+    """워커 유닛(run-worker@N)이 없는 서버에서도 배포는 그대로 돈다 — 단계는 있고 건너뛴다고 말한다."""
+    proc = _deploy(repo)
+    assert proc.returncode == 0, proc.stderr
+    assert "큐 워커 재기동" in proc.stdout
+    assert proc.stdout.index("큐 워커 재기동") > proc.stdout.index("DB 마이그레이션"), "스키마 뒤에 워커"
+    assert proc.stdout.index("큐 워커 재기동") < proc.stdout.index("서비스 재기동"), "워커 뒤에 API"
+
+
+def test_server_scripts_parse():
+    for name in ("deploy.sh", "rollback.sh", "server/08-run-worker-unit.sh"):
+        proc = subprocess.run([BASH, "-n", str(ROOT / "scripts" / name)], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+        assert proc.returncode == 0, f"{name}: {proc.stderr}"

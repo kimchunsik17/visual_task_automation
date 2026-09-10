@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 import subprocess
 import sys
@@ -100,6 +101,39 @@ def test_advisory_lock_은_큐_모드에서도_중복_enqueue_를_막는다(fact
         scheduler.execute_scheduled_project(77)   # 잠금이 잡혀 있어 조용히 스킵
     db = factory()
     assert db.query(models.WorkflowRun).count() == 0
+    db.close()
+
+
+def test_같은_발화_슬롯은_인스턴스가_둘이어도_run_하나다(factory, monkeypatch):
+    """큐 모드에서 advisory lock 은 enqueue 하는 몇 ms 만 쥔다 — 두 번째 인스턴스가 몇 초 뒤 발화하면 잠금은 이미 풀려 있다.
+    슬롯 키(분 단위 idempotency_key)가 그 틈을 막아야 한다. 리더 선출 대신 이것으로 인스턴스 2개를 견딘다(ENGINE-2 3단계)."""
+    monkeypatch.setenv(run_queue.QUEUE_ENV, "1")
+    monkeypatch.setattr(scheduler, "SessionLocal", factory)
+    fixed = datetime.datetime(2026, 9, 11, 7, 0, 3)
+    monkeypatch.setattr(run_queue, "_now", lambda: fixed)
+    scheduler.execute_scheduled_project(77)
+    scheduler.execute_scheduled_project(77)          # 두 번째 인스턴스 — 잠금은 이미 풀렸다
+    db = factory()
+    runs = db.query(models.WorkflowRun).all()
+    assert len(runs) == 1 and runs[0].idempotency_key == "schedule:77:2026-09-11T07:00"
+    monkeypatch.setattr(run_queue, "_now", lambda: fixed + datetime.timedelta(minutes=1))
+    scheduler.execute_scheduled_project(77)          # 다음 슬롯은 새 run
+    assert db.query(models.WorkflowRun).count() == 2
+    db.close()
+
+
+def test_슬롯_키_경쟁에서_진_쪽은_IntegrityError_를_이미_들어갔다로_읽는다(factory, monkeypatch, capsys):
+    """find 는 못 봤는데 commit 직전 다른 인스턴스가 먼저 넣은 경우 — unique 가 마지막 벽이고, 스케줄러는 죽지 않고 스킵한다."""
+    monkeypatch.setenv(run_queue.QUEUE_ENV, "1")
+    monkeypatch.setattr(scheduler, "SessionLocal", factory)
+    monkeypatch.setattr(run_queue, "find_by_idempotency_key", lambda db, key: None)   # 경쟁: 조회 시점엔 없었다
+    fixed = datetime.datetime(2026, 9, 11, 7, 0, 3)
+    monkeypatch.setattr(run_queue, "_now", lambda: fixed)
+    scheduler.execute_scheduled_project(77)
+    scheduler.execute_scheduled_project(77)
+    db = factory()
+    assert db.query(models.WorkflowRun).count() == 1
+    assert "다른 인스턴스가 먼저 넣었다" in capsys.readouterr().out
     db.close()
 
 
