@@ -34,8 +34,11 @@ db.commit()
 client = TestClient(main.app)
 
 # 실행 자체는 관심 밖(별도 테스트가 있다) — sqlite 의 노드 로그 시간 타입 문제를 피해서
-# 가드만 본다. 가드는 run_workflow 호출 **전에** 동작해야 한다.
-main.run_workflow = lambda *args, **kwargs: ("ok", {}, [])
+# 가드만 본다. 가드는 실행 진입점 호출 **전에** 동작해야 한다. 2026-09-06 부터 모든 실행 경로가
+# execution.start 를 지나므로(백로그 32 ENGINE-0, test_execution_entry) 그 이음새를 막는다 —
+# 예전처럼 main.run_workflow 를 바꾸면 실제 실행이 그대로 돈다.
+import execution
+execution.start = lambda *args, **kwargs: ("ok", {}, [])
 
 # 1) 정상 입력은 통과한다 (길지만 상한 이내)
 ok = client.post("/api/apps/tok-guard/execute", json={"inputs": {"text": "가" * 7000}})
