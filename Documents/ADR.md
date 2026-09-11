@@ -1989,3 +1989,68 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
 - 검증: `test_node_bindings.py`(55케이스 — 계약·생성기 배선 대조·프롬프트 주입·few-shot 정합성·
   bind_field·수리), `test_task_spec.py`, `test_evaluation.py`, `editorCommands.test.js`,
   Playwright(픽커·데이터 레이어·popout 마이그레이션·오류 카드·성능). 전체 회귀 2537 통과.
+
+## ADR-0027 · 그래프 인터프리터 이관: 순회 규칙 공유 · 생성기 본문 재사용 · 정적 계획
+
+| 상태 | 수락됨 · 2026-09-06 (ENGINE-0 2·3단계 — 순회 규칙 분리·본문 렌더러 구현. 인터프리터 본체·섀도는 다음 단계) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.1(백로그 32), ADR-0015(승인 재개), ADR-0016(NodeError v1), ADR-0019(pythonNode 격리), `plans/실행엔진_앱빌더_시연준비_종합보고서.md` §1 |
+
+**맥락 (Context)**
+
+실행 엔진은 `compile_workflow` 가 그래프를 파이썬 소스로 만들고 `run_workflow` 가 `exec()` 하는 구조다. 노드 하나가
+실행되는 순간에 엔진이 끼어들 자리가 없어 노드별 재시도·타임아웃·단계 기록·진행률 스트리밍·서브워크플로우가 전부
+막혀 있다(종합보고서 §1.1). 이를 노드 executor 를 직접 부르는 **그래프 인터프리터**로 바꾸되, 전환 조건은 "코퍼스에서
+두 엔진의 출력·로그·토큰이 같다"는 등가성이다(로드맵 §3.1 핵심 판단).
+
+코드를 읽고 확인한 어려움 둘:
+
+1. **순회가 생성기 49종에 흩어져 있다.** 각 생성기는 자기 본문을 찍고 스스로 하류로 재귀한다(`generate_block_fn`).
+   "어떤 순서로 걷는가"가 한 곳에 있지 않다.
+2. **재합류 자리는 정적으로 정해진다.** 재합류 노드(제어 간선 2개 이상)는 모든 상류 갈래가 *방출*된 뒤 한 번 방출되고,
+   배타 분기(conditionNode·humanApprovalNode)의 형제 갈래에 걸쳐 있으면 분기 구문이 닫힌 자리에 놓인다. 실행 시점에는
+   한 갈래만 실행되므로 "도착 수"로 판정하면 merge 가 영영 실행되지 않는다 — 옛 엔진은 실행되지 않은 상류를 빈 값으로
+   건너뛰고 merge 를 실행한다(`test_merge_rejoin.py`).
+
+**결정 (Decision)**
+
+1. **순회 규칙을 `backend/graph_traversal.py` 로 분리하고 두 엔진이 같은 함수를 쓴다.** 그래프 준비(memo·scope·stop·
+   pinned·보안 검증), 간선 분류(template/tools/attachments 제외와 첨부 전용 예외), 루트 판정(정의 파생 트리거 + 내장 5종,
+   폴백, 연결된 루트), 재합류 기대치(back-edge 제외), 재합류 게이트 상태 기계 `JoinGate`(도착·자리 판정·분기 닫힘 뒤
+   방출·미아 방출), 형제 오염 복원 판정. `compile_workflow` 는 이 함수들을 호출만 한다.
+2. **노드 본문은 생성기를 재사용한다 — 49종을 다시 쓰지 않는다.** `backend/node_bodies.render_node_body` 가 생성기를
+   부르되 하류 재귀를 기록만 하는 함수로 바꿔 끼워, 그 노드의 본문 줄과 하류 배선(대상·`prev_res_var`·`active_llm_id`)을
+   얻는다. 인터프리터는 프렐류드(`graph.emit_module_prelude`)를 한 번 exec 한 네임스페이스 위에서 본문을 exec 한다.
+   본문이 옛 엔진의 줄과 같으므로 노드 의미론은 구성상 같다.
+3. **인터프리터가 직접 구현하는 노드는 타입으로 정한다 — `NATIVE_FLOW_TYPES` 6종**(conditionNode·humanApprovalNode·
+   loopNode·distributorNode·breakNode·outputNode). 본문 안에서 하류를 부르거나(if/for) 제어를 끊는(return/break) 노드다.
+   나머지 45종은 래퍼다. 인스턴스 모양이 아니라 타입으로 고른다 — 규칙·핸들이 없는 conditionNode 는 선형처럼 보인다.
+4. **인터프리터는 실행 전에 정적 계획을 세운다.** 옛 엔진의 `generate_block` 과 같은 순서로 그래프를 걷되 코드 대신
+   계획(단계·배타 분기·반복·재합류 자리·반환)을 만들고, `JoinGate` 로 재합류 자리를 정적으로 정한다. 실행은 계획을 따른다.
+   병렬 실행 등 순서를 바꾸는 최적화는 등가성 검증 뒤에만.
+5. **등가성은 두 층으로 검증한다.** 소스 층: `backend/codegen_corpus_diff.py` 가 git ref 시점의 graph.py 와 작업 트리를
+   같은 프로세스에 올려 코퍼스 835 그래프(공식 107×6 변형·큐레이션 142·스모크 51)의 생성 소스를 줄 단위로 대조한다.
+   실행 층(다음 단계): `EXECUTION_ENGINE=shadow` 로 두 엔진을 mock 모드로 나란히 돌려 출력·로그·토큰을 대조한다.
+
+**대안 (Alternatives)**
+
+- **생성기 49종을 executor 로 한 번에 재작성**: 노드마다 등가성 증명이 따로 필요하고, 그동안 34·35번의 새 노드가 두 번
+  만들어진다. 기각.
+- **실행 시점 도착 수로 재합류 판정**: 배타 분기 뒤 merge 가 실행되지 않아 옛 엔진과 다르다(맥락 2). 기각.
+- **생성 코드에 훅만 삽입**(노드 앞뒤 콜백 줄): `exec` 는 그대로라 pythonNode 격리·워커 재개·단계별 저장이 여전히
+  불가능하다. 개입 지점의 절반만 얻는다. 기각.
+
+**결과 (Consequences)**
+
+- `graph.py` 는 `emit_module_prelude`·`emit_run_header`·`emit_llm_setup` 세 방출 함수와 순회 호출로 줄었다(1048 → 888줄).
+  생성기 시그니처(51종 공통)는 바꾸지 않았다.
+- 코퍼스 835 그래프 대조 차이 0. 단 **포스터·문서 노드가 컴파일 시점에 랜덤 파일명을 뽑는다**(`uploads/poster_bb1527.png`) —
+  생성 소스가 실행마다 다르다. 대조 도구는 이것만 정규화한다. 섀도 대조에서도 같은 정규화가 필요하며, 실행 시점으로
+  옮길 후보다.
+- 죽은 코드 하나가 결함이었다: `generate_block` 의 tool 노드 판정 블록이 `node` 를 정의 전에 읽어, tool 노드가 보통
+  간선으로도 연결된 그래프는 `UnboundLocalError` 로 컴파일이 죽었다. 제거했고 `test_graph_traversal.py` 가 회귀를 막는다.
+- 남은 일(ENGINE-0 4~6단계): 계획 빌더와 흐름 노드 6종 executor, 래퍼 executor, `execution.start` 의 shadow/interpreter
+  분기, 코퍼스 섀도 대조, pythonNode 격리, 프로젝트별 flag.
+- 검증: `test_graph_traversal.py` 26건 · `test_node_bodies.py` 108건 · `test_merge_rejoin.py` 9건 그대로 통과 ·
+  회귀 31파일 1729 passed·28 skipped(test_format_node 1건은 실행 순서 의존 플레이크 — 단독·HEAD 모두 통과).

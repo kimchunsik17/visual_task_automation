@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **착수(2026-09-06)** — 스케줄러 lock·실행 진입점 완료 | ENGINE-0 2단계 executor 레지스트리 |
+| 실행 엔진 v2 (32) | **착수(2026-09-06)** — 스케줄러 lock·실행 진입점·순회 규칙 분리·노드 본문 렌더러 완료(ADR-0027) | ENGINE-0 4단계 인터프리터(정적 계획 + 흐름 노드 6종) → 섀도 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -235,7 +235,7 @@ tenant 격리 계약을 그대로 쓰므로 반드시 26 뒤에 둔다.
 | --- | --- | --- |
 | 실행 방식 | `graph.compile_workflow()` 가 소스를 만들고 `run_workflow()` 가 `exec(python_code, namespace)` 한다(`graph.py:1011`) | 노드 하나가 실행되는 순간에 엔진이 개입할 지점이 없다. 보안은 AST 검사로 완화됐지만 개입 지점 부재는 완화가 아니다 |
 | 부분 실행·피닝 | `compile_workflow(entry_node_id, stop_node_id, scope_node_ids, pinned_outputs)` 가 **이미 있다.** 승인 스냅샷 재개(ADR-0015)도 이 위에 있다 | "순회할 간선을 잘라내는" 방식이라 인터프리터에서는 오히려 단순해진다. 파라미터는 엔진 인자로 그대로 승계 |
-| 흐름 노드 의미론 | `conditionNode`(규칙 N개+그 외), `loopNode`+`breakNode`, `mergeNode`(재합류 1회 방출 — PR #40), `distributorNode`(형제 오염 수정 — PR #69), `delayNode`, `humanApprovalNode` | 인터프리터가 **정확히 같은** 순회 규칙(트리거 루트 판정, `targetHandle` 구분, tool 노드 제외, 첨부 간선 예외, 재합류 게이트, 갈래 진입 시 상류 결과 복원)을 재현해야 한다. `test_merge_rejoin.py`·PR #69 회귀 2건이 첫 대조 기준 |
+| 흐름 노드 의미론 | `conditionNode`(규칙 N개+그 외), `loopNode`+`breakNode`, `mergeNode`(재합류 1회 방출 — PR #40), `distributorNode`(형제 오염 수정 — PR #69), `delayNode`, `humanApprovalNode` | 인터프리터가 **정확히 같은** 순회 규칙(트리거 루트 판정, `targetHandle` 구분, tool 노드 제외, 첨부 간선 예외, 재합류 게이트, 갈래 진입 시 상류 결과 복원)을 재현해야 한다 → **2026-09-06 `graph_traversal.py` 로 분리해 두 엔진이 같은 함수·상태 기계(`JoinGate`)를 쓴다**(ADR-0027). `test_merge_rejoin.py`·PR #69 회귀 2건이 첫 대조 기준 |
 | 호출 지점 | `run_workflow` 를 테스트 밖 **7개 모듈 11곳**이 직접 호출했다 — `main.py` 5곳, `scheduler.py`, `discord_bot.py`, `telegram_bot.py`, `approval_service.py`, `evaluator.py`, `mock_service.py`. (v3.0 초판의 "17파일" 은 `dry_run_workflow` 를 함께 센 오류 — 2026-09-06 정정) | **2026-09-06 부터 전부 `execution.start` 를 지난다.** 전부 동기 인라인 호출이지만 큐 전환(ENGINE-2)은 이제 그 함수 한 곳만 바꾸면 된다(TEAM-0 이 권한 판정에 한 것과 같은 수법) |
 | 실행 상태 | 종료 후 `__execution_logs__` 일괄 수신. `FlowExecutionLog` 는 실행 단위 | 노드 단위 타임라인·재개 지점·진행률이 없다 |
 | 스케줄러 | `AsyncIOScheduler` 인프로세스 하나(`scheduler.py:12`). **advisory lock 은 2026-09-06 추가** — `execution.advisory_lock`(PostgreSQL 세션 잠금을 전용 연결로, sqlite 는 프로세스 내 집합) | 인스턴스 2개여도 같은 프로젝트 스케줄은 한쪽만 돈다. 리더 선출·큐 폴링은 ENGINE-2 |
@@ -272,15 +272,28 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    로 모았다. 동작은 바뀌지 않았고(반환·예외 동일), `trigger_source` 9종은 닫힌 목록이라 ENGINE-1 의 `workflow_runs.trigger_source` 가
    그대로 쓴다. `EXECUTION_ENGINE` 모드 골격(legacy 만 실재, 나머지는 경고 후 legacy)도 여기 있다. `test_execution_entry.py` 가
    AST 로 직접 호출을 막는다 — 새 실행 경로는 반드시 이 함수를 지난다. 이것이 ENGINE-2 큐 전환의 자리다.
-2. **executor 레지스트리.** `node_registry.register` 에 이미 49종이 있다. 각 등록 항목에 `executor` 를 붙이고,
-   없는 노드는 "기존 생성 코드를 컴파일해 실행하는 래퍼 executor" 로 자동 채운다 — 하이브리드의 핵심.
-3. **순회 엔진.** `compile_workflow` 의 순회 규칙을 함수로 추출해 두 엔진이 **같은 함수**를 쓰게 한다.
-   재합류 게이트·분기 경로 스택·갈래별 상류 결과 복원을 그대로 옮긴다.
+2. **executor 레지스트리 — 재료 완료(2026-09-06), 슬롯은 4단계에서.** `backend/node_bodies.render_node_body` 가 생성기를 부르되
+   하류 재귀를 기록만 해서 **노드 하나의 본문 줄과 하류 배선(prev_res_var·active_llm_id)** 을 얻는다 — 미이식 노드를 감싸는
+   래퍼 executor 의 재료다. 감쌀 수 없는 타입은 정확히 `NATIVE_FLOW_TYPES` 6종(condition·humanApproval·loop·distributor·
+   break·output)이고 나머지 45종은 본문 그대로 exec 하면 옛 엔진과 같다(`test_node_bodies.py` 가 선형 그래프로 로그·결과·
+   오류 모양의 등가를 확인). 레지스트리의 executor 슬롯은 시그니처가 정해지는 인터프리터 PR 에서 함께 넣는다.
+3. ~~**순회 엔진.**~~ **완료(2026-09-06)** — `backend/graph_traversal.py`: `prepare_graph`(memo·scope·stop·pinned·보안 검증) ·
+   `classify_edges`(배선 간선 제외·첨부 전용 예외) · `select_roots` · `join_expectations`(back-edge 제외) · `JoinGate`(재합류 상태
+   기계 — 도착·자리 판정·분기 닫힘 뒤 방출·미아 방출) · `sibling_restore_source`. `compile_workflow` 는 이 함수들을 호출만 하고
+   프렐류드·헤더·llm 설정도 `emit_module_prelude`·`emit_run_header`·`emit_llm_setup` 으로 나뉘어 인터프리터가 같은 네임스페이스를
+   만들 수 있다. 등가성: `backend/codegen_corpus_diff.py` 가 HEAD 의 graph.py 와 작업 트리를 나란히 올려 **835 그래프**(공식
+   107×6 변형·큐레이션 142·스모크 51)의 생성 소스를 대조 — 차이 0(컴파일 시점 랜덤 파일명만 정규화).
 4. **섀도 실행.** `EXECUTION_ENGINE=shadow` 면 두 엔진을 mock 모드로 돌려 결과·로그·토큰을 비교하고 차이를
    기록한다. 코퍼스 242+508 에서 차이 0 이 전환 조건.
 5. **pythonNode 격리.** AST 허용 목록은 유지하고 실행을 자식 프로세스(rlimit·시간 제한·네트워크 차단)로
    옮긴다 — n8n 2.0 Task Runner 패턴. ADR-0019 의 한도(1초·256MB)를 그대로 쓴다. 13번의 전제 인프라.
 6. 프로젝트별 feature flag(`/api/features` 인프라)로 점진 전환. 끄면 옛 엔진.
+
+**설계 메모(2026-09-06, ADR-0027).** ① 인터프리터는 실행 전에 **정적 계획**을 세운다 — 재합류 자리는 실행 시점 도착 수로
+판정할 수 없다(배타 분기의 한 갈래만 실행돼도 merge 는 분기 뒤에서 한 번 실행돼야 한다). 옛 엔진과 같은 순서로 걷되 코드
+대신 계획을 만들고 `JoinGate` 로 자리를 정한다. ② 노드 본문은 생성기 재사용 — 49종을 다시 쓰지 않는다. ③ 포스터·문서
+노드는 **컴파일 시점**에 랜덤 파일명을 뽑아 생성 소스가 실행마다 다르다 — 섀도 대조에서도 정규화가 필요하고, 실행 시점으로
+옮길 후보다. ④ 죽은 코드가 결함이었다: tool 노드가 보통 간선으로도 연결된 그래프는 `UnboundLocalError` 로 컴파일이 죽었다(제거·회귀 테스트).
 
 ##### ENGINE-1. Run/Step 실행 상태 영속화 — 1~2주
 
@@ -319,7 +332,7 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 
 | 층 | 필수 검증 |
 | --- | --- |
-| 등가성 | 코퍼스 242+508 에서 옛 엔진과 새 엔진의 출력·로그 순서·토큰 집계 차이 0. `test_merge_rejoin.py` 7건, PR #69 회귀 2건, 코드젠 스모크 51종 |
+| 등가성 | 코퍼스 242+508 에서 옛 엔진과 새 엔진의 출력·로그 순서·토큰 집계 차이 0. `test_merge_rejoin.py` 9건, PR #69 회귀 2건, 코드젠 스모크 51종. **소스 층**: `codegen_corpus_diff.py`(835 그래프, git ref 대 작업 트리) — 순회·프렐류드·생성기를 손댄 PR 은 결과를 본문에 남긴다 |
 | 부분 실행 | entry/stop/scope/pinned 네 파라미터의 기존 테스트가 새 엔진에서 그대로 통과 |
 | 승인 재개 | ADR-0015 의 durable 대기 → 재개가 Run/Step 위에서 같은 결과 |
 | 큐 | 워커 2개에서 같은 run 이 두 번 실행되지 않는지, heartbeat 끊김 뒤 회수·재개, 스케줄 중복 발화 0 |
@@ -1742,7 +1755,7 @@ flowchart LR
 
 ### 남은 작업이 손댈 저장소 위치
 
-- `backend/graph.py`: `compile_workflow`(entry/stop/scope/pinned)·`run_workflow`(`exec`, :1011). 32번 ENGINE-0 의 본체
+- `backend/graph.py`: `compile_workflow`(entry/stop/scope/pinned)·`run_workflow`(`exec`)·`emit_module_prelude`. 순회 규칙은 `backend/graph_traversal.py`, 노드 본문 렌더러는 `backend/node_bodies.py`, 등가성 도구는 `backend/codegen_corpus_diff.py` — 32번 ENGINE-0 의 본체(ADR-0027)
 - `backend/node_generators/`: 실행기 49종 등록(`node_registry.register`). executor 매핑이 붙을 자리. `flow_nodes.py` 의
   loop/merge/distributor 의미론이 첫 대조 기준
 - `backend/scheduler.py`: `AsyncIOScheduler` 인프로세스. advisory lock 과 큐 폴링이 들어갈 자리
