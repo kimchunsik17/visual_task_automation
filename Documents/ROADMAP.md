@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-2 2단계까지(2026-09-10)** — 큐(0026)·워커·heartbeat·stale 확정 + 스케줄·웹훅 생산자 전환(`EXECUTION_QUEUE`)·인프로세스 워커(ADR-0029). ENGINE-1 백엔드 완료, ENGINE-0 은 운영 절차만 남음 | ENGINE-2 3단계 systemd 워커 유닛·스테이징 → ENGINE-3 재시도·멱등성 |
+| 실행 엔진 v2 (32) | **ENGINE-2 코드 완료(2026-09-11)** — 큐(0026)·워커·heartbeat·stale 확정 + 스케줄·웹훅 생산자 전환(`EXECUTION_QUEUE`)·인프로세스 워커 + systemd 템플릿 유닛 `run-worker@`·`deploy.sh` 워커 재기동·`/api/ready` 큐 정지 판정·스케줄 슬롯 키(ADR-0029). **서버 리허설만 남음**(`scripts/server/README.md` 큐 모드 켜기). ENGINE-1 백엔드 완료, ENGINE-0 은 운영 절차만 남음 | 서버에서 08 스크립트로 큐 모드 리허설 → ENGINE-3 재시도·멱등성 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -364,15 +364,27 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    가 `advisory_lock(SCHEDULE_LOCK_NAMESPACE, project_id)` 를 못 잡으면 실행 없이 끝낸다. `test_scheduler_lock.py`.
    **2026-09-10**: 큐 모드에서 APScheduler 는 enqueue 만 하고 워커가 실행한다 — advisory lock 은 misfire 재발화의 중복 enqueue 방지로
    남는다. 리더 선출·`next_fire_at` 폴링 전환은 인스턴스가 둘 이상이 될 때(3단계 스테이징).
+   **2026-09-11 — 리더 선출 대신 슬롯 키.** 큐 모드에서 잠금은 enqueue 하는 몇 ms 만 쥐므로 인스턴스 둘이 몇 초 차로 발화하면 둘 다 잡는다.
+   `run_queue.schedule_slot_key`(분 단위 `schedule:{pid}:{YYYY-MM-DDTHH:MM}`)를 `idempotency_key`(unique)에 넣어 같은 슬롯은 run 하나 —
+   조회에서 보이면 스킵, 경쟁에서 지면 IntegrityError 를 스킵으로 읽는다. 인스턴스 2개를 리더 선출 없이 견딘다. `next_fire_at` 폴링
+   전환은 APScheduler 를 빼고 싶을 때의 이야기로 남긴다.
 4. **내구성 — 절반 구현(2026-09-10).** 워커 heartbeat(별도 스레드, `RUN_WORKER_HEARTBEAT_SECONDS`)와 stale 확정
    (`run_queue.reclaim_stale`, `RUN_WORKER_STALE_SECONDS`) 은 들어갔다. 끊긴 run 은 **failed 로 확정만** 한다 — step 은 실행이
    끝난 뒤 쓰이므로 어디까지 갔는지(부작용 노드를 지났는지) 알 수 없다. 마지막 완료 step 부터의 재개는 노드 멱등성(ENGINE-3)과
    함께 — 그때 `execution.resume` 을 쓴다.
+   **큐 정지 판정(2026-09-11, 37번 O-2)**: `run_queue.queue_health` — queued 가 `RUN_QUEUE_STALL_SECONDS`(기본 300) 넘게 기다리는데
+   heartbeat 를 찍는 running 이 없으면 stalled. `/api/ready` 가 큐가 켜져 있을 때 `checks.queue`(stalled → 503) 와 `detail.queue`(depth·
+   oldest_wait·running_fresh) 로 알린다. 워커가 긴 run 을 잡고 있는 적체는 정지가 아니다.
 5. 컨테이너/스테이징(37번)은 이 단계와 함께 — 워커 프로세스가 생기는 시점이 배포 단위가 바뀌는 시점이다.
    **인프로세스 워커(2026-09-10)**: `EXECUTION_WORKER_INPROCESS=1` 이면 API 프로세스가 시작할 때 워커 스레드를 하나 띄운다
    (`run_worker.start_inprocess_worker`, 종료 훅에서 현재 run 을 마치고 멈춤) — 배포 단위를 바꾸지 않고 큐 경로를 먼저 검증하기
    위한 것. 큐만 켜고 워커가 없으면 시작 로그에 경고. 제대로 된 분리는 `python run_worker.py --worker-id w1` 프로세스 + systemd
    유닛(3단계, 배포 문서·`scripts/deploy.sh`).
+   **systemd 유닛·배포(2026-09-11)**: `scripts/server/08-run-worker-unit.sh` 가 템플릿 유닛 `run-worker@.service` 를 만들고 `run-worker@1`
+   (INSTANCES=N 으로 더) 을 켠다 — fastapi 유닛과 같은 User/Group, `.env` 는 앱이 읽음, SIGTERM → 현재 run 마치고 종료(TimeoutStopSec 900).
+   `scripts/deploy.sh` 는 alembic 뒤 `run-worker@*` 를 재기동하고(유닛 없으면 건너뜀) 스모크에서 is-active 를 본다. 켜는 절차·리허설
+   체크리스트는 `scripts/server/README.md` "큐 모드 켜기". **서버 리허설(재시작 중 run → 마치고 종료 / kill -9 → failed 확정)은
+   사용자 몫**으로 남는다 — 통과하면 출시 게이트 "재시작이 run 을 잃지 않는지" 가 닫힌다.
 
 ##### ENGINE-3. 재시도 · 에러 분기 · 멱등성 — 1~2주
 
@@ -392,7 +404,7 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 | 등가성 | 코퍼스 242+508 에서 옛 엔진과 새 엔진의 출력·로그 순서·토큰 집계 차이 0. `test_merge_rejoin.py` 9건, PR #69 회귀 2건, 코드젠 스모크 51종. **소스 층**: `codegen_corpus_diff.py`(835 그래프, git ref 대 작업 트리) — 순회·프렐류드·생성기를 손댄 PR 은 결과를 본문에 남긴다. **실행 층**: `engine_shadow_diff.py` — 2026-09-08 공식·큐레이션·스모크 300 그래프 차이 0; 커뮤니티 242종은 전환 전 |
 | 부분 실행 | entry/stop/scope/pinned 네 파라미터의 기존 테스트가 새 엔진에서 그대로 통과 — **통과(2026-09-08, `test_editor_execution.py` 인터프리터 재생)** |
 | 승인 재개 | ADR-0015 의 durable 대기 → 재개가 Run/Step 위에서 같은 결과 — 대기 전환·재개는 인터프리터에서 통과(2026-09-08, `test_approval_flow.py` 재생); Run/Step 위 검증은 ENGINE-1 |
-| 큐 | 워커 2개에서 같은 run 이 두 번 실행되지 않는지, heartbeat 끊김 뒤 회수·재개, 스케줄 중복 발화 0 |
+| 큐 | 워커 2개에서 같은 run 이 두 번 실행되지 않는지 — **PG SKIP LOCKED 통과(09-10)** · heartbeat 끊김 뒤 failed 확정 — **통과(09-10)** · 스케줄 중복 발화 0 — **슬롯 키 통과(09-11)**. 서버 재시작 리허설은 남음 |
 | 재시도·멱등성 | 429/5xx 에서 백오프 후 성공, 401 에서 즉시 실패, 재시도 중 이메일 1통, 같은 `idempotency_key` 두 번 → 실행 1회 |
 | 격리 | pythonNode 자식 프로세스의 rlimit·시간·네트워크 차단이 ADR-0019 테스트를 그대로 통과 |
 | 회귀 | flag 를 끄면 옛 엔진이 바이트 단위로 같은 결과 |
@@ -773,7 +785,7 @@ mcpClientNode
 | # | 항목 | 크기 | 시점 | 내용 |
 | ---: | --- | --- | --- | --- |
 | O-1 | GitHub Actions CI | S | **지금** | push/PR 마다 `pytest`(파일 단위 병렬 또는 전체) + `vite build` + `export_node_definitions.py --check` + ESLint. 운영 DB 를 잡는 테스트는 `TEST_POSTGRES_URL` 없이 어디까지 검사할지 먼저 정한다(C3 결정 참조) |
-| O-2 | 헬스체크 확장 | S | 지금 | `/api/ready` 에 스케줄러 생존·DB 연결·(ENGINE-2 뒤) 큐 적체 포함 |
+| O-2 | 헬스체크 확장 | S | **큐 부분 완료(2026-09-11)** | `/api/ready` 에 스케줄러 생존·DB 연결은 있었고, 큐 정지(`checks.queue`·`detail.queue`, ENGINE-2 3단계)를 넣었다 |
 | O-3 | API 상한 | S~M | 지금 | 실행(`/api/execute`·`/api/projects/{id}/run`·공개 앱)·업로드·인증(`/api/auth/guest` 는 정원만 있다)에 사용자·IP 별 상한. `rate_limit` 모듈 재사용. 실행 시간·메모리 상한은 ENGINE-0 의 pythonNode 격리와 함께 |
 | O-4 | 예외 수집 + 구조화 로깅 | M | ENGINE-1 뒤 | Sentry 계열(또는 자체 호스팅 GlitchTip) + `run_id` 상관관계. 로그는 실행 ID 로 묶인다 |
 | O-5 | 메트릭·얼럿 | M | ENGINE-1 뒤 | 실패율·큐 깊이·P95 를 관리자 통계에 노출하고, "5분 실패율 임계 초과" 얼럿을 **기존 텔레그램 봇**으로. Prometheus 는 지표가 필요해질 때 |

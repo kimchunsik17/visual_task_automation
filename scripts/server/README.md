@@ -54,6 +54,7 @@ cd /home/ubuntu/app/backend && venv/bin/pip install -r requirements.txt
 | 5 | `05-log-rotation.sh` | logrotate + journald 상한 | 낮음 |
 | 6 | `06-requirements-lock.sh` | lock 파일 생성 | 없음 (읽기만, `--write` 로 써야 반영) |
 | 7 | `07-uploads-per-user-move.sh` | 기존 업로드 파일을 소유자 디렉토리로 이동 | 낮음 (dry-run 기본, `--apply` 로 실행. **마이그레이션 0023 이 적용된 배포 뒤에만**) |
+| 8 | `08-run-worker-unit.sh` | 큐 워커 systemd 템플릿 유닛 `run-worker@` 생성·기동 | 낮음 (유닛 파일 하나, 되돌리기는 disable + rm). **ENGINE-2 코드(0024~0026)가 배포된 뒤에만** — 절차는 아래 "큐 모드 켜기" |
 
 **4번은 혼자 실행한다.** 계획서가 "두 바인드 변경을 한 번에 하지 않는다" 고 못 박았다.
 mock_server 바인드는 코드에서 이미 루프백으로 바꿨고 배포로 나가므로 여기서 함께 만지지 않는다.
@@ -86,6 +87,39 @@ curl -s http://127.0.0.1:8000/api/ready     # {"status":"ready", ...} 여야 한
 이후로는 마이그레이션이 있는 배포에서 `deploy.sh` 를 거치지 않고 `systemctl restart` 만 하면
 **기동을 거부한다**. 그것이 의도된 동작이다 — 운영자가 모르면 장애로 보이므로 미리 알아 둘 것.
 `/api/ready` 가 그 상태를 `{"checks":{"schema":false}, "detail":{"schema":{...}}}` 로 구분해 준다.
+
+## 큐 모드 켜기 (실행 엔진 v2 ENGINE-2, ADR-0029)
+
+기본은 꺼져 있다(`EXECUTION_QUEUE=0`) — 배포만으로는 아무것도 바뀌지 않는다. 켜면 **스케줄·웹훅** 실행이 `workflow_runs` 큐에
+들어가고(웹훅은 202 + run_id) 워커가 실행한다. 에디터·앱·봇·`/api/call` 은 인라인 그대로.
+
+순서 — 각 단계 뒤 `/api/ready` 가 200 인지 본다.
+
+| # | 어디서 | 무엇 | 확인 |
+| --- | --- | --- | --- |
+| 1 | 서버 | ENGINE-2 가 든 release 를 `scripts/deploy.sh` 로 배포(0024~0026 마이그레이션 포함) | `/api/ready` 200, `/api/features` 의 `execution_queue` false |
+| 2 | 서버 | `sudo scripts/server/08-run-worker-unit.sh --dry-run` → `sudo scripts/server/08-run-worker-unit.sh` | `systemctl is-active run-worker@1`, `journalctl -u run-worker@1 -n 20` 에 "시작" |
+| 3 | 서버 | `backend/.env` 에 `EXECUTION_QUEUE=1` 추가, `sudo systemctl restart fastapi` | `/api/ready` 의 `checks.queue` true(빈 큐), `/api/features` 의 `execution_queue` true |
+| 4 | 브라우저·서버 | 스케줄 프로젝트 하나를 1분 뒤로 잡거나 웹훅을 한 번 쏜다 | 웹훅은 202 `{status: queued, run_id}`; `journalctl -u run-worker@1 -f` 에 claim → 실행; `GET /api/projects/{id}/workflow-runs/{run_id}` 가 succeeded |
+
+**리허설 — 세 가지를 꼭 해 본다.** 출시 게이트("재시작이 실행 중 run 을 잃지 않는지", ROADMAP §3.1)가 이것으로 닫힌다.
+
+1. **정상 재기동**: 긴 run(LLM 노드 여럿)이 running 인 동안 `sudo systemctl restart run-worker@1`. 기대: SIGTERM 을 받은 워커가 그 run 을
+   **마치고** 종료·재기동한다(최대 TimeoutStopSec 900초 — `systemctl restart` 가 그동안 기다린다). 타임라인에서 그 run 은 succeeded,
+   `journalctl` 에 "현재 run 을 마치고 종료".
+2. **강제 종료**: 같은 상황에서 `sudo systemctl kill -s SIGKILL run-worker@1`. 기대: 유닛이 3초 뒤 다시 뜨고, 죽은 run 은
+   `RUN_WORKER_STALE_SECONDS`(120) 뒤 **failed 로 확정**된다(error_summary "워커 heartbeat 끊김"). 재실행되지 않는다 — 부작용 노드를
+   지났는지 모르기 때문(ADR-0029 결정 5). 그동안 `/api/ready` 는 `checks.queue` true(새 워커가 heartbeat 를 찍는다).
+3. **워커를 내려 본다**: `sudo systemctl stop run-worker@1` 뒤 스케줄 하나 발화 → `RUN_QUEUE_STALL_SECONDS`(300) 지나면 `/api/ready` 가
+   503 `checks.queue=false`, `detail.queue.stalled=true`. `start` 하면 queued 가 실행되고 200 으로 돌아온다. 이것이 "워커가 없다" 를
+   프로브가 잡는 모양이다.
+
+**되돌리기**: `.env` 에서 `EXECUTION_QUEUE=0`, `sudo systemctl restart fastapi` — 그 순간부터 스케줄·웹훅은 인라인. 남은 queued 는 워커가
+비운다. 워커도 내리려면 `sudo systemctl disable --now 'run-worker@*'`, 그 뒤 `sudo rm /etc/systemd/system/run-worker@.service &&
+sudo systemctl daemon-reload`.
+
+**두 인스턴스가 될 때**: 같은 스케줄 슬롯(분)은 `idempotency_key` 로 run 하나만 들어가므로 APScheduler 를 양쪽에서 돌려도 중복 실행은
+없다. 리더 선출은 필요 없다. 워커는 `INSTANCES=2` 로 하나 더 띄우면 되고 SKIP LOCKED 가 중복 claim 을 막는다.
 
 ## 전체 확인
 

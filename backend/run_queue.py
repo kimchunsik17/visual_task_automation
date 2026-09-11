@@ -44,6 +44,29 @@ def queue_enabled() -> bool:
     return (os.getenv(QUEUE_ENV) or "0").strip().lower() in {"1", "true", "on", "yes"}
 
 
+# 큐 정지 판정(/api/ready checks.queue, ENGINE-2 3단계 · 로드맵 37번 O-2). queued 가 이 시간 넘게 기다리는데 heartbeat 를 찍는
+# running 이 하나도 없으면 "일은 쌓이는데 워커가 없다" 다. 한 워커가 긴 run 을 잡고 있어 queued 가 기다리는 것은 적체지 정지가
+# 아니다 — 그건 depth 로만 보인다.
+STALL_ENV = "RUN_QUEUE_STALL_SECONDS"
+STALL_AFTER_SECONDS_DEFAULT = 300.0
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name) or default)
+    except ValueError:
+        return default
+
+
+def stall_threshold_seconds() -> float:
+    return _float_env(STALL_ENV, STALL_AFTER_SECONDS_DEFAULT)
+
+
+def worker_stale_seconds() -> float:
+    """run_worker 가 stale 확정에 쓰는 것과 같은 값 — 이보다 오래된 heartbeat 는 "살아 있는 워커" 의 증거가 아니다."""
+    return _float_env("RUN_WORKER_STALE_SECONDS", STALE_AFTER_SECONDS_DEFAULT)
+
+
 def _now() -> datetime.datetime:
     return datetime.datetime.utcnow()
 
@@ -57,11 +80,13 @@ def _is_postgres(db) -> bool:
 
 def enqueue(db, *, nodes: list, edges: list, trigger_source: str, project_id=None, executor_user_id=None,
             session_id=None, runtime_inputs: Optional[dict] = None, options: Optional[dict] = None,
-            engine: Optional[str] = None) -> models.WorkflowRun:
+            engine: Optional[str] = None, idempotency_key: Optional[str] = None) -> models.WorkflowRun:
     """queued run 을 만든다(flush 만 — 커밋은 생산자가). 워커가 잡아 실행한다.
 
     runtime_inputs 는 직렬화 가능한 것만 저장된다(approval_service.serializable_runtime_inputs). options 는 stop_node_id·
     scope_node_ids·pinned_outputs·user_inputs — 실행 시 execution.start 의 명시 인자로 들어간다.
+    idempotency_key 는 unique 컬럼이다 — 같은 키가 이미 있으면 flush/commit 에서 IntegrityError. 생산자가 미리 find_by_idempotency_key
+    로 보고, 경쟁에서 진 쪽은 IntegrityError 를 "이미 들어갔다" 로 읽는다(스케줄 슬롯 키 — schedule_slot_key; 웹훅·RSS 는 ENGINE-3).
     """
     import execution
     from approval_service import serializable_runtime_inputs
@@ -95,6 +120,7 @@ def enqueue(db, *, nodes: list, edges: list, trigger_source: str, project_id=Non
         graph_snapshot={"nodes": list(nodes or []), "edges": list(edges or [])},
         runtime_inputs=serializable_runtime_inputs(dict(runtime_inputs or {})),
         run_options=dict(options or {}),
+        idempotency_key=str(idempotency_key) if idempotency_key else None,
     )
     db.add(run)
     db.flush()
@@ -192,3 +218,48 @@ def execute_claimed(db, run: models.WorkflowRun) -> Tuple[str, dict, list]:
 
 def queue_depth(db) -> int:
     return db.query(models.WorkflowRun).filter(models.WorkflowRun.status == run_records.STATUS_QUEUED).count()
+
+
+def schedule_slot_key(project_id, now=None) -> str:
+    """스케줄 발화 슬롯의 idempotency_key — 분 단위(cron 의 최소 단위). 같은 슬롯은 인스턴스가 몇 개든 run 하나다."""
+    stamp = (now or _now()).strftime("%Y-%m-%dT%H:%M")
+    return f"schedule:{int(project_id)}:{stamp}"
+
+
+def find_by_idempotency_key(db, key: str) -> Optional[models.WorkflowRun]:
+    return db.query(models.WorkflowRun).filter(models.WorkflowRun.idempotency_key == str(key)).first()
+
+
+def queue_health(db, *, stall_after_seconds: Optional[float] = None, heartbeat_fresh_seconds: Optional[float] = None,
+                 now=None) -> Dict[str, Any]:
+    """큐가 살아 있는가 — /api/ready 와 배포 스모크가 본다.
+
+    stalled = queued 가 stall 임계보다 오래 기다리는데, 최근(heartbeat_fresh_seconds 안) heartbeat 를 찍은 running 이 없다 —
+    "일은 쌓이는데 워커가 없다". 워커가 긴 run 을 잡고 있어 queued 가 기다리는 것은 적체(depth)일 뿐 정지가 아니다.
+    worker_id 가 없는 running 은 인라인 실행이라 워커의 증거로 세지 않는다.
+    """
+    now = now or _now()
+    stall = float(stall_after_seconds if stall_after_seconds is not None else stall_threshold_seconds())
+    fresh = float(heartbeat_fresh_seconds if heartbeat_fresh_seconds is not None else worker_stale_seconds())
+    queued = db.query(models.WorkflowRun).filter(models.WorkflowRun.status == run_records.STATUS_QUEUED)
+    depth = queued.count()
+    oldest_wait: Optional[float] = None
+    if depth:
+        oldest = queued.order_by(models.WorkflowRun.queued_at.asc(), models.WorkflowRun.id.asc()).first()
+        since = oldest.queued_at or oldest.started_at
+        oldest_wait = max(0.0, (now - since).total_seconds()) if since is not None else None
+    running_q = db.query(models.WorkflowRun).filter(models.WorkflowRun.status == run_records.STATUS_RUNNING,
+                                                     models.WorkflowRun.worker_id.isnot(None))
+    running = running_q.count()
+    running_fresh = running_q.filter(models.WorkflowRun.heartbeat_at.isnot(None),
+                                     models.WorkflowRun.heartbeat_at >= now - datetime.timedelta(seconds=fresh)).count()
+    stalled = bool(depth and oldest_wait is not None and oldest_wait >= stall and running_fresh == 0)
+    return {
+        "enabled": queue_enabled(),
+        "depth": depth,
+        "oldest_wait_seconds": None if oldest_wait is None else int(oldest_wait),
+        "running": running,
+        "running_fresh": running_fresh,
+        "stalled": stalled,
+        "stall_after_seconds": int(stall),
+    }

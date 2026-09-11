@@ -302,6 +302,25 @@ def ready():
             checks["scheduler"] = False
             detail["scheduler"] = type(exc).__name__
 
+    # 실행 큐(ENGINE-2, ADR-0029). 꺼져 있으면 고장이 아니다(None). 켜져 있으면 "queued 가 오래 기다리는데 heartbeat 를 찍는
+    # 워커가 없다"(stalled) 를 고장으로 본다 — 스케줄·웹훅 실행이 조용히 멈춘 상태다. 적체는 detail.queue.depth 로만 보인다.
+    import run_queue as _run_queue
+    if not _run_queue.queue_enabled():
+        checks["queue"] = None
+    else:
+        try:
+            from database import SessionLocal as _ready_sessions
+            _qdb = _ready_sessions()
+            try:
+                queue_state = _run_queue.queue_health(_qdb)
+            finally:
+                _qdb.close()
+            checks["queue"] = not queue_state["stalled"]
+            detail["queue"] = queue_state
+        except Exception as exc:
+            checks["queue"] = False
+            detail["queue"] = type(exc).__name__
+
     ok = all(v for v in checks.values() if v is not None)
     body = {"status": "ready" if ok else "not_ready", "checks": checks}
     if detail:

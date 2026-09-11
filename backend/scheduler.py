@@ -53,9 +53,23 @@ def _execute_scheduled_project_locked(project_id: int):
         # advisory lock 은 그대로 둔다: misfire 재발화가 같은 프로젝트를 두 번 enqueue 하는 것을 막는다.
         import run_queue
         if run_queue.queue_enabled():
-            run = run_queue.enqueue(db, nodes=nodes, edges=edges, trigger_source="schedule", project_id=project_id,
-                                    session_id=f"scheduled_{project_id}")
-            db.commit()
+            # 같은 발화 슬롯(분 단위)은 인스턴스가 몇 개든 run 하나다. advisory lock 은 동시 발화를 막지만, 큐 모드에서는 잠금을
+            # enqueue 하는 몇 ms 만 쥐므로 인스턴스 둘이 몇 초 차로 발화하면 둘 다 잡는다 — 슬롯 키(idempotency_key, unique)가
+            # 그 틈을 막는다. 리더 선출 없이 인스턴스 2개를 견디는 이유다(ENGINE-2 3단계). 웹훅·RSS 키는 ENGINE-3 에서 같은 컬럼에.
+            from sqlalchemy.exc import IntegrityError
+            slot_key = run_queue.schedule_slot_key(project_id)
+            existing = run_queue.find_by_idempotency_key(db, slot_key)
+            if existing is not None:
+                print(f"[Scheduler] Project {project_id} skipped: 발화 슬롯 {slot_key} 은 이미 run {existing.id} 다.")
+                return
+            try:
+                run = run_queue.enqueue(db, nodes=nodes, edges=edges, trigger_source="schedule", project_id=project_id,
+                                        session_id=f"scheduled_{project_id}", idempotency_key=slot_key)
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                print(f"[Scheduler] Project {project_id} skipped: 발화 슬롯 {slot_key} 을 다른 인스턴스가 먼저 넣었다.")
+                return
             print(f"[Scheduler] Project {project_id} queued as run {run.id}")
             return
 
