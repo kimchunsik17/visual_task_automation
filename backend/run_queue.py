@@ -227,7 +227,26 @@ def schedule_slot_key(project_id, now=None) -> str:
 
 
 def find_by_idempotency_key(db, key: str) -> Optional[models.WorkflowRun]:
-    return db.query(models.WorkflowRun).filter(models.WorkflowRun.idempotency_key == str(key)).first()
+    return run_records.find_by_idempotency_key(db, key)
+
+
+def enqueue_or_existing(db, *, idempotency_key: str, **enqueue_kwargs) -> Tuple[models.WorkflowRun, bool]:
+    """같은 키의 run 이 있으면 (그것, False), 없으면 새로 넣고 (새 run, True) — 웹훅 재전송·스케줄 슬롯의 중복 제거(ENGINE-3 4단계).
+    조회와 INSERT 사이의 경쟁은 unique 가 막는다 — IntegrityError 면 롤백 뒤 기존 run 을 읽는다(호출자 세션에 미커밋 작업이 없어야
+    한다 — 생산자 경로는 그렇다)."""
+    from sqlalchemy.exc import IntegrityError
+
+    existing = find_by_idempotency_key(db, idempotency_key)
+    if existing is not None:
+        return existing, False
+    try:
+        return enqueue(db, idempotency_key=idempotency_key, **enqueue_kwargs), True
+    except IntegrityError:
+        db.rollback()
+        existing = find_by_idempotency_key(db, idempotency_key)
+        if existing is None:
+            raise
+        return existing, False
 
 
 def queue_health(db, *, stall_after_seconds: Optional[float] = None, heartbeat_fresh_seconds: Optional[float] = None,

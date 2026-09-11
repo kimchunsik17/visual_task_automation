@@ -2380,3 +2380,25 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
   결과를 바꾸지 않음 · 출처 목록.
 - 남은 것: 프로젝트 설정 UI("실패 시 실행할 워크플로우"), 4단계 멱등성(웹훅 `X-GitHub-Delivery`·payload 해시 → `idempotency_key`, 부작용 노드
   `(run_id, node_id)` 전송 기록).
+
+**추기 (2026-09-11) — 4단계 웹훅 멱등성(트리거 중복 방지)**
+
+- **키는 발신자의 전달 id 에서 먼저 읽는다.** `idempotency.webhook_key(project_id, headers, payload, node)` — `X-GitHub-Delivery`·
+  `X-GitLab-Event-UUID`·`Idempotency-Key`·`X-Idempotency-Key`(200자 절단) → `webhook:{pid}:{header}:{value}`. 재전송은 같은 id 로 온다.
+- **payload 해시는 webhookNode 가 켠 경우에만.** `data.dedupeByPayload` — sha256(키 정렬 JSON)[:32]. 기본은 꺼짐: `idempotency_key` unique 는
+  영구라 시간 창이 없고, 같은 본문이 며칠 뒤 다시 오는 것이 정당한 새 이벤트인 웹훅(폼 제출 등)이 있다. 둘 다 없으면 None — 예전과 같다.
+- **막는 자리는 `execution.start(idempotency_key=)` 하나다.** 같은 키의 run 이 있으면 실행하지 않고 `DuplicateRun(run_id, status, key)`.
+  `_begin_deduplicated`: 조회 → `run_records.begin(idempotency_key=…)` — 조회와 INSERT 사이의 경쟁은 unique 가 막고 IntegrityError 는 롤백 뒤
+  기존 run 으로 읽는다(그래서 호출자 세션에 미커밋 작업이 없어야 한다 — 웹훅 핸들러는 그렇다). 큐 경로는 `run_queue.enqueue_or_existing`
+  → `(run, created)`. 실행 기록이 없으면(db 없음·RUN_RECORDS=0) 걸러낼 수 없어 경고 뒤 그대로 실행한다 — 중복 제거는 실행 기록 위에 선다.
+- **웹훅 응답.** 인라인 200 `{status: duplicate, run_id, project_id}`, 큐 202 `{status: duplicate, run_id, project_id}`. 발신자(GitHub 등)는
+  2xx 만 보면 재시도를 멈춘다. 과금도 한 번(중복은 실행되지 않았으니 FlowExecutionLog 도 없다).
+- RSS 항목 id 는 rssTriggerNode 의 cursor(SEEN_WINDOW)가 이미 같은 일을 한다 — 여기 두지 않는다. 스케줄 슬롯 키(ENGINE-2 3단계 추기)와
+  같은 컬럼·같은 규칙이다.
+- 검증: `test_webhook_idempotency.py` 6건 — 헤더 우선순위·절단·공백 · payload 해시(설정 조건·키 순서 무관·프로젝트 분리·헤더 우선) ·
+  `execution.start` 두 번째는 DuplicateRun(원래 run·status)·다른 키는 새 실행 · RUN_RECORDS=0/db 없음이면 그대로 실행 · `enqueue_or_existing`
+  · **서브프로세스 엔드포인트 시나리오**(인라인 200 duplicate·과금 1회 → 키 없으면 매번 → 해시 설정 프로젝트 → 큐 202 duplicate 같은 run_id →
+  워커 한 번).
+- **남은 겹 — 부작용 노드 `(run_id, node_id)` 전송 기록.** 마지막 완료 step 부터의 재개(ENGINE-2 4 "끊긴 run 재개")와 함께 만든다 — 지금은
+  재개가 없어 필요가 생기는 자리가 없고, 재시도(1단계)는 effectState 가 unknown/applied 면 다시 보내지 않으므로 중복 발송은 나지 않는다.
+  ENGINE-3 백엔드는 여기까지. 다음은 프론트(error 포트·retries/backoffSec·errorWorkflowId·dedupeByPayload 설정·진행 표시).
