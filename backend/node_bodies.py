@@ -105,9 +105,8 @@ def render_node_body(node_id: str, *, node_dict: Dict[str, dict], forward_edges:
 
     generator = node_registry.get_generator(node_type)
     if generator is None:
-        lines.append(f"{indent}# --- Unsupported Node ({node_id}) ---")
-        lines.append(f"{indent}print('Unsupported node type: {node_type}')")
-        lines.append(f"{indent}last_result = 'Unsupported node type: {node_type}'")
+        import graph  # 같은 줄을 compile_workflow 와 공유한다 — 지연 import(무거운 모듈)
+        graph.emit_unsupported_node(lines, node_id, node_type, indent)
         for target_id, _handle in forward_edges.get(node_id, []):
             recorder(target_id, indent, active_llm_id=active_llm_id, prev_res_var='last_result')
         return rendered

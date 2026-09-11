@@ -123,11 +123,11 @@ def test_unknown_trigger_source_is_rejected_before_running(monkeypatch):
         execution.start([], [], trigger_source="scheduler")  # 'schedule' 의 오타
 
 
-@pytest.mark.parametrize("raw, expect_warning", [
-    ("", False), ("legacy", False), ("LEGACY", False),
-    ("shadow", True), ("interpreter", True), ("turbo", True),
+@pytest.mark.parametrize("raw, expect_mode", [
+    ("", "legacy"), ("legacy", "legacy"), ("LEGACY", "legacy"),
+    ("shadow", "shadow"), ("interpreter", "interpreter"), ("turbo", "legacy"),
 ])
-def test_engine_mode_falls_back_to_legacy_loudly(monkeypatch, raw, expect_warning):
+def test_engine_mode_reads_env_and_falls_back_to_legacy_loudly(monkeypatch, raw, expect_mode):
     # caplog 대신 로거를 직접 바꿔 끼운다 — 다른 테스트 파일이 로깅 설정을 갈아엎으면(dictConfig 등)
     # "execution" 로거의 레코드가 caplog 에 닿지 않아 전체 회귀에서만 이 테스트가 깨졌다(2026-09-06).
     warnings = []
@@ -139,6 +139,7 @@ def test_engine_mode_falls_back_to_legacy_loudly(monkeypatch, raw, expect_warnin
     monkeypatch.setattr(execution, "logger", _Recorder())
     monkeypatch.setenv("EXECUTION_ENGINE", raw)
     execution._warned_engine_values.clear()
-    assert execution.engine_mode() == execution.ENGINE_LEGACY
+    assert execution.engine_mode() == expect_mode
     warned = any("legacy 로 실행" in w for w in warnings)
+    expect_warning = raw != "" and raw.strip().lower() not in execution.AVAILABLE_ENGINES
     assert warned == expect_warning

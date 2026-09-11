@@ -1,6 +1,112 @@
 import datetime
 from node_registry import node_registry
 
+# ── 인터프리터와 공유하는 조각 (백로그 32 ENGINE-0, ADR-0027) ─────────────────────────
+# 흐름 노드(condition·loop·break·distributor)는 본문 안에서 하류를 부르거나(if/for) 제어를 끊어(break)
+# 본문만 떼어 낼 수 없다. 그래서 인터프리터가 직접 구현하는데, 제어 구문 **앞뒤의 곧은 줄**(시각 기록·
+# 판정 입력 기록·누적 변수·합본)은 여기 함수로 만들어 두 엔진이 같은 줄을 낸다 — 생성기는 이 줄들 사이에
+# 제어 구문을 끼우고, 인터프리터는 이 줄들을 exec 하고 제어는 파이썬으로 한다. 판정식(condition_expr)과
+# 갈래 대상 선택(condition_branch_targets·loop_body_entry·done_target·distributor_body_targets)도 같은 함수다.
+
+def condition_expr(var, operator, value):
+    """conditionNode 규칙 하나의 파이썬 판정식. 생성 코드의 if/elif 조건이자 인터프리터의 eval 대상."""
+    value_escaped = str(value).replace('\\', '\\\\').replace('"', '\\"')
+    if operator == "==":
+        return f'str({var}) == "{value_escaped}"'
+    if operator == "Contains":
+        return f'"{value_escaped}" in str({var})'
+    if operator in (">", "<", ">=", "<="):
+        return f'is_numeric({var}) and is_numeric("{value_escaped}") and float({var}) {operator} float("{value_escaped}")'
+    return f'"{value_escaped}" in str({var})'  # 알 수 없는 operator는 Contains로 취급(방어적 기본값)
+
+
+def condition_branch_targets(node_id, forward_edges):
+    """핸들 -> 대상. 같은 핸들에 간선이 둘이면 뒤의 것이 이긴다(dict comprehension 의 성질을 그대로 쓴다)."""
+    return {handle: target for target, handle in forward_edges.get(node_id, [])}
+
+
+def emit_condition_header(lines, node_id, node, indent, var):
+    lines.append(f"{indent}# --- Condition Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    # 분기 판정에 쓴 입력을 그대로 기록한다 — 이게 없으면 __node_results__ 에 이 노드가
+    # 아예 없어서, 하류 mergeNode·데이터 바인딩에서 값이 조용히 사라진다(재검증 §2.1).
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={var})")
+
+
+def loop_body_entry(node_id, node_dict, forward_edges):
+    """loopNode 본문의 첫 노드. 명시적 'loop_start' 핸들이 우선이고, 없으면 컨테이너(parentNode) 안에서
+    안쪽 간선이 들어오지 않는 첫 노드. 둘 다 없으면 None(본문이 pass)."""
+    loop_start_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'loop_start']
+    if loop_start_edges:
+        return loop_start_edges[0]
+    loop_body_nodes = [n for n, v in node_dict.items() if v.get('parentNode') == node_id]
+    if loop_body_nodes:
+        body_node_ids = {n for n in loop_body_nodes}
+
+        has_inner_incoming = set()
+        for src_id in body_node_ids:
+            for target_id, handle in forward_edges.get(src_id, []):
+                if target_id in body_node_ids:
+                    has_inner_incoming.add(target_id)
+
+        body_roots = [n for n in loop_body_nodes if n not in has_inner_incoming]
+        if body_roots:
+            return body_roots[0]
+    return None
+
+
+def done_target(node_id, forward_edges):
+    """'done' 핸들의 첫 대상(반복이 끝난 뒤 한 번 이어가는 곳). 없으면 None."""
+    done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
+    return done_edges[0] if done_edges else None
+
+
+def emit_loop_header(lines, node_id, indent, acc_var, prev_res_var):
+    lines.append(f"{indent}# --- Loop Node (Container) ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    if prev_res_var:
+        lines.append(f"{indent}{acc_var} = {prev_res_var}")
+    else:
+        lines.append(f"{indent}{acc_var} = last_result")
+
+
+def emit_loop_tail(lines, node_id, node, indent, acc_var):
+    # 반복이 끝난 뒤 최종 누적값을 기록한다 — 이 노드가 __node_results__ 에 없으면
+    # done 뒤의 mergeNode·데이터 바인딩이 루프 결과를 통째로 잃는다(재검증 §2.1).
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={acc_var})")
+
+
+def emit_break_body(lines, node_id, node, indent):
+    lines.append(f"{indent}# --- Break Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    # break 는 제어를 끊으므로 기록을 그 앞에 남긴다 — 실행 로그에서 "여기서 끊겼다"가 보여야 한다.
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+
+
+def distributor_body_targets(node_id, forward_edges):
+    """반복 안에서 항목마다 이어가는 대상들(간선 순서). 'done' 은 반복 밖이라 제외."""
+    return [(t, h) for t, h in forward_edges.get(node_id, []) if h != 'done']
+
+
+def emit_distributor_header(lines, node_id, indent, prev_res_var, acc_var):
+    lines.append(f"{indent}# --- Distributor Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    lines.append(f"{indent}dist_list_{node_id} = {prev_res_var if prev_res_var else 'last_result'}")
+    lines.append(f"{indent}if not isinstance(dist_list_{node_id}, list):")
+    lines.append(f"{indent}    dist_list_{node_id} = [dist_list_{node_id}]")
+    lines.append(f"{indent}{acc_var} = []")
+
+
+def emit_distributor_tail(lines, node_id, node, indent, acc_var, joined_var):
+    # 빈 값은 빼고 이어 붙인다 — 조건 분기로 건너뛴 항목이 빈 줄로 남으면 결과가 지저분해진다.
+    lines.append(f"{indent}{joined_var} = '\\n'.join(str(_r) for _r in {acc_var} if str(_r).strip())")
+    lines.append(f"{indent}last_result = {joined_var}")
+    # 전 항목 처리가 끝난 합본을 기록한다 — 없으면 done 뒤 mergeNode 가 이 노드 결과를 못 본다.
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={joined_var})")
+
+
+# ── 생성기 ──────────────────────────────────────────────────────────────────────────
+
 @node_registry.register('startNode')
 def generate_start_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     lines.append(f"{indent}# --- startNode ({node_id}) ---")
@@ -60,13 +166,9 @@ def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, 
     rules = node.get('data', {}).get('rules', [])
     var = prev_res_var if prev_res_var else 'last_result'
 
-    lines.append(f"{indent}# --- Condition Node ({node_id}) ---")
-    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    # 분기 판정에 쓴 입력을 그대로 기록한다 — 이게 없으면 __node_results__ 에 이 노드가
-    # 아예 없어서, 하류 mergeNode·데이터 바인딩에서 값이 조용히 사라진다(재검증 §2.1).
-    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={var})")
+    emit_condition_header(lines, node_id, node, indent, var)
 
-    edge_by_handle = {handle: target for target, handle in forward_edges.get(node_id, [])}
+    edge_by_handle = condition_branch_targets(node_id, forward_edges)
 
     # 갈래를 방출하는 동안 분기 경로를 표시한다 — 형제 갈래에 걸친 재합류 노드는 갈래 안에
     # 자리 잡지 않고, 분기 구문이 닫힌 뒤(graph.generate_block 의 _flush_ready_joins) 방출된다.
@@ -89,16 +191,6 @@ def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, 
             if len(lines) == _lines_before:
                 lines.append(f"{branch_indent}pass")
 
-    def _cond_expr(operator, value):
-        value_escaped = str(value).replace('\\', '\\\\').replace('"', '\\"')
-        if operator == "==":
-            return f'str({var}) == "{value_escaped}"'
-        if operator == "Contains":
-            return f'"{value_escaped}" in str({var})'
-        if operator in (">", "<", ">=", "<="):
-            return f'is_numeric({var}) and is_numeric("{value_escaped}") and float({var}) {operator} float("{value_escaped}")'
-        return f'"{value_escaped}" in str({var})'  # 알 수 없는 operator는 Contains로 취급(방어적 기본값)
-
     if not rules:
         lines.append(f"{indent}if False:")
         lines.append(f"{indent}    pass")
@@ -108,7 +200,7 @@ def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, 
 
     for i, rule in enumerate(rules):
         keyword = "if" if i == 0 else "elif"
-        lines.append(f"{indent}{keyword} {_cond_expr(rule.get('operator', 'Contains'), rule.get('value', ''))}:")
+        lines.append(f"{indent}{keyword} {condition_expr(var, rule.get('operator', 'Contains'), rule.get('value', ''))}:")
         _emit_branch(rule.get("id"), indent + "    ")
 
     lines.append(f"{indent}else:")
@@ -117,57 +209,27 @@ def generate_condition_node(node_id, node, indent, active_llm_id, prev_res_var, 
 @node_registry.register('loopNode')
 def generate_loop_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
     max_iter = node.get('data', {}).get('maxIterations', 5)
-    lines.append(f"{indent}# --- Loop Node (Container) ({node_id}) ---")
-    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-
     acc_var = f"loop_acc_{node_id}"
-    if prev_res_var:
-        lines.append(f"{indent}{acc_var} = {prev_res_var}")
-    else:
-        lines.append(f"{indent}{acc_var} = last_result")
-        
+    emit_loop_header(lines, node_id, indent, acc_var, prev_res_var)
+
     lines.append(f"{indent}for _loop_idx_{node_id} in range(int({max_iter})):")
-    
-    # Prioritize explicit 'loop_start' handle
-    loop_start_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'loop_start']
-    
-    if loop_start_edges:
-        generate_block_fn(loop_start_edges[0], indent + "    ", active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)
+
+    # 명시적 'loop_start' 핸들이 우선, 없으면 컨테이너(parentNode) 안의 첫 노드.
+    entry = loop_body_entry(node_id, node_dict, forward_edges)
+    if entry is not None:
+        generate_block_fn(entry, indent + "    ", active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)
         lines.append(f"{indent}    {acc_var} = last_result")
     else:
-        loop_body_nodes = [n for n, v in node_dict.items() if v.get('parentNode') == node_id]
-        if loop_body_nodes:
-            body_node_ids = {n for n in loop_body_nodes}
-            
-            has_inner_incoming = set()
-            for src_id in body_node_ids:
-                for target_id, handle in forward_edges.get(src_id, []):
-                    if target_id in body_node_ids:
-                        has_inner_incoming.add(target_id)
-                    
-            body_roots = [n for n in loop_body_nodes if n not in has_inner_incoming]
-            
-            if body_roots:
-                generate_block_fn(body_roots[0], indent + "    ", active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)
-                lines.append(f"{indent}    {acc_var} = last_result")
-            else:
-                lines.append(f"{indent}    pass")
-        else:
-            lines.append(f"{indent}    pass")
-        
-    # 반복이 끝난 뒤 최종 누적값을 기록한다 — 이 노드가 __node_results__ 에 없으면
-    # done 뒤의 mergeNode·데이터 바인딩이 루프 결과를 통째로 잃는다(재검증 §2.1).
-    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={acc_var})")
-    done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
-    if done_edges:
-        generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)
+        lines.append(f"{indent}    pass")
+
+    emit_loop_tail(lines, node_id, node, indent, acc_var)
+    done = done_target(node_id, forward_edges)
+    if done is not None:
+        generate_block_fn(done, indent, active_llm_id=active_llm_id, prev_res_var=acc_var, visited=visited)
 
 @node_registry.register('breakNode')
 def generate_break_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
-    lines.append(f"{indent}# --- Break Node ({node_id}) ---")
-    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    # break 는 제어를 끊으므로 기록을 그 앞에 남긴다 — 실행 로그에서 "여기서 끊겼다"가 보여야 한다.
-    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+    emit_break_body(lines, node_id, node, indent)
     lines.append(f"{indent}break")
 
 @node_registry.register('mergeNode')
@@ -175,7 +237,7 @@ def generate_merge_node(node_id, node, indent, active_llm_id, prev_res_var, visi
     lines.append(f"{indent}# --- Merge Node ({node_id}) ---")
     lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
     strategy = node.get('data', {}).get('mergeStrategy', 'join_newline')
-    
+
     # __node_results__는 각 노드가 log_step을 호출할 때마다 자기 결과를 node_id로 저장해두는
     # 전역 딕셔너리다(graph.py 참고). 예전엔 여기서 각 incoming edge의 source를 찾는 딕셔너리를
     # 만들어놓고 정작 쓰지 않은 채 prev_res_var(직전에 도착한 갈래) 하나만 merge_vals에 넣어서,
@@ -200,9 +262,9 @@ def generate_merge_node(node_id, node, indent, active_llm_id, prev_res_var, visi
     elif strategy == 'array':
         lines.append(f"{indent}import json")
         lines.append(f"{indent}merge_out_{node_id} = json.dumps(merge_vals_{node_id}, ensure_ascii=False)")
-        
+
     lines.append(f"{indent}last_result = merge_out_{node_id}")
-    
+
     lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
     next_edges = forward_edges.get(node_id, [])
     for target_id, handle in next_edges:
@@ -210,12 +272,6 @@ def generate_merge_node(node_id, node, indent, active_llm_id, prev_res_var, visi
 
 @node_registry.register('distributorNode')
 def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict, forward_edges, incoming_edges, lines, generate_block_fn):
-    lines.append(f"{indent}# --- Distributor Node ({node_id}) ---")
-    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
-    lines.append(f"{indent}dist_list_{node_id} = {prev_res_var if prev_res_var else 'last_result'}")
-    lines.append(f"{indent}if not isinstance(dist_list_{node_id}, list):")
-    lines.append(f"{indent}    dist_list_{node_id} = [dist_list_{node_id}]")
-
     # 항목별 결과를 **모두 모은다.** 예전에는 `acc = last_result` 로 매 반복 덮어써서 done
     # 경로가 **마지막 항목 하나만** 받았다 — "문단 여러 개를 한 번에 번역" 같은 워크플로우가
     # 마지막 문단만 내놓았다(실제로 겪음). loopNode 는 직전 결과를 다음 회차에 넘기는 게
@@ -225,13 +281,13 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
     # 노드(메시지 본문, 출력 등)가 `['a', 'b']` 를 그대로 받아 깨진다.
     acc_var = f"dist_acc_{node_id}"
     joined_var = f"dist_joined_{node_id}"
-    lines.append(f"{indent}{acc_var} = []")
+    emit_distributor_header(lines, node_id, indent, prev_res_var, acc_var)
     lines.append(f"{indent}for dist_item_{node_id} in dist_list_{node_id}:")
     lines.append(f"{indent}    last_result = dist_item_{node_id}")
 
     # 'done' 핸들 엣지는 반복 밖(전 항목 처리 후 딱 한 번)에서 이어간다 — loopNode의 done과 동일한 패턴.
     # 이게 없으면 반복 안에서 outputNode에 닿는 순간 return이 실행돼 첫 항목만 처리하고 끝나버린다.
-    body_edges = [(t, h) for t, h in forward_edges.get(node_id, []) if h != 'done']
+    body_edges = distributor_body_targets(node_id, forward_edges)
     if not body_edges:
         lines.append(f"{indent}    pass")
     else:
@@ -239,12 +295,8 @@ def generate_distributor_node(node_id, node, indent, active_llm_id, prev_res_var
             generate_block_fn(target_id, indent + "    ", active_llm_id=active_llm_id, prev_res_var=f"dist_item_{node_id}", visited=visited)
     lines.append(f"{indent}    {acc_var}.append(last_result)")
 
-    # 빈 값은 빼고 이어 붙인다 — 조건 분기로 건너뛴 항목이 빈 줄로 남으면 결과가 지저분해진다.
-    lines.append(f"{indent}{joined_var} = '\\n'.join(str(_r) for _r in {acc_var} if str(_r).strip())")
-    lines.append(f"{indent}last_result = {joined_var}")
-    # 전 항목 처리가 끝난 합본을 기록한다 — 없으면 done 뒤 mergeNode 가 이 노드 결과를 못 본다.
-    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result={joined_var})")
+    emit_distributor_tail(lines, node_id, node, indent, acc_var, joined_var)
 
-    done_edges = [t for t, h in forward_edges.get(node_id, []) if h == 'done']
-    if done_edges:
-        generate_block_fn(done_edges[0], indent, active_llm_id=active_llm_id, prev_res_var=joined_var, visited=visited)
+    done = done_target(node_id, forward_edges)
+    if done is not None:
+        generate_block_fn(done, indent, active_llm_id=active_llm_id, prev_res_var=joined_var, visited=visited)

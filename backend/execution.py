@@ -59,30 +59,44 @@ def current_trigger_source() -> Optional[str]:
 
 
 # ── 엔진 모드 ─────────────────────────────────────────────────────────────
-ENGINE_LEGACY = "legacy"            # compile_workflow → exec(). 지금 유일한 실제 엔진
-ENGINE_SHADOW = "shadow"            # legacy 로 실행하고 인터프리터를 mock 으로 나란히 돌려 대조(ENGINE-0 4단계)
-ENGINE_INTERPRETER = "interpreter"  # 인터프리터 단독(ENGINE-0 완료 뒤)
+# graph.run_workflow 가 exec 지점에서 읽는다(ADR-0027). 세 값의 뜻:
+#   legacy       compile_workflow → exec(). 기본값이고 출시 상태.
+#   interpreter  engine_interpreter — 같은 프렐류드 네임스페이스 위에서 정적 계획을 따라 노드 본문을 직접 실행.
+#   shadow       legacy 로 실행하되 인터프리터가 그 그래프의 계획을 세울 수 있는지만 확인해 실패를 기록
+#                (부작용 없음). 두 엔진의 실행 결과 대조는 mock 모드 오프라인 도구 engine_shadow_diff.py 가 한다.
+ENGINE_LEGACY = "legacy"
+ENGINE_SHADOW = "shadow"
+ENGINE_INTERPRETER = "interpreter"
 KNOWN_ENGINES = (ENGINE_LEGACY, ENGINE_SHADOW, ENGINE_INTERPRETER)
-AVAILABLE_ENGINES = frozenset({ENGINE_LEGACY})
+AVAILABLE_ENGINES = frozenset(KNOWN_ENGINES)
 
 _warned_engine_values: set = set()
 
 
 def engine_mode() -> str:
-    """EXECUTION_ENGINE 을 읽는다. 아직 없는 엔진이나 모르는 값은 legacy 로 가되 **경고를 남긴다** —
-    조용히 폴백하면 운영자가 인터프리터를 켰다고 믿는 채로 옛 엔진이 돈다."""
+    """EXECUTION_ENGINE 을 읽는다. 모르는 값은 legacy 로 가되 **경고를 남긴다** — 조용히 폴백하면
+    운영자가 인터프리터를 켰다고 믿는 채로 옛 엔진이 돈다."""
     raw = (os.getenv("EXECUTION_ENGINE") or ENGINE_LEGACY).strip().lower()
     if raw in AVAILABLE_ENGINES:
         return raw
     if raw not in _warned_engine_values:
         _warned_engine_values.add(raw)
-        if raw in KNOWN_ENGINES:
-            logger.warning("EXECUTION_ENGINE=%s 는 아직 구현되지 않았다 — legacy 로 실행한다 "
-                           "(백로그 32 ENGINE-0 진행 중)", raw)
-        else:
-            logger.warning("EXECUTION_ENGINE=%r 는 모르는 값이다 — legacy 로 실행한다. 허용: %s",
-                           raw, ", ".join(KNOWN_ENGINES))
+        logger.warning("EXECUTION_ENGINE=%r 는 모르는 값이다 — legacy 로 실행한다. 허용: %s",
+                       raw, ", ".join(KNOWN_ENGINES))
     return ENGINE_LEGACY
+
+
+# shadow 모드가 남기는 계획 실패 기록. 운영 로그(warning)에도 남지만, 테스트와 진단이 읽을 수 있게
+# 프로세스 안에 최근 것을 조금 둔다.
+SHADOW_PLAN_FAILURES_MAX = 50
+shadow_plan_failures: list = []
+
+
+def record_shadow_plan_failure(project_id, exc: BaseException) -> None:
+    logger.warning("[engine-shadow] 인터프리터가 계획을 세우지 못했다 project=%s: %s: %s",
+                   project_id, type(exc).__name__, exc)
+    if len(shadow_plan_failures) < SHADOW_PLAN_FAILURES_MAX:
+        shadow_plan_failures.append({"project_id": project_id, "error": f"{type(exc).__name__}: {exc}"})
 
 
 # ── 진입점 ─────────────────────────────────────────────────────────────────
@@ -96,10 +110,10 @@ def start(nodes: list, edges: list, *, trigger_source: str, **kwargs: Any) -> Tu
         raise ValueError(f"trigger_source={trigger_source!r} 는 허용 목록에 없다: {sorted(TRIGGER_SOURCES)}")
     # 지연 import + 모듈 속성 조회: graph 는 무거운 모듈이고, 테스트가 graph.run_workflow 를
     # monkeypatch 하는 관례(test_mock_service)가 그대로 동작해야 한다.
+    # 엔진 선택(legacy/interpreter/shadow)은 run_workflow 가 자격증명 치환 뒤 exec 지점에서 한다 — 두 엔진이
+    # 같은 전처리를 거친 노드를 받아야 하기 때문이다(ADR-0027).
     import graph as _graph
 
-    mode = engine_mode()  # 지금은 legacy 만 있다. shadow/interpreter 분기는 ENGINE-0 4단계에서 여기에.
-    assert mode == ENGINE_LEGACY
     token = _current_trigger.set(trigger_source)
     try:
         return _graph.run_workflow(nodes, edges, **kwargs)

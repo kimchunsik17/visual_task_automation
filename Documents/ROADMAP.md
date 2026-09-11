@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **착수(2026-09-06)** — 스케줄러 lock·실행 진입점·순회 규칙 분리·노드 본문 렌더러 완료(ADR-0027) | ENGINE-0 4단계 인터프리터(정적 계획 + 흐름 노드 6종) → 섀도 |
+| 실행 엔진 v2 (32) | **ENGINE-0 인터프리터 구현(2026-09-08)** — `EXECUTION_ENGINE=interpreter` 전환 가능, 코퍼스 300 그래프 실행 대조 차이 0(ADR-0027) | ENGINE-0 6단계 프로젝트별 flag·커뮤니티 242종 대조 → ENGINE-1 Run/Step |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -276,24 +276,37 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    하류 재귀를 기록만 해서 **노드 하나의 본문 줄과 하류 배선(prev_res_var·active_llm_id)** 을 얻는다 — 미이식 노드를 감싸는
    래퍼 executor 의 재료다. 감쌀 수 없는 타입은 정확히 `NATIVE_FLOW_TYPES` 6종(condition·humanApproval·loop·distributor·
    break·output)이고 나머지 45종은 본문 그대로 exec 하면 옛 엔진과 같다(`test_node_bodies.py` 가 선형 그래프로 로그·결과·
-   오류 모양의 등가를 확인). 레지스트리의 executor 슬롯은 시그니처가 정해지는 인터프리터 PR 에서 함께 넣는다.
+   오류 모양의 등가를 확인). **슬롯은 필요 없어졌다(2026-09-08)** — 하이브리드에서 executor 는 두 종류뿐이다: 흐름 노드
+   6종은 `engine_interpreter` 가 직접, 나머지는 래퍼(본문 exec). 노드를 네이티브 executor 로 이식할 일이 생기면(ENGINE-3 의
+   노드별 재시도 등) 그때 타입별 슬롯을 만든다.
 3. ~~**순회 엔진.**~~ **완료(2026-09-06)** — `backend/graph_traversal.py`: `prepare_graph`(memo·scope·stop·pinned·보안 검증) ·
    `classify_edges`(배선 간선 제외·첨부 전용 예외) · `select_roots` · `join_expectations`(back-edge 제외) · `JoinGate`(재합류 상태
    기계 — 도착·자리 판정·분기 닫힘 뒤 방출·미아 방출) · `sibling_restore_source`. `compile_workflow` 는 이 함수들을 호출만 하고
    프렐류드·헤더·llm 설정도 `emit_module_prelude`·`emit_run_header`·`emit_llm_setup` 으로 나뉘어 인터프리터가 같은 네임스페이스를
    만들 수 있다. 등가성: `backend/codegen_corpus_diff.py` 가 HEAD 의 graph.py 와 작업 트리를 나란히 올려 **835 그래프**(공식
    107×6 변형·큐레이션 142·스모크 51)의 생성 소스를 대조 — 차이 0(컴파일 시점 랜덤 파일명만 정규화).
-4. **섀도 실행.** `EXECUTION_ENGINE=shadow` 면 두 엔진을 mock 모드로 돌려 결과·로그·토큰을 비교하고 차이를
-   기록한다. 코퍼스 242+508 에서 차이 0 이 전환 조건.
-5. **pythonNode 격리.** AST 허용 목록은 유지하고 실행을 자식 프로세스(rlimit·시간 제한·네트워크 차단)로
-   옮긴다 — n8n 2.0 Task Runner 패턴. ADR-0019 의 한도(1초·256MB)를 그대로 쓴다. 13번의 전제 인프라.
-6. 프로젝트별 feature flag(`/api/features` 인프라)로 점진 전환. 끄면 옛 엔진.
+4. ~~**섀도 실행.**~~ **구현(2026-09-08)** — `backend/engine_interpreter.py`: 정적 계획 빌더(`generate_block` 과 같은 순서,
+   같은 `JoinGate`) + 실행기(`_Executor.run_item` 이 유일한 개입 지점). 흐름 노드 6종은 네이티브, 45종은 래퍼(본문 exec).
+   `EXECUTION_ENGINE=interpreter` 로 실제 전환, `shadow` 는 legacy 실행 + 인터프리터 **계획 검사**(부작용 없음, 실패는
+   `execution.shadow_plan_failures`·경고 로그). 실행 대조는 오프라인 도구 `backend/engine_shadow_diff.py`(mock 커넥터·mock LLM·
+   소켓 차단·sleep 무시) — **코퍼스 300 그래프(공식 107·큐레이션 142·스모크 51) 결과·로그·토큰 차이 0**. 옛 엔진의 실행
+   테스트 7파일 171건이 인터프리터에서 그대로 통과(`test_engine_interpreter.py` 가 서브프로세스로 재생). 운영에서 두 엔진을
+   나란히 실행하지 않는 이유: 부작용(메일·게시)이 두 번 나가고 LLM 이 비결정적이라 대조가 성립하지 않는다.
+   **남은 대조**: 커뮤니티 갤러리 242종은 DB 전용 — `--projects-json` 으로 내보내 전환 전 한 번 돌린다.
+5. ~~**pythonNode 격리.**~~ **이미 있었다(ADR-0019)** — `python_runtime.run_isolated` 가 자식 프로세스(rlimit·시간 제한)에서
+   돌린다. 인터프리터도 같은 본문을 쓰므로 같은 경로다. 네트워크 차단은 아직이다 — 13번(커뮤니티 노드 SDK) 전에 확인.
+6. **다음.** 프로젝트별 feature flag(`/api/features` 인프라)로 점진 전환. 끄면 옛 엔진. 순서: 커뮤니티 242종 오프라인 대조 →
+   시연 뒤 스테이징에서 `EXECUTION_ENGINE=shadow` 로 실 그래프 계획 검사 → 프로젝트별 interpreter → 전체.
 
 **설계 메모(2026-09-06, ADR-0027).** ① 인터프리터는 실행 전에 **정적 계획**을 세운다 — 재합류 자리는 실행 시점 도착 수로
 판정할 수 없다(배타 분기의 한 갈래만 실행돼도 merge 는 분기 뒤에서 한 번 실행돼야 한다). 옛 엔진과 같은 순서로 걷되 코드
 대신 계획을 만들고 `JoinGate` 로 자리를 정한다. ② 노드 본문은 생성기 재사용 — 49종을 다시 쓰지 않는다. ③ 포스터·문서
 노드는 **컴파일 시점**에 랜덤 파일명을 뽑아 생성 소스가 실행마다 다르다 — 섀도 대조에서도 정규화가 필요하고, 실행 시점으로
 옮길 후보다. ④ 죽은 코드가 결함이었다: tool 노드가 보통 간선으로도 연결된 그래프는 `UnboundLocalError` 로 컴파일이 죽었다(제거·회귀 테스트).
+⑤ (2026-09-08) `ast.parse` 는 통과하지만 `compile` 에서만 잡히는 오류(반복 밖 `break`)는 인터프리터도 생성 소스를 먼저 compile 해
+옛 엔진과 같은 문구(Dynamic Execution Error)로 낸다. 실행 대조의 정규화 대상은 시각·오류 requestId(결과 JSON 문자열 안 포함)·
+랜덤 파일명 셋이다. ⑥ 인터프리터는 노드 본문을 모듈 수준에서 exec 하므로 루트 사이 지역 변수가 격리되지 않는다(옛 엔진은
+`run_root_N` 함수 지역) — 코퍼스 300 그래프에서 차이는 없었고, 드러나면 루트마다 네임스페이스를 나눈다.
 
 ##### ENGINE-1. Run/Step 실행 상태 영속화 — 1~2주
 
@@ -332,9 +345,9 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 
 | 층 | 필수 검증 |
 | --- | --- |
-| 등가성 | 코퍼스 242+508 에서 옛 엔진과 새 엔진의 출력·로그 순서·토큰 집계 차이 0. `test_merge_rejoin.py` 9건, PR #69 회귀 2건, 코드젠 스모크 51종. **소스 층**: `codegen_corpus_diff.py`(835 그래프, git ref 대 작업 트리) — 순회·프렐류드·생성기를 손댄 PR 은 결과를 본문에 남긴다 |
-| 부분 실행 | entry/stop/scope/pinned 네 파라미터의 기존 테스트가 새 엔진에서 그대로 통과 |
-| 승인 재개 | ADR-0015 의 durable 대기 → 재개가 Run/Step 위에서 같은 결과 |
+| 등가성 | 코퍼스 242+508 에서 옛 엔진과 새 엔진의 출력·로그 순서·토큰 집계 차이 0. `test_merge_rejoin.py` 9건, PR #69 회귀 2건, 코드젠 스모크 51종. **소스 층**: `codegen_corpus_diff.py`(835 그래프, git ref 대 작업 트리) — 순회·프렐류드·생성기를 손댄 PR 은 결과를 본문에 남긴다. **실행 층**: `engine_shadow_diff.py` — 2026-09-08 공식·큐레이션·스모크 300 그래프 차이 0; 커뮤니티 242종은 전환 전 |
+| 부분 실행 | entry/stop/scope/pinned 네 파라미터의 기존 테스트가 새 엔진에서 그대로 통과 — **통과(2026-09-08, `test_editor_execution.py` 인터프리터 재생)** |
+| 승인 재개 | ADR-0015 의 durable 대기 → 재개가 Run/Step 위에서 같은 결과 — 대기 전환·재개는 인터프리터에서 통과(2026-09-08, `test_approval_flow.py` 재생); Run/Step 위 검증은 ENGINE-1 |
 | 큐 | 워커 2개에서 같은 run 이 두 번 실행되지 않는지, heartbeat 끊김 뒤 회수·재개, 스케줄 중복 발화 0 |
 | 재시도·멱등성 | 429/5xx 에서 백오프 후 성공, 401 에서 즉시 실패, 재시도 중 이메일 1통, 같은 `idempotency_key` 두 번 → 실행 1회 |
 | 격리 | pythonNode 자식 프로세스의 rlimit·시간·네트워크 차단이 ADR-0019 테스트를 그대로 통과 |
@@ -736,7 +749,7 @@ mcpClientNode
 | `execution_time` 인덱스 | 통계 재작성 뒤 EXPLAIN 재확인 — 감사의 후보 `(project_id, execution_time)` 이 실제 술어 `(billable_user_id OR user_id)` 와 어긋난다 | 3h |
 | 템플릿 목록 페이지네이션 본체 | limit 명시(0.3h)는 했다. 갤러리가 242 → 그 이상으로 늘 때 | 4h |
 | perf-frontend(코드 분할·edges 메모·WebP·폴링·뷰포트) | 2단계의 enrichedNodes·isDirty 수정 뒤 40노드/50엣지로 **재측정** 한 수치가 근거일 때. 측정 전 최적화는 하지 않는다 | 14h |
-| 코드젠 이스케이프 65곳 `py_str` 통일 | 스모크 51종이 안정된 지금, 골든 테스트 갱신 범위를 먼저 재고 결정. ENGINE-0 이관이 이 코드를 없앨 수 있으므로 **ENGINE-0 계획과 함께 판단** | 6~12h |
+| 코드젠 이스케이프 65곳 `py_str` 통일 | 스모크 51종이 안정된 지금, 골든 테스트 갱신 범위를 먼저 재고 결정. ENGINE-0 이관이 이 코드를 없앨 수 있으므로 **ENGINE-0 계획과 함께 판단**. **발견(2026-09-08)**: conditionNode 규칙 값에 줄바꿈이 있으면 `condition_expr` 가 이스케이프하지 않아 생성 소스가 SyntaxError 로 거부된다("generated workflow is invalid") — 인터프리터도 같은 문구로 실패하므로 등가지만 사용자에게는 결함이다. 통일 때 함께 고친다 | 6~12h |
 | 데이터 계층 나머지(통계 GROUP BY·soft delete purge·lease 죽은 코드·2트랜잭션·커밋 경계) | 현 규모(로그 959행·프로젝트 18개)에서 발현 증거가 생길 때 | ~12h |
 | `slackNode` 실제 구현 | 실제 슬랙 워크스페이스 토큰 확보 시. 34번 DEV-3 의 국내 메신저 발송과 같은 계약으로 | 6h |
 
