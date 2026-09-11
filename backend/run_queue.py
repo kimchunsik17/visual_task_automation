@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -31,6 +32,16 @@ import run_records
 
 RESERVED_OPTION_KEYS = ("stop_node_id", "scope_node_ids", "pinned_outputs", "user_inputs")
 STALE_AFTER_SECONDS_DEFAULT = 120.0
+
+# 생산자 스위치(ENGINE-2 2단계). 켜면 결과를 기다리지 않는 경로(스케줄·웹훅)가 인라인 실행 대신 enqueue 한다.
+# 결과를 동기로 기다리는 경로(에디터 수동 실행·dry-run·앱·봇·/api/call)는 그대로 인라인이다 — 큐로 보내면 클라이언트가
+# 폴링·구독으로 바뀌어야 하고 그건 33번 APP-2 의 몫이다. 켰으면 워커가 있어야 한다(run_worker.py 프로세스 또는
+# EXECUTION_WORKER_INPROCESS=1) — 없으면 queued 가 쌓이기만 한다. main 이 시작할 때 경고한다.
+QUEUE_ENV = "EXECUTION_QUEUE"
+
+
+def queue_enabled() -> bool:
+    return (os.getenv(QUEUE_ENV) or "0").strip().lower() in {"1", "true", "on", "yes"}
 
 
 def _now() -> datetime.datetime:
