@@ -143,6 +143,13 @@ class RunObserver:
             errorMessage=entry.get("error_message"),
         )
 
+    def node_retry(self, node_id: str, node_type: Optional[str], *, attempt: int, max_attempts: int,
+                   error_code: Optional[str], delay_sec: float) -> None:
+        """재시도 가능한 오류로 끝난 시도 뒤, 다음 시도 전에(ENGINE-3, node_retry) — 화면이 "재시도 중 (2/3)" 을 그릴 수 있게.
+        실패한 시도의 node_finished(failed) 는 이미 나갔고, 최종 시도의 node_finished 가 뒤따른다."""
+        self._emit("node_retry", nodeId=str(node_id), nodeType=node_type, attempt=int(attempt), maxAttempts=int(max_attempts),
+                   errorCode=error_code, delaySec=round(float(delay_sec), 3))
+
     def finished(self, status: str, *, error_summary: Optional[str] = None, total_tokens: Optional[int] = None) -> None:
         self._emit("run_finished", status=status, errorSummary=error_summary, totalTokens=total_tokens)
 

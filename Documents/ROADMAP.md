@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-2 코드 완료(2026-09-11)** — 큐(0026)·워커·heartbeat·stale 확정 + 스케줄·웹훅 생산자 전환(`EXECUTION_QUEUE`)·인프로세스 워커 + systemd 템플릿 유닛 `run-worker@`·`deploy.sh` 워커 재기동·`/api/ready` 큐 정지 판정·스케줄 슬롯 키(ADR-0029). **서버 리허설만 남음**(`scripts/server/README.md` 큐 모드 켜기). ENGINE-1 백엔드 완료, ENGINE-0 은 운영 절차만 남음 | 서버에서 08 스크립트로 큐 모드 리허설 → ENGINE-3 재시도·멱등성 |
+| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터, 오류 코드의 retryable·effectState 로 판정, ADR-0030). ENGINE-2 는 서버 리허설만 남음(`scripts/server/README.md` 큐 모드 켜기), ENGINE-0 은 운영 절차만 남음 | ENGINE-3 2단계 `error` 출력 핸들·에러 트리거 → 3단계 멱등성(웹훅 idempotency_key·부작용 노드) |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -388,7 +388,16 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 
 ##### ENGINE-3. 재시도 · 에러 분기 · 멱등성 — 1~2주
 
-1. 노드 설정에 `retries`·`backoff`·`timeoutSec` 세 개만 노출. 재시도 가능 여부는 오류 코드에서 읽는다.
+1. ~~노드 설정에 `retries`·`backoff`·`timeoutSec` 세 개만 노출.~~ **재시도 구현(2026-09-11, ADR-0030)** — 노드 `data.retries`(0~5)·
+   `data.backoffSec`(첫 대기, 시도마다 2배, 상한 60초, 상대의 Retry-After 보다 짧지 않게). 재시도 가능 여부는 **오류 코드에서 읽는다**
+   (`node_retry.retryable_failure`: catalog `retryable` 이고 effectState 가 unknown/applied 가 아닐 때만 — 401 은 백 번 보내도 같고,
+   메일이 "보냈는지 모름" 이면 한 번 더가 곧 중복 발송). 실행 지점은 인터프리터 `_Executor.run_item`(본문 Exec 만 다시 exec) —
+   **옛 엔진은 설정을 무시한다**(본문과 하류 배선이 한 덩어리로 방출돼 본문만 다시 돌릴 자리가 없다; 생성 소스 무변경이라 코퍼스
+   대조는 그대로). 실패한 시도의 log_step 기록은 접고 최종 기록에 `attempts`·`retried[]` 를 남긴다(outcome 은 최종 결과 기준).
+   진행 이벤트 `node_retry`(attempt·maxAttempts·errorCode·delaySec). **`timeoutSec` 은 만들지 않았다** — exec 중인 본문은 안전하게
+   끊을 수 없고(스레드로 감싸 버리면 본문이 계속 돌며 이름공간을 건드린다) 커넥터 요청 시간 제한은 이미 있으며 CONNECTOR_TIMEOUT 은
+   retryable 이라 여기서 재시도된다. 노드 단위 시간 제한은 본문을 별도 프로세스로 돌릴 수 있게 되는 때(pythonNode 격리 방식)의 몫.
+   설정 UI(노드 설정 패널의 retries/backoffSec)는 프론트 진행 표시와 함께. `test_node_retry.py` 11건.
 2. 에러 출력 핸들 — executor 가 NodeError 를 던지면 엔진이 `error` 핸들로 흐름을 돌린다. 인터프리터에서
    구현이 자명하다.
 3. 에러 트리거 — 워크플로우 실패 시 지정 워크플로우 실행(n8n Error Trigger 상당). "실패하면 알림" 패턴.

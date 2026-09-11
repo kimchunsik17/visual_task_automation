@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import graph_traversal as gt
 import node_bodies
+import node_retry
 from node_generators import flow_nodes as _flow
 from node_generators import ui_nodes as _ui
 
@@ -65,6 +66,8 @@ class Exec:
     source: str
     kind: str = "body"                # body | pinned | restore | header | tail
     node_type: Optional[str] = None
+    # 노드 설정 retries/backoffSec (ENGINE-3, node_retry). body 에만 — 재시도 가능한 오류로 끝나면 본문만 다시 exec 한다.
+    retry: Optional[node_retry.RetrySettings] = None
     _code: Any = field(default=None, repr=False, compare=False)
 
     def code(self):
@@ -235,7 +238,7 @@ class _PlanBuilder:
         if not body.wrappable:
             raise PlanError(f"{node_type}({node_id}) 는 NATIVE_FLOW_TYPES 가 아닌데 본문만 떼어 낼 수 없다 "
                             f"(nests={body.nests_downstream}, terminal={body.terminal_statement}, branches={body.branches})")
-        items.append(Exec(node_id, body.source, kind="body", node_type=node_type))
+        items.append(Exec(node_id, body.source, kind="body", node_type=node_type, retry=node_retry.retry_settings(node)))
         for call in body.downstream:
             items.extend(self.block(call.target_id, call.active_llm_id, call.prev_res_var, visited))
         return items
@@ -383,7 +386,10 @@ class _Executor:
         if isinstance(item, Exec):
             if item.kind in self.STARTING_KINDS:
                 self._started(item.node_id, item.node_type)
-            exec(item.code(), self.ns)
+            if item.retry is not None and item.kind == "body":
+                self._run_with_retry(item)
+            else:
+                exec(item.code(), self.ns)
         elif isinstance(item, Cond):
             self._condition(item)
         elif isinstance(item, Loop):
@@ -402,6 +408,40 @@ class _Executor:
             raise BreakSignal()
         else:  # pragma: no cover
             raise PlanError(f"모르는 계획 항목: {type(item).__name__}")
+
+    def _run_with_retry(self, item: Exec) -> None:
+        """노드 본문을 최대 max_attempts 번 exec 한다 — 이것이 ENGINE-3 재시도의 전부다(ADR-0030).
+
+        재시도 여부는 본문이 남긴 log_step 기록의 오류(retryable·effectState)에서 읽는다(node_retry.retryable_failure). 실패한
+        시도의 기록은 접고 최종 기록에 attempts·retried 를 붙인다. 시도 사이에 __node_meta__ 의 이 노드 항목을 지운다 — 남겨 두면
+        log_step 이 성공한 재시도를 이전 시도의 error 메타로 다시 error 로 적는다.
+        """
+        logs = self.ns['__execution_logs__']
+        retried: List[Dict[str, Any]] = []
+        since = len(logs)
+        for attempt in range(item.retry.max_attempts):
+            exec(item.code(), self.ns)
+            failure = node_retry.retryable_failure(logs, since, item.node_id)
+            if failure is None or attempt + 1 >= item.retry.max_attempts:
+                node_retry.annotate_final(logs, since, item.node_id, attempt + 1, retried)
+                return
+            node_retry.fold_attempt(logs, since, attempt, failure, retried)
+            meta = self.ns.get('__node_meta__')
+            if isinstance(meta, dict):
+                meta.pop(item.node_id, None)
+            delay = node_retry.backoff_delay(item.retry, attempt, failure)
+            self._retry_event(item, attempt + 1, failure.get('code'), delay)
+            node_retry.sleep(delay)
+
+    def _retry_event(self, item: Exec, attempt: int, error_code: Optional[str], delay: float) -> None:
+        observer = self.observer
+        if observer is None or not hasattr(observer, 'node_retry'):
+            return
+        try:
+            observer.node_retry(item.node_id, item.node_type, attempt=attempt, max_attempts=item.retry.max_attempts,
+                                error_code=error_code, delay_sec=delay)
+        except Exception:  # 이벤트는 부수 기능 — 재시도를 막지 않는다
+            pass
 
     def _condition(self, item: Cond) -> None:
         self._run_header(item)

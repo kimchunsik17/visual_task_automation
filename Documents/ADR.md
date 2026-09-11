@@ -2274,3 +2274,61 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
 - **남은 것은 서버 리허설이다(사용자 몫)** — 절차는 `scripts/server/README.md` "큐 모드 켜기": 08 로 유닛 → `.env` `EXECUTION_QUEUE=1` → API
   재기동 → `/api/ready` checks.queue → 긴 run 실행 중 `systemctl restart run-worker@1`(SIGTERM 에 마치고 재기동) 과 `kill -9`(stale 뒤
   failed 확정) 두 가지를 타임라인에서 확인. 통과하면 출시 게이트 "ENGINE-2 뒤 재시작이 run 을 잃지 않는지" 가 닫힌다.
+
+## ADR-0030 · 노드 재시도: 오류 코드가 재시도 가능성을 말하고, 인터프리터가 본문만 다시 돌린다
+
+| 상태 | 수락됨 · 2026-09-11 (ENGINE-3 1단계 — 재시도. `error` 출력 핸들·에러 트리거·멱등성은 다음 단계에 추기) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.1 ENGINE-3, ADR-0027(인터프리터), ADR-0016(오류 계약 — retryable·effectState), ADR-0028(실행 기록·진행 이벤트) |
+
+**맥락 (Context)**
+
+노드별 재시도가 없다(기능갭 보고서). 429·타임아웃·5xx 는 잠깐 뒤 다시 하면 되는데 워크플로우 전체가 실패로 끝난다. 반면 401 은 다시
+보내도 같고, 발송 노드가 "보냈는지 모름" 상태로 실패했으면 다시 보내는 것이 곧 중복 발송이다 — 재시도는 멱등성 없이는 위험하다
+(로드맵 ENGINE-3 4 "멱등성은 재시도와 반드시 동시에"). 오류 계약(ADR-0016)은 이미 code 마다 `retryable` 기본값과 부수효과 상태
+`effectState` 를 갖고 있다.
+
+**결정 (Decision)**
+
+1. **재시도 가능 여부는 노드 설정이 아니라 오류가 말한다.** 노드 설정은 `retries`(0~5)·`backoffSec`(첫 대기, 시도마다 2배, 상한 60초)
+   두 개다. 실제로 다시 돌리는 조건은 그 시도가 남긴 구조화 오류가 catalog 에서 `retryable` 이고 `effectState` 가 unknown/applied 가
+   **아닐** 때(`node_retry.retryable_failure`). 옛 방식 문자열 오류(LEGACY_NODE_ERROR)는 기본값이 retryable=False 라 재시도되지 않는다.
+   상대가 Retry-After 를 줬으면(`retryAfterMs`) 그보다 짧게 기다리지 않는다.
+2. **실행 지점은 인터프리터의 노드 본문 하나다.** `engine_interpreter._Executor.run_item` 이 Exec(kind=body) 를 최대 `retries+1` 번 exec
+   한다. 옛 엔진(생성 코드 exec)은 노드 본문과 하류 배선이 한 덩어리로 방출되어 본문만 다시 돌릴 자리가 없다 — **옛 엔진은 설정을
+   무시한다**. 생성 소스는 바뀌지 않으므로 코퍼스 대조(codegen_corpus_diff)와 실행 대조(engine_shadow_diff)는 그대로다. 재시도는
+   전환된 프로젝트(ENGINE-0 6단계의 프로젝트별 flag)에서만 효과가 있고, 그것이 전환 유인이 된다.
+3. **실패한 시도의 기록은 접고 최종 기록에 시도 내역을 남긴다.** 성공으로 끝난 노드가 log 에 error 기록을 남기면 `summarize_logs` 가
+   error 를 세어 outcome 이 error 가 된다. 그래서 실패한 시도의 log_step 기록은 접고, 최종 기록에 `attempts` 와
+   `retried=[{attempt, code, message}]` 를 붙인다. 시도 사이에 `__node_meta__` 의 이 노드 항목을 지운다 — 남겨 두면 log_step 이 성공한
+   재시도를 이전 시도의 error 메타로 다시 error 로 적는다(log_step 의 메타 승격 규칙).
+4. **진행 이벤트 `node_retry`.** 실패한 시도의 `node_finished(failed)` 는 log_step 래퍼가 이미 냈으므로, 그 뒤 다음 시도 전에
+   `node_retry`(attempt·maxAttempts·errorCode·delaySec) 를 내고 최종 시도의 `node_finished` 가 뒤따른다. 화면은 이 순서로
+   "재시도 중 (2/3)" 을 그린다.
+5. **`timeoutSec` 은 만들지 않는다.** exec 중인 본문은 안전하게 끊을 수 없다 — 스레드로 감싸 시간이 지나면 버리는 방식은 본문이 계속
+   돌며 같은 이름공간을 건드려 뒤 노드를 오염시킨다. 커넥터 요청 시간 제한은 `connectors.services.*` 가 이미 갖고 있고
+   CONNECTOR_TIMEOUT 은 retryable 이라 여기서 재시도된다. 노드 단위 시간 제한은 본문을 별도 프로세스로 돌릴 수 있게 되는 때
+   (pythonNode 격리와 같은 방식)의 몫으로 남긴다.
+
+**대안 (Alternatives)**
+
+- **생성 코드에 재시도 루프를 방출**: 두 엔진이 같이 얻지만 본문/하류를 분리하는 generate_block 재구성이 필요하고(인터프리터가 이미
+  한 일을 옛 엔진에 되풀이), 생성 소스가 바뀐다. 옛 엔진은 걷어낼 대상이므로 기각.
+- **커넥터 안에서 재시도**: 이미 일부 서비스가 Retry-After 를 존중하지만 노드 설정으로 제어할 수 없고 LLM·DB 노드는 빠진다. 노드
+  단위 규칙 하나가 낫다. 기각(커넥터 내부 재시도와 겹치면 총 시도 수가 곱이 된다 — 커넥터 쪽 기본은 0 유지).
+- **실패 시도 기록을 그대로 두고 outcome 만 고침**: summarize_logs·flow_outcome·타임라인·과금 outcome 이 전부 "error 기록이 있으면
+  실패" 를 전제한다. 기록을 접는 쪽이 전제를 지킨다. 기각.
+
+**결과 (Consequences)**
+
+- `backend/node_retry.py`(RetrySettings·retry_settings·retryable_failure·backoff_delay·fold_attempt·annotate_final·sleep),
+  `engine_interpreter.Exec.retry`·`_Executor._run_with_retry`, `run_events.RunObserver.node_retry`. `test_node_retry.py` 11건 —
+  설정 클램프 · 판정(성공·고정·비구조화·retryable=False·unknown/applied·다른 노드) · 백오프/Retry-After/상한 · 인터프리터 재시도 뒤 성공
+  (기록 하나, attempts 3, outcome success) · 소진 뒤 실패 · Retry-After 대기 · 재시도 불가 한 번 · 설정 없음 · 옛 엔진 무시 ·
+  node_retry 이벤트 순서 · RunObserver 발행.
+- 설정 UI(노드 설정 패널)는 아직 없다 — 노드 `data.retries`/`data.backoffSec` 를 직접 넣어야 한다. 프론트 진행 표시(node_started·
+  node_finished·node_retry 구독)와 함께 만든다.
+- 다음 단계(추기 예정): `error` 출력 핸들(NodeError 가 나면 흐름이 error 간선으로 — 두 엔진 모두, 생성 코드는 error 간선이 있을 때만
+  달라진다), 에러 트리거(실패 시 지정 워크플로우), 멱등성(웹훅 `X-GitHub-Delivery`·payload 해시 → `idempotency_key`, 부작용 노드
+  `(run_id, node_id)` 전송 기록).
