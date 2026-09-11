@@ -2189,3 +2189,49 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
   일반 resume·비 paused 거부·db 없음 거부·옛 요청 폴백·RUN_RECORDS=0·마이그레이션), `test_approval_flow.py` 그대로 통과.
 - ENGINE-1 은 백엔드가 끝났다. 남은 것은 프론트 진행 표시(APP-2)와 ENGINE-2 — 워커가 끊긴 running run 을 회수할 때 이 재개 함수를
   쓴다(마지막 완료 step 다음부터; 부작용 노드를 지났으면 실패로 확정).
+
+## ADR-0029 · 실행 큐: workflow_runs 를 큐로 쓰고 PostgreSQL SKIP LOCKED 로 잡는다
+
+| 상태 | 수락됨 · 2026-09-10 (ENGINE-2 1단계 — 큐·워커·heartbeat·stale 확정. 생산자 전환·인프로세스 워커·배포 유닛은 다음 단계) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.1 ENGINE-2, ADR-0028(실행 상태 기록·재개), ADR-0027(인터프리터), 마이그레이션 0026 |
+
+**맥락 (Context)**
+
+uvicorn 워커 하나가 API·실행·스케줄을 겸한다(`docs/reports/load_assessment.md`). 재시작하면 실행 중 워크플로우가 유실되고,
+LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐로 보내려면 큐 저장소·워커·중복 방지·끊김 회수가 필요하다.
+실행 상태 표(`workflow_runs`, ADR-0028)가 이미 실행에 필요한 것(그래프 스냅샷·런타임 입력·재개 상태·출처·소유자)을 갖고 있다.
+
+**결정 (Decision)**
+
+1. **별도 큐 표를 두지 않는다 — `workflow_runs` 가 큐다.** status=queued 인 run 이 큐 항목이고, 워커가 잡으면 running,
+   끝나면 succeeded/failed/paused 다. "한 논리적 실행은 run 하나"(ADR-0028)가 큐 단계에서도 지켜지고, 타임라인 API·진행
+   이벤트·FlowExecutionLog 연결이 그대로 통한다. 큐 컬럼(0026): `queued_at`·`claimed_at`·`worker_id`·`run_options`·`attempts`.
+2. **PostgreSQL `SELECT … FOR UPDATE SKIP LOCKED` 로 잡는다**(`run_queue.claim`). 워커 여럿이 같은 run 을 두 번 잡지 않는다.
+   Redis/Celery 를 먼저 권하지 않는 이유: 이미 PostgreSQL 이 있고 단일 VM 규모에서 새 인프라 하나는 운영 부담 하나다.
+   sqlite(테스트)는 단순 select+update 로 같은 의미를 낸다(한 프로세스 안 배타).
+3. **워커가 세션을 소유하고 큐 연산은 커밋한다.** `claim`·`heartbeat`·`reclaim_stale` 은 즉시 커밋한다 — 잡았다는 사실을 다른
+   워커가 바로 봐야 한다. 실행 기록(run_records)은 그 세션에 flush 만 하고 워커가 실행 뒤 과금 기록(`record_usage`, 인라인
+   호출부가 하던 것)과 함께 커밋한다. 실행 예외에도 `run_records.fail` 이 flush 한 failed 를 커밋한다(rollback 하면 실패했다는
+   사실이 사라진다). `enqueue` 만 생산자 트랜잭션에 들어가므로 flush 다.
+4. **실행은 같은 run 행 위에서** — `execution.start(existing_run_id=…)` 가 `run_records.adopt` 로 paused(재개)·claim 된 running
+   (큐)만 받는다. claim 안 된 queued 나 끝난 run 은 ValueError 다.
+5. **heartbeat 가 끊긴 running run 은 failed 로 확정한다 — 재실행하지 않는다.** step 은 실행이 끝난 뒤 쓰이므로 어디까지 갔는지
+   (부작용 노드를 지났는지) 모른다. 마지막 완료 step 부터의 재개는 노드 멱등성(ENGINE-3)과 함께 온다(그때 `execution.resume`).
+   주기: `RUN_WORKER_HEARTBEAT_SECONDS`(기본 10) · `RUN_WORKER_STALE_SECONDS`(기본 120).
+
+**대안 (Alternatives)**
+
+- **별도 큐 표(jobs)**: run 과 jobs 를 잇는 FK·상태 동기화가 생기고, 재개(paused → queued)도 두 표를 건너야 한다. 기각.
+- **Redis/Celery**: 새 인프라·배포 구성. 큐 인터페이스(enqueue/claim)가 모듈 하나에 있어 나중 교체 비용이 작다. 지금은 기각.
+- **끊긴 run 재큐잉**: 부작용이 두 번 나갈 수 있다(메일·게시). 멱등성 없이 하지 않는다. 기각.
+
+**결과 (Consequences)**
+
+- `python run_worker.py --worker-id w1` 로 별도 프로세스 워커를 띄울 수 있다(SIGTERM 에 현재 run 을 마치고 종료). 생산자(스케줄·
+  웹훅·앱)는 아직 인라인이다 — 다음 PR 에서 `EXECUTION_QUEUE` 플래그 뒤로 전환하고, 배포 단위를 바꾸지 않고 검증할 인프로세스
+  워커 스레드 옵션을 함께 넣는다. systemd 워커 유닛은 그 뒤 배포 문서에.
+- 큐잉된 실행의 과금은 워커가 남긴다(`trigger_type` 은 인라인 호출부 표기를 따른다 — schedule→scheduler, app→shared_app).
+- 검증: `test_run_queue.py` 13건(enqueue·claim 단조·워커 처리+과금·옵션/재개 인자·실행 예외 생존·run_forever·heartbeat·stale
+  확정·주기 회수·adopt 거부·마이그레이션·PostgreSQL 동시 claim). PostgreSQL 동시 claim: 통과(2026-09-10, 로컬 PG 를 사용자 프로세스로 띄우고 개발 DB 안 임시 스키마 engine_test 에서 — 두 세션이 서로 다른 run 을 잡았다; 스키마는 지웠다).
