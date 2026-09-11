@@ -48,6 +48,7 @@ TRIGGER_SOURCES = frozenset({
     "approval",    # 승인 결정 뒤 재개(ADR-0015)
     "evaluation",  # 생성 품질 평가 러너
     "mock",        # 목업 탭
+    "error_trigger",  # 실패한 실행 뒤 지정 워크플로우(graph_data.errorWorkflowId) 실행 — error_trigger.py (ENGINE-3)
 })
 
 _current_trigger: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -80,6 +81,17 @@ def take_last_run_id(project_id=None) -> Optional[int]:
         except (TypeError, ValueError):
             return None
     return run_id
+
+
+@contextlib.contextmanager
+def preserving_last_run():
+    """안에서 다른 start 가 돌아도(에러 트리거의 인라인 실행) 직전 실행의 run id 슬롯은 그대로 남긴다 — 덮이면 원래 실행의
+    호출부 record_usage 가 FlowExecutionLog.run_id 를 잇지 못한다."""
+    saved = _last_run.get()
+    try:
+        yield
+    finally:
+        _last_run.set(saved)
 
 
 # 진행 이벤트(run_events.RunObserver, ENGINE-1 3단계). start 가 만들어 contextvar 로 두고, graph.run_workflow 가
@@ -252,6 +264,8 @@ def start(nodes: list, edges: list, *, trigger_source: str, existing_run_id: Opt
         if observer is not None:
             _record_guarded(observer.finished, run_records.STATUS_FAILED,
                             error_summary=f"{type(exc).__name__}: {exc}"[:500])
+        _record_guarded(_fire_error_trigger, db, project_id=project_id, trigger_source=trigger_source, run=run, exc=exc,
+                        executor_user_id=executor_user_id)
         raise
     finally:
         _current_trigger.reset(token)
@@ -260,11 +274,23 @@ def start(nodes: list, edges: list, *, trigger_source: str, existing_run_id: Opt
     result_text, tokens, logs = result
     if run is not None:
         _record_guarded(run_records.finish, db, run, result_text=result_text, tokens=tokens, logs=logs)
+    status = run.status if run is not None else run_records.run_status(result_text, logs)
     if observer is not None:
-        status = run.status if run is not None else run_records.run_status(result_text, logs)
         _record_guarded(observer.finished, status, error_summary=run.error_summary if run is not None else None,
                         total_tokens=run.total_tokens if run is not None else None)
+    if status == run_records.STATUS_FAILED:
+        # 에러 트리거(ENGINE-3 3단계) — failed 로 닫힌 뒤, 결과를 돌려주기 전에. 실패해도 원래 결과를 바꾸지 않는다.
+        _record_guarded(_fire_error_trigger, db, project_id=project_id, trigger_source=trigger_source, run=run,
+                        result_text=result_text, logs=logs, executor_user_id=executor_user_id)
     return result
+
+
+def _fire_error_trigger(db, **kwargs) -> None:
+    """failed 로 끝난 실행 뒤 graph_data.errorWorkflowId 의 워크플로우를 부른다(error_trigger.fire). 지연 import — error_trigger 가
+    run_queue·usage_tracking 을 쓰고 그쪽이 다시 이 모듈을 본다."""
+    import error_trigger
+
+    error_trigger.fire(db, **kwargs)
 
 
 def resume(run_id: int, *, db, trigger_source: str, extra_inputs: Optional[dict] = None) -> Tuple[str, dict, list]:
