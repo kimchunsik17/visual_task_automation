@@ -73,7 +73,7 @@ AVAILABLE_ENGINES = frozenset(KNOWN_ENGINES)
 _warned_engine_values: set = set()
 
 
-def engine_mode() -> str:
+def default_engine_mode() -> str:
     """EXECUTION_ENGINE 을 읽는다. 모르는 값은 legacy 로 가되 **경고를 남긴다** — 조용히 폴백하면
     운영자가 인터프리터를 켰다고 믿는 채로 옛 엔진이 돈다."""
     raw = (os.getenv("EXECUTION_ENGINE") or ENGINE_LEGACY).strip().lower()
@@ -84,6 +84,49 @@ def engine_mode() -> str:
         logger.warning("EXECUTION_ENGINE=%r 는 모르는 값이다 — legacy 로 실행한다. 허용: %s",
                        raw, ", ".join(KNOWN_ENGINES))
     return ENGINE_LEGACY
+
+
+# ── 프로젝트별 예외 (ENGINE-0 6단계, 점진 전환) ────────────────────────────
+# EXECUTION_ENGINE_PROJECT_OVERRIDES="12:interpreter,7:legacy" — 기본값(EXECUTION_ENGINE)이 무엇이든 이 프로젝트는
+# 지정한 엔진으로 돈다. 전환 순서(로드맵 §3.1: 몇 프로젝트 → 커뮤니티 템플릿 설치분 → 전체)와 되돌리기(문제
+# 프로젝트만 legacy)를 배포 없이 환경변수로 한다. DB 컬럼을 두지 않은 이유: 켜고 끄는 주체가 운영자 한 사람이고,
+# 값이 바뀌는 시점이 배포와 같기 때문이다. 사용자 수만큼 늘어나면 그때 컬럼으로 옮긴다.
+# 매 호출마다 읽는다 — 값이 짧아 비용이 없고, 환경변수를 바꾼 뒤 재시작 없이 다음 실행부터 적용된다.
+PROJECT_OVERRIDES_ENV = "EXECUTION_ENGINE_PROJECT_OVERRIDES"
+_warned_override_items: set = set()
+
+
+def project_engine_overrides() -> dict:
+    """{project_id: mode}. 형식이 틀린 항목은 한 번 경고하고 무시한다 — 오타 하나가 전체를 무너뜨리면 안 된다."""
+    raw = os.getenv(PROJECT_OVERRIDES_ENV) or ""
+    overrides: dict = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        project_part, sep, mode = item.partition(":")
+        mode = mode.strip().lower()
+        if not sep or not project_part.strip().isdigit() or mode not in AVAILABLE_ENGINES:
+            if item not in _warned_override_items:
+                _warned_override_items.add(item)
+                logger.warning("%s 의 항목 %r 은 무시한다 — 형식은 '<project_id>:<%s>' 이다",
+                               PROJECT_OVERRIDES_ENV, item, "|".join(KNOWN_ENGINES))
+            continue
+        overrides[int(project_part.strip())] = mode
+    return overrides
+
+
+def engine_mode(project_id=None) -> str:
+    """이 실행이 쓸 엔진. 프로젝트별 예외가 있으면 그것, 없으면 EXECUTION_ENGINE 기본값.
+    project_id 가 없거나(저장 전 그래프·평가 러너) 정수가 아니면 기본값이다."""
+    default = default_engine_mode()
+    if project_id is None:
+        return default
+    try:
+        pid = int(project_id)
+    except (TypeError, ValueError):
+        return default
+    return project_engine_overrides().get(pid, default)
 
 
 # shadow 모드가 남기는 계획 실패 기록. 운영 로그(warning)에도 남지만, 테스트와 진단이 읽을 수 있게

@@ -1431,6 +1431,10 @@ def get_features():
         # 꺼져 있으면 편집기가 팔레트에서 pythonNode 를 빼야 한다. 실행 경로는 이 값과 무관하게
         # 서버에서 다시 막으므로, 이건 UI 가 헛수고를 안 하게 하는 힌트다.
         "python_node_enabled": python_runtime.node_enabled(),
+        # 실행 엔진 기본값(백로그 32 ENGINE-0, ADR-0027) — legacy | shadow | interpreter. 프로젝트별 예외
+        # (EXECUTION_ENGINE_PROJECT_OVERRIDES)는 여기 드러나지 않는다. UI 힌트이고 판정은 실행 시점에 다시 한다.
+        "execution_engine": execution.default_engine_mode(),
+        "execution_engine_overrides": len(execution.project_engine_overrides()),
         # 시연장 로그인(opt-in) — 켜져 있으면 로그인 화면에 "시연 로그인" 입구를 그린다.
         "demo_login": bool(os.getenv("DEMO_LOGIN_CODE")),
         "demo_login_seats": demo_login_seats(),

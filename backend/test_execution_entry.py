@@ -143,3 +143,76 @@ def test_engine_mode_reads_env_and_falls_back_to_legacy_loudly(monkeypatch, raw,
     warned = any("legacy 로 실행" in w for w in warnings)
     expect_warning = raw != "" and raw.strip().lower() not in execution.AVAILABLE_ENGINES
     assert warned == expect_warning
+
+
+# ── 프로젝트별 예외 (ENGINE-0 6단계) ──────────────────────────────────────
+
+def _recording_logger(monkeypatch):
+    warnings = []
+
+    class _Recorder:
+        def warning(self, msg, *args, **kwargs):
+            warnings.append(msg % args if args else msg)
+
+    monkeypatch.setattr(execution, "logger", _Recorder())
+    return warnings
+
+
+def test_project_overrides_parse_and_ignore_bad_entries_once(monkeypatch):
+    warnings = _recording_logger(monkeypatch)
+    monkeypatch.setenv(execution.PROJECT_OVERRIDES_ENV, " 12:interpreter, 7:LEGACY ,abc:interpreter,9:turbo,13,")
+    execution._warned_override_items.clear()
+    assert execution.project_engine_overrides() == {12: "interpreter", 7: "legacy"}
+    assert len(warnings) == 3, warnings          # abc:interpreter · 9:turbo · 13
+    execution.project_engine_overrides()
+    assert len(warnings) == 3, "같은 오타를 매 실행마다 경고하지 않는다"
+
+
+def test_engine_mode_prefers_project_override_over_default(monkeypatch):
+    monkeypatch.setenv("EXECUTION_ENGINE", "legacy")
+    monkeypatch.setenv(execution.PROJECT_OVERRIDES_ENV, "5:interpreter")
+    assert execution.engine_mode() == "legacy"
+    assert execution.engine_mode(project_id=5) == "interpreter"
+    assert execution.engine_mode(project_id="5") == "interpreter"
+    assert execution.engine_mode(project_id=6) == "legacy"
+    assert execution.engine_mode(project_id="not-an-id") == "legacy"
+    # 되돌리기: 기본값을 interpreter 로 올린 뒤 문제 프로젝트만 legacy 로.
+    monkeypatch.setenv("EXECUTION_ENGINE", "interpreter")
+    monkeypatch.setenv(execution.PROJECT_OVERRIDES_ENV, "5:legacy")
+    assert execution.engine_mode(project_id=5) == "legacy" and execution.engine_mode(project_id=6) == "interpreter"
+
+
+def test_run_workflow_dispatches_the_engine_per_project(monkeypatch):
+    import engine_interpreter
+    import graph
+
+    calls = []
+
+    def fake_run(nodes, edges, *, namespace, runtime_inputs, project_id=None, **kwargs):
+        calls.append(project_id)
+        namespace["__token_usage__"] = {"total_tokens": 0}
+        namespace["__execution_logs__"] = []
+        return "인터프리터가 돌았다"
+
+    monkeypatch.setattr(engine_interpreter, "run", fake_run)
+    monkeypatch.setenv("EXECUTION_ENGINE", "legacy")
+    monkeypatch.setenv(execution.PROJECT_OVERRIDES_ENV, "5:interpreter")
+    nodes = [{"id": "s", "type": "startNode", "data": {}}, {"id": "v", "type": "valueNode", "data": {"value": "값"}},
+             {"id": "o", "type": "outputNode", "data": {}}]
+    edges = [{"source": "s", "target": "v"}, {"source": "v", "target": "o"}]
+
+    assert graph.run_workflow(nodes, edges, project_id=5, default_input="")[0] == "인터프리터가 돌았다"
+    assert graph.run_workflow(nodes, edges, project_id=6, default_input="")[0] == "값"
+    assert calls == [5]
+
+
+def test_features_endpoint_reports_the_default_engine(monkeypatch):
+    monkeypatch.setenv("EXECUTION_ENGINE", "shadow")
+    monkeypatch.setenv(execution.PROJECT_OVERRIDES_ENV, "1:interpreter,2:legacy")
+    from fastapi.testclient import TestClient
+
+    import main
+
+    features = TestClient(main.app).get("/api/features").json()
+    assert features["execution_engine"] == "shadow"
+    assert features["execution_engine_overrides"] == 2

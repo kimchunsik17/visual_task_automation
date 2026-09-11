@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import time
@@ -306,3 +307,36 @@ def test_isolation_overhead_stays_within_budget():
         assert run_isolated("output_data = input_data.upper()", "abc", limits=_tight()).ok
         samples.append(time.monotonic() - started)
     assert max(samples) < 1.5, f"격리 오버헤드가 너무 크다: {samples}"
+
+
+# ── 7. 네트워크 (ENGINE-0 5단계 잔여) ─────────────────────────────────────
+def test_sandbox_child_blocks_sockets_even_if_code_could_reach_them():
+    """허용 목록이 import 를 막아 사용자 코드는 socket 에 닿을 수 없지만, 자식 프로세스 자체도 소켓을 거부해야 한다 —
+    허용 목록이 느슨해지는 날의 마지막 선. resource 모듈이 없는 Windows 에서도 차단 함수는 검증할 수 있다."""
+    probe = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import python_sandbox; python_sandbox._block_network()\n"
+        "import socket, urllib.request\n"
+        "try:\n"
+        "    socket.create_connection(('127.0.0.1', 9), timeout=1)\n"
+        "    print('CONNECTED')\n"
+        "except PermissionError as exc:\n"
+        "    print('BLOCKED', exc)\n"
+        "try:\n"
+        "    urllib.request.urlopen('http://127.0.0.1:9/', timeout=1)\n"
+        "    print('FETCHED')\n"
+        "except Exception as exc:\n"
+        "    print('BLOCKED2', type(exc).__name__, 'blocked' in str(exc))\n"
+    )
+    result = subprocess.run([sys.executable, "-c", probe, str(pathlib.Path(__file__).resolve().parent)],
+                            capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert "BLOCKED pythonNode: network access is blocked" in result.stdout
+    assert "BLOCKED2" in result.stdout and "True" in result.stdout, result.stdout
+    assert "CONNECTED" not in result.stdout and "FETCHED" not in result.stdout
+
+
+def test_sandbox_main_blocks_network_before_running_user_code():
+    """차단이 main 에 실제로 연결돼 있는지 — 한도 적용 직후, exec 직전."""
+    source = pathlib.Path(__file__).resolve().parent.joinpath("python_sandbox.py").read_text(encoding="utf-8")
+    body = source[source.index("def main("):]
+    assert body.index("_apply_limits(payload") < body.index("_block_network()") < body.index("exec(compile(code")
