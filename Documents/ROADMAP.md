@@ -4,173 +4,756 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | v2.3 — 백로그 29번 종료, 커뮤니티 템플릿 242종 게시 반영 |
+| 상태 | v3.0 — 재작성. 08-30~09-06 완료분 제거, 보고서 2건 편입(백로그 32·33), 개발 도구 노드 트랙 신설(34), 파생 항목 35~38 |
 | 최초 작성 | 2026-08-26 |
-| 재작성 | 2026-08-30 |
-| 대상 | Workflow Automation 제품, App Builder, 생성/평가 시스템 |
+| 재작성 | 2026-09-06 (직전 v2.3 은 2026-08-30) |
+| 대상 | Workflow Automation 제품, App Builder, 생성/평가 시스템, 실행 엔진 |
 | 전제 | 기간은 확정 일정이 아니라 1명의 숙련된 풀스택 개발자 기준의 상대 추정치다 |
-| 완료 기록 | `archive/COMPLETED_WORK_2026-08.md` (원본 v1.9는 `archive/LONG_TERM_PRODUCT_ROADMAP_v1.9.md`) |
-| 관련 문서 | `UNIMPLEMENTED_BACKLOG.md`(미구현 항목 색인), `plans/KOREAN_SERVICE_NODE_EXPANSION_PLAN.md`, `plans/DATABASE_OPERATIONS_EXPLORER_PLAN.md`, `plans/INCOMPLETE_NODE_STRUCTURE_REVIEW.md`, `plans/LLM_GENERATION_QUALITY_PLAN.md`, `design/MAIN_WORKSPACE_AND_HOME_CHAT_REDESIGN_PLAN.md`, `ADR.md`, `docs/reports/security_assessment.md` |
+| 완료 기록 | `archive/COMPLETED_WORK_2026-08.md`, `archive/COMPLETED_WORK_2026-09.md` (원본 v1.9 는 `archive/LONG_TERM_PRODUCT_ROADMAP_v1.9.md`) |
+| 편입한 보고서 | `plans/기능갭_및_프로덕션_준비_보고서.md`(2026-09-01, n8n·Make 대비 갭과 프로덕션 전환), `plans/실행엔진_앱빌더_시연준비_종합보고서.md`(2026-09-02, 그 후속 상세화) |
+| 관련 문서 | `UNIMPLEMENTED_BACKLOG.md`, `plans/DOCUMENT_FORMAT_STUDIO_PLAN.md`, `plans/DATA_FLOW_SEPARATION_PLAN.md`, `plans/노드_비가시화_시연플래그_계획.md`, `plans/DATABASE_OPERATIONS_EXPLORER_PLAN.md`, `plans/INCOMPLETE_NODE_STRUCTURE_REVIEW.md`, `plans/LLM_GENERATION_QUALITY_PLAN.md`, `design/MAIN_WORKSPACE_AND_HOME_CHAT_REDESIGN_PLAN.md`, `ADR.md`, `docs/reports/security_assessment.md` |
 
-이 문서에는 **아직 하지 않은 일만** 있다. 2026-08-26~29에 끝낸 백로그 1~10·12·15~25번의 설계
-근거와 구현 기록은 `archive/COMPLETED_WORK_2026-08.md`로 옮겼다.
+이 문서에는 **아직 하지 않은 일만** 있다. 2026-08-26~29 에 끝낸 백로그 1~10·12·15~25 번은
+`archive/COMPLETED_WORK_2026-08.md` 에, 08-30~09-06 에 끝낸 것(29번, 결함 10건, POINT-0·1, 트러블슈팅,
+문서 포맷 스튜디오, 데이터 흐름 분리, 시연 준비, PICKLE 전환)은 `archive/COMPLETED_WORK_2026-09.md` 에 있다.
 
-> **무엇이 남았는지만 알고 싶으면 `UNIMPLEMENTED_BACKLOG.md`를 본다.** 이 문서는 백로그 번호
-> 단위라 문서 안쪽의 개별 항목이 안 보인다 — 실제로 2026-08-30에 작업 목록을 짜다가 `design/`
-> 7개와 `plans/` 3개를 통째로 빠뜨렸다. 그래서 흩어진 미구현 항목을 한곳에 모은 색인을 따로 만들었다.
+> **무엇이 남았는지만 알고 싶으면 `UNIMPLEMENTED_BACKLOG.md` 를 본다.** 이 문서는 백로그 번호 단위라
+> 문서 안쪽의 개별 항목이 안 보인다. 다만 그 색인은 08-30 기준이라, 그 뒤에 생긴 항목(32~38번)은 이
+> 문서 §2 가 정본이다.
 
 ## 1. 현재 위치
 
-31개 백로그 중 **23개가 끝났다.** 두 기반(Node Definition, ProjectRevision)이 자리 잡았고 그 위에
-공식 연동 노드·오류 계약·App Builder·커뮤니티 트랙이 올라갔다. 자세한 내역은 아카이브의 완료
-요약 표에 있다.
+38개 백로그 중 **23개가 끝났다**(1~10·12·15~25·29). v2.3(08-30) 이후 일주일은 로드맵 번호 밖의 일이
+대부분이었고 그 기록은 `archive/COMPLETED_WORK_2026-09.md` 에 있다. 요지만 적으면:
 
-**열려 있는 트랙은 다섯이다.**
+- **트러블슈팅이 끝났다.** 감사 → 실행 계획 → 실측 재검증 → 0~5단계. 보안 8건과 배포 레일
+  (`scripts/deploy.sh`·`/api/ready`·`AUTO_MIGRATE_ON_BOOT=0`)이 서버에 들어갔다. 실행 계획서의 "일부러 하지
+  않는 것" 11항은 폐기가 아니라 조건부라 §3.6(37번) 으로 옮겼다.
+- **문서 포맷 스튜디오가 Phase 0~5 까지 갔다.** FormatSpec·formatNode·프리셋 21종·파일→포맷 역변환·
+  `/formats` 탭·디자인 캔버스·풀페이지 3-pane 스튜디오. 보류 항목만 §3.14 에 남는다.
+- **시연회(부스) 준비가 코드로 들어갔다.** opt-in 플래그 5종, 콘텐츠 5종+앱 2종, 공개 실행 입력 상한,
+  결과 이메일 전달. 시연은 종합보고서 기준 9/9(수)~9/11(금)이고 **이번 주는 새 구현 없이 안정화만 한다.**
+- **LLM 호출이 PICKLE 게이트웨이로 갔다**(`PICKLE_LLM_GATEWAY.md`). 임베딩·이미지 생성은 여전히 OpenAI 직결이고,
+  게이트웨이에 이미지 경로 개방을 요청해 둔 상태다.
+- **보고서 2건을 편입했다.** 기능갭 보고서(09-01)가 n8n·Make 대비 갭과 프로덕션 전환 항목을 짚었고,
+  종합보고서(09-02)가 그것을 실행 엔진 4단계·앱 빌더 5축으로 구체화했다. 각각 백로그 **32·33번**이 됐고,
+  그 밖의 제안(흐름 제어·에이전트/MCP·운영·의존성 맵)은 **35~38번**으로 나눴다.
+- **개발 도구 노드 트랙(34번)을 새로 열었다** — "실제 개발 업무에 쓰이는 사이트"로 가는 첫 항목이다.
+
+**열려 있는 트랙은 열셋이다.**
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| Workspace/RBAC (11번) | TEAM-0·1 완료, TEAM-2·3과 37곳 판정 이전이 남음 | TEAM-2 workspace 자격증명 |
-| 사용자 지식베이스·검색 (26·27번) | 미착수 | 지식베이스 권한·수명 주기 정리 |
-| AI 시맨틱 포인팅 (28번) | POINT-0·1 구현 완료, **UI는 꺼 둠** | 파괴적 도구 제한 또는 diff preview |
-| 메인 작업 공간·홈 채팅 리디자인 (30번) | 계획 완료, 미착수 | MAIN-0 사용량·분류·목록 계약 |
-| 운영 Database Explorer (31번) | 계획 완료, 미착수 | DBOPS-0 browse/export/edit 권한 계약 |
+| 실행 엔진 v2 (32) | 계획 완료(종합보고서 §1) | 스케줄러 중복 발화 lock(독립 선행) → ENGINE-0 디스패처 |
+| 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
+| 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
+| 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
+| 실행형 AI 에이전트 노드·MCP (36) | 미착수 | 도구 정책 모듈(28번과 공유) |
+| 운영 가시성·배포·CI (37) | 미착수 | GitHub Actions 테스트 |
+| 거버넌스 의존성 맵 (38) | 미착수·후순위 | 11번 뒤 |
+| Workspace/RBAC (11) | TEAM-0·1 완료 | TEAM-2 workspace 자격증명 |
+| 사용자 지식베이스·검색 (26·27) | 미착수 | 지식베이스 권한·수명 주기 |
+| AI 시맨틱 포인팅 (28) | 구현 완료, **UI 꺼 둠** | 파괴적 도구 제한 또는 diff preview — 36번과 해법 공유 |
+| 메인 작업 공간·홈 채팅 리디자인 (30) | 계획 완료 | MAIN-0 사용량·분류·목록 계약 |
+| 운영 Database Explorer (31) | 계획 완료 | DBOPS-0 권한 계약 |
+| 커뮤니티 노드 (13·14) | 보류 | 수요 관측 후 |
 
-**한국형 서비스 노드(29번)는 2026-08-30에 닫혔다.** 아래 §1.2 참조.
+### 1.1 시연 직전 남은 것 — 이번 주
 
-**커뮤니티 노드(13·14번)는 의도적으로 멈춰 있다.** §4.2 트랙 B·C의 원칙만 있고, 커뮤니티 Q&A를
-열어 보며 사람들이 실제로 무엇을 원하는지 관측한 뒤 계획을 세우는 편이 낫다.
+종합보고서 §4.2 체크리스트 9개의 현재 상태다. 코드로 닫힌 것과 사람이 해야 하는 것을 나눴다.
 
-### 1.1 지금 새고 있는 것 — 2026-08-30 전부 처리
+| # | 항목 | 상태(2026-09-06) |
+| ---: | --- | --- |
+| 1 | 승인키 발급 | 도로명주소는 시연 제외(`HIDDEN_NODE_TYPES=jusoNode`). 콘텐츠 v2 는 네이버 검색·YouTube Data API·OpenAI(이미지)·SMTP 를 쓴다 — **관리자 계정 API 센터 등록과 `DEMO_SHARED_CREDENTIALS_PROVIDERS` 설정은 수동**(`plans/노드_비가시화_시연플래그_계획.md` "시연 전 수동 단계") |
+| 2 | 검토 대기 템플릿 79건 승인 | **미결** — 승인 주체 미정 그대로 |
+| 3 | 피닝 백업 | `pinned_outputs` 는 있으나 시연 콘텐츠에 고정값 백업을 준비한 기록이 없다 — **미확인** |
+| 4 | 시연 인스턴스 분리 / cron 비우기 | 운영에 라이브 스케줄 0건(재검증 문서 기준) — 별도 조치 불필요로 본다 |
+| 5 | 동시 실행 부하 리허설 | 09-06 부스 점검에서 게스트 5종 실물 실행은 확인(#88·#92). **동시 10대 부하는 미확인** |
+| 6 | LLM 쿼터 | PICKLE 키는 **금액 한도** 하나(`credit_exhausted` 429). 게스트 토큰 상한은 `.env` 로 20만(#80 기준 게스트 1명 최대 약 $0.26). 한도 잔액은 지원처 대시보드에서 |
+| 7 | 방문자 입력 방어 | **완료** — 공개 실행 입력 상한(#60), 게스트 토큰 상한·정원(#70) |
+| 8 | 태블릿 리셋 | 게스트는 방문자마다 새 계정이라 리셋이 필요 없다. "기존 게스트 복사본 정리 스크립트"는 PR #88·#92 가 언급하나 **저장소에 없다** |
+| 9 | 네트워크 백업 | 사람 몫 |
 
-`plans/KOREAN_SERVICE_NODE_EXPANSION_PLAN.md` 검토와 그 뒤 작업에서 나온, **어느 트랙에도 속하지
-않지만 지금 사용자에게 영향이 있는** 결함이었다.
+**사용자 결정(2026-09-06): 위 미결 항목은 별도로 진행하지 않는다.** 시연 중 필요한 것은 현장에서 대응하고,
+이 표는 기록으로만 남긴다. 시연 뒤에 할 것은 아래 한 줄이다.
 
-| 결함 | 영향 | 상태 |
-| --- | --- | --- |
-| 템플릿 자동 재생성이 사용자 업로드 원본을 덮어씀 | 되돌릴 수 없는 파일 손실 | **해결** — 덮어쓰지 않고 실패시킨다 |
-| `webCrawlerNode`가 URL 검증 없이 요청 | SSRF. 커뮤니티 수집 정책도 무력화 | **해결** — `backend/url_guard.py` |
-| HWPX 재압축이 `mimetype` STORED 규칙을 깸 | 엄격한 reader에서 파일이 열리지 않음 | **해결** — 원본 `ZipInfo` 보존 |
-| `python-hwpx` 버전 미고정 | 라이브러리 변경 시 조용한 회귀 | **해결** — `==3.4.1` |
-| 큐레이션 템플릿의 `.hwp` 참조 | 지원하지 않는 확장자로 실행 실패 | **해결** — `.hwpx` |
-| `rssTriggerNode` cursor에 겹침 창 없음 | 피드에서 밀려났다 돌아온 항목 재통지 | **해결** — 아래 세 건과 함께 |
+시연이 끝나면 **플래그를 제거하는 것이 원상 복구다**(`DEMO_*`·`HIDDEN_NODE_TYPES`). 게스트 체험을 상시
+기능으로 남길지는 §7 의 새 질문이다.
 
-**이어서 발견한 네 건**(전부 2026-08-30 해결). 앞의 여섯과 달리 **계획 문서 어디에도 없던 것**이고,
-새 노드로 템플릿을 실제로 만들어 보다가 드러났다.
+### 1.2 보고서가 말한 것과 코드가 다른 곳
 
-| 결함 | 영향 |
+기능갭 보고서는 `node_definitions/` 의 파일 수(28)를 노드 수로 읽었고, 그래서 "루프·병합·스위치·범용
+웹훅이 없다"고 적었다. **실행기 레지스트리에는 49종이 등록돼 있다**(`@node_registry.register`, 테스트 제외
+직접 셈). 정의 파일로 이전된 것이 28종일 뿐이다. 실제로 있는 것과 없는 것을 다시 가른다.
+
+| 보고서의 "없다" | 실제 |
 | --- | --- |
-| `meta_agent.NodeType`이 하드코딩이라 한국형 노드 5종이 빠짐 | 카탈로그는 LLM에게 49종을 알리는데 출력 스키마는 45종만 받았다 — 그 노드를 쓴 그래프는 **생성·dry-run·커뮤니티 게시가 전부 깨졌다** |
-| 시작 노드 판정도 하드코딩 | RSS·YouTube·Gmail·네이버 **트리거 4종으로 시작하는 그래프가 전부** "시작 노드 0개"로 거부됐다 |
-| `rssTriggerNode`가 `max_items`로 잘라낸 항목을 통지 없이 seen 처리 | 새 글 50개 중 40개가 조용히 사라진다 |
-| `--accent-color` 미정의 | API Center 버튼이 라이트 모드에서 보이지 않았다 |
+| 루프 | `loopNode`+`breakNode` 있음 |
+| 병합 | `mergeNode` 있음 — 재합류 1회 방출은 PR #40 에서 고쳤다 |
+| 다중 분기(스위치) | `conditionNode` 가 규칙 N개 + "그 외" 출력을 가진다(PR #90 UI) |
+| 병렬 분기 | `distributorNode` 있음 — 형제 오염은 PR #69 에서 고쳤다 |
+| 범용 인바운드 웹훅 | `webhookNode` 있음(`/webhook/{endpoint_id}`, `is_live` 게이트). **없는 것은 서명 검증·replay 방지·사용자별 상한** — 34번 DEV-0 |
+| 서브워크플로우 | **없다** — 35번 |
+| 노드별 재시도·타임아웃·에러 분기 | **없다** — 32번 ENGINE-3 |
+| 부분 실행·데이터 피닝 | `compile_workflow` 의 entry/stop/scope/`pinned_outputs` 로 **이미 있다**(종합보고서가 정정) |
+| API 전반 rate limit | 커뮤니티 쓰기에만 `rate_limit.enforce` 가 있다. 실행·업로드·인증 경로에는 **없다** — 37번 |
 
-**앞의 두 건이 같은 모양이다** — 정의에서 파생시킬 수 있는 목록을 손으로 적어 둔 것. 둘 다
-`node_definition`에서 파생시키고 대조 테스트로 묶었다. **단위 테스트는 넷 다 통과하고 있었다** —
-새 노드로 그래프를 만들어 `dry_run_workflow`까지 돌려 보고서야 드러났다.
-
-회귀 테스트는 `backend/test_url_guard.py`·`test_url_guard_politeness.py`·`test_template_safety.py`·
-`test_web_extract.py`·`test_connector_cursor.py`·`test_node_definitions.py`에 있다.
-
-### 1.2 2026-08-30에 닫힌 것
-
-**백로그 29번(한국형 서비스 노드) — Phase 0~3 구현 완료.**
-
-| Phase | 결과 |
-| --- | --- |
-| Phase 0 이전 | 위 결함 5건 |
-| Phase 0 | 공통 OAuth 인가 코드 callback(`connectors/oauth_flow.py`, 마이그레이션 0016), cursor 저장소(0017), 연동 계약(mock·`docsUrl`·`termsGate`) |
-| Phase 1 | HWPX 공용 엔진과 `hwpxDocumentNode` — golden 10종을 한/글에서 검증 |
-| Phase 2 | `naverSearchNode`·`naverSearchTriggerNode`·`naverCafeNode` |
-| Phase 3 | `jusoNode`(도로명주소), `dataGoKrNode`(공공데이터포털), `webCrawlerNode` 정비 |
-
-**남은 것은 승인키로 하는 실호출 대조뿐이다** — 도로명주소·공공데이터포털 둘 다 문서 기준으로
-만들고 mock으로 검증했다. 나머지 Phase(X·Instagram, 커뮤니티 preset, 네이버 커머스, NAVER WORKS,
-OpenDART, 카카오 로컬, KOSIS)는 **비용·자격·수요를 이유로 보류**했고 재개 조건은 계획 문서 §8
-보류표에 있다.
-
-**커뮤니티 템플릿 242종 게시(백로그 12번의 실질 완성).** 갤러리가 0개였다. 기존 142개(n8n 템플릿
-로직을 옮긴 것, 그동안 LLM 생성용 벡터 스토어로만 갔다)를 현재 생태계로 재검증해 전량 통과시키고,
-그때 없던 노드를 쓰는 **신규 100개**를 만들어 함께 올렸다. 바로 공개 163, 검토 대기 79.
-
-이 과정에서 ADR-0023의 게시 게이트에 **예외를 하나 만들었다** — 운영자 제작 템플릿은
-"본인 계정 실행 성공" 요건을 면제한다(`publish_curated`). 나머지 네 게이트는 그대로다.
-면제 사실은 `templates.is_curated`·`publish_gate.curated`·갤러리 "공식" 배지 세 곳에 남는다.
+보고서의 결론(디스패처 전환이 최우선이고 그 위에 재시도·상태·큐가 올라간다)은 이 정정과 무관하게 유효하다.
 
 ## 2. 남은 백로그
 
-번호는 원래 로드맵의 것을 유지한다 — ADR·커밋·아카이브가 이 번호를 참조한다.
+번호는 원래 로드맵의 것을 이어 매긴다 — ADR·커밋·아카이브가 이 번호를 참조한다. 32·33 은 종합보고서 §6 의
+제안 번호를 그대로 썼다.
 
 | 번호 | 작업 | 크기 | 상태 | 이유 |
 | ---: | --- | --- | --- | --- |
-| 11 | Workspace/RBAC — TEAM-2·3과 잔여 판정 이전 | L | 진행 중 | 개인 도구에서 조직 도구로 넘어가는 마지막 절반. 자격증명이 소유자 개인 것에 묶여 있어 소유자가 나가면 멈춘다 |
-| 26 | 사용자 지식베이스와 `documentIndexNode`·`knowledgeSearchNode` | L | 미착수 | 정적 PDF의 반복 파싱을 없애고 배포된 챗봇이 tenant 격리·버전·페이지 인용이 있는 근거만 조회하게 함 |
-| 27 | `webSearchNode` vertical slice | M | 미착수 | 생성 에이전트 내부 검색을 캔버스 실행 기능으로 승격하고 provider·quota·출력·mock 계약을 표준화 |
-| 28 | AI 시맨틱 포인팅과 대상 한정 수정 | M | 구현 완료, **꺼 둠** | 범위 밖 변경은 막지만 범위 **안**에서 모델이 파괴적으로 동작하는 것(연결선 삭제)을 못 막았다. 재개 조건은 §3.3 |
-| 30 | 메인 작업 공간·작업물 Library·홈 채팅 리디자인 | L | 계획 완료 | Blue 중심 Main Shell을 Black/Neutral로 전환하고 Workflow 5개·Schedule 2개 등 실제 한도, 목록 정보와 비삭제 행동, 생성 결과 Artifact Card를 함께 정리 |
-| 31 | 운영 Database Explorer·JSON/XLSX export·안전한 수정 | L | 계획 완료 | 외부 PostgreSQL을 운영 화면에서 탐색·내보내고 별도 write capability와 감사 계약 뒤 제한적인 행 수정을 제공 |
-| 29 | 한국형 서비스 노드 확장 | XL | **Phase 0~3 완료** | 남은 Phase는 비용·자격·수요를 이유로 보류. 재개 조건은 계획 문서 §8 |
-| 13 | 선언형 community node SDK | L~XL | 보류 | 보안 위험을 제한한 생태계 확장. 수요 관측 후 |
-| 14 | 실시간 공동 편집/실행형 노드 | XL 이상 | 보류 | 실제 수요와 격리 기반이 확인된 뒤 |
+| 32 | 실행 엔진 v2 — 디스패처 전환 · Run/Step 상태 · 큐/워커 · 재시도·에러 분기·멱등성 | XL | 계획 완료 | `exec()` 기반 코드 생성에는 노드 단위 개입 지점이 없다. `security_assessment.md` §1 의 유일한 미결이자 33·35·36 의 전제 |
+| 33 | 앱 빌더–캔버스 통합 — 사용자 제공 필드 스키마 · 원클릭 앱 · 구조화 출력 바인딩 · 릴리스 · 채팅/제출 이력 | L | 계획 완료 | 접점이 `workflowNode.projectId` 한 줄, 결과가 문자열 하나. 템플릿 T1 도 같은 뿌리 |
+| 34 | 개발 도구 연동 노드 — 웹훅 서명 검증, GitHub Trigger/Action, 개발 편의 노드, 2차 연동 | L | 신규 | 실제 개발 업무에 쓰이게 하는 첫 트랙. 공식 연동 계약(§4) 위에 올린다 |
+| 35 | 흐름 제어·데이터 조작 보완 — 서브워크플로우, Set/Edit Fields·중복 제거·정렬/필터, 반복 항목 바인딩 | M | 신규 | 표현력 상한과, LLM 을 데이터 성형기로 쓰는 관행 제거(ADR-0026 의 연장) |
+| 36 | 실행형 AI 에이전트 노드 · MCP 클라이언트 노드 | L | 신규 | 커넥터 수 격차를 우회하는 지렛대. 28번의 재개 조건(도구 제한·diff preview)과 해법 공유 |
+| 37 | 운영 가시성 · 배포 체계 · API 상한 | M | 신규 | Langfuse 밖 관측이 없고 CI·컨테이너가 없다. 트러블슈팅 조건부 항목의 승격 트리거를 여기서 관리 |
+| 38 | 거버넌스 의존성 맵 | M | 신규·후순위 | 자격증명·노드 정의 변경의 영향 범위. 11번이 끝나 조직 사용이 시작되면 필요가 급증 |
+| 11 | Workspace/RBAC — TEAM-2·3 과 잔여 판정 이전 | L | 진행 중 | 자격증명이 소유자 개인 것에 묶여 있어 소유자가 나가면 멈춘다 |
+| 26 | 사용자 지식베이스와 `documentIndexNode`·`knowledgeSearchNode` | L | 미착수 | 정적 PDF 반복 파싱 제거, tenant 격리·버전·페이지 인용이 있는 근거 조회 |
+| 27 | `webSearchNode` vertical slice | M | 미착수 | 생성 에이전트 내부 검색을 캔버스 실행 기능으로 승격 |
+| 28 | AI 시맨틱 포인팅과 대상 한정 수정 | M | 구현 완료, **꺼 둠** | 범위 안에서 모델이 파괴적으로 동작하는 것을 못 막았다. 재개 조건은 §3.10 |
+| 30 | 메인 작업 공간·작업물 Library·홈 채팅 리디자인 | L | 계획 완료 | Blue 중심 Main Shell 을 Black/Neutral 로, 실제 한도·목록 정보·Artifact Card 정리 |
+| 31 | 운영 Database Explorer·JSON/XLSX export·안전한 수정 | L | 계획 완료 | 외부 PostgreSQL 탐색·내보내기, 별도 write capability 뒤 제한적 수정 |
+| 13 | 선언형 community node SDK | L~XL | 보류 | 수요 관측 후. **32번 ENGINE-0 의 pythonNode 격리(Task Runner 패턴)가 전제 인프라** |
+| 14 | 실시간 공동 편집/실행형 노드 | XL 이상 | 보류 | 실제 수요와 격리 기반 확인 뒤 |
 
-### 지시 없이 진행할 수 있는 것은 지금 없다
+### 지시 없이 진행할 수 있는 것 — 다시 생겼다
 
-2026-08-30 기준으로 **근거가 문서에 있어 그대로 구현하면 되는 항목이 비었다.** 남은 것은 전부
-(1) 제품 판단, (2) 비용·자격, (3) 사용자 기기·계정, (4) 외형 변경 승인, (5) 착수 시점 중 하나를
-기다린다. 목록은 `UNIMPLEMENTED_BACKLOG.md`가 정본이다.
+v2.3 은 "근거가 문서에 있어 그대로 구현하면 되는 항목이 비었다"고 적었다. 보고서 2건이 들어오면서
+다시 채워졌다. 전부 **작고 독립적**이며, 시연 뒤 첫 주에 손댈 순서로 적었다.
 
-가장 값이 큰 순서로 세 가지만 꼽으면:
-
-1. **승인키 발급**(도로명주소·공공데이터포털) — 만들어 둔 노드 둘이 실호출 검증만 남았다.
-   `jusoNode`는 공식 문서를 읽지도 못해(403) 규격이 2차 출처다.
-2. **검토 대기 템플릿 79개 승인** — 갤러리에 안 보이는 상태로 쌓여 있다. 누가 승인하는지가
-   정해지지 않았다.
-3. **백로그 30·31 착수 승인** — 둘 다 계획이 끝나 있고 서로 독립이다.
+| 순서 | 항목 | 크기 | 왜 먼저인가 |
+| ---: | --- | --- | --- |
+| 1 | 스케줄러 중복 발화 방지 — DB advisory lock (32번 선행 독립) | S | 다중 인스턴스 배포를 여는 가장 싼 안전장치. 지금은 `AsyncIOScheduler` 인프로세스 하나 |
+| 2 | 웹훅 서명 검증(HMAC)·replay 방지·payload 상한 (34번 DEV-0) | S~M | `webhookNode` 문서가 "요청 검증을 흐름 안에서 하라"고 사용자에게 떠넘긴다. GitHub 웹훅이 첫 소비자 |
+| 3 | GitHub Actions 에 테스트·빌드·`export_node_definitions.py --check` (37번) | S | 저장소에 CI 가 없다. 테스트 2,700여 건이 사람 손으로만 돈다 |
+| 4 | 결정적 변환 노드 3종 — Set/Edit Fields·중복 제거·정렬/필터 (35번) | M | 근거는 ADR-0026. LLM 대신 결정적 변환 |
+| 5 | APP-0 사용자 제공 필드 스키마 (33번, T1 동시 해결) | M | 설계는 종합보고서 §2.1. 32번과 독립 |
 
 ### 진행 순서
 
 ```text
-11번 TEAM-2 → TEAM-3 → 잔여 37곳     (3~4주)
-  │
-  ├─ 26번 지식베이스 권한·수명 주기
-  │     → documentIndexNode
-  │     → knowledgeSearchNode
-  │     → 사내 규정 챗봇 template
-  │     → 27번 webSearchNode          (L + M)
-  │
-  ├─ 28번 POINT-0~2 (독립, 병행 가능)
-  │     → POINT-3 문서 citation (26번 뒤)
-  │
-  ├─ 30번 MAIN-0 → Ink Shell → Workflow → Home Chat → App/Schedule
-  │     (4~6주, 기능 트랙과 독립적으로 병행 가능)
-  │
-  └─ 31번 DBOPS-0 → Schema Explorer → Data Grid → JSON/XLSX export
-        → 안전한 수정 beta → Workspace hardening (4~6주)
+[이번 주 — 시연회 안정화. 새 구현 없음]
+        │
+        ▼
+32 ENGINE  (lock, 독립) ─▶ ENGINE-0 디스패처 ─▶ ENGINE-1 Run/Step ─▶ ENGINE-2 큐/워커 ─▶ ENGINE-3 재시도·멱등성
+                                 │                    │
+                                 │                    ├─▶ 33 APP-2 출력 바인딩·진행률 스트리밍
+                                 │                    └─▶ 37 관측·얼럿 (실행 상태가 있어야 메트릭이 있다)
+                                 └─▶ 35 서브워크플로우 · 13 커뮤니티 노드 SDK 전제(pythonNode 격리)
+
+33 APP     APP-0 필드 스키마 ─▶ APP-1 원클릭 앱 ─▶ (APP-2) ─▶ APP-3 릴리스 ─▶ APP-4 채팅·제출 이력
+           (32 와 독립 — 병행 가능)
+
+34 DEV     DEV-0 웹훅 서명 ─▶ DEV-1 GitHub Trigger/Action ─▶ DEV-2 개발 편의 노드 ─▶ DEV-3 2차 연동
+           (32 와 독립 — §4 연동 계약 위에)                                 └─▶ 36 MCP 클라이언트
+
+35 흐름    데이터 노드 3종은 지금 · 서브워크플로우는 ENGINE-0 뒤 · 에러 분기는 ENGINE-3 의 몫
+37 운영    CI 지금 · 헬스체크 확장 지금 · 관측·얼럿은 ENGINE-1 뒤 · 컨테이너/스테이징은 ENGINE-2 와 함께
+36 에이전트 도구 정책 모듈 먼저(28 재개 조건과 공유) ─▶ 에이전트 노드 ─▶ MCP 클라이언트
+
+11 TEAM-2 ─▶ TEAM-3 ─▶ 잔여 판정 이전                         (독립, 3~4주)
+26 지식베이스 권한 ─▶ documentIndexNode ─▶ knowledgeSearchNode ─▶ 27 webSearchNode
+28 POINT-2 (36 의 도구 정책 뒤) ─▶ POINT-3 (26 뒤)
+30 MAIN-0 ─▶ Ink Shell ─▶ Workflow ─▶ Home Chat ─▶ App/Schedule   (독립, 4~6주)
+31 DBOPS-0 ─▶ Explorer ─▶ Data Grid ─▶ export ─▶ 수정 beta          (독립, 4~6주)
+38 의존성 맵 (11 뒤)
 ```
 
-**26번과 28번의 관계.** POINT-0~2(Workflow/App Builder)는 26·27번과 독립적이라 프론트엔드와 AI
-API 여력이 있으면 병행할 수 있다. 반면 POINT-3의 PDF citation pointing은 26번의 문서 정본·버전·
-tenant 격리 계약을 그대로 쓰므로 반드시 26번 뒤에 둔다. POINT-4 이미지 영역/vision은 순서에 자동
-포함하지 않고 실제 bbox 요청이 확인될 때 다시 승인한다.
+**32번이 먼저인 이유는 보안이 아니라 개입 지점이다.** `exec()` 자체는 AST 검사로 완화돼 있다. 문제는
+노드 하나가 실행되는 순간에 엔진이 끼어들 자리가 없어서, 재시도·타임아웃·단계 저장·중간 스트리밍·
+에러 분기가 **전부** 그 위에서 불가능하다는 것이다. 33 의 출력 바인딩과 진행률, 35 의 서브워크플로우,
+37 의 실행 메트릭이 다 같은 문 앞에서 기다린다.
 
-**11번과 나머지의 관계.** 11번은 조직 **내부** 권한이고 26~31번은 기능·경험 확장이라 서로를 막지 않는다.
-다만 26번의 지식베이스는 workspace 단위 격리를 전제하므로, TEAM-2(workspace 자격증명)가 먼저 있으면
-지식베이스의 소유 모델을 두 번 만들지 않는다.
+**32 와 33·34 는 서로를 막지 않는다.** APP-0(필드 스키마)과 APP-1(원클릭 앱)은 노드 정의와 프론트 일이고,
+DEV-1(GitHub)은 §4 연동 계약 위에 올라가는 커넥터라 지금의 코드 생성기에도 붙는다. 다만 지금 만드는
+커넥터 노드는 ENGINE-0 이관 때 executor 매핑 한 줄이 더 든다 — 하이브리드 이관 전략(§3.1)이 그 비용을
+흡수한다.
 
-**30번과 Workspace의 관계.** 화면 개편 자체는 독립적으로 진행할 수 있지만 ResourceUsage와 Card
-`capabilities`는 처음부터 `personal | workspace` scope와 `project_access`를 사용한다. 사용자 ID를 UI에
-hard-code하면 11번 TEAM-3에서 사용량·행동 계약을 다시 만들게 된다.
+**36 과 28 의 관계.** 28번이 막힌 지점은 "범위 안에서 모델이 `delete_node`+`add_node` 로 연결선을 다 지운
+것"이고, 필요한 해법은 **도구 단위 제약**(포인팅 요청에서 파괴적 도구 제외)이다. 36번의 에이전트 노드도
+"파괴적 도구는 승인 강제"가 핵심 계약이라, 도구 정책 모듈을 한 번 만들어 둘이 같이 쓴다. 28번은 그
+모듈이 생긴 뒤 다시 연다.
 
-**31번의 범위 경계.** 기본 Schema Explorer·read-only Data Grid·export는 개인 credential로 먼저 진행할
-수 있다. 행 수정은 별도 Database Write binding과 감사 계약 뒤에만 열며, Workspace 공유 연결은 11번
-TEAM-2의 credential scope가 선행한다. 제품 자체 DB와 사용자 소유 외부 DB를 한 목록에 섞지 않는다.
+**26 과 28 의 관계.** POINT-0~2 는 26·27 과 독립이지만 POINT-3 의 PDF citation 은 26 의 문서 정본·버전·
+tenant 격리 계약을 그대로 쓰므로 반드시 26 뒤에 둔다.
 
-**26·27번이 물려받는 것.** Phase 0에서 만든 OAuth callback·cursor 저장소·연동 계약을 그대로 쓴다 —
-외부 provider 연결을 두 번 만들지 않는다.
+**11 과 나머지의 관계.** 11 은 조직 **내부** 권한이고 26~38 은 기능·경험 확장이라 서로를 막지 않는다. 다만
+26 의 지식베이스와 34 의 GitHub 자격증명(조직 저장소는 개인 토큰이 아니라 workspace 자격증명이어야
+한다)은 workspace 단위 소유를 전제하므로, TEAM-2 가 먼저 있으면 소유 모델을 두 번 만들지 않는다.
 
+**30 과 Workspace 의 관계.** 화면 개편은 독립이지만 ResourceUsage 와 Card `capabilities` 는 처음부터
+`personal | workspace` scope 와 `project_access` 를 쓴다. 사용자 ID 를 UI 에 hard-code 하면 TEAM-3 에서
+다시 만들게 된다.
+
+**31 의 범위 경계.** Schema Explorer·read-only Data Grid·export 는 개인 credential 로 먼저 진행할 수 있다.
+행 수정은 별도 Database Write binding 과 감사 계약 뒤에만 열며, Workspace 공유 연결은 TEAM-2 가 선행한다.
+
+**26·27·34 가 물려받는 것.** 29번 Phase 0 의 OAuth 인가 코드 callback(`connectors/oauth_flow.py`)·cursor
+저장소(`connectors/cursor.py:select_new`)·연동 계약(`connectors/contract.py`)을 그대로 쓴다. 외부 provider
+연결을 두 번 만들지 않는다.
 
 ## 3. 작업별 상세
 
-### 3.1 Workspace/RBAC — 백로그 11번
+### 3.1 실행 엔진 v2 — 백로그 32번
+
+정본은 `plans/실행엔진_앱빌더_시연준비_종합보고서.md` §1 이고, 그 뿌리는 `plans/기능갭_및_프로덕션_준비_보고서.md`
+§3.1~3.3 이다. 여기에는 로드맵 차원의 판단과, 코드로 확인한 현재 위치를 둔다.
+
+#### 한눈에 보기
+
+**무엇을 만드나.** 워크플로우를 파이썬 소스로 만들어 `exec()` 하는 엔진을, 노드 타입 → 비동기 executor
+매핑을 직접 `await` 하는 **그래프 인터프리터**로 바꾼다. 그 위에 Run/Step 실행 상태, 큐/워커, 노드별
+재시도·에러 분기·멱등성을 순서대로 올린다.
+
+**왜 지금인가.** 남은 과제들이 병렬 목록이 아니라 **하나의 줄기**라는 것이 종합보고서의 결론이다. 노드별
+재시도(기능갭 §2.3), 진행률 스트리밍, 앱의 구조화 출력 바인딩(33번), 서브워크플로우(35번), 실행 메트릭
+(37번), pythonNode 격리 → 커뮤니티 노드 SDK(13번)가 전부 "노드 경계에 엔진이 끼어들 수 있는가" 하나에
+걸려 있다. `security_assessment.md` §1 이 유일하게 미해결로 남긴 항목이기도 하다.
+
+**핵심 판단 넷:**
+
+- **매핑은 `node_definition` 에서 파생시킨다.** 08-30 의 N1·N2 결함(하드코딩 NodeType 목록이 새 노드를
+  빠뜨림)이 교훈이다. 손으로 적은 목록을 만들지 않는다.
+- **빅뱅을 피한다.** 노드 단위로 생성기 → executor 를 이식하되, 미이식 노드는 기존 생성 코드를 감싼 임시
+  executor 로 **하이브리드** 운영한다. 그래서 34번 같은 신규 커넥터를 지금 만들어도 이관 비용은 한 줄이다.
+- **섀도 실행으로 등가성을 증명한 뒤에만 전환한다.** 코퍼스는 커뮤니티 템플릿 242종 + mock 시나리오 +
+  `test_official_templates.py` 508건. 두 엔진을 mock 모드로 나란히 돌려 출력·로그·토큰 집계를 대조한다.
+- **실행 순서 의미론을 바꾸는 최적화는 등가성 검증 전에 하지 않는다.** 병렬 분기 실행 등. 순서가 바뀌면
+  242종 코퍼스가 대조 기준으로서 가치를 잃는다.
+
+#### 현재 구조와 간극 — 코드로 확인한 것
+
+| 영역 | 현재 | 문제 |
+| --- | --- | --- |
+| 실행 방식 | `graph.compile_workflow()` 가 소스를 만들고 `run_workflow()` 가 `exec(python_code, namespace)` 한다(`graph.py:1011`) | 노드 하나가 실행되는 순간에 엔진이 개입할 지점이 없다. 보안은 AST 검사로 완화됐지만 개입 지점 부재는 완화가 아니다 |
+| 부분 실행·피닝 | `compile_workflow(entry_node_id, stop_node_id, scope_node_ids, pinned_outputs)` 가 **이미 있다.** 승인 스냅샷 재개(ADR-0015)도 이 위에 있다 | "순회할 간선을 잘라내는" 방식이라 인터프리터에서는 오히려 단순해진다. 파라미터는 엔진 인자로 그대로 승계 |
+| 흐름 노드 의미론 | `conditionNode`(규칙 N개+그 외), `loopNode`+`breakNode`, `mergeNode`(재합류 1회 방출 — PR #40), `distributorNode`(형제 오염 수정 — PR #69), `delayNode`, `humanApprovalNode` | 인터프리터가 **정확히 같은** 순회 규칙(트리거 루트 판정, `targetHandle` 구분, tool 노드 제외, 첨부 간선 예외, 재합류 게이트, 갈래 진입 시 상류 결과 복원)을 재현해야 한다. `test_merge_rejoin.py`·PR #69 회귀 2건이 첫 대조 기준 |
+| 호출 지점 | `run_workflow` 를 테스트 밖 **파일 17개**가 호출한다 — `main.py` 8곳, `scheduler.py`, `discord_bot.py`, `telegram_bot.py`, `approval_service.py`, `community_*`, `dry_run.py`, `mock_service.py`, `seed_demo_booth.py`, `flow_nodes.py`(서브 실행) 등 | 전부 동기 인라인 호출. 큐로 옮길 때 진입점을 한 함수로 먼저 모아야 한다(TEAM-0 이 권한 판정에 한 것과 같은 수법) |
+| 실행 상태 | 종료 후 `__execution_logs__` 일괄 수신. `FlowExecutionLog` 는 실행 단위 | 노드 단위 타임라인·재개 지점·진행률이 없다 |
+| 스케줄러 | `AsyncIOScheduler` 인프로세스 하나(`scheduler.py:12`), advisory lock 없음 | 인스턴스 2개면 cron 이 중복 발화한다 |
+| 프로세스 | uvicorn 워커 1개가 API·실행·스케줄을 겸한다(`docs/reports/load_assessment.md`) | 재시작 = 실행 중 워크플로우 유실. LLM 대기가 이벤트 루프를 점유 |
+| 재시도 | 커넥터 계층에는 `connectors/retry.py`·`RetryPolicy` 가 있다 | 노드 단위 설정(`retries`·`backoff`·`timeout`)과 에러 출력 핸들은 없다 |
+
+#### 목표 계약
+
+```text
+workflow_runs
+  id, project_id, trigger_source(manual|schedule|webhook|bot|app|approval),
+  status(queued|running|paused|succeeded|failed|cancelled),
+  idempotency_key(unique, nullable), executor_user_id, owner_user_id,
+  started_at, finished_at, heartbeat_at, error_summary
+
+run_steps
+  run_id, node_id, node_type, attempt, status(pending|running|succeeded|failed|skipped|pinned),
+  input_ref, output_ref, tokens, started_at, finished_at, error(NodeError v1)
+
+node 설정 (모든 노드 공통, 정의에서 파생)
+  retries: int (기본 0), backoff: none|fixed|exponential, timeoutSec: int
+  출력 핸들 `error` (ENGINE-3 부터) — NodeError 가 나면 흐름이 이쪽으로 돈다
+```
+
+`error_catalog.json` 의 각 오류 코드에 **재시도 가능 여부**(`retryable`)를 필드로 추가한다 — 429·타임아웃·5xx 는
+지수 백오프, 401·검증 오류는 즉시 실패. NodeError v1(ADR-0016)의 `retryable` 개념이 이미 있으므로 새
+분류 체계를 만들지 않는다.
+
+#### 단계별 구현
+
+##### ENGINE-0. 그래프 인터프리터(디스패처) — 2~3주
+
+1. **진입점 모으기.** `run_workflow` 호출 17파일을 `execution.start(...)` 하나로 모은다. 동작은 바뀌지 않는다
+   (TEAM-0 방식). 이것이 ENGINE-2 큐 전환의 자리다.
+2. **executor 레지스트리.** `node_registry.register` 에 이미 49종이 있다. 각 등록 항목에 `executor` 를 붙이고,
+   없는 노드는 "기존 생성 코드를 컴파일해 실행하는 래퍼 executor" 로 자동 채운다 — 하이브리드의 핵심.
+3. **순회 엔진.** `compile_workflow` 의 순회 규칙을 함수로 추출해 두 엔진이 **같은 함수**를 쓰게 한다.
+   재합류 게이트·분기 경로 스택·갈래별 상류 결과 복원을 그대로 옮긴다.
+4. **섀도 실행.** `EXECUTION_ENGINE=shadow` 면 두 엔진을 mock 모드로 돌려 결과·로그·토큰을 비교하고 차이를
+   기록한다. 코퍼스 242+508 에서 차이 0 이 전환 조건.
+5. **pythonNode 격리.** AST 허용 목록은 유지하고 실행을 자식 프로세스(rlimit·시간 제한·네트워크 차단)로
+   옮긴다 — n8n 2.0 Task Runner 패턴. ADR-0019 의 한도(1초·256MB)를 그대로 쓴다. 13번의 전제 인프라.
+6. 프로젝트별 feature flag(`/api/features` 인프라)로 점진 전환. 끄면 옛 엔진.
+
+##### ENGINE-1. Run/Step 실행 상태 영속화 — 1~2주
+
+1. `workflow_runs`·`run_steps` 마이그레이션. 노드 경계마다 step 을 기록한다.
+2. 승인 대기 전용이던 스냅샷 재개(ADR-0015)를 일반화 — 승인·wait·워커 재시작이 같은 메커니즘.
+3. `/api/projects/{id}/runs` 를 노드 단위 타임라인으로. step 기록을 SSE(`message_stream.py` 재사용)로 흘려
+   에디터 실시간 진행 표시 → 33번 APP-2 의 진행률이 여기서 나온다.
+4. `FlowExecutionLog` 는 남기되 `run_id` 를 붙인다. 통계(`build_statistics`)는 건드리지 않는다.
+
+##### ENGINE-2. 큐와 워커 분리 — 2주
+
+1. **PostgreSQL 큐** — `SELECT ... FOR UPDATE SKIP LOCKED`. Redis/Celery 를 먼저 권하지 않는 이유: 이미
+   PostgreSQL 이 있고, 단일 VM 규모에서 새 인프라 하나는 운영 부담 하나다. `enqueue/dequeue` 인터페이스만
+   추상화해 두면 교체 비용이 작다.
+2. **실행 경로 이원화.** 에디터 수동 실행·dry-run 은 인라인 즉시 실행(타임아웃 부여)으로 반응성 유지.
+   스케줄·웹훅·트리거·배포 앱 실행은 큐로.
+3. **스케줄러.** `schedules.next_fire_at` 을 워커가 같은 SKIP LOCKED 로 폴링하거나, APScheduler 를 워커 리더
+   하나로. **중복 발화 방지 advisory lock 은 이 단계를 기다리지 않고 지금 넣는다**(§2 "지시 없이" 1번).
+4. **내구성.** 워커 heartbeat. 끊긴 `running` run 은 다른 워커가 회수해 마지막 완료 step 다음부터 재개하거나,
+   부작용 노드를 지났으면 실패로 확정한다.
+5. 컨테이너/스테이징(37번)은 이 단계와 함께 — 워커 프로세스가 생기는 시점이 배포 단위가 바뀌는 시점이다.
+
+##### ENGINE-3. 재시도 · 에러 분기 · 멱등성 — 1~2주
+
+1. 노드 설정에 `retries`·`backoff`·`timeoutSec` 세 개만 노출. 재시도 가능 여부는 오류 코드에서 읽는다.
+2. 에러 출력 핸들 — executor 가 NodeError 를 던지면 엔진이 `error` 핸들로 흐름을 돌린다. 인터프리터에서
+   구현이 자명하다.
+3. 에러 트리거 — 워크플로우 실패 시 지정 워크플로우 실행(n8n Error Trigger 상당). "실패하면 알림" 패턴.
+4. **멱등성은 재시도와 반드시 동시에.** 재시도가 생기는 순간 이메일 중복 발송이 실제로 발생한다. 두 겹:
+   트리거 중복 방지(`idempotency_key` — 웹훅 payload 해시·`X-GitHub-Delivery`·RSS 항목 id 에 unique), 부작용
+   노드 중복 방지(이메일·슬랙·카카오·GitHub 쓰기 executor 가 `(run_id, node_id)` 전송 기록을 보고 성공분을
+   건너뜀). RSS cursor 의 SEEN_WINDOW 와 같은 종류의 사고방식이다.
+
+#### 검증 매트릭스
+
+| 층 | 필수 검증 |
+| --- | --- |
+| 등가성 | 코퍼스 242+508 에서 옛 엔진과 새 엔진의 출력·로그 순서·토큰 집계 차이 0. `test_merge_rejoin.py` 7건, PR #69 회귀 2건, 코드젠 스모크 51종 |
+| 부분 실행 | entry/stop/scope/pinned 네 파라미터의 기존 테스트가 새 엔진에서 그대로 통과 |
+| 승인 재개 | ADR-0015 의 durable 대기 → 재개가 Run/Step 위에서 같은 결과 |
+| 큐 | 워커 2개에서 같은 run 이 두 번 실행되지 않는지, heartbeat 끊김 뒤 회수·재개, 스케줄 중복 발화 0 |
+| 재시도·멱등성 | 429/5xx 에서 백오프 후 성공, 401 에서 즉시 실패, 재시도 중 이메일 1통, 같은 `idempotency_key` 두 번 → 실행 1회 |
+| 격리 | pythonNode 자식 프로세스의 rlimit·시간·네트워크 차단이 ADR-0019 테스트를 그대로 통과 |
+| 회귀 | flag 를 끄면 옛 엔진이 바이트 단위로 같은 결과 |
+
+#### 출시 게이트와 되돌리기
+
+- 섀도 차이 0 이 아닌 프로젝트는 전환하지 않는다. 검증기를 완화해 출시하지 않는다.
+- 전환은 프로젝트별 flag → 커뮤니티 템플릿 설치분 → 전체 순. 끄면 옛 엔진으로 즉시 복귀(생성 코드는
+  ENGINE-0 동안 삭제하지 않는다).
+- ENGINE-2 뒤 `systemctl restart` 가 실행 중 run 을 잃지 않는지 배포 리허설로 확인한 뒤에야 옛 인라인 경로를
+  닫는다.
+
+전체 크기는 **XL, 약 7~9주**다. ENGINE-0 만으로도 pythonNode 격리와 개입 지점이 생기므로 나머지 세 단계는
+각각 독립적으로 출시할 수 있다.
+
+### 3.2 앱 빌더–캔버스 통합 — 백로그 33번
+
+정본은 종합보고서 §2·§3 이다.
+
+#### 판단
+
+앱 빌더는 UI 컴포넌트 17종(`UIEngine.jsx`) + 블루프린트 로직 노드(trigger/value/action/workflowNode)의 자체
+편집기·자체 생성 에이전트(`app_agent.py`)를 갖고 있다. 워크플로우와의 접점은 `workflowNode.projectId` 참조
+**한 줄**이고, 실행 결과는 `run_workflow` 의 문자열 하나(`result_text`)로 받는다. "따로 논다"와 "빈약하다"의
+원인이 이 두 지점이다. 부스 점검(PR #86)에서 결과 문자열 안의 `uploads/…` 경로를 정규식으로 찾아 내려받기
+버튼을 붙였는데 — 그것이 지금 구조에서 할 수 있는 최대치다.
+
+**한 스키마로 두 과제를 닫는다.** 노드 정의에 "사용자 제공 필드" 선언을 한 번 만들면 **템플릿 설치 폼**(T1 —
+`community_sanitize.needs_input_for` 가 credential·secret·path 만 보는 한계)과 **앱 입력 폼**이 같은 것에서
+파생된다.
+
+#### 단계별 구현
+
+##### APP-0. 사용자 제공 필드 스키마 — 1주 (32번과 독립, 지금 가능)
+
+1. 노드 정의 `fields[*].userProvided: { required, label, hint, kind }` — "설치자·실행자가 채울 값". 기본은 false.
+2. `community_sanitize.needs_input_for` 가 이 선언을 읽는다 → `naverCafeNode.clubId`·`youtubeNode.playlistId` 같은
+   **사용자마다 다른 필수 ID** 를 템플릿에 담을 수 있게 된다(UNIMPLEMENTED_BACKLOG T1 해소).
+3. `export_node_definitions.py` 번들과 드리프트 테스트에 포함.
+
+##### APP-1. 워크플로우 → 앱 원클릭 — 1~2주
+
+1. 캔버스에 "앱으로 배포" 버튼. 워크플로우의 `userProvided` 필드와 `dynamicInputNode`·`startNode` 입력을
+   스캔해 입력 폼 앱을 자동 생성한다(n8n Form Trigger 가 하한선, Windmill 의 입력 스키마→폼이 상한선).
+2. 생성된 앱은 일반 앱과 같다 — 편집·배포·share 링크 전부 기존 경로.
+3. 시연 콘텐츠 APP1·APP2 가 손으로 만든 것의 자동화 버전이 나와야 완료다.
+
+##### APP-2. 구조화된 출력 바인딩과 진행률 — 2주 (ENGINE-1 의존)
+
+1. 특정 노드 출력 → 특정 컴포넌트 바인딩: `jsonParser` 배열 → table, `imageGeneration` → image, `formatNode`
+   산출물 → 다운로드 버튼. 캔버스의 `FieldBindingPicker`(ADR-0026) 문법을 앱 빌더로 확장한다.
+2. 백엔드는 ENGINE-1 의 `run_steps.output_ref` 가 노드별 출력에 주소를 부여하면서 **공짜로** 생긴다.
+   PR #86 의 정규식 경로 추출은 이때 제거한다.
+3. 실행 진행 표시(빈 화면 대기 해소) — ENGINE-1 의 SSE step 스트림을 그대로 구독.
+4. **share_token 스코프 다운로드 라우트.** 익명으로 공유 앱을 실행한 사용자는 생성 파일의 소유자가 아니라
+   404 를 받는다(PR #43 알려진 한계). 앱의 share 범위 안에서만 열리는 라우트가 필요하다 — Artifact(ADR-0018)에
+   `run_id` 를 붙이는 것이 자연스러운 자리다.
+
+##### APP-3. 배포 다듬기 — 1주
+
+1. **배포 = 특정 ProjectRevision 고정.** 편집 중 버전과 배포 버전을 분리하고 롤백은 이전 릴리스 재지정(Retool
+   릴리스 모델).
+2. share 링크 비밀번호 / workspace 한정.
+3. **앱별 실행 quota.** 부스에서 즉시 필요했던 것을 `DEMO_GUEST_TOKENS`(게스트 계정 토큰 상한)로 우회했다 —
+   그건 계정 단위다. 앱 단위 상한이 정식 자리다.
+4. iframe 임베드.
+
+##### APP-4. 채팅 컴포넌트와 제출 이력 — 2주
+
+1. 배포형 챗봇: 채팅 컴포넌트 + 세션 유지 + 워크플로우 호출. `llmNode` 의 세션 메모리(NodeMemory)가 있으므로
+   26번 착수 전에도 LLM 노드 단독 봇이 나온다. Dify 의 "완성된 셸 2종(폼형/챗봇형)" 이 참조.
+2. 앱별 제출 이력(누가 언제 무슨 입력, 결과)을 table 컴포넌트에 바인딩. `usage_tracking` 에 이미 기록이
+   남으므로 제작자용 뷰부터. 신청 접수·설문·요청 큐 류의 실무 앱이 열린다.
+
+#### 참조 프레임워크 지도
+
+| 참조 | 가져올 요소 | 대응 |
+| --- | --- | --- |
+| Windmill | 입력 스키마 → 폼 자동 생성, 내장 데이터 테이블, suspend/resume 승인 | APP-1, APP-4 |
+| Dify | 자유 캔버스 대신 완성된 셸 2종(폼형/챗봇형)에 워크플로우를 끼우는 배포 모델, Answer 노드 중간 스트리밍 | APP-4, APP-2 |
+| Retool | 릴리스 모델(편집/배포 분리, 롤백), `{{ }}` 단일 바인딩 문법 | APP-3, APP-2 |
+| Gradio/Streamlit | 큐 위치·진행률 기본 제공, share 링크 바이럴 | APP-2 |
+| n8n Form Trigger | 워크플로우 → 호스팅 폼 최소 버전 — APP-1 의 하한선 | APP-1 |
+| ComfyUI | 결과물에 워크플로우 임베드 → 드래그로 재현 | 갤러리 유입(후속) |
+
+#### 검증 매트릭스와 게이트
+
+| 층 | 필수 검증 |
+| --- | --- |
+| 스키마 | `userProvided` 선언이 있는 노드로 만든 템플릿이 게시 게이트를 통과하고, 설치 폼과 앱 폼이 같은 필드를 그리는지 |
+| 원클릭 | 시연 콘텐츠 WF3·WF4 에서 자동 생성한 앱이 손으로 만든 APP1·APP2 와 같은 입력·출력을 내는지 |
+| 바인딩 | table/image/download 세 종류가 실제 실행 결과에 붙는지, 문자열 결과만 있는 옛 앱이 그대로 동작하는지(회귀) |
+| 권한 | share_token 다운로드 라우트가 그 앱의 실행 산출물 **외에는** 아무것도 열지 않는지(4단계 uploads 테스트 재사용) |
+| 릴리스 | 배포 뒤 편집해도 배포 앱이 바뀌지 않고, 롤백이 이전 revision 을 가리키는지 |
+
+- 원클릭 앱의 첫 실행 성공률이 손으로 만든 앱보다 낮으면 컴포넌트를 늘리지 않고 폼 생성 규칙부터 고친다.
+- APP-2 는 ENGINE-1 전에 시작하지 않는다 — 문자열 파싱으로 임시 구현하면 두 번 만든다.
+
+전체 크기는 **L, 약 6~8주**다. APP-0·1 은 32번과 독립이라 먼저 나갈 수 있다.
+
+### 3.3 개발 도구 연동 노드 — 백로그 34번
+
+2026-09-06 신설. 이 절이 정본이다. 근거는 같은 날 웹 조사(참조 제품 12종의 개발자 노드·인기 패턴·GitHub 계약·
+MCP 클라이언트 사례·국내 도구) — 출처는 §8 에 모았다.
+
+#### 판단
+
+**채택한다. 첫 서비스는 GitHub 이고, 커넥터보다 먼저 만드는 것은 "웹훅 서명 검증"이다.** 지금까지 이 제품은
+비개발자 업무 자동화를 겨냥했다. 개발 업무에 쓰이려면 개발자의 진입점이 있어야 하고, 조사한 모든 자동화
+제품(n8n·Make·Zapier·Pipedream·Activepieces·Kestra)에서 그 진입점은 **GitHub Trigger + Action** 이었다. 인기
+패턴 10개 중 7개가 GitHub 하나로 열린다(§2 표 참조 — PR 알림, 이슈 자동 분류, 릴리스 노트, CI 실패 알림, 배포
+승인, 워크플로우 백업, 취약점 알림).
+
+**정면으로 커넥터 수를 겨루지 않는다**(기능갭 보고서 §5). 이 제품이 개발 도구 시장에서 새로 낼 수 있는 것은
+셋이다 — (1) HWPX/DOCX 문서를 만드는 자동화 제품이 없다(릴리스 → 공식 배포 문서, 장애 보고서, 주간 개발
+보고서), (2) Dooray·네이버웍스·카카오워크·잔디는 경쟁 제품에 공식 노드가 없다, (3) 승인 노드 + App Builder 로
+**비개발자(PM·보안 담당)가 링크로 배포를 승인**하는 흐름은 GitHub Slack 앱조차 Slack 을 요구한다.
+
+**§4 공식 연동 노드 공통 계약을 그대로 따른다** — 서비스별 Trigger/Action 분리, 세부 기능은 `mode`, credential
+은 API Center 참조, side-effect 등급, mock fixture 필수. 조사한 제품 전부가 Trigger(이벤트 다중 선택)와
+Action(resource × operation)으로 나눠 있어 이 계약과 그대로 맞는다.
+
+#### 현재 구조와 간극
+
+| 영역 | 현재 | 간극 |
+| --- | --- | --- |
+| 인바운드 웹훅 | `webhookNode` + `/webhook/{endpoint_id}`. `is_live` 게이트, payload 가 첫 입력 | **서명 검증이 없다.** 노드 문서가 "요청 검증을 흐름 안에서 하라"고 사용자에게 떠넘긴다. replay 방지·사용자별 상한·즉시 응답(GitHub 는 10초 안에 2xx 요구) 없음 |
+| GitHub | 코드·정의·provider 어디에도 없다(`seed_curated_templates.py` 의 옮겨 온 n8n 템플릿 이름에만 등장) | 전부 |
+| 자격증명 | `credential_providers.json` 18종. `api_key`·`token_pair`(자동 갱신) 두 kind, OAuth 인가 코드 callback(0016) | GitHub PAT 는 `api_key` kind 로 바로 들어간다. GitHub App(JWT → 설치 토큰 1시간) 은 새 kind |
+| 커넥터 실행부 | `connectors/services/*` 9종. `ConnectorSession` 이 타임아웃·재시도·오류 분류·페이지네이션·rate limit 을 처리 | 서비스 파일 하나 추가로 끝난다. YouTube(`youtube.py`)가 Trigger/Action 두 노드의 선례 |
+| 메신저 발송 | Slack(미지원 선언)·Discord·Telegram·Kakao·Email | 국내 업무 메신저(Dooray·네이버웍스·카카오워크·잔디) 없음 — 전부 Incoming Webhook 한 줄이다 |
+| 데이터 저장 | `databaseNode` 는 **조회만** | "PR 리뷰 결과를 DB 에 기록" 패턴은 쓰기가 필요 → 31번 DBOPS-4 의 Database Write 와 같은 물건 |
+
+#### 단계별 구현
+
+##### DEV-0. 인바운드 웹훅 하드닝 — 3~4일 (지금 가능, 다른 트랙과 독립)
+
+`webhookNode` 에 검증 모드를 추가한다. 두 모드면 GitHub·Bitbucket·Sentry(HMAC)와 GitLab(고정 토큰 헤더)을
+전부 덮는다.
+
+```text
+webhookNode.verify
+  mode: none | hmac_sha256 | static_token
+  header: "X-Hub-Signature-256" | "X-Gitlab-Token" | (사용자 지정)
+  secretRef: {{API_CENTER:...}}      # 원문은 graph 에 저장하지 않는다
+  dedupeHeader: "X-GitHub-Delivery"  # 같은 값 재수신 → 실행하지 않고 200
+```
+
+- HMAC 은 **UTF-8 원문 바이트**로 계산하고 `hmac.compare_digest` 로 비교한다(GitHub 문서 그대로). 실패는
+  401 이고 실행하지 않는다. 실패 사유는 로그에만.
+- **즉시 202 응답, 실행은 비동기.** 지금은 `receive_webhook` 이 `run_workflow` 를 동기로 부른다. ENGINE-2
+  전까지는 `BackgroundTasks` 로, 그 뒤엔 큐로. GitHub 는 10초 안에 2xx 가 없으면 실패로 기록한다.
+- payload 크기 상한과 엔드포인트별 분당 상한. 공개 실행 입력 상한(PR #60)과 같은 자리.
+- 재발 방지: 서명 불일치·replay·상한 초과·정상 4가지 테스트. GitHub 문서의 예시 payload 를 fixture 로.
+
+##### DEV-1. GitHub Trigger / Action — 2주
+
+**인증: 1단계는 API Center 의 fine-grained PAT**(`api_key` kind, 공개 콜백 불필요, 구현 S). GitHub App 은 DEV-4 로
+미룬다 — check run 작성·조직 전체 웹훅·rate limit 확대가 필요해지는 시점에. 조직 저장소는 개인 토큰이 아니라
+workspace 자격증명이어야 하므로 TEAM-2(11번)가 먼저 있으면 소유 모델을 두 번 만들지 않는다.
+
+```text
+githubTriggerNode  (웹훅 등록형 — DEV-0 위에)
+  events[]: push | pull_request | pull_request_review | issues | issue_comment | release
+            | workflow_run | check_run | deployment_status | dependabot_alert
+  actionFilter[]: opened | closed | labeled | synchronize | completed …   (이벤트별)
+  branchFilter, labelFilter
+  출력: 이벤트 종류·action·저장소·번호·제목·본문·작성자·URL 을 평탄화한 구조 + raw payload
+
+githubNode  (Action)
+  mode: issue.create | issue.comment | issue.labels(add|set|remove) | issue.update
+      | pr.get | pr.diff | pr.merge(merge|squash|rebase) | pr.comment
+      | release.create | release.generate_notes
+      | workflow.dispatch(ref, inputs≤25)
+      | dependabot.list(state, severity, ecosystem)
+      | file.get
+  sideEffect: get/list/diff/generate_notes = external-read, 나머지 external-write
+  repo 는 노드 필드 — 템플릿에서는 userProvided(33번 APP-0) 로 설치자가 채운다
+```
+
+- 웹훅 등록은 사용자가 GitHub 저장소 설정에서 우리 URL 과 시크릿을 붙이는 방식으로 시작한다(PAT 로 `POST
+  /repos/{o}/{r}/hooks` 자동 등록은 `admin:repo_hook` 권한이 필요해 2차).
+- **rate limit.** 사용자 토큰 5,000/h, 2차 제한에 **콘텐츠 생성 80/분·500/h** 가 있다. `x-ratelimit-remaining/reset`
+  헤더 기반 백오프를 `ConnectorSession` 공통 계층에 두고, 이슈 대량 생성 mode 에 노드 레벨 쓰로틀을 붙인다.
+- mock fixture 는 GitHub 문서의 이벤트 예시 payload(pull_request.opened, issues.opened, release.published,
+  workflow_run.completed/failure)로 채운다. `auth_failed`·`rate_limited` 시나리오는 자격증명이 필요한 연동의
+  의무(29번 Phase 0 규칙).
+- 생성 평가 사례 3개 이상: "PR 열리면 요약해서 디스코드", "이슈 올라오면 분류해 라벨", "릴리스 태그 → 노트
+  생성 → 이메일".
+
+##### DEV-2. 개발 편의 노드(비커넥터) — 1~2주
+
+전부 외부 의존이 없어 2GB VM 에 맞고, 결정적이라 dry-run 에서 그대로 실행된다. n8n DevOps 인기 템플릿의 절반이
+GitHub 커넥터가 아니라 **감시형 유틸**(웹사이트·도메인·SSL 만료·링크 체크)이라는 관측이 근거다.
+
+| 노드 | 무엇 | 크기 | 비고 |
+| --- | --- | --- | --- |
+| `regexExtractNode` | 정규식 추출(named group, match all) | S | 로그·커밋 메시지·티켓 번호. LLM 이 정규식을 생성해 주는 도우미 포함 |
+| `textDiffNode` | unified diff 생성(텍스트·설정) | S~M | 설정 변경 diff → 승인 노드 → 적용 흐름의 핵심. n8n 은 레코드 단위 비교만 있다 |
+| `dataConvertNode` | JSON ↔ YAML ↔ TOML | S | K8s/CI 설정 파이프라인 부품 |
+| `templateRenderNode` | 텍스트 템플릿 렌더(`{{ }}`, 반복) | S | 릴리스 노트·보고서 본문을 `formatNode` 앞단에서 만든다. 표현식 언어는 만들지 않는다(ADR-0026 원칙) |
+| `cronHelper` (스케줄 노드 개선) | 한국어 자연어 → cron + 다음 5회 실행 미리보기 | S | 새 노드가 아니라 `scheduleNode` 인스펙터 기능 |
+| `httpCheckNode` | HTTP 상태·응답시간·본문 해시 변경 감지·TLS 인증서 만료일·DNS 레코드 | M | 상태 저장은 `connector_cursors`(0017) 재사용. 인증서는 Python `ssl` 소켓으로 외부 API 없이 — 폐쇄망 친화 |
+| `osvScanNode` | lockfile(package-lock·requirements·go.sum) → OSV `POST /v1/querybatch` → 취약점 목록 | M | 키 불필요·무료. `npm audit` 로컬 실행 없이 HTTP 만으로. 결과는 `formatNode` 보고서로 |
+
+##### DEV-3. 2차 연동 — 국내 도구와 플랫폼 확장 — 2~3주
+
+| 대상 | 형태 | 크기 | 근거 |
+| --- | --- | --- | --- |
+| Dooray · 네이버웍스 · 카카오워크 · 잔디 **발송** | Incoming Webhook 기반 발송 노드, Slack 발송과 같은 계약 | S 씩 | 경쟁 제품에 공식 노드가 없다. Dooray 는 공공기관 150여 곳 |
+| GitLab Trigger/Action | 자체 호스팅 URL 필드 필수. 서명은 `X-Gitlab-Token` 평문 비교(DEV-0 `static_token` 모드) | M | 국내 자체 호스팅 수요 — 점유율 통계는 **미확인** |
+| Jira Action(+Trigger) | issue create/update/transition/comment, JQL 필터 트리거 | M | 국내 팀 표준. Cloud API token |
+| Jenkins Action | job trigger(with parameters), build 조회 | S | 트리거 없음(n8n 과 같음) — CI 실패는 GitHub `workflow_run` 또는 인바운드 웹훅으로 |
+| Database Write mode | `databaseNode` 에 insert/upsert — 31번 DBOPS-4 의 allowlist·감사 계약 그대로 | M | "리뷰 결과를 DB 에 기록" 패턴. 31번과 같은 물건이라 **한 번만 만든다** |
+| Sentry · Linear | 전용 노드 대신 **36번 MCP 클라이언트**로 먼저 붙이고 수요를 본다 | — | 둘 다 공식 원격 MCP 서버(OAuth)가 있다 |
+
+##### DEV-4. GitHub App 인증과 AI 리뷰 오케스트레이션 — 2주 (수요 확인 뒤)
+
+- GitHub App: JWT(RS256) → `POST /app/installations/{id}/access_tokens` → 1시간 토큰. 새 credential kind.
+  설치 토큰 포맷이 2026-04 부터 가변 길이(`ghs_APPID_JWT`)라 길이 가정을 하지 않는다. **check run 작성은 App
+  전용**이다.
+- "AI 리뷰 결과 게이트" 템플릿: Claude Code Review / Copilot review 의 check run 결과(심각도)를 파싱 → 승인
+  노드 → `pr.merge`. 워크플로우 도구의 역할은 **이슈 생성·라벨·할당·코멘트로 에이전트를 기동**하고(Claude Code
+  Action 의 `label_trigger`·`assignee_trigger`, Copilot coding agent 의 이슈 할당), 결과(PR·check run)를 **웹훅으로
+  다시 받아** 승인·알림·문서화하는 것이다. 코드를 직접 고치는 에이전트를 우리가 만들지 않는다.
+
+#### 차별화 템플릿 — 갤러리에 한국어로
+
+DEV-1·2·3 이 끝나면 이 다섯을 공식 템플릿(`publish_curated`)으로 올린다. 각각 경쟁 제품에 없는 조합이다.
+
+| # | 템플릿 | 조합 | 왜 새로운가 |
+| ---: | --- | --- | --- |
+| 1 | 릴리스 → 공식 배포 문서(HWPX/DOCX) → 결재·공지 발송 | `githubTriggerNode(release)` → `release.generate_notes` → `llmNode` 한국어 요약 → `formatNode` → Email/Dooray | HWPX 를 만드는 자동화 제품이 없다. 공공·금융은 Dooray/한글 중심 |
+| 2 | 장애 보고서 자동 초안 | 인바운드 웹훅(Sentry/업타임) → GitHub deployments·Jenkins 타임라인 수집 → `llmNode` → `formatNode` → 승인 → 발송 | PagerDuty 포스트모템은 영문·Slack 중심. 한국형 양식 + 승인 흐름은 없다 |
+| 3 | 주간 개발 보고서 | `scheduleNode` → GitHub 커밋·PR + Jira → `llmNode` → `formatNode`(주간업무보고서 프리셋) → Email | 스탠드업 템플릿은 Slack 텍스트 요약에 그친다 |
+| 4 | 의존성 취약점 주간 점검 | lockfile 업로드 → `osvScanNode` → 조건 → `formatNode` 보고서 → 승인 → `issue.create` | n8n/Zapier 에 템플릿이 없다. 외부 SaaS 없이 무료 API |
+| 5 | 링크 배포형 배포 승인 앱 | App Builder + `humanApprovalNode` + `workflow.dispatch` + `deployment_status` 트리거 + 카카오/Dooray 알림 | GitHub Slack 앱의 배포 승인은 Slack 필수. 여기서는 비개발자가 링크로 승인 |
+
+#### 검증 매트릭스
+
+| 층 | 필수 검증 |
+| --- | --- |
+| 서명 | HMAC 불일치·헤더 누락·replay(같은 delivery id)·payload 상한 초과가 전부 실행 0 회로 끝나는지. 정상 서명은 202 를 10초 안에 |
+| 계약 | `githubNode` 정의·UI·validator·executor 의 필수 필드 일치(§4 출시 게이트 1). mode 별 sideEffect 가 dry-run 에서 external-write 를 막는지 |
+| mock | 이벤트 4종 fixture + `auth_failed`·`rate_limited`·`timeout` 시나리오가 외부 요청 0 회로 재현되는지 |
+| rate limit | `x-ratelimit-remaining=0` 응답에서 reset 까지 대기, 콘텐츠 생성 80/분 초과 시 노드 쓰로틀 |
+| 생성 | LLM 생성 평가 3사례에서 잘못된 mode·누락 credential·고아 노드 0 |
+| 격리 | 다른 사용자의 GitHub 자격증명이 어떤 실행·응답·로그에도 나오지 않는지 |
+| 유틸 노드 | 결정성 — 같은 입력이면 같은 출력. `httpCheckNode` 의 상태 저장이 사용자·프로젝트 단위로 격리되는지 |
+
+#### 출시 게이트·성공 지표·되돌리기
+
+- §4 의 여섯 게이트를 노드마다 그대로 적용한다.
+- 성공 지표: GitHub 노드 채택률 대비 `httpRequestNode` 로 GitHub API 를 직접 부르는 그래프의 비율(전용 노드가
+  범용보다 첫 실행 성공률을 개선하지 못하면 DEV-3 을 멈춘다 — §6), 웹훅 서명 검증 켜진 엔드포인트 비율, 차별화
+  템플릿 5종의 설치 → 첫 실행 성공률.
+- 되돌리기: 노드 정의 `disabled` 와 `HIDDEN_NODE_TYPES` 가 이미 있다. 웹훅 검증 모드 `none` 이 기존 동작이다.
+
+전체 크기는 **L, 약 6~8주**(DEV-0~3). DEV-4 는 별도 승인. 32번과 독립이라 시연 뒤 바로 시작할 수 있고, ENGINE-0
+이관 시 executor 매핑만 추가된다.
+
+### 3.4 흐름 제어·데이터 조작 보완 — 백로그 35번
+
+기능갭 보고서 §2.1·§2.6 에서 왔다. §1.2 의 정정대로 루프·병합·다중 분기·병렬 분기는 **이미 있다.** 여기 남는
+것은 그 표에서 "없다"로 확인된 것들이다.
+
+#### 판단
+
+**목적은 표현력이 아니라 결정성이다.** 필드 몇 개를 꺼내 이름을 바꾸고 기본값을 채우는 일을 지금은 제한형
+`pythonNode` 나 `llmNode` 가 한다. LLM 으로 데이터를 변환하면 비용·비결정성 문제가 생긴다 — ADR-0026(필드
+바인딩)이 그 관행을 절반 걷어냈고, 이 항목이 나머지 절반이다. **표현식 언어는 만들지 않는다**(DATA_FLOW 계획
+v1 금지 유지). 가공이 필요하면 아래 노드 3종, 그 밖은 `pythonNode`.
+
+#### 항목
+
+| # | 항목 | 크기 | 선행 | 내용 |
+| ---: | --- | --- | --- | --- |
+| F-1 | `setFieldsNode` (Set/Edit Fields) | S | 없음 | 상류 출력에서 경로로 값을 꺼내 이름을 바꾸고 기본값을 채워 새 객체를 만든다. 바인딩 문법(`{source, path}`) 그대로. n8n Edit Fields·Make Set variable 상당 |
+| F-2 | `dedupeNode` | S | 없음 | 배열 항목 중복 제거 — 키 경로 지정. 실행 간 중복(이미 본 항목)은 `connectors/cursor.py:select_new` 를 재사용해 트리거와 같은 겹침 창 정책을 쓴다 |
+| F-3 | `sortFilterNode` | S | 없음 | 정렬(키·방향)·필터(조건 DSL — `conditionNode` 의 규칙 문법 재사용)·상위 N |
+| F-4 | 반복 항목 바인딩 | M | 없음 | `loopNode` 본문에서 "현재 항목의 path" 를 바인딩 소스로. DATA_FLOW 계획 §9 보류 항목. 지금은 반복 안→밖 바인딩이 금지돼 있어 반복 안에서 LLM 을 다시 쓰게 된다 |
+| F-5 | `subWorkflowNode` | M | **ENGINE-0**(32번) | 다른 워크플로우 호출. 입력/출력 스키마 고정, recursion 제한, 호출 깊이 상한. 커뮤니티 템플릿을 "부품"으로 재사용하게 한다. 인터프리터 위에서는 run 안의 하위 run 이라 Run/Step 에 자연히 들어간다 — 코드 생성 위에 만들면 두 번 만든다 |
+| — | 에러 분기·재시도 | — | — | 32번 ENGINE-3 의 몫이다. 여기서 만들지 않는다 |
+
+**F-1~3 은 지시 없이 지금 가능하다**(§2). 정의 파일 3개 + 생성기 3개 + `export_node_definitions.py` + 카탈로그
+평가 사례. 카탈로그 문구는 "데이터 가공은 LLM 이 아니라 이 노드로" 를 유도해야 한다 — Phase 3 에서
+`formatNode` 로 유도 문장을 넣은 것과 같은 방식.
+
+#### 검증
+
+- 결정성: 같은 입력 → 같은 출력. mock 과 실제가 같다.
+- F-2 의 실행 간 중복 제거가 `rssTriggerNode` 와 **같은 함수**를 쓰는지 테스트가 붙든다(예전에 두 트리거가 각자
+  구현해 한쪽 결함이 오래 남았던 일의 재발 방지).
+- F-5: 자기 자신 호출·순환 호출이 컴파일 시점에 거부되는지, 하위 run 실패가 상위의 `error` 핸들로 오는지.
+- 생성 평가: "RSS 새 글 중 제목에 X 가 들어간 것만 골라 정렬해 이메일" 이 `llmNode` 없이 F-2·F-3 으로 나오는지.
+
+크기 **M, 약 2~3주**(F-5 제외 1주).
+
+### 3.5 실행형 AI 에이전트 노드 · MCP 클라이언트 — 백로그 36번
+
+기능갭 보고서 §2.5 에서 왔다. 2026년 n8n·Make·Zapier 가 공통으로 간 방향이 둘이다 — (1) 에이전트적 능력(도구
+선택·다단계 추론)을 워크플로우 "생성" 쪽에서 "실행" 쪽 노드로 가져오는 것, (2) MCP 클라이언트로 커넥터 없이
+외부 도구 생태계를 붙이는 것.
+
+#### 판단
+
+**채택하되, 도구 정책 모듈을 먼저 만든다.** 이 제품에는 `multiAgentNode`(실행 노드)·`humanApprovalNode`·평가
+시스템·28번의 범위 검증기가 있다. 28번이 막힌 지점 — "범위 안에서 모델이 `delete_node`+`add_node` 로 연결선을
+다 지운 것" — 은 **도구 단위 제약**으로만 풀리고, 에이전트 노드의 핵심 계약 "파괴적 도구는 승인 강제" 도 같은
+모듈이다. 한 번 만들어 둘이 쓴다.
+
+**MCP 는 커넥터 격차를 우회하는 지렛대다.** GitHub(`api.githubcopilot.com/mcp/`, 툴셋 단위 활성화, `--read-only`),
+Sentry(`mcp.mcp.sentry.dev/mcp`), Linear(`mcp.linear.app/mcp` + `/readonly`) 가 공식 원격 서버를 OAuth 로 낸다.
+34번 DEV-3 에서 Sentry·Linear 전용 노드를 만들지 않고 MCP 로 먼저 붙이는 이유다.
+
+#### 계약
+
+```text
+toolPolicy (공통 모듈 — 28번·36번이 공유)
+  allow[]: 도구 이름 allowlist (기본: 읽기 도구만)
+  destructive[]: 승인 없이는 부를 수 없는 도구 (delete·merge·send·write 계열)
+  onDestructive: deny | require_approval     # require_approval 이면 humanApprovalNode 삽입
+  maxCalls, maxTokens                        # 요청당 상한
+
+agentNode (실행형)
+  tools[]: 캔버스의 다른 노드를 도구로 노출(노드 정의의 inputs/outputs 가 도구 스키마)
+         + mcpClientNode 가 가져온 도구
+  policy: toolPolicy
+  출력: 최종 답 + 호출 기록(도구·입력 요약·결과 요약 — 원문·비밀 없음)
+
+mcpClientNode
+  transport: streamable_http (SSE 하위 호환)
+  auth: none | bearer({{API_CENTER:...}}) | oauth2.1
+  serverUrl: allowlist 안에서만 (§7 질문 — hosted 환경에서 임의 URL 허용 여부)
+  tools: all | selected[] | all_except[]     # n8n·Zapier 계약 차용
+  두 사용 형태: (a) agentNode 의 도구 공급자, (b) 결정적 "Call Tool" 액션(도구 하나 + 입력 → 출력)
+  sideEffect: 도구 이름·서버의 readonly 엔드포인트로 판정. 판정 불가면 external-write 로 본다(dry-run 차단)
+```
+
+#### 단계
+
+| 단계 | 내용 | 크기 |
+| --- | --- | --- |
+| AGENT-0 | `toolPolicy` 모듈 + 28번 포인팅 요청에 적용(파괴적 도구 제외) → **28번 재개** | 1주 |
+| AGENT-1 | `agentNode` — 캔버스 노드를 도구로, 승인 강제, 호출 기록. `multiAgentNode` 와의 관계를 정한다(통합 또는 역할 분리) | 2주 |
+| AGENT-2 | `mcpClientNode` (a)·(b) 두 형태, bearer 인증, 서버 allowlist | 2주 |
+| AGENT-3 | OAuth 2.1 인증(공식 서버용) — `connectors/oauth_flow.py` 확장 | 1주 |
+
+#### 검증·게이트
+
+- allowlist 밖 도구 호출 0 건, 승인 없는 파괴적 호출 0 건 — 한 건이라도 나면 beta 중단(§6).
+- 호출 기록에 비밀·원문이 없는지(28번 `redact()` 와 같은 기준이 아니다 — "모델에 넣어도 되는가" 와 "기록에
+  남겨도 되는가" 는 다르다. 후자를 새로 정한다).
+- dry-run 에서 MCP 도구가 실제 서버를 부르지 않는지 — mock 은 도구 목록 + 대표 응답 fixture.
+- 28번 재개 뒤 원래 실패 사례("이 LLM 노드를 정적 노드로 바꿔줘")가 연결선을 보존하는지.
+
+크기 **L, 약 5~6주**. AGENT-0 은 28번을 살리는 것이라 값이 크고 작다.
+
+### 3.6 운영 가시성 · 배포 체계 · API 상한 — 백로그 37번
+
+기능갭 보고서 §3.4~3.6 과, 트러블슈팅 실행 계획의 "일부러 하지 않는 것" 중 **조건부**로 남긴 항목을 한곳에
+모았다. 후자는 `plans/TROUBLESHOOTING_EXECUTION_PLAN.md` 끝부분과 `TROUBLESHOOTING_REVERIFICATION.md` §5 가 정본이다.
+
+#### 현재 — 코드와 문서로 확인한 것
+
+| 영역 | 상태 |
+| --- | --- |
+| 관측 | Langfuse 는 LLM 호출만 본다. 예외 수집·프로세스 메트릭·큐 깊이·실행 지연 메트릭 없음. `/api/health`·`/api/ready`(스키마 head 비교) 는 있다 |
+| CI | `.github/workflows/` 없음. 테스트 2,700 여 건이 사람 손으로만 돈다 |
+| 컨테이너 | 앱 Dockerfile 없음. `docker-compose.langfuse.yml` 만. 배포는 단일 VM systemd + `scripts/deploy.sh` |
+| API 상한 | `rate_limit.enforce` 가 커뮤니티 쓰기(`comment.create` 등)에만. 실행·업로드·인증 경로 없음 |
+| 권한 격리 | `scripts/server/03-systemd-hardening.sh` 는 재기동 상한·PATH 드롭인. 런북의 **전용 무권한 계정** 전환은 미적용 |
+| 백업 | "확인 못 했다" 상태. 재검증 문서가 'RDS 보존기간·최근 스냅샷 시각을 콘솔에서 확인해 사실로 기록(0.5h)' 만 남겼다 |
+| 시연 플래그 | `DEMO_*`·`HIDDEN_NODE_TYPES` 5종이 운영 `.env` 에 있다(시연 중) |
+
+#### 항목
+
+| # | 항목 | 크기 | 시점 | 내용 |
+| ---: | --- | --- | --- | --- |
+| O-1 | GitHub Actions CI | S | **지금** | push/PR 마다 `pytest`(파일 단위 병렬 또는 전체) + `vite build` + `export_node_definitions.py --check` + ESLint. 운영 DB 를 잡는 테스트는 `TEST_POSTGRES_URL` 없이 어디까지 검사할지 먼저 정한다(C3 결정 참조) |
+| O-2 | 헬스체크 확장 | S | 지금 | `/api/ready` 에 스케줄러 생존·DB 연결·(ENGINE-2 뒤) 큐 적체 포함 |
+| O-3 | API 상한 | S~M | 지금 | 실행(`/api/execute`·`/api/projects/{id}/run`·공개 앱)·업로드·인증(`/api/auth/guest` 는 정원만 있다)에 사용자·IP 별 상한. `rate_limit` 모듈 재사용. 실행 시간·메모리 상한은 ENGINE-0 의 pythonNode 격리와 함께 |
+| O-4 | 예외 수집 + 구조화 로깅 | M | ENGINE-1 뒤 | Sentry 계열(또는 자체 호스팅 GlitchTip) + `run_id` 상관관계. 로그는 실행 ID 로 묶인다 |
+| O-5 | 메트릭·얼럿 | M | ENGINE-1 뒤 | 실패율·큐 깊이·P95 를 관리자 통계에 노출하고, "5분 실패율 임계 초과" 얼럿을 **기존 텔레그램 봇**으로. Prometheus 는 지표가 필요해질 때 |
+| O-6 | 컨테이너·스테이징 | M | ENGINE-2 와 함께 | backend/frontend Dockerfile + compose, staging 환경, 마이그레이션은 `deploy.sh` 레일 유지. 워커 프로세스가 생기는 시점이 배포 단위가 바뀌는 시점 |
+| O-7 | 백업 확인·복구 리허설 | S | 지금(확인) / 분기(리허설) | RDS 자동 백업 보존기간·최근 스냅샷·EBS 정책을 콘솔에서 확인해 `Documents` 에 사실로 기록. `CREDENTIAL_ENCRYPTION_KEY`·`JWT_SECRET` 은 secret manager 별도 보관을 백업 정책에 명시(둘 다 잃으면 자격증명 전체 유실 — `Documents/README.md` 금지 문단) |
+| O-8 | 무권한 계정 전환 | M | ENGINE-0 뒤 또는 별도 승인 | 런북 `docs/reports/privilege_containment_runbook.md`. `ubuntu` 가 `sudo`·`docker`·`lxd` 그룹이라 서비스 계정으로 부적합. 04 스크립트처럼 **혼자 실행**하는 고위험 작업 |
+| O-9 | 시연 플래그 제거 절차 | S | 시연 직후 | `.env` 에서 `DEMO_*`·`HIDDEN_NODE_TYPES` 제거 → 재기동 → 게스트 계정·`[시연]` 콘텐츠 정리(정리 스크립트는 **아직 없다** — 만들어야 한다) → `/api/features` 가 전부 false 인지 확인. 게스트 체험을 남길지는 §7 |
+
+#### 조건부 승격 트리거 — 트러블슈팅에서 이월
+
+발현 증거가 없어 미루되, 아래 신호가 보이면 **다음 라운드 1순위**로 올린다.
+
+| 항목 | 승격 신호 | 크기 |
+| --- | --- | --- |
+| webhook 이벤트 루프 블로킹(3h) · 스케줄러 misfire(2.5h) | **라이브 웹훅 또는 스케줄 프로젝트가 1건이라도 생기는 순간.** 공유 스냅샷 972건 중 147건이 webhookNode·212건이 scheduleNode 를 포함하므로 템플릿 설치 + 라이브 토글이면 살아난다. 34번 DEV-0 이 웹훅 비동기화를 먼저 하면 앞쪽은 해소 | 5.5h |
+| 업로드 용량 영구 잠김 | 200개/200MB 에 닿는 계정이 나오면 즉시 | 2.5h |
+| `execution_time` 인덱스 | 통계 재작성 뒤 EXPLAIN 재확인 — 감사의 후보 `(project_id, execution_time)` 이 실제 술어 `(billable_user_id OR user_id)` 와 어긋난다 | 3h |
+| 템플릿 목록 페이지네이션 본체 | limit 명시(0.3h)는 했다. 갤러리가 242 → 그 이상으로 늘 때 | 4h |
+| perf-frontend(코드 분할·edges 메모·WebP·폴링·뷰포트) | 2단계의 enrichedNodes·isDirty 수정 뒤 40노드/50엣지로 **재측정** 한 수치가 근거일 때. 측정 전 최적화는 하지 않는다 | 14h |
+| 코드젠 이스케이프 65곳 `py_str` 통일 | 스모크 51종이 안정된 지금, 골든 테스트 갱신 범위를 먼저 재고 결정. ENGINE-0 이관이 이 코드를 없앨 수 있으므로 **ENGINE-0 계획과 함께 판단** | 6~12h |
+| 데이터 계층 나머지(통계 GROUP BY·soft delete purge·lease 죽은 코드·2트랜잭션·커밋 경계) | 현 규모(로그 959행·프로젝트 18개)에서 발현 증거가 생길 때 | ~12h |
+| `slackNode` 실제 구현 | 실제 슬랙 워크스페이스 토큰 확보 시. 34번 DEV-3 의 국내 메신저 발송과 같은 계약으로 | 6h |
+
+#### 검증·게이트
+
+- O-1: main 의 CI 가 로컬 "전체 통과" 와 같은 결과를 내고, `--check` 가 어긋나면 빨강.
+- O-3: 상한 초과가 422/429 로 **실행 전에** 끝나 토큰 소모 0(PR #60 과 같은 원칙).
+- O-5: 얼럿이 하루 N건 이상 울리면 임계를 올리는 대신 원인을 본다 — 노이즈가 되면 아무도 안 본다.
+- O-9: 플래그 제거 뒤 시연 계정 외 사용자의 동작이 시연 전과 같은지(회귀).
+
+크기 **M, 지금 할 것 3~4일 + 이월분**.
+
+### 3.7 거버넌스 의존성 맵 — 백로그 38번
+
+기능갭 보고서 §2.7. Make 가 가장 강하게 미는 차별점(Make Grid)은 "이 필드를 바꾸면 뭐가 깨지는가" 를 도구
+경계를 넘어 하나의 의존성 맵으로 답하는 것이다.
+
+#### 판단
+
+**축소판부터, 11번 뒤에.** 워크플로우·자격증명·스케줄·배포 앱·템플릿·포맷이라는 자원 그래프가 이미 DB 에 있다.
+먼저 만들 것은 지도가 아니라 **두 질문에 대한 답**이다.
+
+1. "이 자격증명을 지우면 멈추는 워크플로우·앱·스케줄은?" — API Center 삭제 확인문에 목록을 보여 준다.
+   `{{API_CENTER:*}}` 치환 맵과 `connector.credentials` 선언에서 역참조한다.
+2. "이 노드 정의를 바꾸면 영향받는 프로젝트·템플릿은?" — `node_types`(WorkflowShare)와 그래프 스캔.
+
+세 번째 — 포맷 삭제 시 참조 노드 목록 — 는 `/formats` 탭 삭제 확인문에 경고문만 있다(PR #48). 같은 자리다.
+
+조직 사용(11번)이 시작되면 "누가 이 자격증명에 의존하는가" 가 개인 문제에서 팀 문제가 되므로 그때 값이 급증한다.
+전체 지도(캔버스형 시각화)는 두 질문의 사용률을 보고 정한다.
+
+크기 **M, 약 2주**(두 질문). 지도는 별도 승인.
+
+### 3.8 Workspace/RBAC — 백로그 11번
 
 #### 한눈에 보기
 
@@ -247,7 +830,7 @@ AuditEvent
 
 #### 단계별 구현
 
-##### TEAM-0. 권한 판정 한 곳으로 모으기 — 2~3일
+##### TEAM-0. 권한 판정 한 곳으로 모으기 — **완료(2026-08-29)**
 
 **데이터 모델보다 먼저 한다.** `workspace_id`가 없어도 지금 동작을 그대로 표현할 수 있고, 그래야
 workspace를 붙일 때 고칠 자리가 한 곳이다.
@@ -258,7 +841,7 @@ workspace를 붙일 때 고칠 자리가 한 곳이다.
    않아야 한다** — 회귀 테스트로 고정한다.
 3. 실행 자격증명의 주체(`__owner_user_id__`)도 이 모듈이 정한다(`credential_owner_for(project)`).
 
-##### TEAM-1. Workspace·멤버·초대 — 3~4일
+##### TEAM-1. Workspace·멤버·초대 — **완료(2026-08-29)**
 
 1. `Workspace`·`WorkspaceMember`·`WorkspaceInvite`와 역할 표.
 2. 초대는 **핸들**로. 초대받은 사람이 수락해야 멤버가 된다. 알림은 §4.16의 알림함을 쓴다.
@@ -304,22 +887,22 @@ workspace를 붙일 때 고칠 자리가 한 곳이다.
 배포는 `WORKSPACE_V1` flag로 제한한다. 끄면 workspace 관련 화면과 API가 사라지고 **개인 프로젝트
 경로만 남는다** — TEAM-0의 판정 함수는 그 경우에도 그대로 동작한다.
 
-#### 구현 진행 상황 (2026-08-29, 우선 백로그 11번 — TEAM-0·1)
+#### 현재 상태 (2026-09-06)
 
-TEAM-0과 TEAM-1을 구현했다(ADR-0024, 마이그레이션 0015). **TEAM-2·3은 남았다.**
+TEAM-0·1 은 2026-08-29 에 끝났다(ADR-0024, 마이그레이션 0015). 구현 기록은 `archive/COMPLETED_WORK_2026-09.md`
+§v2.3-3.1 에 있다. **TEAM-2·3 과 잔여 판정 이전이 남았다.**
 
-- **TEAM-0 권한 판정 모으기** — `project_access.can(db, user, project, action)`. 착수 전 센 결과
-  `user_id != user.id` 검사가 **42곳**에 흩어져 있었다. 판정 순서는 만든 사람 → workspace 역할 →
-  공개 범위(**조회만**)다. 자격증명 주체(`credential_owner_for`)도 이 모듈이 정한다.
-- **TEAM-1 Workspace·멤버·초대·감사** — 역할 5종의 권한 표가 코드와 테스트로 고정됐다. 초대는
-  핸들 기반이고 §4.16의 알림함을 쓴다. 마지막 owner는 나갈 수도 강등될 수도 없다.
-- **점진 이전이 안전한 이유**: 아직 옮기지 않은 엔드포인트는 `user_id`를 보는데 그건 workspace
-  멤버십보다 **더 엄격하다** — 실패 방식이 "팀원이 아직 못 한다"이지 "남이 볼 수 있다"가 아니다.
-  42곳 중 핵심 5곳(조회·편집·삭제·실행 자격증명·목록)을 옮겼다.
-- **남은 것**: TEAM-2(workspace 전용 자격증명 저장소 — 지금은 workspace owner의 개인 자격증명을
-  쓴다), TEAM-3(workspace 화면 — API만 있다), 그리고 나머지 37곳의 판정 이전.
+- **잔여 판정 이전의 개수를 다시 셌다.** v2.3 은 "42곳 중 5곳 이전, 37곳 남음" 이라 적었다. 2026-09-06 기준
+  `.user_id != user.id` / `== user.id` 형태는 테스트를 제외하고 **71곳**(`main.py` 66, `seed_demo_booth.py` 2,
+  `workspaces.py`·`project_access.py`·`community_posts.py` 각 1)이고, `project_access.can()` 호출은 59곳이다.
+  일주일 사이 시연 기능(게스트·공유 자격증명·소유자 폴백)이 붙으면서 검사가 늘었다. 71 이 전부 이전 대상은
+  아니다 — 소유자 전용 동작(삭제·소유권 이전)은 남아야 한다. **착수 시 71곳을 "이전 / 소유자 전용 / 시연 전용"
+  으로 먼저 분류한다.**
+- TEAM-2 의 workspace 자격증명은 **34번 GitHub 토큰의 정식 자리**이기도 하다 — 조직 저장소를 개인 PAT 로 묶으면
+  그 사람이 나갈 때 자동화가 멈춘다(이 절 첫 문장의 문제 그대로).
+- 시연 게스트(`demo-guest-*`)는 일반 사용자다. workspace 도입 시 게스트가 workspace 를 만들 수 없게 막아야 한다.
 
-### 3.2 사용자 지식베이스와 인터넷 검색 노드 — 백로그 26·27번
+### 3.9 사용자 지식베이스와 인터넷 검색 노드 — 백로그 26·27번
 
 #### 판단
 
@@ -468,7 +1051,7 @@ Chat Trigger -> knowledgeSearchNode -> grounded prompt -> llmNode -> Output
 질문당 주입 문맥을 전체 문서 대비 10% 이하로 두는 것이다. 답변 비용과 지연은 검색 결과의 top-k와
 rerank 품질을 함께 보며 조정한다.
 
-### 3.3 AI 시맨틱 포인팅과 대상 한정 수정 — 백로그 28번
+### 3.10 AI 시맨틱 포인팅과 대상 한정 수정 — 백로그 28번
 
 #### 판단
 
@@ -603,119 +1186,22 @@ interface PointingContext {
 
 #### 단계별 구현
 
-##### POINT-0. 계약·resolver·관측 기반 — **2026-08-30 완료**
+##### POINT-0 · POINT-1 — 구현 완료(2026-08-30), UI 는 꺼 둠
 
-구현은 `backend/pointing.py`(+ `test_pointing.py` 52건)에 있다. 원래 계획한 네 가지를 그대로 했다.
+구현 기록과 껐던 이유는 `archive/COMPLETED_WORK_2026-09.md` §v2.3-3.3 에 원문으로 있다. 요지:
 
-| | 결과 |
-| --- | --- |
-| 계약 | `PointingContext v1`, `PointingTarget`, scope 4종, 오류 code 6종(`error_catalog.json` 등록) |
-| resolver | `workflow_node`·`workflow_edge`·`app_component`·`app_logic_node`. 컴포넌트는 `children` 중첩까지 훑는다 |
-| scope validator | `validate_scope()` — 전후를 직접 비교해 범위 밖이 하나라도 바뀌면 **요청 전체 거부** |
-| 관측 | `telemetry()` — 종류·수·scope·위반 수만. **label·본문은 남기지 않는다** |
+- 계약·resolver·범위 검증기(`backend/pointing.py`, 테스트 52건)와 에디터 UI(첨부 버튼·`@` 토큰·scope selector)는
+  전부 있다. `EditorPage.jsx:517` 의 `POINTING_ENABLED = false` 하나로 진입점만 막았다.
+- **왜 껐나.** 범위 검증은 의도대로 동작했지만, 범위 **안**에서 모델이 파괴적으로 동작하는 것을 못 막았다 —
+  "이 LLM 노드를 정적 노드로 바꿔줘" 에 `update_node` 대신 `delete_node`+`add_node` 를 써서 연결선이 전부
+  사라졌다. 삭제된 엣지가 `연결 항목 포함` 범위에서는 허용 대상이라 오류도 나지 않았다.
 
-`/api/chat`에 optional `pointing_context`를 붙였다. 없으면 예전과 똑같이 동작한다.
+**재개 조건 — 둘 중 하나.** (1) 포인팅 요청에서 파괴적 도구를 제외하는 **도구 단위 제약** — 이것은 36번
+AGENT-0 의 `toolPolicy` 모듈이다. (2) diff preview 를 먼저 만들어 사용자가 적용 전에 확인 — 아래 POINT-1 원계획
+4번 항목. **(1) 을 택한다.** 36번이 같은 모듈을 필요로 하므로 한 번 만들어 둘이 쓴다. AGENT-0 이 끝나면
+`POINTING_ENABLED` 를 켜고 원래 실패 사례로 회귀를 확인한 뒤 POINT-2 로 간다.
 
-**구현하며 정한 것 넷.**
-
-- **`whole_canvas`는 빈 집합이 아니라 `None`을 돌려준다.** 빈 집합("아무것도 못 바꾼다")과
-  구분되지 않으면 위험한 쪽으로 잘못 읽힌다.
-- **조회 권한과 편집 권한을 따로 본다.** `reference_only`는 조회면 충분하고 나머지는 편집이
-  필요하다 — 묶으면 viewer가 "이 노드 고쳐줘"로 편집하게 된다. 공개 프로젝트도 편집은 막는다.
-- **모르는 `version`을 "포인팅 없음"으로 강등하지 않는다.** 지목했는데 전체 캔버스가 편집
-  대상이 되는 것이 가장 나쁘다.
-- **`redact()`를 `community_sanitize`와 공유하지 않는다.** 저쪽은 "남에게 보여도 되는가",
-  이쪽은 "모델 프롬프트에 넣어도 되는가"로 판단 기준이 다르다.
-
-**아직 안 한 것 — POINT-1의 몫이다.** 프롬프트에 넣을 문맥을 줄이는 것(`build_prompt_context()`는
-만들었지만 `run_agent_turn`이 아직 전체 그래프를 받는다)과 UI(첨부·칩·scope selector)다.
-지금은 전체 상태를 모델에 주고 **결과만 검증**한다 — 계획의 POINT-0 3번 항목 그대로다.
-
-<details>
-<summary>원래 계획 (기록)</summary>
-
-1. `PointingContext v1`, `PointingTarget`, scope와 공통 오류 code를 정의한다.
-2. `workflow_node`/`workflow_edge`/`app_component`/`app_logic_node` resolver, 권한·revision·hash 검사,
-   secret redaction을 구현한다.
-3. 기존 전체-state 모델 응답에 post-diff scope validator를 붙인다. 범위 밖 변경은 일부 적용하지 않고
-   요청 전체를 거부한다(atomic).
-4. 대상 종류·개수·scope·prompt token·범위 위반·stale 비율을 기록한다. target label/본문/문서 내용은
-   telemetry에 남기지 않는다.
-
-</details>
-
-##### POINT-1. Workflow Editor vertical slice — **2026-08-30 구현 완료, UI는 꺼 둠**
-
-> **2026-08-30 결정: 기능을 껐다**(`EditorPage.jsx`의 `POINTING_ENABLED = false`).
-> 계약·resolver·검증기(`backend/pointing.py`)와 UI 코드는 그대로 두고 진입점만 막았다 —
-> 다시 열 때 상수 하나만 바꾸면 된다.
->
-> **왜 껐나.** 범위 검증은 의도대로 동작했지만, **그 범위 안에서 모델이 하는 일을 통제할 수
-> 없었다.** "이 LLM 노드를 정적 노드로 바꿔줘" 에 대해 지시문이 `update_node(node_type=...)`
-> 를 쓰라고 명시했는데도 모델이 `delete_node` + `add_node` 를 썼고, 그 결과 **연결선이 전부
-> 사라졌다.** 삭제된 엣지가 `연결 항목 포함` 범위에서는 허용 대상이라 오류도 나지 않았다.
->
-> 즉 검증기는 "범위 밖을 건드렸는가" 는 잡지만 "범위 안에서 파괴적으로 했는가" 는 못 잡는다.
-> 그걸 잡으려면 도구 단위 제약이 필요한데(예: 포인팅 요청에서는 `delete_node` 를 아예 빼기),
-> 그건 POINT-1의 범위를 넘는다.
->
-> **다시 열려면 필요한 것:** 포인팅 요청에서 파괴적 도구를 제외하거나, diff preview 를 먼저
-> 만들어 사용자가 적용 전에 확인하게 하는 것. 후자가 계획의 POINT-1 4번 항목이다.
-
-##### POINT-1 구현 내역 (참고)
-
-| | 결과 |
-| --- | --- |
-| 첨부 UI | 선택 툴바의 "AI에 첨부" 버튼. **선택만으로 자동 첨부하지 않는다** |
-| 대상 핸들 | **입력란 안**의 `@` 토큰(메일 To: 칸 방식). 클릭 또는 빈 입력에서 Backspace로 해제. 삭제된 대상은 취소선으로 남기고 다른 id에 재연결하지 않는다 |
-| scope selector | 선택 항목만(기본) / 연결 항목 포함 / 전체 캔버스. 전체 캔버스는 경고 문구를 함께 띄운다 |
-| 허용 집합 | `editable_ids()`가 결정론적으로 계산. 이웃은 1-hop, 방향을 가리지 않는다 |
-| 모델 지시 | `instruction_block()`이 대상 id·type과 수정 가능한 id를 열거하고, 범위를 넘으면 거부된다고 예고한다 |
-| 오류 처리 | 포인팅 실패는 일반 오류로 뭉뜽그리지 않는다. `POINTING_TARGET_NOT_FOUND`면 없어진 칩만 걷어낸다 |
-
-**계획과 달라진 것 하나 — "프롬프트에 subgraph만"은 이 구조에 해당하지 않았다.**
-계획은 전체 그래프가 프롬프트에 들어간다고 보고 토큰 절감을 노렸는데, 실제로는 그래프가
-시스템 프롬프트가 아니라 **tools를 통해** 모델에 간다(`make_tools(graph_data, ...)`).
-프롬프트를 줄여도 토큰이 줄지 않는다. 그래서 POINT-1은 토큰이 아니라 **지시의 명확성**에
-집중했다 — 무엇을 고쳐야 하고 무엇을 건드리면 안 되는지를 요청 맨 앞에 놓는다.
-토큰 절감이 실제로 필요하면 tools 응답을 좁히는 별도 작업이 된다.
-
-**클라이언트와 서버가 같은 해시를 쓴다.** 다르면 멀쩡한 대상이 전부 stale로 튕겨 기능이
-통째로 죽는다 — **실제로 그렇게 나갔다가 고쳤다.** 처음에는 직렬화 방식만 맞추고 *무엇을*
-해싱하는지를 안 맞췄다. 서버는 `graph_data`(= `createEditorSnapshot` 을 거친 값)를 보는데
-클라이언트는 React Flow **원본** 노드를 해싱해서, 모든 대상이 예외 없이 튕겼다. 지금은 같은
-출처(`getCurrentFlowData()`)에서 꺼내고, 테스트가 그 출처를 붙들고 있다.
-
-**범위 검증은 표현이 아니라 의미를 본다**(2026-08-30 실사용에서 고침). 처음에는 항목을 통짜로
-비교했는데, `auto_layout` 이 노드를 `{id,type,position,data}` 로 재구성하고 엣지를
-`FlowEdge.model_dump()` 로 만들면서 `className`·`style`·`width` 가 사라진다. 그래서 AI 가
-손대지 않은 항목까지 전부 "바뀌었다" 로 잡혀 **정상 요청이 매번 거부됐다.**
-
-지금은 노드의 `type`·`data`, 엣지의 `source`·`target`·handle 만 비교한다. 자리·색·클래스는
-편집 범위가 지키려는 대상이 아니다 — 범위가 지키는 것은 **워크플로우가 하는 일**이다.
-느슨해진 만큼 진짜 변경을 놓치지 않는지 테스트가 양방향으로 확인한다.
-
-**핸들은 입력란 안에 둔다**(2026-08-30 사용자 요청). 처음에는 Drawer 상단 칩이었는데 하나씩
-지우기 불편했다. 코드 에디터식 인라인 `@`멘션(contenteditable)도 검토했지만 **이 저장소는
-한글 IME 문제가 재발한 이력**이 있어 textarea를 유지하는 토큰 필드로 갔다. Backspace 분기와
-Enter 분기 모두 조합 상태(`isComposing`)를 확인한다.
-
-<details>
-<summary>원래 계획 (기록)</summary>
-
-1. 선택 노드/엣지의 "AI에 첨부", 대상 칩, scope selector를 공통 Drawer에 연결한다.
-2. `target_only`와 `target_and_neighbors`의 허용 node/edge 집합을 결정론적으로 계산한다. 이웃은 1-hop으로
-   제한하고 방향과 포함 개수를 UI에 보여준다.
-3. `/api/chat`에 `pointing_context`를 전달하고 모델 prompt에는 선택 subgraph만 구성한다.
-4. diff preview → 적용 → editor history/revision → 포커스/Inspector 이동까지 E2E로 검증한다.
-
-</details>
-
-**아직 안 한 것.** diff preview와 `ui_actions`(focus_target·open_inspector)는 안 만들었다.
-지금은 기존 AI 변경 하이라이트 경로를 그대로 쓴다 — 적용 전 미리보기는 POINT-1의 4번 항목이라
-남은 몫이다.
-
-##### POINT-2. App Builder vertical slice — 3~4일 — **다음**
+##### POINT-2. App Builder vertical slice — 3~4일 — 재개 뒤 첫 단계
 
 1. design 컴포넌트와 logic node를 같은 칩 문법으로 첨부하되 kind를 구분한다.
 2. 컴포넌트의 자식/부모, workflow mapping, 관련 logic node는 `target_and_neighbors`에서만 포함한다.
@@ -769,40 +1255,7 @@ POINT-4는 사용자가 실제로 이미지/외부 화면을 지목하려는 비
 - 모델이 계속 전체 캔버스를 다시 쓰는 경우 모델을 바꾸기 전에 JSON Patch/도구 호출 방식으로 출력 계약을
   좁힌다. validator를 완화해 출시하지 않는다.
 
-### 3.4 한국형 서비스 노드 — 백로그 29번 — **Phase 0~3 완료**
-
-전체 설계는 `plans/KOREAN_SERVICE_NODE_EXPANSION_PLAN.md`(v1.7)에 있다. 여기에는 로드맵 차원의
-판단만 둔다.
-
-**채택하되 서비스 이름을 늘리는 방식으로 하지 않는다.** §4의 공식 연동 노드 공통 계약을 그대로
-따르고, 범용 `httpRequestNode`보다 인증·Trigger·상태·오류·mock 경험을 확실히 개선할 때만 추가한다.
-이 원칙이 실제로 걸러 낸 예가 `dataGoKrNode`다 — 임의 URL 프록시로 만들면 `httpRequestNode`와
-같아지므로, **등록된 데이터셋만 부르는 registry**로 만들었다.
-
-| Phase | 내용 | 상태 |
-| --- | --- | --- |
-| Phase 0 이전 | 결함 5건 | 완료 |
-| Phase 0 | OAuth callback, credential provider, cursor 저장소, 연동 계약 | 완료 |
-| Phase 1 | HWPX 공용 엔진과 `hwpxDocumentNode` | 완료 — 한/글 검증까지 |
-| Phase 2 | 네이버 검색·트리거·카페 | 완료 |
-| Phase 3 | 도로명주소, 공공데이터포털, `webCrawlerNode` 정비 | 완료 — **승인키 실호출 대조만 남음** |
-| 보류 | X·Instagram, 커뮤니티 preset, 네이버 커머스·NAVER WORKS·OpenDART, 카카오 로컬, KOSIS | 계획 문서 §8 보류표에 재개 조건 |
-
-**로드맵에 미치는 영향 세 가지.**
-
-1. **Phase 0의 OAuth callback·cursor 저장소·연동 계약을 26·27번이 그대로 쓴다** — 한 번만 만들었다.
-2. **`connectors/cursor.py:select_new()`가 트리거 공통 정책의 정본이다.** 시작 모드
-   (baseline/backfill/since)·겹침 창·알린 것만 기억하기가 여기 있다. 새 트리거는 이 함수를 쓴다 —
-   예전에 `rss.py`와 `naver_search.py`가 같은 일을 각자 구현해서 한쪽 결함이 다른 쪽에 오래 남았다.
-3. **커뮤니티 수집은 전용 노드가 아니라 `webCrawlerNode`로 한다.** 사이트마다 전용 노드를 만들면
-   그 수만큼 약관을 따로 관리하게 된다. 지금은 robots.txt·호스트별 일일 상한(50회)·요청 간 최소
-   간격이 걸려 있다. 디시인사이드·에펨코리아는 차단 목록 유지.
-
-**보류 판단의 근거를 남긴다.** X·Instagram은 **API 비용** 때문이다(X 유료 등급, Instagram Business
-인증·App Review). "나중에"로만 적으면 왜 멈췄는지 잊고 같은 조사를 다시 한다.
-
-
-### 3.5 커뮤니티 노드 트랙 B·C — 백로그 13·14번
+### 3.11 커뮤니티 노드 트랙 B·C — 백로그 13·14번
 
 #### 트랙 B: 선언형 커뮤니티 노드
 
@@ -823,7 +1276,7 @@ POINT-4는 사용자가 실제로 이미지/외부 화면을 지목하려는 비
 
 다음 조건을 모두 충족하기 전에는 도입하지 않는다.
 
-- `exec()` 제거와 공식 노드 dispatcher 전환 완료
+- `exec()` 제거와 공식 노드 dispatcher 전환 완료 — **32번 ENGINE-0**
 - node package 서명, 버전 고정, dependency lock과 취약점 검사
 - 별도 worker/container, read-only filesystem, egress allowlist
 - CPU, 메모리, 실행 시간과 출력 크기 quota
@@ -841,24 +1294,7 @@ n8n도 커뮤니티/커스텀 노드를 보안 감사의 위험 항목으로 분
 - 노드/템플릿 버전 업그레이드 성공률
 - 신고율, 검수 소요 시간, 보안 차단 건수
 
-### 3.6 남은 보완 항목
-
-완료한 작업에서 게이트 뒤로 미룬 것들이다. 각각 독립적이고 작다.
-
-| 항목 | 출처 | 조건 |
-| --- | --- | --- |
-| MySQL 지원과 connection pool hardening (DB-4) | 백로그 19 (ADR-0017) | PostgreSQL 사용 패턴이 쌓인 뒤 |
-| 나머지 노드의 NodeError 이전 | 백로그 21 (ADR-0016) | legacy 비율 telemetry를 보며 점진 |
-| Node RAG 기본 selector 승격 (RAG Phase C) | 백로그 5 (ADR-0013) | 운영 shadow 비교 데이터 필요 |
-| 실제 Google·Discord·Gmail credential 검증 | 백로그 6·8·20 | **사용자 설정 필요** — 대신 할 수 없다 |
-| `NodeResult`/`ArtifactRef` 계약 확산 | `plans/INCOMPLETE_NODE_STRUCTURE_REVIEW.md` P1 | 미착수 |
-| 도로명주소·공공데이터포털 **승인키 실호출 대조** | 백로그 29 Phase 3 | **사용자 발급 필요** — 문서 기준으로 만들고 mock으로만 검증했다 |
-| `jusoNode`의 `verifiedAt` 채우기 | 같은 곳 | juso.go.kr이 자동 요청에 403 — **공식 규격을 읽지도 못해 2차 출처다.** 대조 전까지 비워 둔다 |
-| 검토 대기 템플릿 79개 승인 | 백로그 12 | **승인 주체 미정** — 갤러리에 안 보이는 채로 쌓여 있다 |
-| 네이버 카페 실제 게시 검증 | 백로그 29 Phase 2 | 되돌릴 수 없어 첫 게시는 사람이 한다 |
-| golden 03 표 페이지네이션 한/글 재확인 | 백로그 29 Phase 1 | 사용자 기기 필요 |
-
-### 3.7 메인 작업 공간·작업물 Library·홈 채팅 — 백로그 30번
+### 3.12 메인 작업 공간·작업물 Library·홈 채팅 — 백로그 30번
 
 상세 정본은 `design/MAIN_WORKSPACE_AND_HOME_CHAT_REDESIGN_PLAN.md`다.
 
@@ -887,7 +1323,7 @@ n8n도 커뮤니티/커스텀 노드를 보안 감사의 위험 항목으로 분
 - Black UI에서도 본문 대비, 2px focus, 상태/선택 구분과 mobile 44px target 기준을 통과한다.
 - 기존 `/api/projects/my` 배열 소비자와 Editor/App Builder에 회귀가 없다.
 
-### 3.8 운영 Database Explorer·내보내기·안전한 수정 — 백로그 31번
+### 3.13 운영 Database Explorer·내보내기·안전한 수정 — 백로그 31번
 
 상세 정본은 `plans/DATABASE_OPERATIONS_EXPLORER_PLAN.md`다.
 
@@ -899,7 +1335,7 @@ API 센터 자격증명으로 연결된 사용자 소유 외부 PostgreSQL을 Da
 
 1. `DBOPS-0~2`: 연결/사용 Workflow, Schema Explorer와 raw SQL 없는 filter DSL 기반 read-only Data Grid
 2. `DBOPS-3`: 현재 page·선택 행·현재 filter 전체의 JSON/XLSX 비동기 export와 만료 Artifact
-3. `DBOPS-4`: 별도 Database Write binding, table/column allowlist, no-execute diff preview, 한 행 transaction,
+3. `DBOPS-4`: 별도 Database Write binding(**34번 DEV-3 의 Database Write mode 와 같은 물건 — 한 번만 만든다**), table/column allowlist, no-execute diff preview, 한 행 transaction,
    낙관적 잠금과 감사 로그가 갖춰진 뒤 `insert | update | upsert` beta
 4. `DBOPS-5`: TEAM-2 workspace credential, 역할별 browse/export/edit capability, rate limit과 kill switch
 
@@ -916,10 +1352,40 @@ API 센터 자격증명으로 연결된 사용자 소유 외부 PostgreSQL을 Da
 - stale row를 조용히 덮어쓰지 않으며 성공한 모든 write에 민감 값 없는 감사 event가 남는다.
 - tenant 격리·secret 또는 행 값 log 노출이 한 건이라도 발생하면 write beta를 즉시 닫을 수 있다.
 
+### 3.14 게이트 뒤·보류 항목
+
+완료한 작업에서 게이트 뒤로 미룬 것과, 계획서가 "보류" 로 남긴 것을 한 표에 모았다. 각각 독립적이고 대부분
+작다. 어느 백로그에도 속하지 않는 것만 여기 있다 — 속하는 것은 해당 절로 옮겼다(예: 트러블슈팅 조건부 → 37번).
+
+| 항목 | 출처 | 조건 |
+| --- | --- | --- |
+| MySQL 지원과 connection pool hardening (DB-4) | 백로그 19 (ADR-0017) | PostgreSQL 사용 패턴이 쌓인 뒤 |
+| 나머지 노드의 NodeError 이전 | 백로그 21 (ADR-0016) | legacy 비율 telemetry 를 보며 점진 — ENGINE-0 이관과 함께 하면 한 번에 끝난다 |
+| Node RAG 기본 selector 승격 (RAG Phase C) | 백로그 5 (ADR-0013) | 운영 shadow 비교 데이터 필요 |
+| 실제 Google·Discord·Gmail credential 검증 | 백로그 6·8·20 | **사용자 설정 필요.** PR #83 이 Google OAuth 앱 안내를 웹 애플리케이션 유형으로 고쳤다 — 연결하기 흐름 재확인 |
+| `NodeResult`/`ArtifactRef` 계약 확산 (P1 나머지), 책임 분리 (P2: 템플릿 분석/생성 분리, DB Query/Write 분리 → 31번·34번, Image/Poster 분리), 품질 고도화 (P3) | `plans/INCOMPLETE_NODE_STRUCTURE_REVIEW.md` §6 | P2-3 DB Write 는 31번 DBOPS-4·34번 DEV-3 이 흡수. 나머지는 ENGINE-0 뒤(노드 사이 값이 문자열인 것을 인터프리터가 바꿀 기회) |
+| 도로명주소·공공데이터포털 **승인키 실호출 대조** | 백로그 29 Phase 3 | **사용자 발급 필요.** juso 는 시연 제외 중(`HIDDEN_NODE_TYPES`). 시연 뒤 플래그를 풀기 전에 대조 |
+| `jusoNode` 의 `verifiedAt` 채우기 | 같은 곳 | juso.go.kr 이 자동 요청에 403 — 공식 규격을 읽지도 못해 2차 출처다. 대조 전까지 비워 둔다(`UNVERIFIED_ON_PURPOSE`) |
+| 검토 대기 템플릿 79개 승인 | 백로그 12 | **승인 주체 미정.** 시연 체크리스트 2번이기도 하다 |
+| 네이버 카페 실제 게시 검증 | 백로그 29 Phase 2 | 되돌릴 수 없어 첫 게시는 사람이 한다 |
+| golden 03 표 페이지네이션 한/글 재확인 | 백로그 29 Phase 1 | 사용자 기기 필요 |
+| 한국형 노드 나머지 Phase(X·Instagram, 커뮤니티 preset, 네이버 커머스·NAVER WORKS·OpenDART, 카카오 로컬, KOSIS) | `plans/KOREAN_SERVICE_NODE_EXPANSION_PLAN.md` §8 보류표 | 비용(X 유료 등급·Instagram Business 인증)·자격(사업자)·수요. **NAVER WORKS 는 34번 DEV-3 의 발송 노드(Incoming Webhook)로 하한선만 먼저 낸다** |
+| 문서 포맷 보류 — 포맷 커뮤니티 공유(정화 규칙), 서버 사이드 정밀 미리보기, 반복 섹션(표 밖 블록 반복), hwpx 제목 감지(charPr 역추적), 문서류 블록 스타일(정렬·글자 크기 — 렌더러 4개 동시), 코드 기반 디자인→elements 역변환 | `plans/DOCUMENT_FORMAT_STUDIO_PLAN.md` §5 | Phase 3 안정화 + 수요 확인 |
+| 데이터 흐름 보류 — path 환각 실측, 문서 노드 선택 2/3→3/3, 출력 스키마 선언 강화, 타입 검사 강화 | `plans/DATA_FLOW_SEPARATION_PLAN.md` §9·§10 | 앞 둘은 생성 LLM 반복 측정 필요(PICKLE 전환 뒤 재측정). 반복 항목 바인딩은 35번 F-4 로 승격 |
+| `webCrawlerNode` JS 렌더링(SPA) | 종합보고서 §5 | **Browserless 패턴**(브라우저를 별도 컨테이너로, 원격 명령만) — 프로세스 내장 금지. `url_guard` 를 격리 경계에서 재적용. ENGINE-0 의 pythonNode 격리 인프라와 통합 검토 |
+| 노드 비가시화 — 검색(노드 문서·튜토리얼)에 노출되는 추가 표면 전수 확인 | `plans/노드_비가시화_시연플래그_계획.md` | 후순위. 문서 페이지는 열람용이라 위험 낮음 |
+| 시연 게스트 계정·`[시연]` 콘텍츠 정리 스크립트 | PR #88·#92 가 언급, 저장소에 없음 | 37번 O-9 와 함께 만든다 |
+| 미완성 노드 3종의 팔레트 등급(`fileModifierNode`·`templateAnalyzerNode`·`posterGeneratorNode` — beta 강등 또는 이름 변경) | `UNIMPLEMENTED_BACKLOG.md` Q3 | 제품 판단. 시연 기간엔 `HIDDEN_NODE_TYPES` 로 우회 가능하나 **지금 목록은 `jusoNode` 뿐**이다 |
+| 통계에서 비용 부담자와 로그 사용자가 다른 문제 | `UNIMPLEMENTED_BACKLOG.md` Q2 | 제품 판단. 시연 게스트(`billable` 은 부스 계정으로 집계)가 같은 문제를 한 번 더 만들었다 |
+| 외형 변경 승인 대기 — App Builder 디자인(Q13), Workflow Editor 시각 정리(Q14), Intro 실험 캔버스(Q15), GPT 래스터 P0·P1(Q16) | `UNIMPLEMENTED_BACKLOG.md` §2.4 | 승인 필요. PR #90 이 흐름 노드 3종 UI 를 리프레시했다 — Q14 의 일부 |
+| 로컬 LLM 운영 검증 3건(RTX 5070 Ti 벤치, 동의·채택 데이터, 10→100%) | `UNIMPLEMENTED_BACKLOG.md` Q6, `plans/LLM_GENERATION_QUALITY_PLAN.md` | PICKLE 게이트웨이 전환으로 우선순위 하락 — 지원처 한도 소진 시 재검토 |
+| PICKLE 게이트웨이 이미지 생성 경로 | `PICKLE_LLM_GATEWAY.md` 지원 요청서 | 지원처 개방 시 우리 변경 범위는 문서에 적혀 있다. 그 전까지 이미지·임베딩은 OpenAI 직결 |
+| 서버 후속 — 07 스크립트(per-user uploads 이관) 적용 | PR #41, `scripts/server/README.md` | **적용 여부 미확인.** 서버 세션에서 dry-run → apply → 브라우저 왕복 |
+
 ## 4. 공식 연동 노드 공통 계약
 
-백로그 26·27·29번과 이후 모든 연동 노드가 따르는 기준이다. Wave 1(YouTube·RSS·Gmail·Drive)에서
-검증됐고 그대로 유지한다.
+백로그 26·27·34번과 이후 모든 연동 노드가 따르는 기준이다. Wave 1(YouTube·RSS·Gmail·Drive)과 29번
+(네이버·도로명주소·공공데이터포털)에서 검증됐고 그대로 유지한다.
 
 ### 판단
 
@@ -1005,13 +1471,13 @@ template에는 기본 연결하지 않는다.
 
 **Wave 2. 개발·운영·데이터 연동**
 
-- `GitHub Trigger/Action`: Issue, Pull Request, Commit, Release
-- `Slack Trigger`: 새 메시지, 멘션, reaction. 기존 `slackNode` 발송 기능과 credential 계약 통합
+- `GitHub Trigger/Action`: Issue, Pull Request, Commit, Release → **34번으로 승격**(§3.3 DEV-1)
+- `Slack Trigger`: 새 메시지, 멘션, reaction. 기존 `slackNode` 발송 기능과 credential 계약 통합 → 34번 DEV-3 의 국내 메신저 발송과 같은 계약으로
 - `File Storage`: S3 또는 MinIO의 업로드, 다운로드, 서명 URL
 - `Database Write`: schema allowlist 기반 insert, update, upsert. 기존 조회 전용 `databaseNode`와 분리하고
-  백로그 31번 DBOPS-4의 UI·권한·감사 계약으로 노출
-- `Subworkflow`: 다른 Workflow 호출, 입력/출력 schema 고정, recursion 제한
-- `Cache`, `Batch`, `Deduplicate`: 비용과 중복 side effect 제어
+  백로그 31번 DBOPS-4의 UI·권한·감사 계약으로 노출 · 34번 DEV-3 이 같은 물건을 쓴다
+- `Subworkflow`: 다른 Workflow 호출, 입력/출력 schema 고정, recursion 제한 → **35번 F-5**(ENGINE-0 뒤)
+- `Cache`, `Batch`, `Deduplicate`: 비용과 중복 side effect 제어 → 중복 제거는 **35번 F-2**, 부작용 멱등성은 **32번 ENGINE-3**
 
 **Wave 3. AI·미디어 처리**
 
@@ -1048,9 +1514,9 @@ Wave 1(YouTube·RSS·Gmail·Drive)은 구현이 끝났지만 아래는 남아 �
 - **실제 credential 검증.** Google Cloud 프로젝트와 OAuth 동의 화면은 사용자 계정에 묶인
   설정이라 대신 만들 수 없다. mock 환경 검증만 끝났고, API 센터에 값을 등록한 뒤 실제 호출을
   확인해야 출시 게이트가 닫힌다.
-- **OAuth 동의 절차(state/PKCE/redirect allowlist) 내재화.** 지금은 카카오와 같이 사용자가 받은
-  토큰을 붙여넣는 방식이고, 자동 갱신은 그 시점부터 동작한다. 백로그 29번 Phase 0이 이걸 만든다 —
-  한 번만 만들어 26·27·29번이 같이 쓴다.
+- ~~OAuth 동의 절차(state/PKCE/redirect allowlist) 내재화~~ — **완료**(29번 Phase 0,
+  `connectors/oauth_flow.py`, 마이그레이션 0016). PR #83 이 Google OAuth 앱 안내를 웹 애플리케이션 유형으로
+  고쳤다 — 실제 '연결하기' 왕복 확인은 위 credential 검증과 함께.
 - 트리거는 폴링이라 스케줄 주기만큼 지연된다(웹훅 방식은 공개 콜백 URL 과 구독 갱신 필요).
 - 생성 평가 사례("새 영상 → 요약 → Slack 알림", "영상 업로드 → 재생목록 추가")와 노드별
   telemetry 수집은 아직 붙이지 않았다.
@@ -1097,27 +1563,59 @@ flowchart LR
   ND[Node Definition · 완료] --> DINDEX[documentIndexNode]
   ND --> KSEARCH[knowledgeSearchNode]
   ND --> WSEARCH[webSearchNode]
-  ND --> KO[한국형 노드]
   ND --> POINT[AI Semantic Pointing]
+  ND --> GH[34 GitHub Trigger/Action]
+  ND --> DATA3[35 데이터 노드 3종]
+  ND --> APP0[33 APP-0 사용자 제공 필드]
 
   REV[ProjectRevision · 완료] --> POINT
   REV --> LIB[작업물 Library]
+  REV --> APP3[33 APP-3 릴리스 고정]
   ART[ArtifactRef · 완료] --> DINDEX
-  ART --> DBEXPORT[DBOPS-3 JSON/XLSX export]
-  ERR[NodeError v1 · 완료] --> KO
-  SAFE[커뮤니티 안전 기반 · 완료] --> CN
-  DBQ[Database Query v2 · 완료] --> DBREAD[DBOPS-1·2 Explorer/Data Grid]
+  ART --> DBEXPORT[DBOPS-3 export]
+  ART --> APP2[33 APP-2 출력 바인딩]
+  ERR[NodeError v1 · 완료] --> E3[32 ENGINE-3 재시도·에러 분기]
+  CONN[연동 계약·OAuth callback·cursor · 완료] --> GH
+  CONN --> WSEARCH
+  CONN --> DEV3[34 DEV-3 GitLab·Jira·국내 메신저]
+  DBQ[Database Query v2 · 완료] --> DBREAD[DBOPS-1·2 Explorer]
+  DBQ --> DBW[Database Write — 31 DBOPS-4 = 34 DEV-3]
 
-  TEAM0[TEAM-0·1 · 완료] --> TEAM2[TEAM-2 workspace 자격증명]
+  LOCK[스케줄러 advisory lock · 독립] -.-> E2
+  E0[32 ENGINE-0 디스패처] --> E1[ENGINE-1 Run/Step]
+  E1 --> E2[ENGINE-2 큐/워커]
+  E2 --> E3
+  E0 --> PYISO[pythonNode 자식 프로세스 격리]
+  PYISO --> CN[13 선언형 community node SDK]
+  E0 --> SUBWF[35 subWorkflowNode]
+  E1 --> APP2
+  E1 --> OBS[37 관측·얼럿]
+  E2 --> CONTAINER[37 컨테이너·스테이징]
+
+  DEV0[34 DEV-0 웹훅 서명 검증] --> GH
+  GH --> DEV2[34 DEV-2 개발 편의 노드]
+  GH --> DEV3
+  DEV0 -.10초 응답.-> E2
+  GH --> GHAPP[34 DEV-4 GitHub App]
+
+  APP0 --> APP1[33 APP-1 원클릭 앱]
+  APP0 --> T1[템플릿 T1 해소]
+  APP1 --> APP2
+  APP2 --> APP4[33 APP-4 채팅·제출 이력]
+
+  POLICY[36 AGENT-0 toolPolicy] --> POINT
+  POLICY --> AGENT[36 agentNode]
+  AGENT --> MCP[36 mcpClientNode]
+  CONN --> MCP
+  MCP -.Sentry·Linear 수요 확인.-> DEV3
+
+  TEAM0[TEAM-0·1 · 완료] --> TEAM2[11 TEAM-2 workspace 자격증명]
   TEAM0 --> LIMIT[ResourceLimitService]
   TEAM2 --> TEAM3[TEAM-3 화면]
-  TEAM2 --> KB[사용자 지식베이스]
-  TEAM2 --> CRED[Credential Scope]
-  CRED --> WSEARCH
-  CRED --> KO
-
-  OAUTH[공통 OAuth callback] --> KO
-  OAUTH --> WSEARCH
+  TEAM2 --> KB[26 사용자 지식베이스]
+  TEAM2 --> GHWS[조직 저장소용 GitHub 자격증명]
+  TEAM2 --> DBWS[DBOPS-5 workspace hardening]
+  TEAM3 --> DEPMAP[38 의존성 맵]
 
   KB --> DINDEX
   DINDEX --> KSEARCH
@@ -1126,27 +1624,21 @@ flowchart LR
   KB --> DOCPOINT[문서 Citation Pointing]
   POINT --> DOCPOINT
 
-  URLGATE[URL 안전 게이트] --> KO
-  URLGATE --> WSEARCH
-
   LIMIT --> LIB
-  INK[Ink Main Shell] --> LIB
+  INK[30 Ink Main Shell] --> LIB
   INK --> HCHAT[Home Chat + Artifact Card]
-  INK --> DBREAD
   LIB --> HCHAT
 
   DBREAD --> DBEXPORT
-  DBREAD --> DBEDIT[DBOPS-4 안전한 수정]
-  TEAM2 --> DBWS[DBOPS-5 workspace hardening]
-  DBEDIT --> DBWS
-  DBEXPORT --> DBWS
+  DBREAD --> DBW
+  DBW --> DBWS
 
-  QNA[커뮤니티 Q&A · 완료] -.관측.-> CN[선언형 community node SDK]
-  CN --> EXEC[실행형 community node]
+  CI[37 GitHub Actions CI · 독립] -.-> E0
 ```
 
-`공통 OAuth callback`과 `URL 안전 게이트`가 여러 갈래의 공통 선행 조건이다. 둘 다 한국형 노드
-계획에서 나왔지만 그 계획 전용이 아니다.
+**세 개의 공통 선행 조건이 있다.** ENGINE-0(개입 지점)은 33 APP-2·35 서브워크플로우·37 관측·13 커뮤니티 노드의
+문이고, TEAM-2(workspace 자격증명)는 26 지식베이스·34 조직 저장소·31 DBOPS-5 의 소유 모델이며, AGENT-0
+(toolPolicy)은 28 재개와 36 에이전트의 공통 부품이다. 셋은 서로 독립이라 병행할 수 있다.
 
 ## 6. 중단 또는 재검토 기준
 
@@ -1177,6 +1669,23 @@ flowchart LR
 - **공식 템플릿**: 실행 이력 요건을 면제했으므로(ADR-0023 개정) **첫 실행 성공률을 일반 템플릿과
   나눠서 본다.** 공식 쪽이 눈에 띄게 낮으면 면제가 잘못된 것이다 — 배지를 떼거나 게시를 되돌리고,
   면제 범위를 넓히지 않는다.
+- **실행 엔진 v2**: 섀도 실행에서 옛 엔진과 차이가 나는 프로젝트는 원인을 없앨 때까지 전환하지 않는다 —
+  검증기를 완화하거나 코퍼스를 줄여 통과시키지 않는다. 실행 순서 의미론을 바꾸는 최적화(병렬 분기 등)는
+  등가성 증명 전에는 하지 않는다. 재시도를 넣은 뒤 부작용 노드의 중복 발송이 1건이라도 관측되면 재시도 기본값을
+  0 으로 되돌리고 멱등성부터 다시 본다.
+- **앱 빌더 통합**: 원클릭 앱의 첫 실행 성공률이 손으로 만든 앱보다 낮으면 컴포넌트를 늘리지 않고 폼 생성
+  규칙부터 고친다. share_token 다운로드 라우트가 그 앱의 산출물 밖을 한 건이라도 열면 즉시 닫는다.
+- **개발 도구 노드**: GitHub 전용 노드가 `httpRequestNode` 로 GitHub API 를 직접 부르는 그래프보다 첫 실행
+  성공률·채택률을 개선하지 못하면 DEV-3(2차 연동)을 멈추고 GitHub 노드의 mode·mock·안내부터 고친다. 웹훅
+  서명 검증을 끄고 쓰는 엔드포인트 비율이 높으면 검증 모드 UX 가 문제다 — 기본값을 바꾸기 전에 왜 끄는지 본다.
+  차별화 템플릿 5종의 설치 → 첫 실행 성공률이 일반 공식 템플릿보다 낮으면 조합을 줄인다.
+- **에이전트 노드·MCP**: allowlist 밖 도구 호출이나 승인 없는 파괴적 호출이 **한 건이라도** 적용되면 beta 를
+  중단한다. `toolPolicy` 를 완화해 우회하지 않는다. MCP 서버 URL 을 allowlist 밖으로 여는 것은 §7 의 결정 전에는
+  하지 않는다.
+- **운영**: 얼럿이 노이즈가 되면(하루 N건 이상, 조치 없이 닫힘) 임계를 올리는 대신 원인을 본다. CI 가 빨간
+  상태로 main 에 머지되는 일이 반복되면 테스트를 지우는 대신 격리 문제(`TEST_POSTGRES_URL`)를 먼저 푼다.
+- **흐름 제어·데이터 노드**: 데이터 노드 3종이 있어도 생성 결과에서 `llmNode` 가 데이터 성형에 계속 쓰이면
+  노드를 더 만들지 않고 카탈로그 유도 문장과 평가 사례부터 고친다(Phase 3 에서 `formatNode` 에 한 것과 같다).
 
 ### 이미 출시한 기능에서 계속 지켜볼 것
 
@@ -1199,7 +1708,9 @@ flowchart LR
 
 ## 7. 아직 정하지 않은 것
 
-결정된 질문(Q&A 성격, 공유 공개 범위, 메시지 수신 범위, 보존 기간)은 아카이브로 옮겼다.
+결정된 질문(Q&A 성격, 공유 공개 범위, 메시지 수신 범위, 보존 기간)은 08 아카이브로, 9(`webCrawlerNode`·
+`httpRequestNode` URL 게이트)·10(네이버 카페)은 2026-08-30 에 결정돼 `archive/COMPLETED_WORK_2026-09.md` §v2.3-7 로
+옮겼다. 9~13 은 이번 재작성에서 새로 생긴 질문이다.
 
 1. 1차 핵심 고객은 개인 제작자인가, 3~20명 규모의 업무 팀인가?
 2. 팀 프로젝트의 비용과 token balance는 개인, workspace, 프로젝트 중 어디에 귀속할 것인가?
@@ -1210,51 +1721,47 @@ flowchart LR
 7. hosted와 local 환경에서 사용할 기본 embedding provider와 허용 P95 지연시간은 무엇인가?
 8. 답변 품질 신호를 좋아요만으로 둘 것인가, 평판 점수를 도입할 것인가? MVP는 좋아요·채택만 두었다.
    평판은 도입하면 되돌리기 어렵고 초기 소수 사용자에게는 왜곡이 크다.
-10. ~~네이버 카페 게시를 계속 계획에 둘 것인가?~~
-    → **2026-08-30 확인: 둔다.** 카페는 HUB 이관 대상이 아니었을 뿐 개발자센터에 그대로 있다
-    (문서 온전·종료 공지 0건·엔드포인트가 405로 응답 — 미등록 경로의 400과 구분된다).
-    남은 것은 등록 화면에서 '카페'를 고를 수 있는지 눈으로 보는 것 하나다
-    (`plans/KOREAN_SERVICE_NODE_EXPANSION_PLAN.md` §4.0).
-
-9. ~~`webCrawlerNode`를 URL 게이트로 살릴 것인가, 폐기할 것인가?~~
-   → **2026-08-30 결정: 선택지 A(게이트).** `backend/url_guard.py`로 구현했다.
-
-   ~~이어지는 질문 — 같은 게이트를 `httpRequestNode`에도 걸 것인가?~~
-   → **2026-08-30 결정: (a) 그대로 둔다.** 사설 IP를 막으면 사내망·자체 호스팅 연동이 깨지는데,
-   "임의 HTTP 요청"이 그 노드의 존재 이유다. (b) 노드 설정 예외와 (c) workspace allowlist는
-   둘 다 **사설 IP 접근을 여는 권한**이라 누가 그 목록을 편집하는지부터 정해야 하고, 잘못 열면
-   그 자체가 권한 상승 경로가 된다. 지금 규모에서 감당할 복잡도가 아니라고 봤다.
-
-   **그래서 남는 것 — 받아들인 위험이다.**
-
-   - `httpRequestNode`는 URL 검증이 없다. LLM이나 사용자가 만든 주소가 `169.254.169.254`
-     (클라우드 메타데이터)나 내부 주소를 가리키면 그대로 요청이 나간다.
-   - `url_guard.PARTNERSHIP_REQUIRED_HOSTS`(디시인사이드·에펨코리아)도 이 노드로는 우회된다.
-   - `rssTriggerNode`는 scheme만 본다.
-
-   다시 볼 조건: **자체 호스팅 연동이 실제로 쓰이는지 확인되면** (b)를 재검토한다 — 아무도
-   안 쓰는 기능 때문에 SSRF를 열어 둘 이유는 없다.
+9. **개발자 확장의 1차 고객은 누구인가?** 1번 질문을 다시 묻는 것이다 — 비개발자 업무 팀에 개발 도구를
+   보조로 붙이는 것인가, 소규모 개발 팀을 새 고객으로 삼는 것인가. 답에 따라 34번 DEV-3 의 순서(국내 메신저
+   먼저 vs GitLab·Jira 먼저)와 DEV-4(GitHub App)의 시점이 갈린다.
+10. **큐 백엔드.** PostgreSQL `SKIP LOCKED` 로 시작한다(종합보고서 권고). Redis 로 바꾸는 조건은 무엇인가 —
+    처리량 수치인가, 워커 수인가, 다중 VM 인가? 지금 정하지 않으면 "나중에" 가 영영이 된다.
+11. **MCP 서버 접속 정책.** hosted 환경에서 사용자가 임의 MCP 서버 URL 을 등록하게 둘 것인가(SSRF·공급망
+    위험 — `httpRequestNode` 의 URL 게이트 결정과 같은 종류의 질문), 공식 서버 allowlist 로 시작할 것인가?
+    36번 AGENT-2 착수 전에 필요하다.
+12. **시연 플래그의 운명.** `DEMO_GUEST` 는 사실상 "회원가입 없는 체험" 이다. 시연 뒤 제거인가, 상시 기능으로
+    승격인가? 승격이면 게스트 정원·토큰 상한·콘텐츠 복사가 정식 계약이 되고 37번 O-9 의 정리 절차가 달라진다.
+13. **GitHub 자격증명의 소유.** 개인 PAT 로 시작하면 조직 저장소 자동화가 그 사람에게 묶인다. TEAM-2 를 34번
+    DEV-1 보다 앞에 둘 것인가, DEV-1 을 개인 저장소 한정으로 먼저 낼 것인가?
 
 ## 8. 참고 자료
 
 ### 남은 작업이 손댈 저장소 위치
 
-- `backend/project_access.py`: TEAM-0의 권한 판정 함수. 잔여 37곳이 여기로 모여야 한다
-- `backend/connectors/oauth.py`: 지금은 refresh 갱신만. 인가 코드 callback이 들어갈 자리
-- `backend/connectors/services/`: 연동 노드 executor. 신규 provider가 추가될 곳
-- `backend/rag_utils.py`: ChromaDB 검색과 현재 OpenAI embedding 의존성. 26번의 시작점
-- `backend/node_generators/action_nodes.py`: `webCrawlerNode`. URL 게이트가 들어갈 자리
-- `frontend/src/components/AIAssistantDrawer.jsx`: Workflow/App Builder 공용 AI 패널, target chip 없음
-- `frontend/src/pages/EditorPage.jsx`: 노드 선택·focus와 전체 `graph_data` AI 요청
-- `frontend/src/pages/AppBuilderPage.jsx`: 컴포넌트 `selectedIds`와 전체 `current_state` AI 요청
-- `backend/app_agent.py`: App Builder 상태 prompt. target-aware context/patch 검증 추가 지점
-- `design/MAIN_WORKSPACE_AND_HOME_CHAT_REDESIGN_PLAN.md`: 30번의 화면·데이터·행동·검증 정본
-- `frontend/src/MainSidebar.jsx`, `frontend/src/pages/MainPage.jsx`: Ink Shell, 홈 채팅과 Conversation Drawer
-- `frontend/src/pages/WorkflowsPage.jsx`, `CustomAppsDashboardPage.jsx`, `SchedulerPage.jsx`: 작업물 Library
-- 신규 `backend/resource_limits.py`, `backend/main.py`: 단일 사용량·한도와 목록 summary/action API
-- `plans/DATABASE_OPERATIONS_EXPLORER_PLAN.md`: 31번의 조회·export·수정·보안 정본
-- `frontend/src/pages/OperationsOverviewPage.jsx`, 신규 `DatabaseOperationsPage.jsx`: 운영 진입점과 Explorer
-- 신규 `backend/database_browse.py`, `database_exports.py`, `database_writes.py`: bounded 조회·파일·수정 경계
+- `backend/graph.py`: `compile_workflow`(entry/stop/scope/pinned)·`run_workflow`(`exec`, :1011). 32번 ENGINE-0 의 본체
+- `backend/node_generators/`: 실행기 49종 등록(`node_registry.register`). executor 매핑이 붙을 자리. `flow_nodes.py` 의
+  loop/merge/distributor 의미론이 첫 대조 기준
+- `backend/scheduler.py`: `AsyncIOScheduler` 인프로세스. advisory lock 과 큐 폴링이 들어갈 자리
+- `backend/connectors/`: `contract.py`(connector 블록)·`session.py`(타임아웃·재시도·rate limit)·`oauth_flow.py`(인가 코드
+  callback)·`cursor.py`(`select_new`)·`services/`(9종 — `youtube.py` 가 Trigger/Action 선례). 34번 GitHub 서비스 파일이 여기
+- `credential_providers.json`: provider 18종. GitHub PAT(`api_key`)·GitHub App(새 kind)이 추가될 곳
+- `backend/main.py:3496` `receive_webhook`: 34번 DEV-0 서명 검증·비동기 응답이 들어갈 자리
+- `backend/rate_limit.py`: 커뮤니티 쓰기 상한. 37번 O-3 이 재사용
+- `backend/hidden_nodes.py`·`demo_credentials.py`·`seed_demo_booth.py`: 시연 플래그. 37번 O-9 제거 절차의 대상
+- `backend/delivery_runtime.py`: `resolve_recipient`(`{{USER_EMAIL}}`), Artifact 첨부. 34번 국내 메신저 발송이 같은 경로
+- `backend/app_agent.py`, `frontend/src/components/UIEngine.jsx`(컴포넌트 17종), `frontend/src/pages/AppBuilderPage.jsx`:
+  33번. `FieldBindingPicker`(ADR-0026)가 APP-2 바인딩 문법의 원형
+- `backend/community_sanitize.py:needs_input_for`: 33번 APP-0 이 `userProvided` 를 읽게 할 곳
+- `backend/pointing.py`, `frontend/src/pages/EditorPage.jsx:517`(`POINTING_ENABLED`): 28번 재개 지점. 36번 `toolPolicy` 가
+  여기에 먼저 적용된다
+- `backend/project_access.py`: TEAM-0 의 권한 판정. 잔여 71곳이 여기로 모여야 한다
+- `backend/rag_utils.py`: ChromaDB 검색과 OpenAI embedding 의존. 26번의 시작점
+- `design/MAIN_WORKSPACE_AND_HOME_CHAT_REDESIGN_PLAN.md`, `frontend/src/MainSidebar.jsx`, `frontend/src/pages/MainPage.jsx`,
+  `WorkflowsPage.jsx`·`CustomAppsDashboardPage.jsx`·`SchedulerPage.jsx`: 30번
+- `plans/DATABASE_OPERATIONS_EXPLORER_PLAN.md`, `frontend/src/pages/OperationsOverviewPage.jsx`, 신규 `backend/database_browse.py`·
+  `database_exports.py`·`database_writes.py`: 31번(`database_writes.py` 는 34번 DEV-3 과 공유)
+- `scripts/deploy.sh`·`rollback.sh`·`scripts/server/`: 배포 레일. 37번 O-6 컨테이너화가 이 레일을 유지해야 한다
+- `docs/reports/security_assessment.md`·`load_assessment.md`·`privilege_containment_runbook.md`: 32번·37번의 보안·부하 근거
 
 ### 외부 공식 문서
 
@@ -1264,3 +1771,61 @@ flowchart LR
 - [n8n: Community nodes](https://docs.n8n.io/integrations/community-nodes/)
 - [n8n: Node UI elements](https://docs.n8n.io/integrations/creating-nodes/build/reference/ui-elements/)
 - [n8n: Security audit](https://docs.n8n.io/hosting/securing/security-audit/)
+
+### 34·36번 조사 출처 (2026-09-06)
+
+참조 제품의 개발자 노드:
+[n8n GitHub](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.github/) ·
+[n8n GitHub Trigger](https://docs.n8n.io/integrations/builtin/trigger-nodes/n8n-nodes-base.githubtrigger/) ·
+[n8n GitLab](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.gitlab/) ·
+[n8n Jira](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.jira/) ·
+[n8n Linear](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.linear/) ·
+[n8n Sentry.io](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.sentryio/) ·
+[n8n Jenkins](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.jenkins/) ·
+[n8n DevOps 템플릿](https://n8n.io/workflows/categories/devops/) ·
+[Zapier GitHub](https://zapier.com/apps/github/integrations) ·
+[Make GitHub](https://apps.make.com/github) ·
+[Pipedream GitHub](https://github.com/PipedreamHQ/pipedream/blob/master/components/github/README.md) ·
+[Activepieces GitHub](https://www.activepieces.com/pieces/github) ·
+[Kestra plugin-github](https://kestra.io/plugins/plugin-github) ·
+[GitHub for Slack](https://github.com/integrations/slack)
+
+GitHub 계약:
+[Apps vs OAuth Apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/differences-between-github-apps-and-oauth-apps) ·
+[설치 토큰](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app) ·
+[웹훅 이벤트](https://docs.github.com/en/webhooks/webhook-events-and-payloads) ·
+[서명 검증](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries) ·
+[웹훅 모범사례](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks) ·
+[REST rate limit](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api) ·
+[Releases generate-notes](https://docs.github.com/en/rest/releases/releases) ·
+[Actions workflow dispatch](https://docs.github.com/en/rest/actions/workflows) ·
+[Check runs](https://docs.github.com/en/rest/checks/runs) ·
+[Dependabot alerts](https://docs.github.com/en/rest/dependabot/alerts) ·
+[GitLab webhook events](https://docs.gitlab.com/user/project/integrations/webhook_events/) ·
+[Bitbucket webhooks](https://support.atlassian.com/bitbucket-cloud/docs/manage-webhooks/)
+
+MCP 와 AI 코드 도구:
+[n8n MCP Client Tool](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolmcp/) ·
+[Zapier MCP Client](https://help.zapier.com/hc/en-us/articles/38777069364109-Connect-remote-MCP-servers-to-Zapier-using-MCP-Client) ·
+[Make MCP Client](https://www.make.com/en/blog/mcp-client) ·
+[GitHub MCP Server](https://github.com/github/github-mcp-server) ·
+[Sentry MCP](https://github.com/getsentry/sentry-mcp) ·
+[Linear MCP](https://linear.app/docs/mcp) ·
+[Claude Code Action](https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md) ·
+[Claude Code Review](https://code.claude.com/docs/en/code-review) ·
+[Copilot code review](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review) ·
+[CodeRabbit](https://docs.coderabbit.ai/)
+
+비커넥터 노드·국내 도구:
+[OSV API](https://google.github.io/osv.dev/api/) ·
+[changedetection.io](https://changedetection.io/) ·
+[Zapier Formatter regex](https://help.zapier.com/hc/en-us/articles/8496278106637-Use-regular-expressions-regex-to-find-text-in-Zap-workflows) ·
+[n8n Compare Datasets](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.comparedatasets) ·
+[네이버웍스 Bot API](https://developers.worksmobile.com/kr/docs/bot) ·
+[카카오워크 Web API](https://docs.kakaoi.ai/kakao_work/webapireference/) ·
+[잔디 Incoming Webhook](https://support.jandi.com/ko/articles/connect-team-inconing-webhook-f281bf2e) ·
+[Dooray CLI(비공식)](https://github.com/jon890/dooray-cli)
+
+조사에서 **확인하지 못한 것**: Make GitHub 트리거의 instant/polling 여부, Zapier·Pipedream 의 GitHub 인증 방식, n8n Sentry
+트리거 존재, n8n MCP Client 의 Streamable HTTP 지원, Bitbucket `X-Event-Key` 공식 문서, Dooray Incoming Hook 공식 문서 본문,
+Atlassian(Jira) 공식 MCP 서버, 국내 GitLab/Jenkins 점유율 통계. 34번 착수 시 해당 항목은 다시 확인한다.
