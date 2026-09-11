@@ -732,6 +732,17 @@ def _pause_for_approval(signal, *, db, project_id, owner_user_id, session_id,
         session_id=session_id,
         origin=str(session_id or "unknown"),
     )
+    # 실행 상태 기록(ENGINE-1, ADR-0028)에도 재개 상태를 남긴다 — 승인 결정·대기·워커 재시작이 같은 execution.resume 을 쓴다.
+    # approval_requests 는 알림·결정 UI 의 정본으로 그대로 두고, run 이 request_id 를 가리킨다.
+    import execution as _execution
+    _run = _execution.current_run()
+    if _run is not None:
+        import run_records
+        _execution.record_guarded(
+            run_records.record_pause, db, _run, reason=run_records.PAUSE_APPROVAL, node_id=str(signal_node_id),
+            payload=signal_payload, snapshot=snapshot,
+            runtime_inputs=approval_service.serializable_runtime_inputs(runtime_inputs),
+            approval_request_id=request.request_id)
     logs.append({
         "node_id": str(signal_node_id),
         "node_type": "humanApprovalNode",

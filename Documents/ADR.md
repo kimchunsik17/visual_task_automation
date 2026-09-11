@@ -2166,4 +2166,26 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
 - **스위치**: `RUN_RECORDS=0`(기록 끔), `RUN_EVENTS=0`(이벤트 끔·스트림 404). 둘 다 실행 결과에는 영향이 없다.
 - 검증: `test_run_events.py` 11건(두 엔진 이벤트 순서·흐름 노드 시작 1회·실패/예외 run_finished·결과 불변·사용자 없음·큐 포화·
   SSE 본문), `test_run_timeline_api.py`(라우트 배선·권한·404·스트림 스위치).
-- 남은 것: 에디터·앱 빌더가 `/api/workflow-runs/stream` 을 구독해 노드 상태를 그리는 프론트 작업(33번 APP-2 와 함께), 2단계 재개 일반화.
+- 남은 것: 에디터·앱 빌더가 `/api/workflow-runs/stream` 을 구독해 노드 상태를 그리는 프론트 작업(33번 APP-2 와 함께). 2단계는 아래 추기.
+
+**추기 (2026-09-10) — 2단계 재개 일반화**
+
+- **paused 인 run 이 재개 상태를 갖는다**(마이그레이션 0025): `paused_reason`(approval | 뒤에 wait·worker_restart) · `resume_node_id` ·
+  `resume_payload`(재개 지점의 직전 노드 출력 자리 값 — 승인자가 본 견본) · `graph_snapshot` · `runtime_inputs`(직렬화 가능한 것만,
+  `approval_service.serializable_runtime_inputs`) · `approval_request_id` · `resume_count` · `resumed_at`. `graph._pause_for_approval` 이
+  승인 요청을 만든 직후 `execution.current_run()` 에 `run_records.record_pause` 로 남긴다.
+- **재개 함수는 하나다 — `execution.resume(run_id, db=…, trigger_source=…, extra_inputs=…)`.** run 의 재개 상태로 `start(resume_run_id=…)`
+  를 부르고, `start` 는 새 run 을 만들지 않고 `run_records.reopen` 으로 **같은 행을 다시 연다**(paused 가 아니면 ValueError — 기록
+  실패로 삼키지 않는다; 재개 자체가 틀린 것이다). 그래서 한 논리적 실행은 대기를 몇 번 거쳐도 run 하나다: step 은 sequence 를
+  이어 붙이고(대기 step 뒤에 재개 구간), 토큰은 누적, 진행 이벤트는 같은 runId. 예약 키(session_id·project_id·`__approval_payload__`·
+  `approval_decisions`)는 runtime_inputs 에서 빼고 명시 인자로 준다 — 결정은 재개하는 쪽(extra_inputs)의 몫이다.
+- **승인은 첫 소비자다.** `approval_service.decide_and_resume` 이 `run_records.find_paused_by_approval(request_id)` 로 run 을 찾아
+  `execution.resume` 을 부른다. `approval_requests` 는 알림·결정 UI·권한(소유자만)·원자적 전이의 정본으로 그대로 두었다 — 두 표의
+  역할이 다르다(요청은 사람에게 묻는 사건, run 은 실행 상태). 기록이 없는 요청(마이그레이션 전·`RUN_RECORDS=0`)은 예전 방식으로
+  요청 행의 스냅샷에서 새 실행을 만든다 — 후방 호환.
+- **대안**: (a) ApprovalRequest 에 재개 로직을 계속 두기 — 대기 노드·워커 재시작마다 같은 코드를 또 만든다. (b) 재개를 새 run 으로
+  만들고 parent 로 잇기 — 타임라인이 갈라지고 "한 실행이 어디까지 갔나" 를 두 행에서 합쳐 읽어야 한다. 둘 다 기각.
+- 검증: `test_run_resume.py` 12건(재개 상태·resume_arguments·승인/거절 갈래/거절 중단이 같은 run 에 이어짐·재개 이벤트 runId·
+  일반 resume·비 paused 거부·db 없음 거부·옛 요청 폴백·RUN_RECORDS=0·마이그레이션), `test_approval_flow.py` 그대로 통과.
+- ENGINE-1 은 백엔드가 끝났다. 남은 것은 프론트 진행 표시(APP-2)와 ENGINE-2 — 워커가 끊긴 running run 을 회수할 때 이 재개 함수를
+  쓴다(마지막 완료 step 다음부터; 부작용 노드를 지났으면 실패로 확정).

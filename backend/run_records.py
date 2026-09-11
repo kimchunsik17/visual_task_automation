@@ -113,12 +113,14 @@ def error_summary(result_text: Any, logs: Optional[List[dict]]) -> Optional[str]
     return text[:ERROR_SUMMARY_CHARS] if text else None
 
 
-def steps_from_logs(run_id: int, logs: Optional[List[dict]], tokens: Optional[dict]) -> List[models.RunStep]:
+def steps_from_logs(run_id: int, logs: Optional[List[dict]], tokens: Optional[dict],
+                    start_sequence: int = 1) -> List[models.RunStep]:
+    """log_step 기록 → step 행. start_sequence 는 재개된 run 이 앞 구간 뒤에 이어 붙일 때 쓴다."""
     node_tokens: Dict[str, Any] = {}
     if isinstance(tokens, dict) and isinstance(tokens.get("nodes"), dict):
         node_tokens = tokens["nodes"]
     steps: List[models.RunStep] = []
-    for sequence, step in enumerate((s for s in (logs or []) if isinstance(s, dict)), start=1):
+    for sequence, step in enumerate((s for s in (logs or []) if isinstance(s, dict)), start=start_sequence):
         node_id = str(step.get("node_id") or "")
         raw_status = str(step.get("status") or "success")
         status = "pinned" if step.get("pinned") else STEP_STATUS.get(raw_status, raw_status)
@@ -148,11 +150,14 @@ def finish(db, run: models.WorkflowRun, *, result_text: Any, tokens: Optional[di
     run.status = run_status(result_text, logs)
     run.finished_at = None if run.status == STATUS_PAUSED else now
     run.heartbeat_at = now
-    run.total_tokens = total_tokens_from_usage(tokens if isinstance(tokens, dict) else {})
+    # 재개된 run 은 앞 구간에 이어 붙인다 — 토큰은 누적, step 은 sequence 를 이어 간다.
+    run.total_tokens = int(run.total_tokens or 0) + total_tokens_from_usage(tokens if isinstance(tokens, dict) else {})
     run.error_summary = error_summary(result_text, logs) if run.status == STATUS_FAILED else None
-    steps = steps_from_logs(run.id, logs, tokens)
+    steps = steps_from_logs(run.id, logs, tokens, start_sequence=int(run.step_count or 0) + 1)
     db.add_all(steps)
-    run.step_count = len(steps)
+    run.step_count = int(run.step_count or 0) + len(steps)
+    if run.status != STATUS_PAUSED:
+        run.paused_reason = None
     db.flush()
     return run
 
@@ -222,3 +227,63 @@ def list_runs(db, project_id: int, *, limit: int = 20, offset: int = 0) -> List[
     rows = (db.query(models.WorkflowRun).filter(models.WorkflowRun.project_id == int(project_id))
             .order_by(models.WorkflowRun.id.desc()).offset(offset).limit(limit).all())
     return [public_run(run) for run in rows]
+
+
+# ── 재개 (ENGINE-1 2단계) ───────────────────────────────────────────────────
+# 승인 대기 전용이던 스냅샷 재개(ADR-0015)를 run 으로 일반화한다. paused 인 run 이 재개에 필요한 것을 갖고,
+# execution.resume 이 그것으로 execution.start(resume_run_id=…) 를 부른다. approval_requests 는 알림·결정 UI 의 정본으로
+# 그대로 두고, run 이 request_id 를 가리킨다.
+RESERVED_RUNTIME_KEYS = ("session_id", "project_id", "__approval_payload__", "approval_decisions")
+PAUSE_APPROVAL = "approval"
+
+
+def record_pause(db, run: models.WorkflowRun, *, reason: str, node_id: str, payload, snapshot: dict,
+                 runtime_inputs: dict, approval_request_id: Optional[str] = None) -> models.WorkflowRun:
+    """실행이 durable 대기로 전환되는 순간 재개 상태를 남긴다. 상태 자체(paused)는 finish 가 waiting step 을 보고 정한다."""
+    run.paused_reason = reason
+    run.resume_node_id = str(node_id)
+    run.resume_payload = str(payload if payload is not None else "")
+    run.graph_snapshot = {"nodes": list((snapshot or {}).get("nodes") or []), "edges": list((snapshot or {}).get("edges") or [])}
+    run.runtime_inputs = dict(runtime_inputs or {})
+    run.approval_request_id = approval_request_id
+    db.flush()
+    return run
+
+
+def reopen(db, run_id: int) -> models.WorkflowRun:
+    """paused 인 run 을 다시 running 으로 — 재개 실행의 기록이 같은 행에 이어진다. paused 가 아니면 ValueError(재개 자체가 틀렸다)."""
+    run = db.query(models.WorkflowRun).filter(models.WorkflowRun.id == int(run_id)).first()
+    if run is None:
+        raise LookupError(f"실행 기록 {run_id} 를 찾을 수 없다")
+    if run.status != STATUS_PAUSED:
+        raise ValueError(f"paused 상태만 재개할 수 있다 (현재 {run.status})")
+    now = _now()
+    run.status = STATUS_RUNNING
+    run.resume_count = int(run.resume_count or 0) + 1
+    run.resumed_at = now
+    run.heartbeat_at = now
+    db.flush()
+    return run
+
+
+def resume_arguments(run: models.WorkflowRun) -> Dict[str, Any]:
+    """execution.start 에 넘길 재개 인자. 예약 키(session/project/승인 payload·결정)는 runtime_inputs 에서 뺀다 —
+    각각 명시 인자로 들어가고, 결정은 재개하는 쪽(extra_inputs)이 준다."""
+    snapshot = run.graph_snapshot or {}
+    inputs = {k: v for k, v in (run.runtime_inputs or {}).items() if k not in RESERVED_RUNTIME_KEYS}
+    return {
+        "nodes": list(snapshot.get("nodes") or []),
+        "edges": list(snapshot.get("edges") or []),
+        "entry_node_id": run.resume_node_id,
+        "approval_payload": run.resume_payload if run.resume_payload is not None else "",
+        "runtime_inputs": inputs,
+        "session_id": run.session_id,
+        "project_id": run.project_id,
+        "executor_user_id": run.executor_user_id,
+    }
+
+
+def find_paused_by_approval(db, request_id: str) -> Optional[models.WorkflowRun]:
+    return (db.query(models.WorkflowRun)
+            .filter(models.WorkflowRun.approval_request_id == request_id, models.WorkflowRun.status == STATUS_PAUSED)
+            .order_by(models.WorkflowRun.id.desc()).first())
