@@ -3721,19 +3721,30 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
 
     # 큐가 켜져 있으면(ENGINE-2) 실행하지 않고 넣고 202 로 곧바로 답한다 — 웹훅 발신자(GitHub 등)는 10초 안 2xx 를 기대한다.
     # 워커가 같은 run 행 위에서 실행하고 과금(FlowExecutionLog)도 남긴다. 결과는 /api/projects/{id}/workflow-runs/{run_id} 로.
+    # 중복 제거(ENGINE-3 4단계, ADR-0030 추기): 발신자의 전달 id 헤더(X-GitHub-Delivery 등) 또는 webhookNode 가 켠 payload 해시로
+    # 키를 만든다. 같은 키는 run 하나 — 재전송은 실행하지 않고 그 run 을 알려 준다(발신자는 2xx 만 보면 된다). 키가 없으면 예전과 같다.
+    import idempotency
+    webhook_node = next((n for n in nodes if isinstance(n, dict) and n.get('id') == webhook_node_id), None)
+    dedupe_key = idempotency.webhook_key(project.id, request.headers, payload, node=webhook_node)
+
     import run_queue
     if run_queue.queue_enabled():
         try:
-            run = run_queue.enqueue(db, nodes=nodes, edges=edges, trigger_source="webhook", project_id=project.id,
-                                    session_id='webhook_' + str(project.id), runtime_inputs=inputs)
+            enqueue_kwargs = dict(nodes=nodes, edges=edges, trigger_source="webhook", project_id=project.id,
+                                  session_id='webhook_' + str(project.id), runtime_inputs=inputs)
+            if dedupe_key:
+                run, created = run_queue.enqueue_or_existing(db, idempotency_key=dedupe_key, **enqueue_kwargs)
+            else:
+                run, created = run_queue.enqueue(db, **enqueue_kwargs), True
             db.commit()
         except Exception as e:
             db.rollback()
             return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
-        return JSONResponse(status_code=202, content={"status": "queued", "run_id": run.id, "project_id": project.id})
+        return JSONResponse(status_code=202, content={"status": "queued" if created else "duplicate", "run_id": run.id,
+                                                     "project_id": project.id})
 
     try:
-        result_text, tokens, logs = execution.start(nodes, edges, trigger_source="webhook", db=db, session_id='webhook_' + str(project.id), project_id=project.id, **inputs)
+        result_text, tokens, logs = execution.start(nodes, edges, trigger_source="webhook", db=db, session_id='webhook_' + str(project.id), project_id=project.id, idempotency_key=dedupe_key, **inputs)
         # 성공/실패는 실행 로그의 구조화 오류(NodeError v1)로 판정한다 — 결과 문자열 검색은
         # legacy 문구가 남은 경로의 fallback 으로만 남아 있다(ADR-0016, node_errors.runtime).
         flow_status = node_error_runtime.flow_outcome(result_text, logs)
@@ -3753,6 +3764,10 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
         )
         db.commit()
         return {"status": "success", "result": result_text}
+    except execution.DuplicateRun as dup:
+        # 같은 전달 id 의 재전송 — 실행하지 않았다. 2xx 로 답해 발신자의 재시도를 멈추고 원래 run 을 알려 준다.
+        db.rollback()
+        return {"status": "duplicate", "run_id": dup.run_id, "project_id": project.id}
     except Exception as e:
         db.rollback()
         return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
