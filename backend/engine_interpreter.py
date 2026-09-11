@@ -139,6 +139,16 @@ class Break:
 
 
 @dataclass
+class ErrorSplit:
+    """error 출력 핸들이 있는 노드(ENGINE-3 2단계) — 본문을 돌린 뒤 실패면 on_error, 성공이면 normal. 옛 엔진의
+    graph.emit_error_split(if/else)과 같은 배타 분기."""
+    node_id: str
+    body: Exec
+    on_error: List
+    normal: List
+
+
+@dataclass
 class Root:
     items: List
 
@@ -149,6 +159,7 @@ class Plan:
     nodes: list
     project_id: Any
     entry_node_id: Any
+    error_branches: bool = False      # error 간선이 있어 프렐류드 헬퍼(_node_failed·_node_error_payload)가 필요한가
 
 
 def build_plan(nodes: list, edges: list, *, project_id=None, entry_node_id=None, stop_node_id=None,
@@ -184,7 +195,8 @@ class _PlanBuilder:
                 self.gate.flush_stranded(
                     lambda join_id, visited: items.extend(self.block(join_id, None, None, visited, _as_join=True)))
             plan_roots.append(Root(items))
-        return Plan(plan_roots, self.prepared.nodes, project_id, entry_node_id)
+        return Plan(plan_roots, self.prepared.nodes, project_id, entry_node_id,
+                    error_branches=gt.has_error_branches(self.prepared.edges, self.node_dict))
 
     def block(self, node_id: str, active_llm_id: Optional[str], prev_res_var: Optional[str],
               visited: set, _as_join: bool = False) -> List:
@@ -238,10 +250,33 @@ class _PlanBuilder:
         if not body.wrappable:
             raise PlanError(f"{node_type}({node_id}) 는 NATIVE_FLOW_TYPES 가 아닌데 본문만 떼어 낼 수 없다 "
                             f"(nests={body.nests_downstream}, terminal={body.terminal_statement}, branches={body.branches})")
-        items.append(Exec(node_id, body.source, kind="body", node_type=node_type, retry=node_retry.retry_settings(node)))
+        body_item = Exec(node_id, body.source, kind="body", node_type=node_type, retry=node_retry.retry_settings(node))
+        error_targets = gt.error_branch_targets(node_id, self.forward)
+        if error_targets:
+            # 에러 출력 핸들(ENGINE-3 2단계) — 옛 엔진의 emit_error_split 과 같은 배타 분기, 같은 순서(error 갈래 → 보통 하류).
+            # 갈래 경로를 표시해 두 갈래에서 만나는 재합류를 분기 뒤에 한 번 놓는다.
+            normal_targets = gt.normal_branch_targets(node_id, self.forward)
+            payload_var = gt.error_payload_var(node_id)
+            on_error = self._branch(node_id, gt.ERROR_HANDLE, lambda: [
+                it for t in error_targets for it in self.block(t, active_llm_id, payload_var, visited)])
+            normal = self._branch(node_id, gt.OK_BRANCH_KEY, lambda: [
+                it for call in body.downstream if call.target_id in normal_targets
+                for it in self.block(call.target_id, call.active_llm_id, call.prev_res_var, visited)])
+            items.append(ErrorSplit(node_id, body_item, on_error, normal))
+            self.gate.flush_ready(
+                lambda join_id, vis: items.extend(self.block(join_id, None, None, vis, _as_join=True)))
+            return items
+        items.append(body_item)
         for call in body.downstream:
             items.extend(self.block(call.target_id, call.active_llm_id, call.prev_res_var, visited))
         return items
+
+    def _branch(self, owner_id: str, key: str, build):
+        self.gate.begin_branch(owner_id, key)
+        try:
+            return build()
+        finally:
+            self.gate.end_branch()
 
     # ── 흐름 노드 6종 — 생성기와 같은 구조, 같은 곧은 줄 ───────────────────
     def _flow(self, node_type, node_id, node, active_llm_id, prev_res_var, visited):
@@ -406,6 +441,8 @@ class _Executor:
             self._started(item.node_id, item.node_type)
             exec(item.body.code(), self.ns)
             raise BreakSignal()
+        elif isinstance(item, ErrorSplit):
+            self._error_split(item)
         else:  # pragma: no cover
             raise PlanError(f"모르는 계획 항목: {type(item).__name__}")
 
@@ -442,6 +479,17 @@ class _Executor:
                                 error_code=error_code, delay_sec=delay)
         except Exception:  # 이벤트는 부수 기능 — 재시도를 막지 않는다
             pass
+
+    def _error_split(self, item: ErrorSplit) -> None:
+        """본문(재시도 포함)을 돌린 뒤 log_step 메타로 실패를 판정한다 — 옛 엔진의 `if _node_failed(...)` 와 같은 헬퍼를 쓴다."""
+        self.run_item(item.body)
+        if self.ns['_node_failed'](item.node_id):
+            payload = self.ns['_node_error_payload'](item.node_id)
+            self.ns[gt.error_payload_var(item.node_id)] = payload   # 옛 엔진의 방출과 같은 변수 — 형제 복원이 덮지 못한다
+            self.ns['last_result'] = payload
+            self.run_items(item.on_error)
+        else:
+            self.run_items(item.normal)
 
     def _condition(self, item: Cond) -> None:
         self._run_header(item)
@@ -525,6 +573,10 @@ def _compile_all(items: List) -> None:
             _compile_all(item.plain)
         elif isinstance(item, (Output, Break)):
             item.body.code()
+        elif isinstance(item, ErrorSplit):
+            item.body.code()
+            _compile_all(item.on_error)
+            _compile_all(item.normal)
 
 
 def execute(plan: Plan, namespace: Dict[str, Any], runtime_inputs: Dict[str, Any], observer=None) -> Any:
@@ -534,7 +586,7 @@ def execute(plan: Plan, namespace: Dict[str, Any], runtime_inputs: Dict[str, Any
     import graph
 
     lines: List[str] = []
-    graph.emit_module_prelude(lines, plan.nodes, plan.project_id)
+    graph.emit_module_prelude(lines, plan.nodes, plan.project_id, error_branches=plan.error_branches)
     exec(compile("\n".join(lines), "<workflow prelude>", "exec"), namespace)
     llm_lines: List[str] = []
     graph.emit_llm_setup(llm_lines, plan.nodes, plan.project_id, indent="")
