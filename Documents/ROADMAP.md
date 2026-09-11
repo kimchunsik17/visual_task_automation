@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-1 착수(2026-09-09)** — `workflow_runs`·`run_steps`(마이그레이션 0024), 단일 진입점이 실행마다 기록(ADR-0028). ENGINE-0 은 코드 완료, 운영 절차(242종 대조·스테이징 shadow)만 남음 | ENGINE-1 2·3단계 재개 일반화·SSE 타임라인 |
+| 실행 엔진 v2 (32) | **ENGINE-1 1·3단계 백엔드 완료(2026-09-09)** — `workflow_runs`·`run_steps`(0024), 진입점 기록, 타임라인 API, 노드 경계 SSE(ADR-0028). ENGINE-0 은 운영 절차만 남음 | ENGINE-1 2단계 재개 일반화 · 에디터 진행 표시(프론트) → ENGINE-2 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -329,8 +329,14 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    예외는 그대로 올린다. **호출자 세션에 flush 만** 하고 커밋은 호출자가 FlowExecutionLog 를 남길 때 함께 한다. 기록 실패는
    경고만 남기고 실행에 영향을 주지 않는다(`RUN_RECORDS=0` 으로 끌 수 있다). 노드 경계 **실시간** 기록은 3단계(SSE)에서.
 2. 승인 대기 전용이던 스냅샷 재개(ADR-0015)를 일반화 — 승인·wait·워커 재시작이 같은 메커니즘.
-3. `/api/projects/{id}/runs` 를 노드 단위 타임라인으로. step 기록을 SSE(`message_stream.py` 재사용)로 흘려
-   에디터 실시간 진행 표시 → 33번 APP-2 의 진행률이 여기서 나온다.
+3. ~~`/api/projects/{id}/runs` 를 노드 단위 타임라인으로. step 기록을 SSE 로 흘려 에디터 실시간 진행 표시~~ **백엔드 완료
+   (2026-09-09)** — `GET /api/projects/{id}/workflow-runs`(목록, RUN 권한) · `GET /api/projects/{id}/workflow-runs/{run_id}`(step 포함) ·
+   `GET /api/workflow-runs/stream`(SSE, 실행한 사용자 채널). 옛 `/api/projects/{id}/runs`(FlowExecutionLog 목록)에는 `run_id` 를 덧붙였다. `backend/run_events.py`: 프렐류드의 `log_step` 을 네임스페이스에서 감싸
+   node_finished 를 내므로 **생성 소스는 그대로**이고 두 엔진이 같은 이벤트를 낸다; node_started 는 인터프리터만(`_Executor.run_item`
+   이 노드 경계를 안다). `message_stream.py` 를 재사용하지 않은 이유: 그 모듈은 DB 를 정본으로 재전송(Last-Event-ID)하는데 실행
+   기록은 트랜잭션 끝까지 보이지 않아 그 모델이 맞지 않다 — 진행 이벤트는 프로세스 안 큐로 즉시 흘리고 놓친 것은 타임라인으로
+   메운다. 채널 키가 실행한 사용자라 익명 공개 앱은 아직 이벤트가 없다(33번 APP-2 가 익명 세션 키를 더할 자리). **프론트
+   진행 표시는 미구현** — 에디터가 `/api/workflow-runs/stream` 을 구독해 노드 상태를 그리는 일은 33번 APP-2 와 함께.
 4. ~~`FlowExecutionLog` 는 남기되 `run_id` 를 붙인다.~~ **완료(2026-09-09)** — `usage_tracking.record_usage` 가 직전 `execution.start` 의
    run id 를 contextvar 에서 **한 번만** 꺼내 붙인다(`execution.take_last_run_id`; 프로젝트가 다르면 붙이지 않는다). 호출부 11곳은
    고치지 않았다. 통계(`build_statistics`)는 건드리지 않았다.
@@ -1788,7 +1794,8 @@ flowchart LR
 ### 남은 작업이 손댈 저장소 위치
 
 - `backend/graph.py`: `compile_workflow`(entry/stop/scope/pinned)·`run_workflow`(`exec`)·`emit_module_prelude`. 순회 규칙은 `backend/graph_traversal.py`, 노드 본문 렌더러는 `backend/node_bodies.py`, 인터프리터는 `backend/engine_interpreter.py`, 등가성 도구는 `backend/codegen_corpus_diff.py`·`engine_shadow_diff.py` — 32번 ENGINE-0 의 본체(ADR-0027)
-- `backend/run_records.py`: `workflow_runs`·`run_steps` 기록(ENGINE-1, ADR-0028). `execution.start` 가 부른다
+- `backend/run_records.py`: `workflow_runs`·`run_steps` 기록·조회(ENGINE-1, ADR-0028). `execution.start` 가 부른다
+- `backend/run_events.py`: 노드 경계 진행 이벤트 pub/sub + SSE(`/api/workflow-runs/stream`). `log_step` 래퍼와 인터프리터 훅이 낸다
 - `backend/node_generators/`: 실행기 49종 등록(`node_registry.register`). executor 매핑이 붙을 자리. `flow_nodes.py` 의
   loop/merge/distributor 의미론이 첫 대조 기준
 - `backend/scheduler.py`: `AsyncIOScheduler` 인프로세스. advisory lock 과 큐 폴링이 들어갈 자리

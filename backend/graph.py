@@ -902,6 +902,8 @@ def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=
             # 승인 재개(ADR-0015): 승인자가 본 payload 가 재개 지점의 직전 노드 출력이 된다.
             runtime_inputs['__approval_payload__'] = approval_payload if approval_payload is not None else ''
         try:
+            # 진행 이벤트(ENGINE-1 3단계): 프렐류드가 정의한 log_step 을 네임스페이스에서 감싼다 — 생성 소스는 그대로다.
+            observer = _execution.current_observer()
             if engine == _execution.ENGINE_INTERPRETER:
                 import engine_interpreter
                 # 생성 소스를 컴파일만 한다(실행하지 않는다). ast.parse 는 통과하지만 compile 에서만 잡히는 오류
@@ -910,11 +912,14 @@ def run_workflow(nodes: list, edges: list, db=None, session_id=None, project_id=
                 result = engine_interpreter.run(
                     nodes, edges, namespace=namespace, runtime_inputs=runtime_inputs, project_id=project_id,
                     entry_node_id=entry_node_id, stop_node_id=stop_node_id, scope_node_ids=scope_node_ids,
-                    pinned_outputs=pinned_outputs)
+                    pinned_outputs=pinned_outputs, observer=observer)
             else:
                 exec(python_code, namespace)
                 if 'run_workflow' not in namespace:
                     return "Execution failed: run_workflow function not found.", {}, []
+                if observer is not None:
+                    import run_events
+                    run_events.attach_step_observer(namespace, observer)
                 result = namespace['run_workflow'](**runtime_inputs)
         except Exception as inner:
             # 승인 노드의 대기 신호는 오류가 아니라 "여기서 멈추고 결정을 기다린다"는 뜻이다.

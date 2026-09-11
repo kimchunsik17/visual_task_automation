@@ -58,9 +58,13 @@ class PlanError(Exception):
 # ── 계획 ───────────────────────────────────────────────────────────────────
 @dataclass
 class Exec:
-    """곧은 줄 묶음 — 네임스페이스에서 그대로 exec. 노드 본문·고정 출력·형제 복원·흐름 노드 머리/꼬리."""
+    """곧은 줄 묶음 — 네임스페이스에서 그대로 exec. 노드 본문·고정 출력·형제 복원·흐름 노드 머리/꼬리.
+    kind 는 진행 이벤트(ENGINE-1)가 "노드가 시작됐다" 를 어느 항목에서 낼지 고르는 데 쓴다 — body·pinned·header 가
+    시작점이고 restore·tail 은 아니다."""
     node_id: str
     source: str
+    kind: str = "body"                # body | pinned | restore | header | tail
+    node_type: Optional[str] = None
     _code: Any = field(default=None, repr=False, compare=False)
 
     def code(self):
@@ -121,12 +125,14 @@ class Approval:
 class Output:
     node_id: str
     body: Exec
+    node_type: str = "outputNode"
 
 
 @dataclass
 class Break:
     node_id: str
     body: Exec
+    node_type: str = "breakNode"
 
 
 @dataclass
@@ -203,7 +209,7 @@ class _PlanBuilder:
         if node_id in self.pinned:
             lines: List[str] = []
             out_var = graph.emit_pinned_output(lines, node_id, node, "", self.pinned[node_id])
-            items.append(Exec(node_id, "\n".join(lines)))
+            items.append(Exec(node_id, "\n".join(lines), kind="pinned", node_type=node['type']))
             for target_id, _handle in self.forward.get(node_id, []):
                 items.extend(self.block(target_id, active_llm_id, out_var, visited))
             return items
@@ -211,7 +217,7 @@ class _PlanBuilder:
         # 0.5 병렬 분기 형제 오염 복원(PR #69)
         restore_src = gt.sibling_restore_source(node_id, prev_res_var, node_dict=self.node_dict, index=self.index)
         if restore_src is not None:
-            items.append(Exec(node_id, graph.sibling_restore_line("", restore_src)))
+            items.append(Exec(node_id, graph.sibling_restore_line("", restore_src), kind="restore", node_type=node['type']))
 
         node_type = node['type']
         if node_type in node_bodies.NATIVE_FLOW_TYPES:
@@ -229,7 +235,7 @@ class _PlanBuilder:
         if not body.wrappable:
             raise PlanError(f"{node_type}({node_id}) 는 NATIVE_FLOW_TYPES 가 아닌데 본문만 떼어 낼 수 없다 "
                             f"(nests={body.nests_downstream}, terminal={body.terminal_statement}, branches={body.branches})")
-        items.append(Exec(node_id, body.source))
+        items.append(Exec(node_id, body.source, kind="body", node_type=node_type))
         for call in body.downstream:
             items.extend(self.block(call.target_id, call.active_llm_id, call.prev_res_var, visited))
         return items
@@ -276,7 +282,7 @@ class _PlanBuilder:
             expr = _flow.condition_expr(var, rule.get('operator', 'Contains'), rule.get('value', ''))
             cases.append((expr, branch(rule.get("id"))))
         otherwise = branch("else")
-        return Cond(node_id, Exec(node_id, "\n".join(header)), cases, otherwise)
+        return Cond(node_id, Exec(node_id, "\n".join(header), kind="header", node_type=node['type']), cases, otherwise)
 
     def _loop(self, node_id, node, active_llm_id, prev_res_var, visited) -> Loop:
         max_iter = node.get('data', {}).get('maxIterations', 5)
@@ -289,8 +295,8 @@ class _PlanBuilder:
         _flow.emit_loop_tail(tail, node_id, node, "", acc_var)
         done = _flow.done_target(node_id, self.forward)
         done_items = self.block(done, active_llm_id, acc_var, visited) if done is not None else []
-        return Loop(node_id, Exec(node_id, "\n".join(header)), f"int({max_iter})", acc_var, body,
-                    Exec(node_id, "\n".join(tail)), done_items)
+        return Loop(node_id, Exec(node_id, "\n".join(header), kind="header", node_type=node['type']), f"int({max_iter})",
+                    acc_var, body, Exec(node_id, "\n".join(tail), kind="tail", node_type=node['type']), done_items)
 
     def _distributor(self, node_id, node, active_llm_id, prev_res_var, visited) -> Distribute:
         acc_var = f"dist_acc_{node_id}"
@@ -305,8 +311,9 @@ class _PlanBuilder:
         _flow.emit_distributor_tail(tail, node_id, node, "", acc_var, joined_var)
         done = _flow.done_target(node_id, self.forward)
         done_items = self.block(done, active_llm_id, joined_var, visited) if done is not None else []
-        return Distribute(node_id, Exec(node_id, "\n".join(header)), f"dist_list_{node_id}", item_var, acc_var,
-                          body_items, Exec(node_id, "\n".join(tail)), done_items)
+        return Distribute(node_id, Exec(node_id, "\n".join(header), kind="header", node_type=node['type']),
+                          f"dist_list_{node_id}", item_var, acc_var, body_items,
+                          Exec(node_id, "\n".join(tail), kind="tail", node_type=node['type']), done_items)
 
     def _approval(self, node_id, node, active_llm_id, prev_res_var, visited) -> Approval:
         header: List[str] = []
@@ -336,8 +343,8 @@ class _PlanBuilder:
         else:
             for target_id in plain_edges:
                 plain_items.extend(self.block(target_id, active_llm_id, 'last_result', visited))
-        return Approval(node_id, Exec(node_id, "\n".join(header)), f"approval_{node_id}", has_handles,
-                        approved_items, rejected_items, plain_items)
+        return Approval(node_id, Exec(node_id, "\n".join(header), kind="header", node_type=node['type']),
+                        f"approval_{node_id}", has_handles, approved_items, rejected_items, plain_items)
 
 
 # ── 실행 ───────────────────────────────────────────────────────────────────
@@ -349,15 +356,33 @@ class _Executor:
     """계획을 네임스페이스 위에서 실행한다. run_item 이 유일한 개입 지점이다 — 노드별 재시도·타임아웃·
     단계 기록(ENGINE-1·3)은 여기에 얹는다."""
 
-    def __init__(self, namespace: Dict[str, Any]):
+    STARTING_KINDS = ("body", "pinned", "header")
+
+    def __init__(self, namespace: Dict[str, Any], observer=None):
         self.ns = namespace
+        # run_events.RunObserver 또는 None — node_started 만 여기서 낸다(node_finished 는 log_step 래퍼가 낸다).
+        self.observer = observer
 
     def run_items(self, items: List) -> None:
         for item in items:
             self.run_item(item)
 
+    def _started(self, node_id: str, node_type: Optional[str]) -> None:
+        if self.observer is not None:
+            try:
+                self.observer.node_started(node_id, node_type)
+            except Exception:  # 이벤트는 부수 기능 — 실행을 막지 않는다
+                pass
+
+    def _run_header(self, item) -> None:
+        # 흐름 노드의 머리(Exec kind=header)는 run_item 을 거치지 않으므로 여기서 시작 이벤트를 낸다.
+        self._started(item.node_id, item.header.node_type)
+        exec(item.header.code(), self.ns)
+
     def run_item(self, item) -> None:
         if isinstance(item, Exec):
+            if item.kind in self.STARTING_KINDS:
+                self._started(item.node_id, item.node_type)
             exec(item.code(), self.ns)
         elif isinstance(item, Cond):
             self._condition(item)
@@ -368,16 +393,18 @@ class _Executor:
         elif isinstance(item, Approval):
             self._approval(item)
         elif isinstance(item, Output):
+            self._started(item.node_id, item.node_type)
             exec(item.body.code(), self.ns)
             raise ReturnSignal(self.ns['last_result'])
         elif isinstance(item, Break):
+            self._started(item.node_id, item.node_type)
             exec(item.body.code(), self.ns)
             raise BreakSignal()
         else:  # pragma: no cover
             raise PlanError(f"모르는 계획 항목: {type(item).__name__}")
 
     def _condition(self, item: Cond) -> None:
-        exec(item.header.code(), self.ns)
+        self._run_header(item)
         for (expr, branch), code in zip(item.cases, item.compiled_cases()):
             if eval(code, self.ns):
                 self.run_items(branch)
@@ -385,7 +412,7 @@ class _Executor:
         self.run_items(item.otherwise)
 
     def _loop(self, item: Loop) -> None:
-        exec(item.header.code(), self.ns)
+        self._run_header(item)
         count = eval(item.count_expr, self.ns)
         for idx in range(count):
             self.ns[f"_loop_idx_{item.node_id}"] = idx
@@ -400,7 +427,7 @@ class _Executor:
         self.run_items(item.done)
 
     def _distribute(self, item: Distribute) -> None:
-        exec(item.header.code(), self.ns)
+        self._run_header(item)
         acc = self.ns[item.acc_var]
         for value in self.ns[item.list_var]:
             self.ns[item.item_var] = value
@@ -414,7 +441,7 @@ class _Executor:
         self.run_items(item.done)
 
     def _approval(self, item: Approval) -> None:
-        exec(item.header.code(), self.ns)  # 결정이 없으면 여기서 __ApprovalPendingSignal__ 이 올라간다
+        self._run_header(item)  # 결정이 없으면 여기서 __ApprovalPendingSignal__ 이 올라간다
         approved = _ui.is_approved(self.ns[item.decision_var])
         if item.has_handles:
             if approved:
@@ -460,9 +487,10 @@ def _compile_all(items: List) -> None:
             item.body.code()
 
 
-def execute(plan: Plan, namespace: Dict[str, Any], runtime_inputs: Dict[str, Any]) -> Any:
+def execute(plan: Plan, namespace: Dict[str, Any], runtime_inputs: Dict[str, Any], observer=None) -> Any:
     """계획을 실행하고 결과 값을 돌려준다. 토큰·로그는 옛 엔진과 같은 이름으로 namespace 에 남는다
-    (__token_usage__·__execution_logs__) — 호출자(graph.run_workflow)가 거기서 읽는다."""
+    (__token_usage__·__execution_logs__) — 호출자(graph.run_workflow)가 거기서 읽는다.
+    observer(run_events.RunObserver)가 있으면 프렐류드의 log_step 을 감싸 node_finished 를, 실행기가 node_started 를 낸다."""
     import graph
 
     lines: List[str] = []
@@ -473,10 +501,13 @@ def execute(plan: Plan, namespace: Dict[str, Any], runtime_inputs: Dict[str, Any
     if llm_lines:
         exec(compile("\n".join(llm_lines), "<workflow llm setup>", "exec"), namespace)
     namespace['kwargs'] = runtime_inputs
+    if observer is not None:
+        import run_events
+        run_events.attach_step_observer(namespace, observer)
     for root in plan.roots:
         _compile_all(root.items)
 
-    executor = _Executor(namespace)
+    executor = _Executor(namespace, observer)
     signal_cls = namespace.get('__ApprovalPendingSignal__')
     global_results: List[str] = []
     many = len(plan.roots) > 1
@@ -511,8 +542,8 @@ def execute(plan: Plan, namespace: Dict[str, Any], runtime_inputs: Dict[str, Any
 
 
 def run(nodes: list, edges: list, *, namespace: Dict[str, Any], runtime_inputs: Dict[str, Any], project_id=None,
-        entry_node_id=None, stop_node_id=None, scope_node_ids=None, pinned_outputs=None) -> Any:
+        entry_node_id=None, stop_node_id=None, scope_node_ids=None, pinned_outputs=None, observer=None) -> Any:
     """graph.run_workflow 가 exec 대신 부르는 진입점. 인자 의미는 compile_workflow 와 같다."""
     plan = build_plan(nodes, edges, project_id=project_id, entry_node_id=entry_node_id, stop_node_id=stop_node_id,
                       scope_node_ids=scope_node_ids, pinned_outputs=pinned_outputs)
-    return execute(plan, namespace, runtime_inputs)
+    return execute(plan, namespace, runtime_inputs, observer=observer)

@@ -171,3 +171,54 @@ def fail(db, run: models.WorkflowRun, exc: BaseException) -> models.WorkflowRun:
 def looks_like_session(db) -> bool:
     """호출자가 넘긴 db 가 기록을 받을 수 있는 세션인가 — 테스트가 문자열 자리표시자를 넘기는 경우가 있다."""
     return all(hasattr(db, name) for name in ("add", "flush", "query"))
+
+
+# ── 조회 · 직렬화 (타임라인 API) ─────────────────────────────────────────────
+def _iso(value) -> Optional[str]:
+    return value.isoformat() if value is not None else None
+
+
+def public_step(step: models.RunStep) -> Dict[str, Any]:
+    return {
+        "sequence": step.sequence,
+        "nodeId": step.node_id,
+        "nodeType": step.node_type,
+        "attempt": step.attempt,
+        "status": step.status,
+        "startedAt": _iso(step.started_at),
+        "finishedAt": _iso(step.finished_at),
+        "outputPreview": step.output_preview,
+        "tokens": step.tokens,
+        "error": step.error,
+    }
+
+
+def public_run(run: models.WorkflowRun, *, with_steps: bool = False) -> Dict[str, Any]:
+    payload = {
+        "id": run.id,
+        "projectId": run.project_id,
+        "triggerSource": run.trigger_source,
+        "engine": run.engine,
+        "status": run.status,
+        "executorUserId": run.executor_user_id,
+        "ownerUserId": run.owner_user_id,
+        "sessionId": run.session_id,
+        "startedAt": _iso(run.started_at),
+        "finishedAt": _iso(run.finished_at),
+        "heartbeatAt": _iso(run.heartbeat_at),
+        "errorSummary": run.error_summary,
+        "totalTokens": run.total_tokens,
+        "stepCount": run.step_count,
+    }
+    if with_steps:
+        payload["steps"] = [public_step(step) for step in run.steps]
+    return payload
+
+
+def list_runs(db, project_id: int, *, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+    """프로젝트의 실행 목록, 최신 먼저. step 은 싣지 않는다(상세에서)."""
+    limit = max(1, min(int(limit), 100))
+    offset = max(0, int(offset))
+    rows = (db.query(models.WorkflowRun).filter(models.WorkflowRun.project_id == int(project_id))
+            .order_by(models.WorkflowRun.id.desc()).offset(offset).limit(limit).all())
+    return [public_run(run) for run in rows]

@@ -2921,7 +2921,9 @@ def get_project_runs(project_id: int, db: Session = Depends(get_db), user: model
             "execution_time": run.execution_time,
             "status": run.status,
             "total_tokens": run.total_tokens,
-            "result_summary": run.result[:100] + "..." if run.result and len(run.result) > 100 else run.result
+            "result_summary": run.result[:100] + "..." if run.result and len(run.result) > 100 else run.result,
+            # 이 사건을 만든 실행 상태 기록(workflow_runs, ENGINE-1) — /api/projects/{id}/workflow-runs/{run_id} 로 건너간다.
+            "run_id": run.run_id,
         } for run in runs
     ]
 
@@ -5025,6 +5027,55 @@ async def stream_messages(request: Request, last_event_id: int = 0,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
                  "X-Accel-Buffering": "no"},
+    )
+
+
+# ── 실행 상태 타임라인 · 진행 이벤트 (백로그 32 ENGINE-1, ADR-0028) ─────────────
+# 정본은 workflow_runs·run_steps(run_records) 다. 경로가 `workflow-runs` 인 이유: `/api/projects/{id}/runs` 는 과금 사건
+# (FlowExecutionLog) 목록으로 이미 쓰이고(ProjectRunsPage), `/api/runs/{run_id}` 가 int 경로라 `/api/runs/stream` 을 가로챈다.
+# 권한은 RUN — 실행 기록은 결과 미리보기를 담으므로 위 runs 라우트와 같은 이유로 공개 범위(VIEW)에 열지 않는다.
+# 스트림은 실행한 사용자에게 노드 경계 이벤트를 즉시 흘리는 지연 최적화이고, 놓친 것은 타임라인으로 메운다.
+
+@app.get("/api/projects/{project_id}/workflow-runs")
+def list_project_workflow_runs(project_id: int, limit: int = 20, offset: int = 0,
+                               user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    import run_records
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    _require_project_action(db, user, project, project_access.RUN)
+    return {"runs": run_records.list_runs(db, project_id, limit=limit, offset=offset)}
+
+
+@app.get("/api/projects/{project_id}/workflow-runs/{run_id}")
+def get_project_workflow_run(project_id: int, run_id: int,
+                             user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    import run_records
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    _require_project_action(db, user, project, project_access.RUN)
+    run = (db.query(models.WorkflowRun)
+           .filter(models.WorkflowRun.id == run_id, models.WorkflowRun.project_id == project_id).first())
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run_records.public_run(run, with_steps=True)
+
+
+@app.get("/api/workflow-runs/stream")
+async def stream_run_events(user: models.User = Depends(get_current_user_required)):
+    """SSE — 내가 실행한 워크플로우의 노드 경계 이벤트(node_started·node_finished·run_finished). 실행 전에 열어 둔다.
+    재전송은 없다(정본은 타임라인 API). nginx 버퍼링은 X-Accel-Buffering 으로 끈다(message_stream 과 같다)."""
+    import run_events
+
+    if not run_events.enabled():
+        raise HTTPException(status_code=404, detail="실행 진행 이벤트가 꺼져 있습니다(RUN_EVENTS=0).")
+    if run_events.stream_count(user.id) >= run_events.MAX_STREAMS_PER_USER:
+        raise HTTPException(status_code=429, detail="열려 있는 연결이 너무 많습니다. 다른 탭을 닫아주세요.")
+    return StreamingResponse(
+        run_events.event_stream(user.id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
 

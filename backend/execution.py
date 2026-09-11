@@ -82,6 +82,16 @@ def take_last_run_id(project_id=None) -> Optional[int]:
     return run_id
 
 
+# 진행 이벤트(run_events.RunObserver, ENGINE-1 3단계). start 가 만들어 contextvar 로 두고, graph.run_workflow 가
+# 프렐류드 네임스페이스의 log_step 을 감싸는 데 쓴다(생성 소스 무변경). 인터프리터는 노드 시작 이벤트도 낸다.
+_current_observer: contextvars.ContextVar[Optional[Any]] = contextvars.ContextVar("execution_run_observer", default=None)
+
+
+def current_observer():
+    """지금 실행 중인 워크플로우의 진행 이벤트 발행자. 실행 밖이거나 발행자가 없으면 None."""
+    return _current_observer.get()
+
+
 def _record_guarded(action, *args, **kwargs):
     """기록은 부수 기능이다 — 실패해도 실행 결과를 바꾸지 않고 경고만 남긴다."""
     try:
@@ -190,30 +200,48 @@ def start(nodes: list, edges: list, *, trigger_source: str, **kwargs: Any) -> Tu
     # 엔진 선택(legacy/interpreter/shadow)은 run_workflow 가 자격증명 치환 뒤 exec 지점에서 한다 — 두 엔진이
     # 같은 전처리를 거친 노드를 받아야 하기 때문이다(ADR-0027).
     import graph as _graph
+    import run_events
     import run_records
 
     db = kwargs.get("db")
+    project_id = kwargs.get("project_id")
+    executor_user_id = kwargs.get("executor_user_id")
+    engine = engine_mode(project_id)
     run = None
     if db is not None and run_records.enabled() and run_records.looks_like_session(db):
         run = _record_guarded(
-            run_records.begin, db, trigger_source=trigger_source, engine=engine_mode(kwargs.get("project_id")),
-            project_id=kwargs.get("project_id"), executor_user_id=kwargs.get("executor_user_id"),
-            session_id=kwargs.get("session_id"))
+            run_records.begin, db, trigger_source=trigger_source, engine=engine, project_id=project_id,
+            executor_user_id=executor_user_id, session_id=kwargs.get("session_id"))
         if run is not None:
             _last_run.set((run.id, run.project_id))
 
+    observer = None
+    if run_events.enabled() and executor_user_id is not None:
+        observer = run_events.RunObserver(run_id=run.id if run is not None else None, project_id=project_id,
+                                          executor_user_id=executor_user_id, session_id=kwargs.get("session_id"),
+                                          trigger_source=trigger_source, engine=engine)
+
     token = _current_trigger.set(trigger_source)
+    observer_token = _current_observer.set(observer)
     try:
         result = _graph.run_workflow(nodes, edges, **kwargs)
     except Exception as exc:
         if run is not None:
             _record_guarded(run_records.fail, db, run, exc)
+        if observer is not None:
+            _record_guarded(observer.finished, run_records.STATUS_FAILED,
+                            error_summary=f"{type(exc).__name__}: {exc}"[:500])
         raise
     finally:
         _current_trigger.reset(token)
+        _current_observer.reset(observer_token)
+    result_text, tokens, logs = result
     if run is not None:
-        result_text, tokens, logs = result
         _record_guarded(run_records.finish, db, run, result_text=result_text, tokens=tokens, logs=logs)
+    if observer is not None:
+        status = run.status if run is not None else run_records.run_status(result_text, logs)
+        _record_guarded(observer.finished, status, error_summary=run.error_summary if run is not None else None,
+                        total_tokens=run.total_tokens if run is not None else None)
     return result
 
 
