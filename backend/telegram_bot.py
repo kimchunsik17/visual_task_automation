@@ -13,7 +13,7 @@ import requests
 from usage_tracking import EVENT_WORKFLOW_EXECUTION, outcome_from_result, record_usage
 from database import SessionLocal
 import models
-from graph import run_workflow
+import execution
 from credential_crypto import decrypt_secret
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}/{method}"
@@ -146,8 +146,8 @@ def process_update(project_id: int, update: dict) -> None:
 
         nodes = project.graph_data.get('nodes', [])
         edges = project.graph_data.get('edges', [])
-        result_text, tokens, logs = run_workflow(
-            nodes, edges, db=db, session_id=f"telegram_{chat_id}", project_id=project_id, default_input=text
+        result_text, tokens, logs = execution.start(
+            nodes, edges, trigger_source="bot", db=db, session_id=f"telegram_{chat_id}", project_id=project_id, default_input=text
         )
 
         send_telegram_message(token, chat_id, result_text)

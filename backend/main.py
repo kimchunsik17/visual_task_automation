@@ -25,7 +25,8 @@ from google.auth.transport import requests as google_requests
 from database import engine, Base, get_db
 import db_migrate
 import models
-from graph import compile_workflow, run_workflow
+from graph import compile_workflow
+import execution
 from node_errors import runtime as node_error_runtime
 from dry_run import dry_run_workflow
 from meta_agent import FLOW_REPAIR_PROMPT_VERSION, run_agent_turn
@@ -2270,7 +2271,7 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
     _reject_oversized_inputs(user_inputs)
 
     try:
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id, user_inputs=user_inputs)
+        result_text, tokens, logs = execution.start(nodes, edges, trigger_source="app", db=db, session_id='app_runner', project_id=project.id, user_inputs=user_inputs)
         
         db_log = record_usage(
             db,
@@ -2358,7 +2359,7 @@ def run_project_workflow(project_id: int, request: Request, payload: Optional[Pr
     _reject_oversized_inputs(user_inputs)
 
     try:
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='custom_app_run', project_id=project.id, user_inputs=user_inputs)
+        result_text, tokens, logs = execution.start(nodes, edges, trigger_source="app", db=db, session_id='custom_app_run', project_id=project.id, user_inputs=user_inputs)
         
         record_usage(
             db,
@@ -2461,8 +2462,8 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db),
 
     # 1. Run LangGraph
     try:
-        result_text, tokens, logs = run_workflow(
-            payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id,
+        result_text, tokens, logs = execution.start(
+            payload.nodes, payload.edges, trigger_source="manual", db=db, session_id='editor', project_id=payload.project_id,
             executor_user_id=user.id,   # 저장 전 그래프도 실행한 사람을 소유자로 — {{USER_EMAIL}} 수신자 해석
             stop_node_id=payload.stop_node_id, scope_node_ids=payload.scope_node_ids,
             pinned_outputs=payload.pinned_outputs,
@@ -3564,7 +3565,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
                 inputs_dict["input_text"] = values[0]
                 inputs_dict["text"] = values[0]
 
-    result_text, tokens, logs = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **inputs_dict)
+    result_text, tokens, logs = execution.start(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), trigger_source="api", db=db, session_id='api_call_' + str(project.id), project_id=project.id, **inputs_dict)
     
     import json
     try:
@@ -3666,7 +3667,7 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
     inputs = {webhook_node_id: json.dumps(payload, ensure_ascii=False)}
     
     try:
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='webhook_' + str(project.id), project_id=project.id, **inputs)
+        result_text, tokens, logs = execution.start(nodes, edges, trigger_source="webhook", db=db, session_id='webhook_' + str(project.id), project_id=project.id, **inputs)
         # 성공/실패는 실행 로그의 구조화 오류(NodeError v1)로 판정한다 — 결과 문자열 검색은
         # legacy 문구가 남은 경로의 fallback 으로만 남아 있다(ADR-0016, node_errors.runtime).
         flow_status = node_error_runtime.flow_outcome(result_text, logs)

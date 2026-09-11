@@ -284,15 +284,16 @@ def decide_and_resume(
         raise RuntimeError(f"이미 처리된 요청입니다 (현재 상태: {request.status})")
     db.refresh(request)
 
-    from graph import run_workflow
+    import execution
 
     snapshot = request.graph_snapshot or {}
     runtime_inputs = dict(request.runtime_inputs or {})
     runtime_inputs.pop("session_id", None)
     runtime_inputs.pop("project_id", None)
-    result_text, tokens, logs = run_workflow(
+    result_text, tokens, logs = execution.start(
         snapshot.get("nodes") or [],
         snapshot.get("edges") or [],
+        trigger_source="approval",
         db=db,
         session_id=request.session_id,
         project_id=request.project_id,
