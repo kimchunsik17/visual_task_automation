@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-0 코드 완료(2026-09-08)** — 인터프리터·프로젝트별 flag·코퍼스 대조 도구까지(ADR-0027). 남은 것은 운영 절차(242종 대조·스테이징 shadow) | ENGINE-1 Run/Step |
+| 실행 엔진 v2 (32) | **ENGINE-1 착수(2026-09-09)** — `workflow_runs`·`run_steps`(마이그레이션 0024), 단일 진입점이 실행마다 기록(ADR-0028). ENGINE-0 은 코드 완료, 운영 절차(242종 대조·스테이징 shadow)만 남음 | ENGINE-1 2·3단계 재개 일반화·SSE 타임라인 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -260,6 +260,11 @@ node 설정 (모든 노드 공통, 정의에서 파생)
   출력 핸들 `error` (ENGINE-3 부터) — NodeError 가 나면 흐름이 이쪽으로 돈다
 ```
 
+**구현(2026-09-09, 마이그레이션 0024·ADR-0028)** — 위 계약과 다른 점: `output_ref` 대신 `output_preview`(앞 2000자; 전체는
+`NodeExecutionLog`·artifact 에 있다), `engine` 컬럼(legacy|interpreter) 추가, `status` 는 running|succeeded|failed|paused 만
+(queued·cancelled 는 ENGINE-2 부터), `trigger_source` 는 `execution.TRIGGER_SOURCES` 9종 그대로. `idempotency_key`·`heartbeat_at`
+은 자리만 잡아 두었다(ENGINE-2·3).
+
 `error_catalog.json` 의 각 오류 코드에 **재시도 가능 여부**(`retryable`)를 필드로 추가한다 — 429·타임아웃·5xx 는
 지수 백오프, 401·검증 오류는 즉시 실패. NodeError v1(ADR-0016)의 `retryable` 개념이 이미 있으므로 새
 분류 체계를 만들지 않는다.
@@ -318,11 +323,17 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 
 ##### ENGINE-1. Run/Step 실행 상태 영속화 — 1~2주
 
-1. `workflow_runs`·`run_steps` 마이그레이션. 노드 경계마다 step 을 기록한다.
+1. ~~`workflow_runs`·`run_steps` 마이그레이션. 노드 경계마다 step 을 기록한다.~~ **완료(2026-09-09)** — 마이그레이션 0024,
+   `backend/run_records.py`. `execution.start` 가 db 를 받은 실행마다 run 을 만들고(begin) 끝나면 `__execution_logs__` 의 log_step
+   기록 하나를 step 하나로 남긴다(finish) — 두 엔진이 같은 기록을 남기므로 엔진과 무관하게 같은 step. 엔진 예외는 failed 로 닫고
+   예외는 그대로 올린다. **호출자 세션에 flush 만** 하고 커밋은 호출자가 FlowExecutionLog 를 남길 때 함께 한다. 기록 실패는
+   경고만 남기고 실행에 영향을 주지 않는다(`RUN_RECORDS=0` 으로 끌 수 있다). 노드 경계 **실시간** 기록은 3단계(SSE)에서.
 2. 승인 대기 전용이던 스냅샷 재개(ADR-0015)를 일반화 — 승인·wait·워커 재시작이 같은 메커니즘.
 3. `/api/projects/{id}/runs` 를 노드 단위 타임라인으로. step 기록을 SSE(`message_stream.py` 재사용)로 흘려
    에디터 실시간 진행 표시 → 33번 APP-2 의 진행률이 여기서 나온다.
-4. `FlowExecutionLog` 는 남기되 `run_id` 를 붙인다. 통계(`build_statistics`)는 건드리지 않는다.
+4. ~~`FlowExecutionLog` 는 남기되 `run_id` 를 붙인다.~~ **완료(2026-09-09)** — `usage_tracking.record_usage` 가 직전 `execution.start` 의
+   run id 를 contextvar 에서 **한 번만** 꺼내 붙인다(`execution.take_last_run_id`; 프로젝트가 다르면 붙이지 않는다). 호출부 11곳은
+   고치지 않았다. 통계(`build_statistics`)는 건드리지 않았다.
 
 ##### ENGINE-2. 큐와 워커 분리 — 2주
 
@@ -1776,7 +1787,8 @@ flowchart LR
 
 ### 남은 작업이 손댈 저장소 위치
 
-- `backend/graph.py`: `compile_workflow`(entry/stop/scope/pinned)·`run_workflow`(`exec`)·`emit_module_prelude`. 순회 규칙은 `backend/graph_traversal.py`, 노드 본문 렌더러는 `backend/node_bodies.py`, 등가성 도구는 `backend/codegen_corpus_diff.py` — 32번 ENGINE-0 의 본체(ADR-0027)
+- `backend/graph.py`: `compile_workflow`(entry/stop/scope/pinned)·`run_workflow`(`exec`)·`emit_module_prelude`. 순회 규칙은 `backend/graph_traversal.py`, 노드 본문 렌더러는 `backend/node_bodies.py`, 인터프리터는 `backend/engine_interpreter.py`, 등가성 도구는 `backend/codegen_corpus_diff.py`·`engine_shadow_diff.py` — 32번 ENGINE-0 의 본체(ADR-0027)
+- `backend/run_records.py`: `workflow_runs`·`run_steps` 기록(ENGINE-1, ADR-0028). `execution.start` 가 부른다
 - `backend/node_generators/`: 실행기 49종 등록(`node_registry.register`). executor 매핑이 붙을 자리. `flow_nodes.py` 의
   loop/merge/distributor 의미론이 첫 대조 기준
 - `backend/scheduler.py`: `AsyncIOScheduler` 인프로세스. advisory lock 과 큐 폴링이 들어갈 자리

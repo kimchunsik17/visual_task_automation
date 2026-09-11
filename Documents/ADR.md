@@ -2095,3 +2095,56 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
 - **남은 일(운영 절차)**: 운영 DB 에서 242종 내보내 대조 → 스테이징 `shadow` 계획 검사 → 프로젝트별 `:interpreter` → 기본값
   interpreter. executor 레지스트리 슬롯은 만들지 않았다 — 하이브리드에서 executor 는 두 종류(네이티브 6종·래퍼)뿐이고, 노드를
   네이티브로 이식할 때(ENGINE-3) 타입별 슬롯이 처음 필요해진다.
+
+## ADR-0028 · 실행 상태 기록: workflow_runs · run_steps 를 단일 진입점에서 남긴다
+
+| 상태 | 수락됨 · 2026-09-09 (ENGINE-1 1단계 구현 — 기록 모델·진입점 기록·FlowExecutionLog 연결. 재개 일반화·SSE 타임라인은 다음 단계) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.1 ENGINE-1, ADR-0027(인터프리터), ADR-0015(승인 재개), ADR-0016(NodeError v1), 마이그레이션 0024 |
+
+**맥락 (Context)**
+
+실행 기록은 `FlowExecutionLog`(실행 사건: 과금·사용량·outcome)와 그에 매달린 `NodeExecutionLog`(노드 기록) 두 표였다.
+둘은 **호출부가 실행이 끝난 뒤** `usage_tracking.record_usage` 로 남기는 "누가 얼마를 썼나" 의 장부다. 여기에는 어느
+경로로 시작했는지(trigger_source), 어느 엔진이 돌았는지, 지금 대기(paused) 중인지, 어디까지 갔는지 같은 **실행 상태**가
+없다. 큐/워커(ENGINE-2)가 끊긴 실행을 회수하고, 재시도·멱등성(ENGINE-3)이 "이 노드는 이미 성공했다"를 판단하려면 실행
+상태 표가 있어야 한다. 실행의 단일 진입점(`execution.start`, ENGINE-0 1단계)이 생겨 이제 그 표를 한 곳에서 채울 수 있다.
+
+**결정 (Decision)**
+
+1. **두 표를 새로 만든다** — `workflow_runs`(실행 하나: project·trigger_source·engine·status·executor/owner·session·
+   started/finished/heartbeat·error_summary·total_tokens·step_count·idempotency_key)와 `run_steps`(노드 한 번: sequence·
+   node_id/type·attempt·status·started/finished·output_preview·tokens·error). `FlowExecutionLog` 는 그대로 두고 `run_id` 만
+   붙인다 — 과금·통계는 건드리지 않는다.
+2. **`execution.start` 가 기록한다.** db 를 받은 실행마다 begin(running) → 결과가 오면 finish(succeeded|failed|paused +
+   step) → 엔진이 예외를 던지면 fail(failed) 뒤 예외를 그대로 올린다. 호출부 11곳은 고치지 않는다.
+3. **step 은 실행이 끝난 뒤 `__execution_logs__`(log_step 기록)에서 만든다.** 두 엔진(legacy exec·interpreter)이 같은 기록을
+   남기므로 엔진과 무관하게 같은 step 이 나온다. 노드 경계의 실시간 기록은 인터프리터의 `_Executor.run_item` 에 얹을 수 있지만
+   정본은 이 사후 변환이다 — legacy 엔진이 살아 있는 동안 두 경로가 같은 표를 채워야 한다.
+4. **호출자의 세션에 flush 만 하고 커밋은 호출자가 한다.** 모든 호출부가 실행 뒤 `record_usage` + `commit` 을 하므로 실행 상태와
+   과금 기록이 같은 트랜잭션에 남는다. 실시간 진행 표시는 DB 를 폴링하지 않고 프로세스 안 SSE(3단계)로 하므로 행이 트랜잭션
+   끝까지 보이지 않아도 된다.
+5. **`FlowExecutionLog.run_id` 는 소비형 contextvar 로 잇는다.** `start` 가 run id 를 contextvar 에 두고 `record_usage` 가
+   **한 번만** 꺼내(`take_last_run_id`) 붙인다. 워크플로우 실행 사건에만, 프로젝트가 같을 때만 붙는다. 실행 없이 남기는 사건
+   (자격증명 사용 등)에는 붙지 않는다.
+6. **기록은 부수 기능이다.** begin/finish/fail 의 예외는 경고만 남기고 실행 결과를 바꾸지 않는다. `RUN_RECORDS=0` 으로 끈다.
+
+**대안 (Alternatives)**
+
+- **호출부마다 기록**: 11곳이 각자 쓰면 표기가 갈라진다(trigger_source 가 그랬다). 기각.
+- **별도 세션으로 즉시 커밋**: 실시간 가시성은 얻지만 sqlite(테스트)에서는 연결이 공유돼 호출자 트랜잭션을 같이 커밋하고,
+  PostgreSQL 에서는 실행 상태와 과금 기록이 엇갈릴 수 있다. 가시성은 SSE 로 얻는다. 기각.
+- **`NodeExecutionLog` 확장**: 그 표는 과금 사건의 자식이라 실행이 끝난 뒤에만 생기고, 대기·재개·attempt 개념이 없다. 기각.
+- **`FlowExecutionLog` 에 컬럼 추가**: 과금 장부에 실행 상태 컬럼을 섞으면 통계(`build_statistics`)가 상태 전이를 따라가야 한다. 기각.
+
+**결과 (Consequences)**
+
+- 실행마다 flush 2회(begin·finish)가 는다. step 은 노드 수만큼 행이 생긴다(반복 노드는 회차마다) — 보존 기간 정리는 ENGINE-2 와
+  함께 정한다(FK 를 걸지 않은 이유: 과금 장부와 보존 기간이 다를 수 있다).
+- 호출자가 롤백하면 기록도 사라진다. 지금은 모든 호출부가 커밋하므로 문제가 없고, ENGINE-2 부터는 워커가 자기 세션을 갖는다.
+- `status` 어휘: running|succeeded|failed|paused(승인 대기). queued·cancelled 는 ENGINE-2, step 의 pending|running|skipped 은 3단계.
+  `engine` 컬럼으로 전환 기간에 두 엔진의 실패율을 나눠 볼 수 있다.
+- 검증: `test_run_records.py` 14건(run/step 모양·failed 요약·paused·pinned·인터프리터 동일·엔진 예외·기록 실패 무해·run_id 한 번만·
+  프로젝트 불일치·비실행 사건·db 없음·RUN_RECORDS=0·마이그레이션만으로 만든 스키마), `test_schema_drift.py` 통과.
+- 다음: 승인 대기 전용 스냅샷 재개의 일반화(2단계), `/api/projects/{id}/runs` 타임라인 + SSE(3단계, 33번 APP-2 진행률의 원천).

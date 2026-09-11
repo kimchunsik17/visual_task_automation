@@ -187,6 +187,9 @@ class FlowExecutionLog(Base):
     request_id = Column(String, nullable=True, index=True)
     status = Column(String, default="success")
     error_message = Column(String, nullable=True)
+    # 이 사건을 만든 실행(workflow_runs.id, ENGINE-1·마이그레이션 0024). 과금 기록과 실행 상태 기록을 잇는 열쇠다.
+    # FK 를 걸지 않는 이유: 두 표의 보존 기간이 다를 수 있고(실행 상태는 정리 대상, 과금은 장부), 옛 행은 NULL 이다.
+    run_id = Column(Integer, nullable=True, index=True)
 
     user = relationship("User", foreign_keys=[user_id], primaryjoin="User.id == foreign(FlowExecutionLog.user_id)", backref="execution_logs")
     node_logs = relationship("NodeExecutionLog", back_populates="flow_execution", cascade="all, delete-orphan")
@@ -212,6 +215,62 @@ class NodeExecutionLog(Base):
     error_request_id = Column(String, nullable=True)
 
     flow_execution = relationship("FlowExecutionLog", back_populates="node_logs")
+
+class WorkflowRun(Base):
+    """한 번의 워크플로우 실행 (백로그 32 ENGINE-1, ADR-0028, 마이그레이션 0024).
+
+    어느 경로(trigger_source)로 시작했든 execution.start 가 실행마다 하나 만든다. FlowExecutionLog 가 "누가 얼마를
+    썼나"(과금·사용량)의 사건이라면 이것은 "실행이 어디까지 갔나"(상태)다 — 큐/워커(ENGINE-2)의 회수와 재시도·멱등성
+    (ENGINE-3)이 이 행 위에 얹힌다. idempotency_key·heartbeat_at 은 그때 쓰는 자리를 미리 잡아 둔 것이다.
+    """
+
+    __tablename__ = "workflow_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, nullable=True, index=True)
+    trigger_source = Column(String, nullable=False, index=True)      # execution.TRIGGER_SOURCES 의 값
+    engine = Column(String, nullable=False, default="legacy", server_default="legacy")   # legacy | interpreter
+    # running | succeeded | failed | paused(승인 대기) — queued·cancelled 는 ENGINE-2 부터
+    status = Column(String, nullable=False, index=True)
+    idempotency_key = Column(String, nullable=True, unique=True)
+    executor_user_id = Column(Integer, nullable=True, index=True)
+    owner_user_id = Column(Integer, nullable=True, index=True)
+    session_id = Column(String, nullable=True)
+    started_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+    error_summary = Column(String, nullable=True)
+    total_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    step_count = Column(Integer, nullable=False, default=0, server_default="0")
+
+    steps = relationship("RunStep", back_populates="run", cascade="all, delete-orphan", order_by="RunStep.sequence")
+
+
+class RunStep(Base):
+    """실행 안의 노드 한 번 (ENGINE-1). log_step 기록 한 줄이 step 한 행이다 — 반복 노드는 회차마다 행이 생긴다.
+
+    attempt 는 재시도(ENGINE-3)를 위한 자리라 지금은 항상 1 이다. 출력은 미리보기(앞 2000자)만 둔다 — 전체 결과는
+    NodeExecutionLog·artifact 에 있고, 여기는 "어디까지 갔나" 를 보는 표다. error 는 NodeError v1(ADR-0016) dict.
+    """
+
+    __tablename__ = "run_steps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False)
+    node_id = Column(String, nullable=False)
+    node_type = Column(String, nullable=True)
+    attempt = Column(Integer, nullable=False, default=1, server_default="1")
+    # succeeded | failed | waiting | pinned — pending·running·skipped 은 실시간 기록(ENGINE-1 3단계)부터
+    status = Column(String, nullable=False, index=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    output_preview = Column(String, nullable=True)
+    tokens = Column(JSON, nullable=True)
+    error = Column(JSON, nullable=True)
+
+    run = relationship("WorkflowRun", back_populates="steps")
+
 
 class BotLog(Base):
     __tablename__ = "bot_logs"
