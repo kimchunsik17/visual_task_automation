@@ -501,6 +501,9 @@ export const JusoNode = (props) => <ConnectorNode {...props} nodeType="jusoNode"
 export const DataGoKrNode = (props) => <ConnectorNode {...props} nodeType="dataGoKrNode" />;
 export const NaverSearchTriggerNode = (props) => <ConnectorNode {...props} nodeType="naverSearchTriggerNode" hasInput={false} />;
 export const NaverCafeNode = (props) => <ConnectorNode {...props} nodeType="naverCafeNode" />;
+// 백로그 34 DEV-1 — GitHub. 트리거는 인바운드 웹훅이라 들어오는 연결이 없고, 요청 검증 모드는 정의의 select 로 그린다(기본 HMAC).
+export const GithubTriggerNode = (props) => <ConnectorNode {...props} nodeType="githubTriggerNode" hasInput={false} />;
+export const GithubNode = (props) => <ConnectorNode {...props} nodeType="githubNode" />;
 // 연동 노드는 아니지만(connector 블록 없음) 화면에서 필요한 것은 같다 — 정의에서 색·아이콘·
 // 필드를 읽어 그리고 펼칠 수 있으면 된다. ConnectorNode 는 그 셋만 쓰므로 그대로 재사용한다.
 export const HwpxDocumentNode = (props) => <ConnectorNode {...props} nodeType="hwpxDocumentNode" />;

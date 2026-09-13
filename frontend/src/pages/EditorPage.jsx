@@ -67,7 +67,7 @@ import {
 } from '../editorCommands';
 import { useEditorHistory } from '../useEditorHistory';
 import { EDITOR_NODE_CATALOG, getEditorNodeMeta, getReplacementCandidates } from '../editorNodeCatalog';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DiscordTriggerNode, TelegramNode, TelegramTriggerNode, NotionNode, WebhookNode, YoutubeNode, YoutubeTriggerNode , MemoNode , RssTriggerNode , GmailTriggerNode , GmailNode , GoogleDriveNode , NaverSearchNode , JusoNode , DataGoKrNode , NaverSearchTriggerNode , NaverCafeNode , HwpxDocumentNode, FormatNode, invalidateUserFormatsCache, formatFieldsSchema,
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DiscordTriggerNode, TelegramNode, TelegramTriggerNode, NotionNode, WebhookNode, YoutubeNode, YoutubeTriggerNode , MemoNode , RssTriggerNode , GmailTriggerNode , GmailNode , GoogleDriveNode , NaverSearchNode , JusoNode , DataGoKrNode , NaverSearchTriggerNode , NaverCafeNode , GithubTriggerNode , GithubNode , HwpxDocumentNode, FormatNode, invalidateUserFormatsCache, formatFieldsSchema,
 } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 import { MEMO_MIN_NODE_HEIGHT } from '../memoSizing';
@@ -262,6 +262,8 @@ const nodeTypes = {
   jusoNode: JusoNode,
   dataGoKrNode: DataGoKrNode,
   naverSearchTriggerNode: NaverSearchTriggerNode,
+  githubTriggerNode: GithubTriggerNode,
+  githubNode: GithubNode,
   naverCafeNode: NaverCafeNode,
   hwpxDocumentNode: HwpxDocumentNode,
   formatNode: FormatNode,
@@ -3186,7 +3188,7 @@ function FlowContent() {
                       </select>
                     </label>
                   )}
-                  {nodes.some(n => ['webhookNode', 'scheduleNode', 'discordNode'].includes(n.type)) && (
+                  {nodes.some(n => ['webhookNode', 'githubTriggerNode', 'scheduleNode', 'discordNode'].includes(n.type)) && (
                     <button className={`editor-menu-item ${isLive ? 'danger' : ''}`} onClick={handleToggleLive}>
                       {isLive ? <Square size={17} fill="currentColor" /> : <Play size={17} />}
                       <span><strong>{isLive ? '라이브 중지' : '라이브 시작'}</strong><small>트리거 기반 자동 실행 제어</small></span>

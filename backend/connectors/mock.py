@@ -20,13 +20,20 @@ class MockScenarioError(LookupError):
     테스트가 통과해버리므로, 반드시 실패로 드러낸다."""
 
 
-def _matches(rule: Dict[str, Any], method: str, url: str) -> bool:
+def _matches(rule: Dict[str, Any], method: str, url: str, headers: Optional[Dict[str, Any]] = None) -> bool:
     if not rule:
         return True
     if "method" in rule and rule["method"].upper() != method.upper():
         return False
     if "urlContains" in rule and rule["urlContains"] not in url:
         return False
+    # 같은 URL 을 Accept 헤더만 달리해 부르는 API(GitHub PR: JSON 과 diff)를 구분한다. 헤더 이름은 대소문자를 가리지 않는다.
+    expected_headers = rule.get("headerEquals") or {}
+    if expected_headers:
+        given = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+        for name, value in expected_headers.items():
+            if given.get(str(name).lower()) != str(value):
+                return False
     return True
 
 
@@ -49,7 +56,7 @@ class MockTransport:
         for index, rule in enumerate(self.rules):
             if index in self._used:
                 continue
-            if not _matches(rule.get("match") or {}, method, url):
+            if not _matches(rule.get("match") or {}, method, url, kwargs.get("headers")):
                 continue
             if rule.get("once"):
                 self._used.add(index)

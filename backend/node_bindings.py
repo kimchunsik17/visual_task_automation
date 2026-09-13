@@ -215,6 +215,7 @@ PATH_DOCUMENTED_SOURCES: Dict[str, str] = {
     "jusoNode": "items[0].roadAddress, items[0].jibunAddress",
     "youtubeTriggerNode": "[0].video_id, [0].title, [0].published_at",
     "rssTriggerNode": "[0].title, [0].link, [0].summary, [0].published_at",
+    "githubTriggerNode": "event, action, repo, number, title, body, url, branch, labels[0], author",
     "databaseNode": "data.rows[0][0], data.rowCount (outputFormat='result' 일 때)",
 }
 

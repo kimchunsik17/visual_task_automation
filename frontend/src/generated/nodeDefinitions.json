@@ -1183,6 +1183,1330 @@
     "type": "formatNode",
     "version": 1
   },
+  "githubNode": {
+    "capabilities": [
+      "network"
+    ],
+    "category": "integration",
+    "connector": {
+      "baseUrl": "https://api.github.com",
+      "credentials": [
+        {
+          "optional": false,
+          "provider": "github",
+          "scopes": []
+        }
+      ],
+      "docsUrl": "https://docs.github.com/en/rest?apiVersion=2022-11-28",
+      "errorStyle": "http",
+      "inputSchema": {},
+      "modes": [
+        "issue.create",
+        "issue.comment",
+        "issue.labels",
+        "issue.update",
+        "pr.get",
+        "pr.diff",
+        "pr.merge",
+        "pr.comment",
+        "release.create",
+        "release.generate_notes",
+        "workflow.dispatch",
+        "dependabot.list",
+        "file.get"
+      ],
+      "outputSchemaByMode": {
+        "dependabot.list": {
+          "properties": {
+            "alerts": {
+              "items": {
+                "properties": {
+                  "ecosystem": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "package": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "count": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "file.get": {
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "sha": {
+              "type": "string"
+            },
+            "size": {
+              "type": "number"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "issue.create": {
+          "properties": {
+            "number": {
+              "type": "number"
+            },
+            "state": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "pr.diff": {
+          "properties": {
+            "diff": {
+              "type": "string"
+            },
+            "number": {
+              "type": "number"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "pr.get": {
+          "properties": {
+            "additions": {
+              "type": "number"
+            },
+            "author": {
+              "type": "string"
+            },
+            "baseBranch": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "changedFiles": {
+              "type": "number"
+            },
+            "deletions": {
+              "type": "number"
+            },
+            "draft": {
+              "type": "boolean"
+            },
+            "labels": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "mergeable": {
+              "type": "boolean"
+            },
+            "merged": {
+              "type": "boolean"
+            },
+            "number": {
+              "type": "number"
+            },
+            "sha": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "release.generate_notes": {
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "rateLimit": {
+        "requestsPerMinute": 60
+      },
+      "retryPolicy": {
+        "baseDelaySeconds": 1.0,
+        "maxAttempts": 3,
+        "maxDelaySeconds": 30.0,
+        "retryNonIdempotent": false
+      },
+      "role": "action",
+      "service": "GitHub",
+      "sideEffectByMode": {
+        "dependabot.list": "external-read",
+        "file.get": "external-read",
+        "issue.comment": "external-write",
+        "issue.create": "external-write",
+        "issue.labels": "external-write",
+        "issue.update": "external-write",
+        "pr.comment": "external-write",
+        "pr.diff": "external-read",
+        "pr.get": "external-read",
+        "pr.merge": "external-write",
+        "release.create": "external-write",
+        "release.generate_notes": "external-read",
+        "workflow.dispatch": "external-write"
+      },
+      "timeoutSeconds": 20.0,
+      "verifiedAt": "2026-09-13"
+    },
+    "credentials": [
+      {
+        "name": "github",
+        "optional": false,
+        "provider": "github"
+      }
+    ],
+    "display": {
+      "color": "#8250df",
+      "icon": "provider-github",
+      "label": "GitHub"
+    },
+    "executor": "githubNode",
+    "fields": [
+      {
+        "default": "pr.get",
+        "itemFields": [],
+        "kind": "select",
+        "label": "동작",
+        "name": "mode",
+        "options": [
+          {
+            "label": "이슈 만들기",
+            "value": "issue.create"
+          },
+          {
+            "label": "이슈에 코멘트",
+            "value": "issue.comment"
+          },
+          {
+            "label": "이슈 라벨 추가·교체·제거",
+            "value": "issue.labels"
+          },
+          {
+            "label": "이슈 수정 (제목·본문·상태)",
+            "value": "issue.update"
+          },
+          {
+            "label": "PR 정보 조회",
+            "value": "pr.get"
+          },
+          {
+            "label": "PR diff 가져오기",
+            "value": "pr.diff"
+          },
+          {
+            "label": "PR 머지",
+            "value": "pr.merge"
+          },
+          {
+            "label": "PR 에 코멘트",
+            "value": "pr.comment"
+          },
+          {
+            "label": "릴리스 만들기",
+            "value": "release.create"
+          },
+          {
+            "label": "릴리스 노트 생성 (커밋·PR 기반)",
+            "value": "release.generate_notes"
+          },
+          {
+            "label": "Actions 워크플로우 실행",
+            "value": "workflow.dispatch"
+          },
+          {
+            "label": "Dependabot 취약점 알림 조회",
+            "value": "dependabot.list"
+          },
+          {
+            "label": "파일 내용 읽기",
+            "value": "file.get"
+          }
+        ],
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(githubNode)에 mode가 없다",
+            "requireKeys": {},
+            "rule": "required"
+          },
+          {
+            "allowMissing": false,
+            "message": "{node_id}(githubNode)의 mode가 허용값이 아니다",
+            "requireKeys": {},
+            "rule": "enum"
+          }
+        ]
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "저장소 (owner/repo)",
+        "name": "repo",
+        "options": [],
+        "placeholder": "acme/site — 비우면 직전 GitHub 트리거 출력의 repo",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "이슈/PR 번호",
+        "name": "number",
+        "options": [],
+        "placeholder": "42 — 비우면 직전 GitHub 트리거 출력의 number",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "issue.comment",
+            "issue.labels",
+            "issue.update",
+            "pr.get",
+            "pr.diff",
+            "pr.merge",
+            "pr.comment"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "제목 (릴리스는 표시 이름)",
+        "name": "title",
+        "options": [],
+        "placeholder": "이슈 제목 / 릴리스 이름",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "issue.create",
+            "issue.update",
+            "release.create"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "본문 (코멘트·새 이슈는 비우면 직전 노드 출력)",
+        "name": "body",
+        "options": [],
+        "placeholder": "마크다운. {{last_result}} 로 직전 노드 출력을 끼워 넣을 수 있습니다",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "issue.create",
+            "issue.comment",
+            "issue.update",
+            "pr.comment",
+            "release.create"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "라벨 (쉼표로 구분)",
+        "name": "labels",
+        "options": [],
+        "placeholder": "bug, priority:high",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "issue.create",
+            "issue.labels",
+            "issue.update"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "add",
+        "itemFields": [],
+        "kind": "select",
+        "label": "라벨 동작",
+        "name": "labelAction",
+        "options": [
+          {
+            "label": "추가",
+            "value": "add"
+          },
+          {
+            "label": "교체 (이 라벨들만 남김)",
+            "value": "set"
+          },
+          {
+            "label": "제거",
+            "value": "remove"
+          }
+        ],
+        "showWhen": {
+          "equals": "issue.labels",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "담당자 (GitHub 로그인, 쉼표로 구분)",
+        "name": "assignees",
+        "options": [],
+        "placeholder": "octocat, jane-doe",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "issue.create",
+            "issue.update"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "",
+        "itemFields": [],
+        "kind": "select",
+        "label": "상태",
+        "name": "state",
+        "options": [
+          {
+            "label": "변경 없음",
+            "value": ""
+          },
+          {
+            "label": "열기 (open)",
+            "value": "open"
+          },
+          {
+            "label": "닫기 (closed)",
+            "value": "closed"
+          }
+        ],
+        "showWhen": {
+          "equals": "issue.update",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "squash",
+        "itemFields": [],
+        "kind": "select",
+        "label": "머지 방식",
+        "name": "mergeMethod",
+        "options": [
+          {
+            "label": "merge commit",
+            "value": "merge"
+          },
+          {
+            "label": "squash",
+            "value": "squash"
+          },
+          {
+            "label": "rebase",
+            "value": "rebase"
+          }
+        ],
+        "showWhen": {
+          "equals": "pr.merge",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "머지 커밋 제목 (선택)",
+        "name": "commitTitle",
+        "options": [],
+        "placeholder": "비우면 GitHub 기본값",
+        "showWhen": {
+          "equals": "pr.merge",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "태그",
+        "name": "tagName",
+        "options": [],
+        "placeholder": "v1.2.0 — 비우면 직전 GitHub 트리거 출력의 tag",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "release.create",
+            "release.generate_notes"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "대상 브랜치/커밋 (선택)",
+        "name": "targetCommitish",
+        "options": [],
+        "placeholder": "main",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "release.create",
+            "release.generate_notes"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "이전 태그 (선택 — 비우면 GitHub 이 직전 릴리스를 고른다)",
+        "name": "previousTagName",
+        "options": [],
+        "placeholder": "v1.1.0",
+        "showWhen": {
+          "equals": "release.generate_notes",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "초안(draft)으로 만들기",
+        "name": "draft",
+        "options": [],
+        "showWhen": {
+          "equals": "release.create",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "프리릴리스로 표시",
+        "name": "prerelease",
+        "options": [],
+        "showWhen": {
+          "equals": "release.create",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": true,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "본문이 비면 릴리스 노트를 GitHub 이 자동 생성",
+        "name": "generateNotes",
+        "options": [],
+        "showWhen": {
+          "equals": "release.create",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "워크플로우 파일명 또는 id",
+        "name": "workflowId",
+        "options": [],
+        "placeholder": "deploy.yml",
+        "showWhen": {
+          "equals": "workflow.dispatch",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "브랜치/태그/커밋 (ref)",
+        "name": "ref",
+        "options": [],
+        "placeholder": "main",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "workflow.dispatch",
+            "file.get"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "json",
+        "label": "워크플로우 inputs (JSON 객체, 최대 25개)",
+        "name": "inputs",
+        "options": [],
+        "placeholder": "{\"environment\": \"staging\"}",
+        "showWhen": {
+          "equals": "workflow.dispatch",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "파일 경로",
+        "name": "path",
+        "options": [],
+        "placeholder": "README.md 또는 docs/CHANGELOG.md",
+        "showWhen": {
+          "equals": "file.get",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "open",
+        "itemFields": [],
+        "kind": "select",
+        "label": "알림 상태",
+        "name": "alertState",
+        "options": [
+          {
+            "label": "open",
+            "value": "open"
+          },
+          {
+            "label": "dismissed",
+            "value": "dismissed"
+          },
+          {
+            "label": "fixed",
+            "value": "fixed"
+          },
+          {
+            "label": "auto_dismissed",
+            "value": "auto_dismissed"
+          }
+        ],
+        "showWhen": {
+          "equals": "dependabot.list",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "심각도 (쉼표로 구분, 선택)",
+        "name": "severity",
+        "options": [],
+        "placeholder": "critical, high",
+        "showWhen": {
+          "equals": "dependabot.list",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "생태계 (쉼표로 구분, 선택)",
+        "name": "ecosystem",
+        "options": [],
+        "placeholder": "npm, pip, maven",
+        "showWhen": {
+          "equals": "dependabot.list",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": 30,
+        "itemFields": [],
+        "kind": "number",
+        "label": "가져올 개수 (최대 100)",
+        "name": "perPage",
+        "options": [],
+        "showWhen": {
+          "equals": "dependabot.list",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(githubNode)의 perPage는 숫자여야 한다",
+            "requireKeys": {},
+            "rule": "number"
+          }
+        ]
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "GitHub 저장소에 이슈·PR·릴리스·워크플로우 작업을 한다. API 센터에 'GitHub 개인 액세스 토큰' 이 등록되어 있어야 한다.\n                   data.mode(문자열): \"issue.create\"(이슈 만들기) | \"issue.comment\"(이슈 코멘트) | \"issue.labels\"(라벨 추가·교체·제거, data.labelAction: add|set|remove)\n                   | \"issue.update\"(제목·본문·상태 수정, data.state: open|closed) | \"pr.get\"(PR 정보, 기본값) | \"pr.diff\"(PR diff 텍스트)\n                   | \"pr.merge\"(data.mergeMethod: merge|squash|rebase) | \"pr.comment\"(PR 코멘트) | \"release.create\"(릴리스, data.tagName)\n                   | \"release.generate_notes\"(커밋·PR 기반 릴리스 노트 생성 — 저장소에 쓰지 않는다) | \"workflow.dispatch\"(Actions 실행,\n                   data.workflowId 파일명·data.ref 브랜치·data.inputs JSON) | \"dependabot.list\"(취약점 알림, data.alertState·data.severity·data.ecosystem·data.perPage)\n                   | \"file.get\"(파일 내용, data.path·data.ref).\n                   data.repo(\"owner/repo\")와 data.number(이슈/PR 번호)는 **비우면 직전 GitHub 트리거 출력(repo·number·tag)에서 이어받는다** —\n                   트리거 뒤에 오면 비워 둔다. data.body 는 코멘트·새 이슈에서 비우면 직전 노드 출력을 쓴다 — \"LLM 요약 → PR 코멘트\" 가 가장 흔한 흐름이다. 릴리스 본문을 비우면 GitHub 이 노트를 자동 생성한다(data.generateNotes).\n                   data.title(이슈 제목·릴리스 이름), data.labels(쉼표 구분), data.assignees(쉼표 구분), data.targetCommitish, data.previousTagName,\n                   data.draft·data.prerelease·data.generateNotes(불리언, 릴리스), data.commitTitle(머지 커밋 제목).\n                   출력은 JSON 문자열이고 모드별로 다르다 — issue.create/issue.comment/pr.comment: number·url · pr.get: title·body·state·branch·baseBranch·labels·author\n                   · pr.diff: diff(텍스트, 20만 자 상한) · release.generate_notes: name·body · dependabot.list: alerts[](severity·package·summary·url) · file.get: content.\n                   pr.merge·issue.create 같은 쓰기 동작은 dry-run 에서 실행되지 않는다. 대량 생성 시 GitHub 2차 한도(분당 80건)에 걸릴 수 있다.\n"
+    },
+    "mock": {
+      "scenarios": {
+        "auth_failed": {
+          "responses": [
+            {
+              "body": {
+                "documentation_url": "https://docs.github.com/rest",
+                "message": "Bad credentials"
+              },
+              "status": 401
+            }
+          ]
+        },
+        "not_found": {
+          "responses": [
+            {
+              "body": {
+                "documentation_url": "https://docs.github.com/rest",
+                "message": "Not Found"
+              },
+              "status": 404
+            }
+          ]
+        },
+        "rate_limited": {
+          "responses": [
+            {
+              "body": {
+                "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits",
+                "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+              },
+              "headers": {
+                "Retry-After": "60",
+                "x-ratelimit-remaining": "0"
+              },
+              "status": 429
+            }
+          ]
+        },
+        "rate_limited_primary": {
+          "responses": [
+            {
+              "body": {
+                "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api",
+                "message": "API rate limit exceeded for user ID 1."
+              },
+              "headers": {
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "0",
+                "x-ratelimit-reset": "1789999999"
+              },
+              "status": 403
+            }
+          ]
+        },
+        "success": {
+          "responses": [
+            {
+              "body": {
+                "body": "## What's Changed\n* 결제 재시도 추가 by @octocat in https://github.com/acme/site/pull/42\n* 쿠폰 적용 오류 수정 by @jane-doe in https://github.com/acme/site/pull/41\n\n**Full Changelog**: https://github.com/acme/site/compare/v2.2.0...v2.3.0",
+                "name": "v2.3.0"
+              },
+              "match": {
+                "method": "POST",
+                "urlContains": "/releases/generate-notes"
+              },
+              "status": 200
+            },
+            {
+              "body": {
+                "body": "릴리스 노트",
+                "draft": false,
+                "html_url": "https://github.com/acme/site/releases/tag/v2.3.0",
+                "id": 1234567,
+                "name": "v2.3.0",
+                "prerelease": false,
+                "tag_name": "v2.3.0"
+              },
+              "match": {
+                "method": "POST",
+                "urlContains": "/releases"
+              },
+              "status": 201
+            },
+            {
+              "body": "",
+              "match": {
+                "method": "POST",
+                "urlContains": "/dispatches"
+              },
+              "status": 204
+            },
+            {
+              "body": [
+                {
+                  "created_at": "2026-09-01T09:12:00Z",
+                  "dependency": {
+                    "manifest_path": "package-lock.json",
+                    "package": {
+                      "ecosystem": "npm",
+                      "name": "lodash"
+                    }
+                  },
+                  "html_url": "https://github.com/acme/site/security/dependabot/3",
+                  "number": 3,
+                  "security_advisory": {
+                    "ghsa_id": "GHSA-xxxx-yyyy-zzzz",
+                    "severity": "high",
+                    "summary": "Prototype Pollution in lodash"
+                  },
+                  "security_vulnerability": {
+                    "first_patched_version": {
+                      "identifier": "4.17.21"
+                    },
+                    "vulnerable_version_range": "< 4.17.21"
+                  },
+                  "state": "open"
+                }
+              ],
+              "match": {
+                "method": "GET",
+                "urlContains": "/dependabot/alerts"
+              },
+              "status": 200
+            },
+            {
+              "body": {
+                "content": "IyBhY21lL3NpdGUKCuqyveygnCDsg5zsnbTtirgg7ZSE66Gg7Yq47JeU65OcCg==\n",
+                "encoding": "base64",
+                "html_url": "https://github.com/acme/site/blob/main/README.md",
+                "name": "README.md",
+                "path": "README.md",
+                "sha": "3d21ec53a331a6f037a91c368710b99387d012c1",
+                "size": 46,
+                "type": "file"
+              },
+              "match": {
+                "method": "GET",
+                "urlContains": "/contents/"
+              },
+              "status": 200
+            },
+            {
+              "body": {
+                "merged": true,
+                "message": "Pull Request successfully merged",
+                "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e"
+              },
+              "match": {
+                "method": "PUT",
+                "urlContains": "/merge"
+              },
+              "status": 200
+            },
+            {
+              "body": "diff --git a/src/login.js b/src/login.js\nindex 83db48f..bf12a3c 100644\n--- a/src/login.js\n+++ b/src/login.js\n@@ -1,3 +1,8 @@\n+const EMAIL_RE = /^[^@\\s]+@[^@\\s]+$/;\n+export function validate(email, password) {\n+  return EMAIL_RE.test(email) && password.length >= 8;\n+}\n",
+              "match": {
+                "headerEquals": {
+                  "Accept": "application/vnd.github.diff"
+                },
+                "method": "GET",
+                "urlContains": "/pulls/"
+              },
+              "status": 200
+            },
+            {
+              "body": {
+                "additions": 120,
+                "base": {
+                  "ref": "main"
+                },
+                "body": "이메일 형식과 비밀번호 길이를 검사합니다.",
+                "changed_files": 3,
+                "deletions": 8,
+                "draft": false,
+                "head": {
+                  "ref": "feature/login-validation",
+                  "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e"
+                },
+                "html_url": "https://github.com/acme/site/pull/42",
+                "labels": [
+                  {
+                    "name": "enhancement"
+                  }
+                ],
+                "mergeable": true,
+                "merged": false,
+                "number": 42,
+                "state": "open",
+                "title": "로그인 폼 유효성 검사 추가",
+                "user": {
+                  "login": "octocat"
+                }
+              },
+              "match": {
+                "method": "GET",
+                "urlContains": "/pulls/"
+              },
+              "status": 200
+            },
+            {
+              "body": [
+                {
+                  "name": "enhancement"
+                }
+              ],
+              "match": {
+                "method": "DELETE",
+                "urlContains": "/labels/"
+              },
+              "status": 200
+            },
+            {
+              "body": [
+                {
+                  "name": "enhancement"
+                },
+                {
+                  "name": "bug"
+                }
+              ],
+              "match": {
+                "method": "POST",
+                "urlContains": "/labels"
+              },
+              "status": 200
+            },
+            {
+              "body": [
+                {
+                  "name": "bug"
+                }
+              ],
+              "match": {
+                "method": "PUT",
+                "urlContains": "/labels"
+              },
+              "status": 200
+            },
+            {
+              "body": {
+                "body": "확인했습니다. 재현 후 수정 예정입니다.",
+                "html_url": "https://github.com/acme/site/issues/57#issuecomment-1",
+                "id": 1,
+                "user": {
+                  "login": "acme-bot"
+                }
+              },
+              "match": {
+                "method": "POST",
+                "urlContains": "/comments"
+              },
+              "status": 201
+            },
+            {
+              "body": {
+                "html_url": "https://github.com/acme/site/issues/57",
+                "labels": [
+                  {
+                    "name": "bug"
+                  }
+                ],
+                "number": 57,
+                "state": "closed",
+                "title": "결제 페이지에서 500 오류"
+              },
+              "match": {
+                "method": "PATCH",
+                "urlContains": "/issues/"
+              },
+              "status": 200
+            },
+            {
+              "body": {
+                "html_url": "https://github.com/acme/site/issues/58",
+                "labels": [],
+                "number": 58,
+                "state": "open",
+                "title": "새 이슈"
+              },
+              "match": {
+                "method": "POST",
+                "urlContains": "/issues"
+              },
+              "status": 201
+            }
+          ]
+        },
+        "timeout": {
+          "responses": [
+            {
+              "raise": "timeout"
+            }
+          ]
+        }
+      }
+    },
+    "outputs": [
+      {
+        "dataType": "json",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "external-write",
+    "type": "githubNode",
+    "version": 1
+  },
+  "githubTriggerNode": {
+    "capabilities": [],
+    "category": "trigger",
+    "credentials": [
+      {
+        "name": "webhook_secret",
+        "optional": true,
+        "provider": "webhook_secret"
+      }
+    ],
+    "display": {
+      "color": "#8250df",
+      "icon": "provider-github",
+      "label": "GitHub 이벤트 수신"
+    },
+    "executor": "githubTriggerNode",
+    "fields": [
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "수신 주소 (GitHub 웹훅 Payload URL 의 경로)",
+        "name": "webhookUrl",
+        "options": [],
+        "placeholder": "/webhook/github-acme-site (비우면 프로젝트 번호)",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "받을 이벤트 (쉼표로 구분, 비우면 전부)",
+        "name": "events",
+        "options": [],
+        "placeholder": "pull_request, issues, release",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "action 필터 (쉼표로 구분, 비우면 전부)",
+        "name": "actionFilter",
+        "options": [],
+        "placeholder": "opened, reopened, labeled, closed, published, completed",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "브랜치 필터 (glob, 쉼표로 구분)",
+        "name": "branchFilter",
+        "options": [],
+        "placeholder": "main, release/*",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "라벨 필터 (쉼표로 구분)",
+        "name": "labelFilter",
+        "options": [],
+        "placeholder": "bug, needs-review",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "hmac_sha256",
+        "itemFields": [],
+        "kind": "select",
+        "label": "요청 검증",
+        "name": "verifyMode",
+        "options": [
+          {
+            "label": "HMAC SHA-256 서명 (GitHub Secret = API 센터 '웹훅 서명 비밀')",
+            "value": "hmac_sha256"
+          },
+          {
+            "label": "없음 — 테스트용. URL 을 아는 누구나 실행",
+            "value": "none"
+          }
+        ],
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [],
+    "llm": {
+      "description": "GitHub 저장소에 이벤트(PR·이슈·릴리스·푸시·CI 결과 등)가 생기면 실행되는 플로우의 시작점이다. startNode 대신 쓴다.\n                   사용자가 GitHub 저장소 설정(Webhooks)에 이 노드의 수신 주소와 Secret(API 센터 '웹훅 서명 비밀'과 같은 값)을 등록하면 GitHub 이 보낸다.\n                   data.events(문자열, 선택 — 쉼표 구분: push | pull_request | pull_request_review | issues | issue_comment | release\n                   | workflow_run | check_run | deployment_status | dependabot_alert. 비우면 전부),\n                   data.actionFilter(문자열, 선택 — 쉼표 구분: opened, closed, labeled, synchronize, published, completed 등),\n                   data.branchFilter(문자열, 선택 — glob, 예: \"main, release/*\". 브랜치가 없는 이벤트(이슈 등)는 거르지 않는다),\n                   data.labelFilter(문자열, 선택 — 라벨 이름, 하나라도 맞으면 통과), data.verifyMode(\"hmac_sha256\" 기본값 | \"none\").\n                   출력은 **평탄화한 JSON 문자열** — event, action, repo(\"owner/repo\"), repoUrl, number(PR/이슈 번호), title, body, url,\n                   state, branch, baseBranch, sha, labels(배열), author, sender, tag(릴리스), name, status, conclusion(CI), merged, draft,\n                   commits(push 배열), delivery, raw(원본 payload). 뒤의 githubNode 는 repo·number 칸을 비워 두면 이 출력에서 이어받는다.\n                   조건에 맞지 않는 이벤트는 실행되지 않는다(GitHub 에는 200 으로 답한다). 같은 전달 id(X-GitHub-Delivery) 재전송은 한 번만 실행된다.\n"
+    },
+    "mock": {
+      "samples": [
+        {
+          "id": "pull_request_opened",
+          "label": "PR 열림 (pull_request.opened)",
+          "payload": {
+            "delivery": "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+            "event": "pull_request",
+            "payload": {
+              "action": "opened",
+              "number": 42,
+              "pull_request": {
+                "additions": 120,
+                "base": {
+                  "ref": "main"
+                },
+                "body": "이메일 형식과 비밀번호 길이를 검사합니다.\n\nCloses #40",
+                "changed_files": 3,
+                "deletions": 8,
+                "draft": false,
+                "head": {
+                  "ref": "feature/login-validation",
+                  "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e"
+                },
+                "html_url": "https://github.com/acme/site/pull/42",
+                "labels": [
+                  {
+                    "name": "enhancement"
+                  }
+                ],
+                "merged": false,
+                "number": 42,
+                "state": "open",
+                "title": "로그인 폼 유효성 검사 추가",
+                "user": {
+                  "login": "octocat"
+                }
+              },
+              "repository": {
+                "default_branch": "main",
+                "full_name": "acme/site",
+                "html_url": "https://github.com/acme/site"
+              },
+              "sender": {
+                "login": "octocat"
+              }
+            }
+          }
+        },
+        {
+          "id": "issues_opened",
+          "label": "이슈 등록 (issues.opened)",
+          "payload": {
+            "delivery": "9c1e5a72-0d6a-4f3e-9d3b-2f6e1a8c4b10",
+            "event": "issues",
+            "payload": {
+              "action": "opened",
+              "issue": {
+                "body": "쿠폰 코드를 넣으면 500 이 납니다. 재현: 장바구니 → 쿠폰 입력 → 결제.",
+                "html_url": "https://github.com/acme/site/issues/57",
+                "labels": [],
+                "number": 57,
+                "state": "open",
+                "title": "결제 페이지에서 500 오류",
+                "user": {
+                  "login": "jane-doe"
+                }
+              },
+              "repository": {
+                "default_branch": "main",
+                "full_name": "acme/site",
+                "html_url": "https://github.com/acme/site"
+              },
+              "sender": {
+                "login": "jane-doe"
+              }
+            }
+          }
+        },
+        {
+          "id": "release_published",
+          "label": "릴리스 게시 (release.published)",
+          "payload": {
+            "delivery": "b4f1c2d0-5e6a-4b7c-8d9e-0f1a2b3c4d5e",
+            "event": "release",
+            "payload": {
+              "action": "published",
+              "release": {
+                "author": {
+                  "login": "octocat"
+                },
+                "body": "## 변경\n- 쿠폰 적용 오류 수정\n- 결제 재시도 추가",
+                "draft": false,
+                "html_url": "https://github.com/acme/site/releases/tag/v2.3.0",
+                "id": 1234567,
+                "name": "v2.3.0 — 결제 안정화",
+                "prerelease": false,
+                "tag_name": "v2.3.0",
+                "target_commitish": "main"
+              },
+              "repository": {
+                "default_branch": "main",
+                "full_name": "acme/site",
+                "html_url": "https://github.com/acme/site"
+              },
+              "sender": {
+                "login": "octocat"
+              }
+            }
+          }
+        },
+        {
+          "id": "workflow_run_failed",
+          "label": "CI 실패 (workflow_run.completed / failure)",
+          "payload": {
+            "delivery": "e7a9d3c1-2b4f-4a6e-8c0d-1f3e5a7b9c2d",
+            "event": "workflow_run",
+            "payload": {
+              "action": "completed",
+              "repository": {
+                "default_branch": "main",
+                "full_name": "acme/site",
+                "html_url": "https://github.com/acme/site"
+              },
+              "sender": {
+                "login": "octocat"
+              },
+              "workflow_run": {
+                "conclusion": "failure",
+                "event": "push",
+                "head_branch": "main",
+                "head_sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+                "html_url": "https://github.com/acme/site/actions/runs/987654321",
+                "id": 987654321,
+                "name": "CI",
+                "run_number": 318,
+                "status": "completed"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "outputs": [
+      {
+        "dataType": "json",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "none",
+    "type": "githubTriggerNode",
+    "version": 1
+  },
   "gmailNode": {
     "capabilities": [
       "network"

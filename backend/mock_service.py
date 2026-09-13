@@ -16,7 +16,7 @@ from connectors import mock_runtime
 import node_definition
 
 # 실행 트리거가 되는 노드. 사용자는 여기에 넣을 payload 를 고른다.
-ENTRY_NODE_TYPES = {"webhookNode", "dynamicInputNode", "startNode", "scheduleNode"}
+ENTRY_NODE_TYPES = {"webhookNode", "dynamicInputNode", "startNode", "scheduleNode", "githubTriggerNode"}
 
 # webhookNode 는 아직 NodeDefinition 이 없다(이전 대상이 아니다). 그동안 Mock 탭이 비어 보이지
 # 않도록 대표적인 수신 payload 를 여기 둔다. 노드가 이전되면 정의의 mock 블록으로 옮긴다.
@@ -65,6 +65,16 @@ def _nodes(graph_data: Any) -> List[Dict[str, Any]]:
     return [n for n in (nodes or []) if isinstance(n, dict)]
 
 
+def _entry_samples(node_type: Optional[str]) -> List[Dict[str, Any]]:
+    """트리거 노드에 넣어 볼 대표 payload. webhookNode 는 위 상수, 정의가 있는 트리거(githubTriggerNode)는 정의의 `mock.samples`
+    (GitHub 문서의 이벤트 예시 — pull_request.opened·issues.opened·release.published·workflow_run.completed)."""
+    if node_type == "webhookNode":
+        return WEBHOOK_SAMPLE_PAYLOADS
+    definition = node_definition.get_definition(node_type or "")
+    samples = (definition.mock or {}).get("samples") if definition else None
+    return [s for s in samples if isinstance(s, dict)] if isinstance(samples, list) else []
+
+
 def describe_graph(graph_data: Any) -> Dict[str, Any]:
     """이 워크플로우에서 무엇을 목업으로 돌릴 수 있는지 알려준다."""
     entries: List[Dict[str, Any]] = []
@@ -78,7 +88,7 @@ def describe_graph(graph_data: Any) -> Dict[str, Any]:
             entries.append({
                 "node_id": node_id,
                 "node_type": node_type,
-                "samples": WEBHOOK_SAMPLE_PAYLOADS if node_type == "webhookNode" else [],
+                "samples": _entry_samples(node_type),
             })
             continue
 

@@ -27,6 +27,7 @@ import db_migrate
 import models
 from graph import compile_workflow
 import execution
+import webhook_verify
 from node_errors import runtime as node_error_runtime
 from dry_run import dry_run_workflow
 from meta_agent import FLOW_REPAIR_PROMPT_VERSION, run_agent_turn
@@ -1667,12 +1668,12 @@ def check_node_quotas(user_id: int, new_graph_data: dict, db: Session, exclude_p
             continue
         g_data = p.graph_data if isinstance(p.graph_data, dict) else {}
         nodes = g_data.get("nodes", []) if isinstance(g_data.get("nodes", []), list) else []
-        total_webhooks += sum(1 for n in nodes if isinstance(n, dict) and n.get("type") == "webhookNode")
+        total_webhooks += sum(1 for n in nodes if isinstance(n, dict) and n.get("type") in webhook_verify.INBOUND_NODE_TYPES)
         total_bots += sum(1 for n in nodes if isinstance(n, dict) and n.get("type") in ["telegramNode", "discordNode", "kakaoNode"])
         total_schedules += sum(1 for n in nodes if isinstance(n, dict) and n.get("type") == "schedulerNode")
 
     new_nodes = new_graph_data.get("nodes", []) if isinstance(new_graph_data.get("nodes", []), list) else []
-    new_webhooks = sum(1 for n in new_nodes if isinstance(n, dict) and n.get("type") == "webhookNode")
+    new_webhooks = sum(1 for n in new_nodes if isinstance(n, dict) and n.get("type") in webhook_verify.INBOUND_NODE_TYPES)
     new_bots = sum(1 for n in new_nodes if isinstance(n, dict) and n.get("type") in ["telegramNode", "discordNode", "kakaoNode"])
     new_schedules = sum(1 for n in new_nodes if isinstance(n, dict) and n.get("type") == "schedulerNode")
 
@@ -1782,7 +1783,7 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
         graph_data = p.graph_data or {}
         nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
         for n in nodes:
-            if isinstance(n, dict) and n.get('type') == 'webhookNode':
+            if isinstance(n, dict) and n.get('type') in webhook_verify.INBOUND_NODE_TYPES:
                 # Get last run time
                 last_run = db.query(models.FlowExecutionLog).filter(models.FlowExecutionLog.project_id == p.id).order_by(models.FlowExecutionLog.execution_time.desc()).first()
                 last_triggered = "최근 실행 기록 없음"
@@ -1813,12 +1814,13 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
                     "id": f"wh-{p.id}-{n.get('id')}",
                     "projectId": p.id,
                     "nodeId": n.get('id'),
+                    "nodeType": n.get('type'),
                     "title": p.title,
                     "url": f"http://localhost:8000{node_url}",
                     "status": "Active" if p.graph_data.get("is_live", False) else "Stopped",
                     "lastTriggered": last_triggered,
                     "updatedAt": p.updated_at,
-                    "methods": ["GET", "POST"],
+                    "methods": ["POST"] if n.get('type') == 'githubTriggerNode' else ["GET", "POST"],
                 })
                 break
 
@@ -1845,7 +1847,7 @@ def delete_webhook(webhook_id: str, user: models.User = Depends(get_current_user
     if project.graph_data:
         new_data = dict(project.graph_data)
         nodes = new_data.get('nodes', [])
-        if not any(n.get('id') == node_id and n.get('type') == 'webhookNode' for n in nodes):
+        if not any(n.get('id') == node_id and n.get('type') in webhook_verify.INBOUND_NODE_TYPES for n in nodes):
             raise HTTPException(status_code=404, detail="Webhook node not found")
         new_data['nodes'] = [n for n in nodes if n.get('id') != node_id]
         new_data['edges'] = [e for e in new_data.get('edges', []) if e.get('source') != node_id and e.get('target') != node_id]
@@ -3656,7 +3658,7 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
             
         nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
         for n in nodes:
-            if isinstance(n, dict) and n.get('type') == 'webhookNode':
+            if isinstance(n, dict) and n.get('type') in webhook_verify.INBOUND_NODE_TYPES:
                 node_url = n.get('data', {}).get('webhookUrl', '').strip()
                 if node_url.startswith('http://') or node_url.startswith('https://'):
                     from urllib.parse import urlparse
@@ -3692,7 +3694,7 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
                 if isinstance(graph_data, dict) and graph_data.get('is_live', False):
                     nodes = graph_data.get('nodes', [])
                     for n in nodes:
-                        if isinstance(n, dict) and n.get('type') == 'webhookNode':
+                        if isinstance(n, dict) and n.get('type') in webhook_verify.INBOUND_NODE_TYPES:
                             project = candidate
                             webhook_node_id = n.get('id')
                             break
@@ -3704,7 +3706,7 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
         
     # 원문 바이트를 먼저 읽는다 — 서명(HMAC)은 파싱 전 원문으로 계산한다(DEV-0, ADR-0031). 크기 상한은 파싱보다 앞.
     import json   # 아래 '# Run the workflow' 의 import json 이 이 함수 안에서 json 을 지역 이름으로 만든다 — 여기서 먼저 묶는다
-    import webhook_verify
+    # webhook_verify 는 모듈 수준 import 다 — 여기서 다시 import 하면 함수 전체에서 지역 이름이 되어 위 매칭 루프가 UnboundLocalError 를 낸다.
     raw_body = await request.body() if request.method == "POST" else b""
     if webhook_verify.body_too_large(raw_body):
         return JSONResponse(status_code=413, content={"status": "error", "detail": "payload too large"})
@@ -3737,7 +3739,19 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
         if not _outcome.ok:
             webhook_verify.log_rejection(project.id, _outcome, remote=(request.client.host if request.client else None))
             return JSONResponse(status_code=401, content={"status": "error", "detail": "webhook verification failed"})
-        
+
+    # GitHub 트리거(백로그 34 DEV-1, ADR-0032): 서명이 맞은 뒤, 실행 **전에** 이벤트·action·브랜치·라벨 필터를 건다. 걸러진 이벤트는
+    # run 을 만들지 않고 200 으로 답한다 — GitHub 은 2xx 만 보고, 필터에 걸린 push 마다 run 행이 쌓이는 것은 사용자에게 잡음이다.
+    # 통과한 이벤트는 헤더에만 있던 이벤트 이름·전달 id 를 payload 와 함께 envelope 로 싸서 트리거 노드의 입력으로 넘긴다.
+    if (_webhook_node or {}).get('type') == 'githubTriggerNode':
+        from connectors.services import github as _github
+        _gh_event = str(request.headers.get('X-GitHub-Event') or '').strip()
+        _gh_delivery = str(request.headers.get('X-GitHub-Delivery') or '').strip()
+        _gh_ok, _gh_reason = _github.trigger_matches(_webhook_node.get('data') or {}, _gh_event, payload)
+        if not _gh_ok:
+            return {"status": "ignored", "event": _gh_event, "reason": _gh_reason}
+        payload = _github.envelope(_gh_event, _gh_delivery, payload)
+
     graph_data = project.graph_data or {}
     nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
     edges = graph_data.get('edges', []) if isinstance(graph_data, dict) else []

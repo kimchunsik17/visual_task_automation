@@ -45,9 +45,9 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **34 DEV-0 웹훅 하드닝(2026-09-13, ADR-0031)** · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. **운영 서버 리허설 통과(2026-09-13)** — 큐 모드 A1~A7(restart 는 현재 run 을 마치고 재기동 · SIGKILL 은 126초 뒤 failed 확정 · 워커 부재는 309초에 ready 503 → start 로 복귀) · 운영 DB 코퍼스 240종(게시 템플릿 168+프로젝트 72) 포함 **540 그래프 실행 대조 차이 0**. 출시 게이트 둘(등가성·재시작 무손실)이 닫혔다. 큐는 다시 꺼 둠, 워커 유닛은 유지 | 운영 `EXECUTION_ENGINE=shadow` 계획 검사 → 프로젝트별 `:interpreter` 전환 → 스케줄·웹훅 큐 상시 ON 결정 |
+| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **34 DEV-0 웹훅 하드닝(2026-09-13, ADR-0031) · 34 DEV-1 GitHub(2026-09-13, ADR-0032)** · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. **운영 서버 리허설 통과(2026-09-13)** — 큐 모드 A1~A7(restart 는 현재 run 을 마치고 재기동 · SIGKILL 은 126초 뒤 failed 확정 · 워커 부재는 309초에 ready 503 → start 로 복귀) · 운영 DB 코퍼스 240종(게시 템플릿 168+프로젝트 72) 포함 **540 그래프 실행 대조 차이 0**. 출시 게이트 둘(등가성·재시작 무손실)이 닫혔다. 큐는 다시 꺼 둠, 워커 유닛은 유지 | 운영 `EXECUTION_ENGINE=shadow` 계획 검사 → 프로젝트별 `:interpreter` 전환 → 스케줄·웹훅 큐 상시 ON 결정 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
-| 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
+| 개발 도구 연동 노드 (34) | **DEV-0 웹훅 하드닝(2026-09-13, ADR-0031) · DEV-1 GitHub Trigger/Action 구현(2026-09-13, ADR-0032)** — `githubTriggerNode`(인바운드 웹훅 위 이벤트·action·브랜치·라벨 필터, 평탄화 출력) · `githubNode`(fine-grained PAT, 13 모드) · GitHub 문서 예시 payload 목업 샘플 | DEV-2 개발 편의 노드(regex·diff·convert·template·httpCheck·osv) → DEV-3 2차 연동 |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
 | 실행형 AI 에이전트 노드·MCP (36) | 미착수 | 도구 정책 모듈(28번과 공유) |
 | 운영 가시성·배포·CI (37) | 미착수 | GitHub Actions 테스트 |
@@ -604,7 +604,18 @@ webhookNode.verify
 - payload 크기 상한과 엔드포인트별 분당 상한. 공개 실행 입력 상한(PR #60)과 같은 자리.
 - 재발 방지: 서명 불일치·replay·상한 초과·정상 4가지 테스트. GitHub 문서의 예시 payload 를 fixture 로.
 
-##### DEV-1. GitHub Trigger / Action — 2주
+##### DEV-1. GitHub Trigger / Action — 2주 — **구현(2026-09-13, ADR-0032)**
+
+**구현**: `connectors/services/github.py`(REST 호출·평탄화·필터), `node_definitions/githubTriggerNode.json`(category trigger, connector 블록 없음 —
+외부 호출이 없다. `mock.samples` 에 GitHub 문서 예시 payload 4종: pull_request.opened·issues.opened·release.published·workflow_run.completed/failure),
+`node_definitions/githubNode.json`(13 모드, `sideEffectByMode` read 5·write 8, mock success 가 전 모드를 덮고 auth_failed·rate_limited·
+rate_limited_primary(403+x-ratelimit-remaining:0)·not_found·timeout). 트리거는 `/webhook/{endpoint_id}` 핸들러가 `webhook_verify.INBOUND_NODE_TYPES`
+로 인정하고, **기본 검증 모드가 HMAC**(DEFAULT_MODE_BY_TYPE)이며, 서명 뒤 **실행 전에** 필터를 걸어 걸러진 전달은 run 없이 200 ignored.
+통과한 이벤트는 `{event, delivery, payload}` envelope 으로 노드에 들어가 `flatten_envelope` 로 평탄화된다(event·action·repo·number·title·body·url·
+branch·baseBranch·sha·labels·author·tag·status·conclusion·raw). 액션은 repo·number·tagName 을 비우면 트리거 출력에서 이어받고, 코멘트·새 이슈
+본문은 비우면 직전 노드 출력이다. 1차 한도(403)는 `connectors.errors.from_response` 공통 계층에서 rate_limited 로 재분류하고 `x-ratelimit-reset`
+으로 대기 시간을 잡는다. 웹훅 자동 등록(`admin:repo_hook`)·GitHub App·노드 레벨 대량 생성 쓰로틀은 미구현(정의 rateLimit 분당 60 만).
+`test_github.py` 60여 건(REST 계약·입력 거르기·한도 재분류·평탄화/필터·mock 전 모드·Mock 탭 트리거→액션·엔드포인트 시나리오).
 
 **인증: 1단계는 API Center 의 fine-grained PAT**(`api_key` kind, 공개 콜백 불필요, 구현 S). GitHub App 은 DEV-4 로
 미룬다 — check run 작성·조직 전체 웹훅·rate limit 확대가 필요해지는 시점에. 조직 저장소는 개인 토큰이 아니라

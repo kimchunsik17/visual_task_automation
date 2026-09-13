@@ -2476,3 +2476,64 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
   "요청 검증", 노드 문서 갱신. `test_webhook_verify.py` 9건.
 - 검증을 켠 웹훅은 GitHub 쪽 Secret 과 API 센터의 값이 같아야 한다. 값을 바꾸면 양쪽을 함께 바꾼다.
 - 다음(DEV-1): `githubTriggerNode`(이 검증 위에 이벤트·action·브랜치 필터와 평탄화 출력) 와 `githubNode`(PAT, issue/PR/release 동작).
+
+## ADR-0032 · GitHub 연동: PAT 하나, 트리거는 인바운드 웹훅 위에서 핸들러가 거르고 노드가 평탄화한다
+
+| 상태 | 수락됨 · 2026-09-13 (백로그 34 DEV-1. GitHub App·check run 은 DEV-4) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.3 DEV-1, ADR-0031(웹훅 하드닝), ADR-0007/0008(연동 계약·생성기), ADR-0009(mock 실행), ADR-0030(웹훅 멱등성) |
+
+**맥락 (Context)**
+
+첫 개발 도구 연동이다. 로드맵은 트리거(10 이벤트, action·브랜치·라벨 필터, 평탄화 출력)와 액션(issue/pr/release/workflow/dependabot/file
+13 모드)을 정했다. 결정할 것은 (1) 인증 형태, (2) 트리거를 어디에 세우나, (3) 필터를 어디서 거나, (4) 이벤트마다 다른 payload 를 뒤 노드가
+어떻게 읽나, (5) GitHub 의 403 한도를 어떻게 읽나였다.
+
+**결정 (Decision)**
+
+1. **인증은 fine-grained PAT 하나.** provider `github`(kind api_key). 노드에는 `{{API_CENTER:github}}` 참조도 두지 않는다 — 생성 코드가
+   `oauth.require_token('github', …)` 로 실행 시점에 읽는다. GitHub App(JWT → 설치 토큰, check run 작성)은 수요가 확인되는 DEV-4 로.
+   웹훅 **수신**에는 토큰이 필요 없다 — `webhook_secret`(ADR-0031)만.
+2. **트리거는 새 수신 경로가 아니라 `/webhook/{endpoint_id}` 위에 있다.** `webhook_verify.INBOUND_NODE_TYPES = (webhookNode, githubTriggerNode)`
+   — 매칭·상한·서명·중복 제거(X-GitHub-Delivery)를 그대로 물려받는다. 다른 점은 둘: **기본 검증 모드가 HMAC**(`DEFAULT_MODE_BY_TYPE`) 이고,
+   서명 뒤에 GitHub 전용 단계가 하나 더 있다. `webhookUrl` 필드도 같은 이름이라 목록·삭제·사용자당 상한(2개)이 같은 코드로 돈다.
+3. **필터는 핸들러가 실행 전에 건다.** events·actionFilter·branchFilter·labelFilter 를 `github.trigger_matches` 가 판정하고, 걸러진 전달은
+   run 을 만들지 않고 `200 {"status": "ignored"}` 로 답한다. GitHub 은 2xx 만 보고, 활발한 저장소의 push 마다 run 행이 쌓이는 것은 사용자에게
+   잡음이다(노드 안에서 조건 분기로 거르면 run·과금 기록이 남는다). ping 도 여기서 200 으로 끝난다. 브랜치가 없는 이벤트(이슈)는 브랜치
+   필터로 거르지 않는다 — `branchFilter=main` 때문에 이슈 알림이 조용히 사라지는 쪽이 더 나쁘다.
+4. **노드 입력은 envelope, 출력은 평탄화.** 헤더에만 있던 이벤트 이름·전달 id 를 `{event, delivery, payload}` 로 싸서 넘기고, 노드가
+   `flatten_envelope` 로 **이벤트 종류가 달라도 같은 키**(event·action·repo·number·title·body·url·branch·baseBranch·sha·labels·author·tag·
+   status·conclusion·merged·draft·commits)로 펼친다. 없는 값은 빈 문자열/빈 배열 — 바인딩 경로가 null 에 걸리지 않게. 원본은 `raw`.
+   이벤트 헤더 없이 원본 payload 만 오면(목업 샘플·수동 입력) 모양으로 이벤트를 추정한다. 트리거 정의에는 connector 블록이 없다 — 외부
+   호출이 없는데 success/timeout 시나리오를 요구받으면 일어나지 않는 상황을 지어내게 된다. 대신 `mock.samples` 에 GitHub 문서 예시
+   payload 4종을 두고 Mock 탭이 entry 샘플로 쓴다(`mock_service._entry_samples`).
+5. **액션은 트리거 출력을 이어받는다.** repo·number·tagName 을 비우면 직전 노드 출력(JSON)의 repo·number·tag 로 채운다
+   (`fill_from_upstream`). 코멘트·새 이슈 본문은 비우면 직전 노드 출력 — "LLM 요약 → PR 코멘트". 이슈 수정(빈 본문 = 변경 없음)과
+   릴리스(빈 본문 = `generate_release_notes`)는 제외한다.
+6. **403 + `x-ratelimit-remaining: 0` 은 한도다.** `connectors.errors.from_response` 공통 계층에서 RATE_LIMITED 로 재분류하고 Retry-After 가
+   없으면 `x-ratelimit-reset`(유닉스 초)으로 대기 시간을 잡는다. 재시도 정책의 max_delay(30초)보다 길면 정책이 알아서 포기한다 — 한 시간
+   멈춰 있는 워크플로우보다 실패가 낫다. GitHub 전용 코드가 아니다 — 같은 관례를 쓰는 API 가 많다.
+7. **쓰기 요청은 timeout 에 재시도하지 않는다**(ConnectorSession 기본). `pr.merge` 는 PUT 이지만 `idempotent=False` 로 닫는다 — 되돌릴 수
+   없는 동작이 두 번 요청되면 두 번째는 405 로 실패해 로그가 흐려진다. `release.generate_notes` 는 POST 지만 저장소에 쓰지 않아
+   `idempotent=True` 로 연다.
+8. **mock 은 전 모드를 덮는다.** success 시나리오가 13 모드의 요청을 전부 재생하고(PR JSON 과 diff 는 같은 URL 이라 `match.headerEquals`
+   를 mock 계층에 추가했다), `rate_limited_primary`(403) 시나리오로 6번을 재현한다.
+
+**대안 (Alternatives)**
+
+- **GitHub 전용 수신 경로(`/github/{id}`)**: 서명·상한·dedupe 를 다시 만든다. ADR-0031 이 이미 그 일을 했다. 기각.
+- **필터를 노드 안(조건 분기)에서**: 걸러진 이벤트마다 run·FlowExecutionLog 가 남는다. 기각.
+- **이벤트별 출력 스키마**: PR 과 이슈를 잇는 뒤 노드가 두 경로를 알아야 한다. 평탄화가 맞다.
+- **트리거에도 connector 블록 + 가짜 timeout 시나리오**: 재현되지 않는 상황을 fixture 로 두는 것 — mock 계약의 취지(ADR-0008)와 반대다.
+- **GitHub App 먼저**: 공개 콜백·설치 흐름·JWT 가 필요하고 개인 저장소 사용자에게는 과하다. PAT 로 시작하고 수요를 본다.
+
+**결과 (Consequences)**
+
+- `connectors/services/github.py`, `node_definitions/githubTriggerNode.json`·`githubNode.json`, provider `github`, `webhook_verify`
+  (INBOUND_NODE_TYPES·DEFAULT_MODE_BY_TYPE), `main.receive_webhook`(필터·envelope)·목록·삭제·상한 일반화, 생성기 둘, `connectors.errors`
+  (403 한도 재분류·`seconds_until_epoch`), `connectors.mock`(`headerEquals`), `mock_service._entry_samples`, 카탈로그 53종, 편집기
+  (ConnectorNode·팔레트·문서·라벨·`provider-github` 아이콘). `test_github.py`.
+- 미구현(후속): PAT 로 웹훅 자동 등록(`admin:repo_hook`), 이슈 대량 생성 노드 레벨 쓰로틀(정의 rateLimit 분당 60 만), GitHub App(DEV-4),
+  생성 평가 사례 3종(로드맵 DEV-1 마지막 항목 — 템플릿 게시와 함께).
+- 조직 저장소는 workspace 자격증명(TEAM-2)이 오면 `project_access.credential_owner_for` 가 그대로 소유자를 정한다 — 노드 쪽 변경 없음.
