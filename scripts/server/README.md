@@ -103,6 +103,8 @@ curl -s http://127.0.0.1:8000/api/ready     # {"status":"ready", ...} 여야 한
 | 4 | 브라우저·서버 | 스케줄 프로젝트 하나를 1분 뒤로 잡거나 웹훅을 한 번 쏜다 | 웹훅은 202 `{status: queued, run_id}`; `journalctl -u run-worker@1 -f` 에 claim → 실행; `GET /api/projects/{id}/workflow-runs/{run_id}` 가 succeeded |
 
 **리허설 — 세 가지를 꼭 해 본다.** 출시 게이트("재시작이 실행 중 run 을 잃지 않는지", ROADMAP §3.1)가 이것으로 닫힌다.
+**2026-09-13 운영 서버에서 1~3 전부 통과**(restart 86초 블록 뒤 마치고 재기동 · SIGKILL 126초 뒤 failed 확정 · stop 309초에 503 → start 복귀).
+그날 08 스크립트가 0644 로 받아져 `sudo bash scripts/server/08-run-worker-unit.sh` 로 돌렸다 — 이후 git 모드를 755 로 고쳤으니 `git pull` 뒤엔 그대로 실행된다.
 
 1. **정상 재기동**: 긴 run(LLM 노드 여럿)이 running 인 동안 `sudo systemctl restart run-worker@1`. 기대: SIGTERM 을 받은 워커가 그 run 을
    **마치고** 종료·재기동한다(최대 TimeoutStopSec 900초 — `systemctl restart` 가 그동안 기다린다). 타임라인에서 그 run 은 succeeded,
