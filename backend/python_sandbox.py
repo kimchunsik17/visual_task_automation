@@ -11,14 +11,23 @@
 
 ■ 한도를 언제 거는가
   import 를 마친 **뒤에** 건다. 먼저 걸면 인터프리터 자기 초기화가 한도에 걸려 죽는다.
+
+■ 네트워크 (ENGINE-0 5단계 잔여, 2026-09-08)
+  허용 목록 때문에 사용자 코드는 socket 을 import 할 수 없다. 그래도 자식 프로세스 안에서 소켓 연결·이름 풀이를
+  한 번 더 막는다(_block_network) — 허용 목록이 느슨해지는 날 이 프로세스가 마지막 선이다. n8n Task Runner 와
+  같은 "코드 실행기는 바깥과 통신하지 않는다" 원칙.
 """
 
 from __future__ import annotations
 
 import json
-import resource
 import signal
 import sys
+
+try:
+    import resource  # POSIX 전용 — 운영(리눅스)에서만 있다
+except ImportError:  # pragma: no cover — Windows 개발 환경. 한도 없이 돌리지 않고 _apply_limits 가 거부한다
+    resource = None
 
 
 class CpuLimitReached(Exception):
@@ -30,6 +39,8 @@ def _on_sigxcpu(signum, frame):
 
 
 def _apply_limits(limits: dict) -> None:
+    if resource is None:
+        raise RuntimeError("pythonNode 격리 실행기는 POSIX rlimit(resource 모듈)이 있어야 한다")
     cpu_seconds = int(limits["cpuSeconds"])
     address_space = int(limits["addressSpaceBytes"])
     # soft 는 CPU 초, hard 는 +1 초 — soft 에서 SIGXCPU 를 받아 스스로 보고하고, 그 사이 응답하지
@@ -37,6 +48,21 @@ def _apply_limits(limits: dict) -> None:
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
     resource.setrlimit(resource.RLIMIT_AS, (address_space, address_space))
     signal.signal(signal.SIGXCPU, _on_sigxcpu)
+
+
+def _block_network() -> None:
+    """이 프로세스 안의 모든 소켓 연결·이름 풀이를 막는다. 허용 목록(import 금지)이 첫 선이고 이것이 둘째 선이다."""
+    import socket
+
+    def _refuse(*_args, **_kwargs):
+        raise PermissionError("pythonNode: network access is blocked in the sandbox")
+
+    socket.getaddrinfo = _refuse
+    socket.create_connection = _refuse
+    socket.socket.connect = _refuse
+    socket.socket.connect_ex = _refuse
+    socket.socket.sendto = _refuse
+    socket.socket.bind = _refuse
 
 
 def _safe_builtins() -> dict:
@@ -75,6 +101,7 @@ def main() -> int:
         "output_data": payload.get("input_data"),   # 기본값 — 코드가 안 바꾸면 그대로 흘린다
     }
     _apply_limits(payload["limits"])
+    _block_network()
 
     try:
         exec(compile(code, "<pythonNode>", "exec"), namespace)

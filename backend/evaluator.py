@@ -11,7 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 
 import models
-from graph import run_workflow
+import execution
 from meta_agent import PLACEHOLDER_URL
 
 # posterGeneratorNode/fileModifierNode처럼 실제 결과가 사람이 읽는 텍스트가 아니라 디스크에
@@ -472,7 +472,7 @@ async def run_evaluation_pipeline(project_id: int, title: str, description: str,
                 # 시뮬레이션한다 — "기본값이 승인"인 게 아니라 평가라는 호출자가 결정을 전달하는 것.
                 inputs = {"default_input": tc.input, "approval_decision": "Y"}
                 try:
-                    result_text, tokens, logs = run_workflow(nodes, edges, db=task_db, **inputs)
+                    result_text, tokens, logs = execution.start(nodes, edges, trigger_source="evaluation", db=task_db, **inputs)
                     error_msg = None
                     # 실행 엔진 수준 실패는 구조화 step(node_type='workflow')으로 먼저 판정한다(ADR-0016).
                     # 문자열 검색은 legacy fallback 으로만 남긴다.

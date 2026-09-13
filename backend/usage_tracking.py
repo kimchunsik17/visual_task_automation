@@ -145,9 +145,18 @@ def record_usage(
             raise ValueError(f"Billable user {billable_user_id} does not exist")
         user.token_balance = int(user.token_balance or 0) - normalized_total
 
+    # 직전 execution.start 가 만든 실행 기록(ENGINE-1)과 잇는다. 한 번만 꺼내므로(take) 다른 사건에 잘못 붙지 않고,
+    # 프로젝트가 다르면 None 이다. 실행 기록이 꺼져 있거나(RUN_RECORDS=0) 실행 없이 남기는 사건이면 그냥 NULL.
+    run_id = None
+    if event_type == EVENT_WORKFLOW_EXECUTION:
+        import execution
+
+        run_id = execution.take_last_run_id(project_id)
+
     log = models.FlowExecutionLog(
         # Legacy readers still treat user_id as the billed account.
         user_id=billable_user_id,
+        run_id=run_id,
         actor_user_id=actor_user_id,
         billable_user_id=billable_user_id,
         project_id=project_id,

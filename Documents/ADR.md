@@ -1989,3 +1989,439 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
 - 검증: `test_node_bindings.py`(55케이스 — 계약·생성기 배선 대조·프롬프트 주입·few-shot 정합성·
   bind_field·수리), `test_task_spec.py`, `test_evaluation.py`, `editorCommands.test.js`,
   Playwright(픽커·데이터 레이어·popout 마이그레이션·오류 카드·성능). 전체 회귀 2537 통과.
+
+## ADR-0027 · 그래프 인터프리터 이관: 순회 규칙 공유 · 생성기 본문 재사용 · 정적 계획
+
+| 상태 | 수락됨 · 2026-09-06 · **4단계 인터프리터·섀도 구현 2026-09-08** (남은 것: 프로젝트별 flag, 커뮤니티 242종 오프라인 대조) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.1(백로그 32), ADR-0015(승인 재개), ADR-0016(NodeError v1), ADR-0019(pythonNode 격리), `plans/실행엔진_앱빌더_시연준비_종합보고서.md` §1 |
+
+**맥락 (Context)**
+
+실행 엔진은 `compile_workflow` 가 그래프를 파이썬 소스로 만들고 `run_workflow` 가 `exec()` 하는 구조다. 노드 하나가
+실행되는 순간에 엔진이 끼어들 자리가 없어 노드별 재시도·타임아웃·단계 기록·진행률 스트리밍·서브워크플로우가 전부
+막혀 있다(종합보고서 §1.1). 이를 노드 executor 를 직접 부르는 **그래프 인터프리터**로 바꾸되, 전환 조건은 "코퍼스에서
+두 엔진의 출력·로그·토큰이 같다"는 등가성이다(로드맵 §3.1 핵심 판단).
+
+코드를 읽고 확인한 어려움 둘:
+
+1. **순회가 생성기 49종에 흩어져 있다.** 각 생성기는 자기 본문을 찍고 스스로 하류로 재귀한다(`generate_block_fn`).
+   "어떤 순서로 걷는가"가 한 곳에 있지 않다.
+2. **재합류 자리는 정적으로 정해진다.** 재합류 노드(제어 간선 2개 이상)는 모든 상류 갈래가 *방출*된 뒤 한 번 방출되고,
+   배타 분기(conditionNode·humanApprovalNode)의 형제 갈래에 걸쳐 있으면 분기 구문이 닫힌 자리에 놓인다. 실행 시점에는
+   한 갈래만 실행되므로 "도착 수"로 판정하면 merge 가 영영 실행되지 않는다 — 옛 엔진은 실행되지 않은 상류를 빈 값으로
+   건너뛰고 merge 를 실행한다(`test_merge_rejoin.py`).
+
+**결정 (Decision)**
+
+1. **순회 규칙을 `backend/graph_traversal.py` 로 분리하고 두 엔진이 같은 함수를 쓴다.** 그래프 준비(memo·scope·stop·
+   pinned·보안 검증), 간선 분류(template/tools/attachments 제외와 첨부 전용 예외), 루트 판정(정의 파생 트리거 + 내장 5종,
+   폴백, 연결된 루트), 재합류 기대치(back-edge 제외), 재합류 게이트 상태 기계 `JoinGate`(도착·자리 판정·분기 닫힘 뒤
+   방출·미아 방출), 형제 오염 복원 판정. `compile_workflow` 는 이 함수들을 호출만 한다.
+2. **노드 본문은 생성기를 재사용한다 — 49종을 다시 쓰지 않는다.** `backend/node_bodies.render_node_body` 가 생성기를
+   부르되 하류 재귀를 기록만 하는 함수로 바꿔 끼워, 그 노드의 본문 줄과 하류 배선(대상·`prev_res_var`·`active_llm_id`)을
+   얻는다. 인터프리터는 프렐류드(`graph.emit_module_prelude`)를 한 번 exec 한 네임스페이스 위에서 본문을 exec 한다.
+   본문이 옛 엔진의 줄과 같으므로 노드 의미론은 구성상 같다.
+3. **인터프리터가 직접 구현하는 노드는 타입으로 정한다 — `NATIVE_FLOW_TYPES` 6종**(conditionNode·humanApprovalNode·
+   loopNode·distributorNode·breakNode·outputNode). 본문 안에서 하류를 부르거나(if/for) 제어를 끊는(return/break) 노드다.
+   나머지 45종은 래퍼다. 인스턴스 모양이 아니라 타입으로 고른다 — 규칙·핸들이 없는 conditionNode 는 선형처럼 보인다.
+4. **인터프리터는 실행 전에 정적 계획을 세운다.** 옛 엔진의 `generate_block` 과 같은 순서로 그래프를 걷되 코드 대신
+   계획(단계·배타 분기·반복·재합류 자리·반환)을 만들고, `JoinGate` 로 재합류 자리를 정적으로 정한다. 실행은 계획을 따른다.
+   병렬 실행 등 순서를 바꾸는 최적화는 등가성 검증 뒤에만.
+5. **등가성은 두 층으로 검증한다.** 소스 층: `backend/codegen_corpus_diff.py` 가 git ref 시점의 graph.py 와 작업 트리를
+   같은 프로세스에 올려 코퍼스 835 그래프(공식 107×6 변형·큐레이션 142·스모크 51)의 생성 소스를 줄 단위로 대조한다.
+   실행 층(다음 단계): `EXECUTION_ENGINE=shadow` 로 두 엔진을 mock 모드로 나란히 돌려 출력·로그·토큰을 대조한다.
+
+**대안 (Alternatives)**
+
+- **생성기 49종을 executor 로 한 번에 재작성**: 노드마다 등가성 증명이 따로 필요하고, 그동안 34·35번의 새 노드가 두 번
+  만들어진다. 기각.
+- **실행 시점 도착 수로 재합류 판정**: 배타 분기 뒤 merge 가 실행되지 않아 옛 엔진과 다르다(맥락 2). 기각.
+- **생성 코드에 훅만 삽입**(노드 앞뒤 콜백 줄): `exec` 는 그대로라 pythonNode 격리·워커 재개·단계별 저장이 여전히
+  불가능하다. 개입 지점의 절반만 얻는다. 기각.
+
+**결과 (Consequences)**
+
+- `graph.py` 는 `emit_module_prelude`·`emit_run_header`·`emit_llm_setup` 세 방출 함수와 순회 호출로 줄었다(1048 → 888줄).
+  생성기 시그니처(51종 공통)는 바꾸지 않았다.
+- 코퍼스 835 그래프 대조 차이 0. 단 **포스터·문서 노드가 컴파일 시점에 랜덤 파일명을 뽑는다**(`uploads/poster_bb1527.png`) —
+  생성 소스가 실행마다 다르다. 대조 도구는 이것만 정규화한다. 섀도 대조에서도 같은 정규화가 필요하며, 실행 시점으로
+  옮길 후보다.
+- 죽은 코드 하나가 결함이었다: `generate_block` 의 tool 노드 판정 블록이 `node` 를 정의 전에 읽어, tool 노드가 보통
+  간선으로도 연결된 그래프는 `UnboundLocalError` 로 컴파일이 죽었다. 제거했고 `test_graph_traversal.py` 가 회귀를 막는다.
+- ~~남은 일(ENGINE-0 4~6단계): 계획 빌더와 흐름 노드 6종 executor, 래퍼 executor, `execution.start` 의 shadow/interpreter
+  분기, 코퍼스 섀도 대조, pythonNode 격리, 프로젝트별 flag.~~ → 아래 추기.
+- 검증: `test_graph_traversal.py` 26건 · `test_node_bodies.py` 108건 · `test_merge_rejoin.py` 9건 그대로 통과 ·
+  회귀 31파일 1729 passed·28 skipped(test_format_node 1건은 실행 순서 의존 플레이크 — 단독·HEAD 모두 통과).
+
+**추기 (2026-09-08) — 4단계 구현**
+
+- `backend/engine_interpreter.py`: **계획 빌더**(`_PlanBuilder.block` — `compile_workflow.generate_block` 과 같은 지점에서 같은
+  판정: 재합류 게이트·형제 복원·고정 출력·배타 분기 뒤 방출·마지막 루트의 미아 방출)와 **실행기**(`_Executor.run_item` 이 유일한
+  개입 지점 — ENGINE-1 의 step 기록과 ENGINE-3 의 재시도는 여기에 얹는다). 흐름 노드 6종은 생성기와 **같은 함수**가 만드는 곧은
+  줄(`flow_nodes.emit_condition_header`·`emit_loop_header/tail`·`emit_distributor_header/tail`·`emit_break_body`,
+  `ui_nodes.emit_output_body`·`emit_approval_header`)을 exec 하고 제어(if/for/return/break)만 파이썬으로 한다. 판정식
+  (`condition_expr`)·반복 횟수(`range(int(<raw>))`)는 옛 엔진이 소스에 박던 것과 같은 텍스트를 같은 네임스페이스에서 평가한다 —
+  `maxIterations="abc"` 같은 잘못된 값도 같은 NameError 문구로 끝난다.
+- **엔진 선택은 `graph.run_workflow` 의 exec 지점**에서 한다(`execution.engine_mode()`): 두 엔진이 자격증명 치환·승인 스냅샷을
+  거친 같은 노드를 받아야 하기 때문이다. `interpreter` 는 생성 소스를 **compile 만** 먼저 한다 — `ast.parse` 는 통과하지만 compile
+  에서만 잡히는 오류(반복 밖 `break`)를 옛 엔진과 같은 자리·같은 문구(Dynamic Execution Error)로 내기 위해서다.
+- **`shadow` 의 뜻을 바꿨다**: legacy 로 실행하고 인터프리터는 **계획만** 세워 실패를 기록한다(`execution.shadow_plan_failures`).
+  운영에서 두 엔진을 나란히 실행하면 부작용(메일·게시)이 두 번 나가고 LLM 이 비결정적이라 대조가 성립하지 않는다. 실행 결과
+  대조는 오프라인 도구 `backend/engine_shadow_diff.py` 가 한다 — mock 커넥터(ADR-0009)·mock LLM(`LLM_PROVIDER=mock`)·소켓 수준
+  네트워크 차단·`time.sleep` 무시·포스터 렌더 스텁·임시 업로드 루트·`db=None`. 정규화는 시각·오류 requestId(결과 JSON 문자열 안
+  포함)·랜덤 파일명 셋뿐이다.
+- **검증**: 코퍼스 300 그래프(공식 107·큐레이션 142·스모크 51) 결과·로그·토큰 **차이 0**. 옛 엔진의 실행 테스트 7파일 171건
+  (`test_merge_rejoin`·`test_editor_execution`·`test_approval_flow`·`test_pipeline_channels`·`test_node_bindings`·
+  `test_artifact_delivery`·`test_python_isolation`)이 `EXECUTION_ENGINE=interpreter` 서브프로세스에서 그대로 통과 —
+  `test_engine_interpreter.py` 가 재생한다. 소스 층 835 그래프 여전히 바이트 동일(생성기 조각 함수 추출 뒤에도).
+- **발견**: conditionNode 규칙 값에 줄바꿈이 있으면 `condition_expr` 가 이스케이프하지 않아 생성 소스가 SyntaxError 로 거부된다
+  (두 엔진 모두 같은 문구 — 등가지만 사용자에게는 결함, ROADMAP §3.14 py_str 항목에 기록). pythonNode 격리는 ADR-0019 로 이미
+  있었다(인터프리터도 같은 본문을 쓰므로 같은 경로).
+- **프로젝트별 전환(6단계, 2026-09-08)은 환경변수 예외로 한다** — `EXECUTION_ENGINE_PROJECT_OVERRIDES="12:interpreter,7:legacy"`.
+  `execution.engine_mode(project_id)` 가 기본값(`EXECUTION_ENGINE`) 위에 예외를 얹고, `run_workflow` 가 그 결과로 엔진을 고른다.
+  DB 컬럼·관리 API 를 두지 않은 이유: 켜고 끄는 주체가 운영자 한 사람이고 값이 바뀌는 시점이 배포와 같다. 형식이 틀린 항목은 한 번
+  경고하고 무시한다(오타 하나가 전체 실행을 바꾸면 안 된다). `/api/features` 가 기본값과 예외 수를 UI 힌트로 알린다.
+- **DB 전용 코퍼스 내보내기** `backend/export_community_graphs.py` — 게시된 템플릿의 최신 게시 버전 스냅샷(선택: 사용자 프로젝트)을
+  `[{title,nodes,edges}]` 로. 비밀 가림은 run_workflow 와 같은 규칙(접속 문자열 sentinel) + apiKey·accessToken 류 비움 — 두 엔진이
+  같은 가려진 그래프를 받으므로 대조는 성립한다. 내보낸 파일은 저장소 밖에 둔다.
+- **pythonNode 샌드박스 네트워크 차단(2026-09-08)** — `python_sandbox._block_network` 가 자식 프로세스 안에서 `socket` 의 연결·
+  이름 풀이·bind 를 거부한다. 허용 목록이 import 를 막아 사용자 코드가 socket 에 닿을 길은 없지만, 허용 목록이 느슨해지는 날
+  자식 프로세스가 마지막 선이어야 한다(로드맵 5단계의 '네트워크 차단'). `resource` import 를 guard 해 Windows 에서도 차단 함수를
+  검증할 수 있게 했다 — 한도는 여전히 POSIX 에서만 걸리고, 없으면 실행을 거부한다.
+- **DB 코퍼스 대조(2026-09-08)**: 로컬 DB(게시 템플릿 0·프로젝트 10) 포함 310 그래프 차이 0. 갤러리 242종은 운영 DB 에만 있어
+  서버에서 내보내야 한다.
+- **남은 일(운영 절차)**: 운영 DB 에서 242종 내보내 대조 → 스테이징 `shadow` 계획 검사 → 프로젝트별 `:interpreter` → 기본값
+  interpreter. executor 레지스트리 슬롯은 만들지 않았다 — 하이브리드에서 executor 는 두 종류(네이티브 6종·래퍼)뿐이고, 노드를
+  네이티브로 이식할 때(ENGINE-3) 타입별 슬롯이 처음 필요해진다.
+
+## ADR-0028 · 실행 상태 기록: workflow_runs · run_steps 를 단일 진입점에서 남긴다
+
+| 상태 | 수락됨 · 2026-09-09 (ENGINE-1 1단계 구현 — 기록 모델·진입점 기록·FlowExecutionLog 연결. 재개 일반화·SSE 타임라인은 다음 단계) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.1 ENGINE-1, ADR-0027(인터프리터), ADR-0015(승인 재개), ADR-0016(NodeError v1), 마이그레이션 0024 |
+
+**맥락 (Context)**
+
+실행 기록은 `FlowExecutionLog`(실행 사건: 과금·사용량·outcome)와 그에 매달린 `NodeExecutionLog`(노드 기록) 두 표였다.
+둘은 **호출부가 실행이 끝난 뒤** `usage_tracking.record_usage` 로 남기는 "누가 얼마를 썼나" 의 장부다. 여기에는 어느
+경로로 시작했는지(trigger_source), 어느 엔진이 돌았는지, 지금 대기(paused) 중인지, 어디까지 갔는지 같은 **실행 상태**가
+없다. 큐/워커(ENGINE-2)가 끊긴 실행을 회수하고, 재시도·멱등성(ENGINE-3)이 "이 노드는 이미 성공했다"를 판단하려면 실행
+상태 표가 있어야 한다. 실행의 단일 진입점(`execution.start`, ENGINE-0 1단계)이 생겨 이제 그 표를 한 곳에서 채울 수 있다.
+
+**결정 (Decision)**
+
+1. **두 표를 새로 만든다** — `workflow_runs`(실행 하나: project·trigger_source·engine·status·executor/owner·session·
+   started/finished/heartbeat·error_summary·total_tokens·step_count·idempotency_key)와 `run_steps`(노드 한 번: sequence·
+   node_id/type·attempt·status·started/finished·output_preview·tokens·error). `FlowExecutionLog` 는 그대로 두고 `run_id` 만
+   붙인다 — 과금·통계는 건드리지 않는다.
+2. **`execution.start` 가 기록한다.** db 를 받은 실행마다 begin(running) → 결과가 오면 finish(succeeded|failed|paused +
+   step) → 엔진이 예외를 던지면 fail(failed) 뒤 예외를 그대로 올린다. 호출부 11곳은 고치지 않는다.
+3. **step 은 실행이 끝난 뒤 `__execution_logs__`(log_step 기록)에서 만든다.** 두 엔진(legacy exec·interpreter)이 같은 기록을
+   남기므로 엔진과 무관하게 같은 step 이 나온다. 노드 경계의 실시간 기록은 인터프리터의 `_Executor.run_item` 에 얹을 수 있지만
+   정본은 이 사후 변환이다 — legacy 엔진이 살아 있는 동안 두 경로가 같은 표를 채워야 한다.
+4. **호출자의 세션에 flush 만 하고 커밋은 호출자가 한다.** 모든 호출부가 실행 뒤 `record_usage` + `commit` 을 하므로 실행 상태와
+   과금 기록이 같은 트랜잭션에 남는다. 실시간 진행 표시는 DB 를 폴링하지 않고 프로세스 안 SSE(3단계)로 하므로 행이 트랜잭션
+   끝까지 보이지 않아도 된다.
+5. **`FlowExecutionLog.run_id` 는 소비형 contextvar 로 잇는다.** `start` 가 run id 를 contextvar 에 두고 `record_usage` 가
+   **한 번만** 꺼내(`take_last_run_id`) 붙인다. 워크플로우 실행 사건에만, 프로젝트가 같을 때만 붙는다. 실행 없이 남기는 사건
+   (자격증명 사용 등)에는 붙지 않는다.
+6. **기록은 부수 기능이다.** begin/finish/fail 의 예외는 경고만 남기고 실행 결과를 바꾸지 않는다. `RUN_RECORDS=0` 으로 끈다.
+
+**대안 (Alternatives)**
+
+- **호출부마다 기록**: 11곳이 각자 쓰면 표기가 갈라진다(trigger_source 가 그랬다). 기각.
+- **별도 세션으로 즉시 커밋**: 실시간 가시성은 얻지만 sqlite(테스트)에서는 연결이 공유돼 호출자 트랜잭션을 같이 커밋하고,
+  PostgreSQL 에서는 실행 상태와 과금 기록이 엇갈릴 수 있다. 가시성은 SSE 로 얻는다. 기각.
+- **`NodeExecutionLog` 확장**: 그 표는 과금 사건의 자식이라 실행이 끝난 뒤에만 생기고, 대기·재개·attempt 개념이 없다. 기각.
+- **`FlowExecutionLog` 에 컬럼 추가**: 과금 장부에 실행 상태 컬럼을 섞으면 통계(`build_statistics`)가 상태 전이를 따라가야 한다. 기각.
+
+**결과 (Consequences)**
+
+- 실행마다 flush 2회(begin·finish)가 는다. step 은 노드 수만큼 행이 생긴다(반복 노드는 회차마다) — 보존 기간 정리는 ENGINE-2 와
+  함께 정한다(FK 를 걸지 않은 이유: 과금 장부와 보존 기간이 다를 수 있다).
+- 호출자가 롤백하면 기록도 사라진다. 지금은 모든 호출부가 커밋하므로 문제가 없고, ENGINE-2 부터는 워커가 자기 세션을 갖는다.
+- `status` 어휘: running|succeeded|failed|paused(승인 대기). queued·cancelled 는 ENGINE-2, step 의 pending|running|skipped 은 3단계.
+  `engine` 컬럼으로 전환 기간에 두 엔진의 실패율을 나눠 볼 수 있다.
+- 검증: `test_run_records.py` 14건(run/step 모양·failed 요약·paused·pinned·인터프리터 동일·엔진 예외·기록 실패 무해·run_id 한 번만·
+  프로젝트 불일치·비실행 사건·db 없음·RUN_RECORDS=0·마이그레이션만으로 만든 스키마), `test_schema_drift.py` 통과.
+- 다음: 승인 대기 전용 스냅샷 재개의 일반화(2단계). 3단계는 아래 추기.
+
+**추기 (2026-09-09) — 3단계 타임라인·진행 이벤트**
+
+- **타임라인 API**: `GET /api/projects/{id}/workflow-runs`(최신 먼저, step 없이) · `GET /api/projects/{id}/workflow-runs/{run_id}`
+  (step 포함). 경로가 `workflow-runs` 인 이유: `/api/projects/{id}/runs` 는 FlowExecutionLog 목록으로 이미 쓰이고(거기엔 `run_id` 만
+  덧붙였다), `/api/runs/{run_id}` 가 int 경로라 `/api/runs/stream` 을 가로챈다. 권한은 RUN(`_require_project_action`) — 결과 미리보기를
+  담으므로 기존 runs 라우트와 같은 이유로 공개 범위에 열지 않는다. 직렬화는 `run_records.public_run/public_step`.
+- **진행 이벤트 `run_events.py`**: 실행한 사용자(executor_user_id) 채널의 thread-safe 큐 pub/sub + SSE `GET /api/workflow-runs/stream`.
+  생성 소스를 바꾸지 않는다 — 프렐류드가 정의한 `log_step` 을 네임스페이스에서 감싸(attach_step_observer) 기록이 붙을 때마다
+  node_finished 를 내므로 legacy exec·interpreter 가 같은 이벤트를 낸다. node_started 는 인터프리터만 낸다(`_Executor.run_item`
+  이 body·pinned·header 항목과 Output·Break 에서 노드 경계를 안다). run_finished 는 `execution.start` 가 기록을 닫으며 낸다.
+- **왜 `message_stream` 을 재사용하지 않았나**: 그 모듈은 DB 를 정본으로 놓친 구간을 재전송(Last-Event-ID)한다. 실행 기록은
+  호출자 트랜잭션이 끝나야 보이므로 그 모델이 맞지 않다. 진행 이벤트는 지연 최적화이고 정본은 타임라인이다 — 재전송 없음.
+- **채널 키가 사용자인 이유**: run id 는 실행이 시작돼야 생기고 저장 전 그래프는 project id 가 없다. 실행 전에 구독할 수 있는
+  유일한 키다. 익명 공개 앱 실행은 아직 이벤트가 없다 — 33번 APP-2 가 익명 세션 키를 더한다.
+- **스위치**: `RUN_RECORDS=0`(기록 끔), `RUN_EVENTS=0`(이벤트 끔·스트림 404). 둘 다 실행 결과에는 영향이 없다.
+- 검증: `test_run_events.py` 11건(두 엔진 이벤트 순서·흐름 노드 시작 1회·실패/예외 run_finished·결과 불변·사용자 없음·큐 포화·
+  SSE 본문), `test_run_timeline_api.py`(라우트 배선·권한·404·스트림 스위치).
+- 남은 것: 에디터·앱 빌더가 `/api/workflow-runs/stream` 을 구독해 노드 상태를 그리는 프론트 작업(33번 APP-2 와 함께). 2단계는 아래 추기.
+
+**추기 (2026-09-10) — 2단계 재개 일반화**
+
+- **paused 인 run 이 재개 상태를 갖는다**(마이그레이션 0025): `paused_reason`(approval | 뒤에 wait·worker_restart) · `resume_node_id` ·
+  `resume_payload`(재개 지점의 직전 노드 출력 자리 값 — 승인자가 본 견본) · `graph_snapshot` · `runtime_inputs`(직렬화 가능한 것만,
+  `approval_service.serializable_runtime_inputs`) · `approval_request_id` · `resume_count` · `resumed_at`. `graph._pause_for_approval` 이
+  승인 요청을 만든 직후 `execution.current_run()` 에 `run_records.record_pause` 로 남긴다.
+- **재개 함수는 하나다 — `execution.resume(run_id, db=…, trigger_source=…, extra_inputs=…)`.** run 의 재개 상태로 `start(resume_run_id=…)`
+  를 부르고, `start` 는 새 run 을 만들지 않고 `run_records.reopen` 으로 **같은 행을 다시 연다**(paused 가 아니면 ValueError — 기록
+  실패로 삼키지 않는다; 재개 자체가 틀린 것이다). 그래서 한 논리적 실행은 대기를 몇 번 거쳐도 run 하나다: step 은 sequence 를
+  이어 붙이고(대기 step 뒤에 재개 구간), 토큰은 누적, 진행 이벤트는 같은 runId. 예약 키(session_id·project_id·`__approval_payload__`·
+  `approval_decisions`)는 runtime_inputs 에서 빼고 명시 인자로 준다 — 결정은 재개하는 쪽(extra_inputs)의 몫이다.
+- **승인은 첫 소비자다.** `approval_service.decide_and_resume` 이 `run_records.find_paused_by_approval(request_id)` 로 run 을 찾아
+  `execution.resume` 을 부른다. `approval_requests` 는 알림·결정 UI·권한(소유자만)·원자적 전이의 정본으로 그대로 두었다 — 두 표의
+  역할이 다르다(요청은 사람에게 묻는 사건, run 은 실행 상태). 기록이 없는 요청(마이그레이션 전·`RUN_RECORDS=0`)은 예전 방식으로
+  요청 행의 스냅샷에서 새 실행을 만든다 — 후방 호환.
+- **대안**: (a) ApprovalRequest 에 재개 로직을 계속 두기 — 대기 노드·워커 재시작마다 같은 코드를 또 만든다. (b) 재개를 새 run 으로
+  만들고 parent 로 잇기 — 타임라인이 갈라지고 "한 실행이 어디까지 갔나" 를 두 행에서 합쳐 읽어야 한다. 둘 다 기각.
+- 검증: `test_run_resume.py` 12건(재개 상태·resume_arguments·승인/거절 갈래/거절 중단이 같은 run 에 이어짐·재개 이벤트 runId·
+  일반 resume·비 paused 거부·db 없음 거부·옛 요청 폴백·RUN_RECORDS=0·마이그레이션), `test_approval_flow.py` 그대로 통과.
+- ENGINE-1 은 백엔드가 끝났다. 남은 것은 프론트 진행 표시(APP-2)와 ENGINE-2 — 워커가 끊긴 running run 을 회수할 때 이 재개 함수를
+  쓴다(마지막 완료 step 다음부터; 부작용 노드를 지났으면 실패로 확정).
+
+## ADR-0029 · 실행 큐: workflow_runs 를 큐로 쓰고 PostgreSQL SKIP LOCKED 로 잡는다
+
+| 상태 | 수락됨 · 2026-09-10 (ENGINE-2 1단계 — 큐·워커·heartbeat·stale 확정. 생산자 전환·인프로세스 워커·배포 유닛은 다음 단계) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.1 ENGINE-2, ADR-0028(실행 상태 기록·재개), ADR-0027(인터프리터), 마이그레이션 0026 |
+
+**맥락 (Context)**
+
+uvicorn 워커 하나가 API·실행·스케줄을 겸한다(`docs/reports/load_assessment.md`). 재시작하면 실행 중 워크플로우가 유실되고,
+LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐로 보내려면 큐 저장소·워커·중복 방지·끊김 회수가 필요하다.
+실행 상태 표(`workflow_runs`, ADR-0028)가 이미 실행에 필요한 것(그래프 스냅샷·런타임 입력·재개 상태·출처·소유자)을 갖고 있다.
+
+**결정 (Decision)**
+
+1. **별도 큐 표를 두지 않는다 — `workflow_runs` 가 큐다.** status=queued 인 run 이 큐 항목이고, 워커가 잡으면 running,
+   끝나면 succeeded/failed/paused 다. "한 논리적 실행은 run 하나"(ADR-0028)가 큐 단계에서도 지켜지고, 타임라인 API·진행
+   이벤트·FlowExecutionLog 연결이 그대로 통한다. 큐 컬럼(0026): `queued_at`·`claimed_at`·`worker_id`·`run_options`·`attempts`.
+2. **PostgreSQL `SELECT … FOR UPDATE SKIP LOCKED` 로 잡는다**(`run_queue.claim`). 워커 여럿이 같은 run 을 두 번 잡지 않는다.
+   Redis/Celery 를 먼저 권하지 않는 이유: 이미 PostgreSQL 이 있고 단일 VM 규모에서 새 인프라 하나는 운영 부담 하나다.
+   sqlite(테스트)는 단순 select+update 로 같은 의미를 낸다(한 프로세스 안 배타).
+3. **워커가 세션을 소유하고 큐 연산은 커밋한다.** `claim`·`heartbeat`·`reclaim_stale` 은 즉시 커밋한다 — 잡았다는 사실을 다른
+   워커가 바로 봐야 한다. 실행 기록(run_records)은 그 세션에 flush 만 하고 워커가 실행 뒤 과금 기록(`record_usage`, 인라인
+   호출부가 하던 것)과 함께 커밋한다. 실행 예외에도 `run_records.fail` 이 flush 한 failed 를 커밋한다(rollback 하면 실패했다는
+   사실이 사라진다). `enqueue` 만 생산자 트랜잭션에 들어가므로 flush 다.
+4. **실행은 같은 run 행 위에서** — `execution.start(existing_run_id=…)` 가 `run_records.adopt` 로 paused(재개)·claim 된 running
+   (큐)만 받는다. claim 안 된 queued 나 끝난 run 은 ValueError 다.
+5. **heartbeat 가 끊긴 running run 은 failed 로 확정한다 — 재실행하지 않는다.** step 은 실행이 끝난 뒤 쓰이므로 어디까지 갔는지
+   (부작용 노드를 지났는지) 모른다. 마지막 완료 step 부터의 재개는 노드 멱등성(ENGINE-3)과 함께 온다(그때 `execution.resume`).
+   주기: `RUN_WORKER_HEARTBEAT_SECONDS`(기본 10) · `RUN_WORKER_STALE_SECONDS`(기본 120).
+
+**대안 (Alternatives)**
+
+- **별도 큐 표(jobs)**: run 과 jobs 를 잇는 FK·상태 동기화가 생기고, 재개(paused → queued)도 두 표를 건너야 한다. 기각.
+- **Redis/Celery**: 새 인프라·배포 구성. 큐 인터페이스(enqueue/claim)가 모듈 하나에 있어 나중 교체 비용이 작다. 지금은 기각.
+- **끊긴 run 재큐잉**: 부작용이 두 번 나갈 수 있다(메일·게시). 멱등성 없이 하지 않는다. 기각.
+
+**결과 (Consequences)**
+
+- `python run_worker.py --worker-id w1` 로 별도 프로세스 워커를 띄울 수 있다(SIGTERM 에 현재 run 을 마치고 종료). 생산자(스케줄·
+  웹훅·앱)는 아직 인라인이다 — 다음 PR 에서 `EXECUTION_QUEUE` 플래그 뒤로 전환하고, 배포 단위를 바꾸지 않고 검증할 인프로세스
+  워커 스레드 옵션을 함께 넣는다. systemd 워커 유닛은 그 뒤 배포 문서에.
+- 큐잉된 실행의 과금은 워커가 남긴다(`trigger_type` 은 인라인 호출부 표기를 따른다 — schedule→scheduler, app→shared_app).
+
+**추기 (2026-09-10) — 2단계 생산자 전환·인프로세스 워커**
+
+- **스위치 `EXECUTION_QUEUE`(기본 0).** 켜면 결과를 기다리지 않는 두 경로가 큐로 간다: 스케줄러(`_execute_scheduled_project_locked`
+  이 enqueue 만 — advisory lock 은 misfire 재발화의 중복 enqueue 방지로 남는다)와 웹훅(`/webhook/{endpoint_id}` 가 enqueue 뒤
+  **202 `{status: queued, run_id, project_id}`** — 발신자는 10초 안 2xx 를 기대하고, 결과는 타임라인에서). 결과를 동기로 기다리는
+  경로(에디터 수동 실행·dry-run·앱·봇·`/api/call`)는 인라인 그대로 — 큐로 보내면 클라이언트가 폴링·구독으로 바뀌어야 하고 그건
+  33번 APP-2 의 몫이다. `/api/features.execution_queue` 가 스위치를 알린다.
+- **인프로세스 워커 `EXECUTION_WORKER_INPROCESS`(기본 0).** API 프로세스 시작 훅이 `run_worker.start_inprocess_worker(SessionLocal)`
+  로 daemon 스레드를 띄우고 종료 훅이 현재 run 을 마치고 멈춘다. 실행이 API 와 같은 프로세스에서 도는 점은 인라인과 같지만 경로
+  (큐 → claim → 같은 run 행 → 워커 과금)는 별도 프로세스와 같다 — 배포 단위를 바꾸지 않고 큐 경로를 검증하기 위한 것. 큐만
+  켜고 워커가 없으면 시작 로그에 경고한다(queued 가 쌓이기만 한다).
+- 검증: `test_run_producers.py` 7건 — 꺼짐이면 인라인 그대로 · 켜지면 스케줄러는 queued 만 · 워커가 실행하고 `scheduler` 표기로
+  과금 · lock 이 큐 모드에서도 중복 enqueue 방지 · 인프로세스 워커 켜고/끄기·큐 비움 · 스위치 기본값 · 웹훅 서브프로세스 시나리오
+  (200 인라인 → 202 queued → 워커 실행 → `webhook` 표기 과금 → 타임라인에서 결과).
+- 남은 것(3단계): systemd 워커 유닛·배포 문서(`scripts/deploy.sh` 에 `alembic upgrade head` 뒤 워커 재시작), 스테이징에서 큐 모드
+  리허설(재시작 중 실행 중 run 이 heartbeat 끊김 → failed 확정으로 드러나는지), 인스턴스 2개 시 APScheduler 리더 선출.
+- 검증: `test_run_queue.py` 13건(enqueue·claim 단조·워커 처리+과금·옵션/재개 인자·실행 예외 생존·run_forever·heartbeat·stale
+  확정·주기 회수·adopt 거부·마이그레이션·PostgreSQL 동시 claim). PostgreSQL 동시 claim: 통과(2026-09-10, 로컬 PG 를 사용자 프로세스로 띄우고 개발 DB 안 임시 스키마 engine_test 에서 — 두 세션이 서로 다른 run 을 잡았다; 스키마는 지웠다).
+
+**추기 (2026-09-11) — 3단계 systemd 유닛 · deploy.sh · 큐 정지 판정 · 스케줄 슬롯 키**
+
+- **systemd 템플릿 유닛 `run-worker@.service`** — `scripts/server/08-run-worker-unit.sh` 가 fastapi 유닛의 User/Group 을 읽어 유닛을 쓰고
+  `run-worker@1`(INSTANCES=N 이면 N개) 을 켠다. `.env` 는 systemd EnvironmentFile 이 아니라 앱(`database.py` load_dotenv)이 읽는다 — API 와
+  같은 방식이라 형식 차이로 깨질 곳이 없다. `KillSignal=SIGTERM`·`TimeoutStopSec=900`: run_worker 가 현재 run 을 마치고 종료할 시간을 준다.
+  넘기면 SIGKILL 이고 그 run 은 heartbeat 끊김으로 failed 확정(결정 5 그대로 — 재실행하지 않는다).
+- **`scripts/deploy.sh`** — alembic 뒤·API 재기동 앞에 `run-worker@*` 를 재기동한다(유닛이 없으면 건너뜀 — 인라인·인프로세스 배포는 그대로).
+  스모크가 유닛 is-active 를 본다. 워커가 코드를 import 한 채 돌므로 API 와 같은 코드로 올라가야 한다는 것이 이유다.
+- **큐 정지 판정** `run_queue.queue_health` — queued 가 `RUN_QUEUE_STALL_SECONDS`(기본 300) 넘게 기다리는데 최근(`RUN_WORKER_STALE_SECONDS`)
+  heartbeat 를 찍은 running 이 없으면 stalled. `/api/ready` 가 큐가 켜져 있을 때 `checks.queue`(stalled → 503) 와 `detail.queue` 로 알린다.
+  적체(워커가 긴 run 을 잡고 있음)는 정지가 아니다 — worker_id 없는 인라인 running 은 증거로 세지 않는다. 로드맵 37번 O-2 의 "큐 적체" 항.
+- **스케줄 슬롯 키 — 리더 선출 대신.** 큐 모드에서 advisory lock 은 enqueue 하는 몇 ms 만 쥐므로 인스턴스 둘이 몇 초 차로 발화하면 둘 다
+  잡는다. `run_queue.schedule_slot_key(project_id)` = `schedule:{pid}:{YYYY-MM-DDTHH:MM}`(분 단위, cron 최소 단위)를 `idempotency_key`
+  (unique, 0024 부터 자리) 에 넣는다. 조회에서 보이면 스킵, 경쟁에서 지면 IntegrityError 를 "다른 인스턴스가 먼저 넣었다" 로 읽는다.
+  웹훅(`X-GitHub-Delivery`·payload 해시)·RSS 키는 ENGINE-3 에서 같은 컬럼을 쓴다.
+- 검증: `test_run_queue.py` +4(queue_health 빈 큐·적체·정지·stale heartbeat, 인라인 running 제외, 임계값 env, 슬롯 키 unique),
+  `test_run_producers.py` +2(같은 슬롯 두 인스턴스 → run 1·다음 분은 새 run, IntegrityError 경쟁 → 스킵), `test_health_endpoints.py`
+  +2(큐 꺼짐 → queue None, 워커 없이 오래된 queued → 503 → heartbeat 생기면 200), `test_deploy_script.py` +2(워커 단계 순서, 스크립트 파싱).
+- **남은 것은 서버 리허설이다(사용자 몫)** — 절차는 `scripts/server/README.md` "큐 모드 켜기": 08 로 유닛 → `.env` `EXECUTION_QUEUE=1` → API
+  재기동 → `/api/ready` checks.queue → 긴 run 실행 중 `systemctl restart run-worker@1`(SIGTERM 에 마치고 재기동) 과 `kill -9`(stale 뒤
+  failed 확정) 두 가지를 타임라인에서 확인. 통과하면 출시 게이트 "ENGINE-2 뒤 재시작이 run 을 잃지 않는지" 가 닫힌다.
+
+## ADR-0030 · 노드 재시도: 오류 코드가 재시도 가능성을 말하고, 인터프리터가 본문만 다시 돌린다
+
+| 상태 | 수락됨 · 2026-09-11 (ENGINE-3 1단계 — 재시도. `error` 출력 핸들·에러 트리거·멱등성은 다음 단계에 추기) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.1 ENGINE-3, ADR-0027(인터프리터), ADR-0016(오류 계약 — retryable·effectState), ADR-0028(실행 기록·진행 이벤트) |
+
+**맥락 (Context)**
+
+노드별 재시도가 없다(기능갭 보고서). 429·타임아웃·5xx 는 잠깐 뒤 다시 하면 되는데 워크플로우 전체가 실패로 끝난다. 반면 401 은 다시
+보내도 같고, 발송 노드가 "보냈는지 모름" 상태로 실패했으면 다시 보내는 것이 곧 중복 발송이다 — 재시도는 멱등성 없이는 위험하다
+(로드맵 ENGINE-3 4 "멱등성은 재시도와 반드시 동시에"). 오류 계약(ADR-0016)은 이미 code 마다 `retryable` 기본값과 부수효과 상태
+`effectState` 를 갖고 있다.
+
+**결정 (Decision)**
+
+1. **재시도 가능 여부는 노드 설정이 아니라 오류가 말한다.** 노드 설정은 `retries`(0~5)·`backoffSec`(첫 대기, 시도마다 2배, 상한 60초)
+   두 개다. 실제로 다시 돌리는 조건은 그 시도가 남긴 구조화 오류가 catalog 에서 `retryable` 이고 `effectState` 가 unknown/applied 가
+   **아닐** 때(`node_retry.retryable_failure`). 옛 방식 문자열 오류(LEGACY_NODE_ERROR)는 기본값이 retryable=False 라 재시도되지 않는다.
+   상대가 Retry-After 를 줬으면(`retryAfterMs`) 그보다 짧게 기다리지 않는다.
+2. **실행 지점은 인터프리터의 노드 본문 하나다.** `engine_interpreter._Executor.run_item` 이 Exec(kind=body) 를 최대 `retries+1` 번 exec
+   한다. 옛 엔진(생성 코드 exec)은 노드 본문과 하류 배선이 한 덩어리로 방출되어 본문만 다시 돌릴 자리가 없다 — **옛 엔진은 설정을
+   무시한다**. 생성 소스는 바뀌지 않으므로 코퍼스 대조(codegen_corpus_diff)와 실행 대조(engine_shadow_diff)는 그대로다. 재시도는
+   전환된 프로젝트(ENGINE-0 6단계의 프로젝트별 flag)에서만 효과가 있고, 그것이 전환 유인이 된다.
+3. **실패한 시도의 기록은 접고 최종 기록에 시도 내역을 남긴다.** 성공으로 끝난 노드가 log 에 error 기록을 남기면 `summarize_logs` 가
+   error 를 세어 outcome 이 error 가 된다. 그래서 실패한 시도의 log_step 기록은 접고, 최종 기록에 `attempts` 와
+   `retried=[{attempt, code, message}]` 를 붙인다. 시도 사이에 `__node_meta__` 의 이 노드 항목을 지운다 — 남겨 두면 log_step 이 성공한
+   재시도를 이전 시도의 error 메타로 다시 error 로 적는다(log_step 의 메타 승격 규칙).
+4. **진행 이벤트 `node_retry`.** 실패한 시도의 `node_finished(failed)` 는 log_step 래퍼가 이미 냈으므로, 그 뒤 다음 시도 전에
+   `node_retry`(attempt·maxAttempts·errorCode·delaySec) 를 내고 최종 시도의 `node_finished` 가 뒤따른다. 화면은 이 순서로
+   "재시도 중 (2/3)" 을 그린다.
+5. **`timeoutSec` 은 만들지 않는다.** exec 중인 본문은 안전하게 끊을 수 없다 — 스레드로 감싸 시간이 지나면 버리는 방식은 본문이 계속
+   돌며 같은 이름공간을 건드려 뒤 노드를 오염시킨다. 커넥터 요청 시간 제한은 `connectors.services.*` 가 이미 갖고 있고
+   CONNECTOR_TIMEOUT 은 retryable 이라 여기서 재시도된다. 노드 단위 시간 제한은 본문을 별도 프로세스로 돌릴 수 있게 되는 때
+   (pythonNode 격리와 같은 방식)의 몫으로 남긴다.
+
+**대안 (Alternatives)**
+
+- **생성 코드에 재시도 루프를 방출**: 두 엔진이 같이 얻지만 본문/하류를 분리하는 generate_block 재구성이 필요하고(인터프리터가 이미
+  한 일을 옛 엔진에 되풀이), 생성 소스가 바뀐다. 옛 엔진은 걷어낼 대상이므로 기각.
+- **커넥터 안에서 재시도**: 이미 일부 서비스가 Retry-After 를 존중하지만 노드 설정으로 제어할 수 없고 LLM·DB 노드는 빠진다. 노드
+  단위 규칙 하나가 낫다. 기각(커넥터 내부 재시도와 겹치면 총 시도 수가 곱이 된다 — 커넥터 쪽 기본은 0 유지).
+- **실패 시도 기록을 그대로 두고 outcome 만 고침**: summarize_logs·flow_outcome·타임라인·과금 outcome 이 전부 "error 기록이 있으면
+  실패" 를 전제한다. 기록을 접는 쪽이 전제를 지킨다. 기각.
+
+**결과 (Consequences)**
+
+- `backend/node_retry.py`(RetrySettings·retry_settings·retryable_failure·backoff_delay·fold_attempt·annotate_final·sleep),
+  `engine_interpreter.Exec.retry`·`_Executor._run_with_retry`, `run_events.RunObserver.node_retry`. `test_node_retry.py` 11건 —
+  설정 클램프 · 판정(성공·고정·비구조화·retryable=False·unknown/applied·다른 노드) · 백오프/Retry-After/상한 · 인터프리터 재시도 뒤 성공
+  (기록 하나, attempts 3, outcome success) · 소진 뒤 실패 · Retry-After 대기 · 재시도 불가 한 번 · 설정 없음 · 옛 엔진 무시 ·
+  node_retry 이벤트 순서 · RunObserver 발행.
+- 설정 UI(노드 설정 패널)는 아직 없다 — 노드 `data.retries`/`data.backoffSec` 를 직접 넣어야 한다. 프론트 진행 표시(node_started·
+  node_finished·node_retry 구독)와 함께 만든다.
+- 다음 단계(추기 예정): `error` 출력 핸들(NodeError 가 나면 흐름이 error 간선으로 — 두 엔진 모두, 생성 코드는 error 간선이 있을 때만
+  달라진다), 에러 트리거(실패 시 지정 워크플로우), 멱등성(웹훅 `X-GitHub-Delivery`·payload 해시 → `idempotency_key`, 부작용 노드
+  `(run_id, node_id)` 전송 기록).
+
+**추기 (2026-09-11) — 2단계 `error` 출력 핸들**
+
+- **판정은 log_step 의 메타다.** 노드가 실패했는가는 `__node_meta__[node_id].status == 'error'` 로 본다 — 구조화 오류(NodeError)든
+  legacy 문구 감지든 log_step 이 같은 자리에 남긴다(ADR-0025 §B). 그래서 "executor 가 NodeError 를 던지면" 이 아니라 "노드가 error 로
+  기록되면" 이 규칙이고, 예전 방식으로 실패하는 노드도 error 갈래를 탄다.
+- **두 엔진 모두.** 옛 엔진은 `graph.generate_block` 이 error 간선이 있는 노드를 만나면 `node_bodies.render_node_body` 로 본문과
+  하류를 분리해(인터프리터가 쓰는 것과 같은 렌더러) 본문 뒤에 `if _node_failed(...): error 갈래 / else: 보통 하류` 를 방출한다
+  (`graph.emit_error_split`). 인터프리터는 `ErrorSplit(body, on_error, normal)` 계획을 만들고 `_Executor._error_split` 이 본문(재시도
+  포함)을 돌린 뒤 같은 헬퍼로 판정한다. 배타 분기이므로 conditionNode 와 같이 갈래마다 JoinGate 경로(`error`/`ok`)를 표시하고
+  분기 뒤 `flush_ready` — 두 갈래에서 만나는 재합류 노드는 한 번만 실행된다.
+- **error 갈래의 입력은 오류 계약의 공개 필드 JSON** — `{nodeId, nodeType, code, message, requestId, retryable}`
+  (`_node_error_payload`). 원문 예외·비밀은 없다(ADR-0016). 보통 하류는 생성기가 기록한 prev_res_var 그대로.
+- **생성 소스는 error 간선이 있을 때만 달라진다.** 프렐류드 헬퍼(`_node_failed`·`_node_error_payload`)도 그때만 방출한다
+  (`emit_module_prelude(error_branches=…)`, 인터프리터는 `Plan.error_branches`). 코퍼스 835 그래프 대조 차이 0.
+- 감쌀 수 없는 본문(흐름 노드 6종처럼 생성기가 제어 구문을 내는 노드)의 error 간선은 무시하고 보통 방출로 간다 — 그런 노드는
+  "실패" 의 뜻이 다르고 핸들 이름은 자기 뜻이 있다. **conditionNode 규칙 id 가 'error' 인 큐레이션 템플릿("DB 데이터 비서 챗봇")이
+  실제로 있어서**, `has_error_branches`·`error_branch_targets` 는 source 가 흐름 노드가 아닐 때만 에러 핸들로 본다
+  (`is_error_branch_source`). 이것을 빼먹었을 때 코퍼스 대조가 그 템플릿 1건을 잡아냈다 — 프렐류드 헬퍼가 방출돼 소스가 달라졌다.
+- 검증: `test_error_branch.py` 8건 — 실패 → error 갈래만·payload 공개 필드만 · 성공 → 보통 하류만 · 재합류 한 번(실패/성공) ·
+  error 간선 없으면 헬퍼·분기 없음, 있으면 있음 · 흐름 노드의 error 간선 무시 · 재시도 소진 뒤 error 갈래(attempts 2) · 재시도 끝
+  성공 시 보통 하류. 전부 두 엔진 결과·로그 동일.
+- 남은 것: 편집기 노드 카드의 `error` 출력 포트(프론트 PR), 에러 트리거(실패 시 지정 워크플로우), 멱등성(3단계).
+
+**추기 (2026-09-11) — 3단계 에러 트리거**
+
+- **설정은 `graph_data.errorWorkflowId` 다.** `is_live` 와 같은 자리 — 편집기가 그래프와 함께 저장하고 별도 컬럼·마이그레이션이 없다.
+  정수 project id, 없거나 0 이면 꺼짐(`error_trigger.configured_error_workflow_id`).
+- **발화 지점은 `execution.start` 하나다.** 실행을 failed 로 닫은 뒤 — 노드 오류로 결과가 error 인 경우(finish 뒤)와 엔진이 예외를 던진
+  경우(fail 뒤, raise 전) 둘 다 `_record_guarded(_fire_error_trigger, …)` 로 부른다. 성공·paused 는 아니다. 실패해도 원래 결과·예외를
+  바꾸지 않는다.
+- **큐가 켜져 있으면 enqueue, 아니면 인라인.** 큐 모드에서는 `run_queue.enqueue(trigger_source='error_trigger', runtime_inputs={default_input})`
+  만 하고 워커가 실행·과금한다(생산자 트랜잭션 안 flush — 호출자가 커밋). 인라인은 `execution.start(trigger_source='error_trigger',
+  default_input=payload)` 를 같은 세션에서 부르고 `record_usage(trigger_type='error_trigger')` 로 과금까지 남긴다 — 인라인 호출부가 자기
+  실행에 하는 것과 같다. 인라인 실행이 직전 실행의 run id 슬롯(`take_last_run_id`)을 덮으면 원래 실행의 FlowExecutionLog 가 run 과 이어지지
+  않으므로 `execution.preserving_last_run()` 으로 보존한다.
+- **payload 는 오류 계약 공개 필드만** — `{event: workflow_failed, failedProjectId, failedProjectTitle, runId, triggerSource, errorSummary,
+  failedNodes[{nodeId, nodeType, code, message}], at}`. 원문 예외 스택·비밀은 없다. 웹훅·봇 트리거 노드가 읽는 `default_input` 으로 들어가므로
+  에러 워크플로우는 보통 "웹훅/시작 → 알림 노드" 모양이다.
+- **막는 것.** (1) 연쇄 — 에러 워크플로우 자신의 실패는 다시 트리거하지 않는다(`trigger_source == 'error_trigger'`). (2) 자기 자신을 가리키면
+  무시. (3) 소유자가 다르면 무시 — 남의 워크플로우를 내 실패로 돌릴 수 없다. (4) mock·evaluation 출처의 실패는 시험 실행이라 부르지 않는다.
+  (5) db 가 없거나 세션이 아니면 조용히 넘어간다.
+- `TRIGGER_SOURCES` 는 10종이 됐다(`error_trigger` 추가). 워커의 과금 표기(`trigger_type`)도 같은 문자열.
+- 검증: `test_error_trigger.py` 11건 — 노드 오류 인라인(payload 필드·run id 슬롯 보존·과금 trigger_type) · 엔진 예외 · 큐 모드(enqueue 만 →
+  워커 실행·과금) · 연쇄 금지 · 설정 없음/0/문자/자기 자신/없는 프로젝트/다른 소유자 · 성공·mock 출처 · db 없음 · 에러 워크플로우 예외가 원래
+  결과를 바꾸지 않음 · 출처 목록.
+- 남은 것: 프로젝트 설정 UI("실패 시 실행할 워크플로우"), 4단계 멱등성(웹훅 `X-GitHub-Delivery`·payload 해시 → `idempotency_key`, 부작용 노드
+  `(run_id, node_id)` 전송 기록).
+
+**추기 (2026-09-11) — 4단계 웹훅 멱등성(트리거 중복 방지)**
+
+- **키는 발신자의 전달 id 에서 먼저 읽는다.** `idempotency.webhook_key(project_id, headers, payload, node)` — `X-GitHub-Delivery`·
+  `X-GitLab-Event-UUID`·`Idempotency-Key`·`X-Idempotency-Key`(200자 절단) → `webhook:{pid}:{header}:{value}`. 재전송은 같은 id 로 온다.
+- **payload 해시는 webhookNode 가 켠 경우에만.** `data.dedupeByPayload` — sha256(키 정렬 JSON)[:32]. 기본은 꺼짐: `idempotency_key` unique 는
+  영구라 시간 창이 없고, 같은 본문이 며칠 뒤 다시 오는 것이 정당한 새 이벤트인 웹훅(폼 제출 등)이 있다. 둘 다 없으면 None — 예전과 같다.
+- **막는 자리는 `execution.start(idempotency_key=)` 하나다.** 같은 키의 run 이 있으면 실행하지 않고 `DuplicateRun(run_id, status, key)`.
+  `_begin_deduplicated`: 조회 → `run_records.begin(idempotency_key=…)` — 조회와 INSERT 사이의 경쟁은 unique 가 막고 IntegrityError 는 롤백 뒤
+  기존 run 으로 읽는다(그래서 호출자 세션에 미커밋 작업이 없어야 한다 — 웹훅 핸들러는 그렇다). 큐 경로는 `run_queue.enqueue_or_existing`
+  → `(run, created)`. 실행 기록이 없으면(db 없음·RUN_RECORDS=0) 걸러낼 수 없어 경고 뒤 그대로 실행한다 — 중복 제거는 실행 기록 위에 선다.
+- **웹훅 응답.** 인라인 200 `{status: duplicate, run_id, project_id}`, 큐 202 `{status: duplicate, run_id, project_id}`. 발신자(GitHub 등)는
+  2xx 만 보면 재시도를 멈춘다. 과금도 한 번(중복은 실행되지 않았으니 FlowExecutionLog 도 없다).
+- RSS 항목 id 는 rssTriggerNode 의 cursor(SEEN_WINDOW)가 이미 같은 일을 한다 — 여기 두지 않는다. 스케줄 슬롯 키(ENGINE-2 3단계 추기)와
+  같은 컬럼·같은 규칙이다.
+- 검증: `test_webhook_idempotency.py` 6건 — 헤더 우선순위·절단·공백 · payload 해시(설정 조건·키 순서 무관·프로젝트 분리·헤더 우선) ·
+  `execution.start` 두 번째는 DuplicateRun(원래 run·status)·다른 키는 새 실행 · RUN_RECORDS=0/db 없음이면 그대로 실행 · `enqueue_or_existing`
+  · **서브프로세스 엔드포인트 시나리오**(인라인 200 duplicate·과금 1회 → 키 없으면 매번 → 해시 설정 프로젝트 → 큐 202 duplicate 같은 run_id →
+  워커 한 번).
+- **남은 겹 — 부작용 노드 `(run_id, node_id)` 전송 기록.** 마지막 완료 step 부터의 재개(ENGINE-2 4 "끊긴 run 재개")와 함께 만든다 — 지금은
+  재개가 없어 필요가 생기는 자리가 없고, 재시도(1단계)는 effectState 가 unknown/applied 면 다시 보내지 않으므로 중복 발송은 나지 않는다.
+  ENGINE-3 백엔드는 여기까지. 다음은 프론트(error 포트·retries/backoffSec·errorWorkflowId·dedupeByPayload 설정·진행 표시).
+
+**추기 (2026-09-13) — 편집기: error 포트 · 실행 옵션 · 실패 시 워크플로우 · 실행 진행 표시**
+
+- **error 출력 포트는 컴포넌트를 고치지 않고 등록 지점에서 감싼다.** `frontend/src/components/ErrorPort.jsx` 의 `withErrorPort(Component)`
+  가 노드 루트의 형제로 `<Handle type="source" id="error">` 를 둔다(React Flow 는 노드 래퍼 안에만 있으면 된다). EditorPage 의 nodeTypes 가
+  만들어진 뒤 `errorBranch.supportsErrorPort(type)` 인 것만 감싼다 — 백엔드 `graph_traversal.is_error_branch_source` 와 같은 제외 규칙
+  (흐름 노드 6종·startNode·memoNode). 위치·색은 `.error-port-handle`(오른쪽 아래 빨간 점).
+- **error 간선은 그릴 때만 꾸민다.** `errorBranch.decorateErrorEdge` 가 ReactFlow 에 넘기는 순간 빨간 점선 + "실패 시" 라벨을 입히고
+  저장하지 않는다 — graph_data 의 간선은 `sourceHandle: "error"` 만 갖는다(서버 규칙의 정본).
+- **실행 옵션은 Inspector 에.** 노드 카드가 아니라 `NodeInspector` 의 "실행 옵션" 절(retries 0~5 · backoffSec 0~60 · webhookNode 의
+  dedupeByPayload) — 노드 컴포넌트 41종에 필드를 넣지 않는다. 값은 `errorBranch.normalizeRetries/normalizeBackoffSec` 로 백엔드와 같은
+  범위로 잘라 `onNodeDataChange` 로 data 에 쓴다(비우면 undefined → 저장 시 키가 빠진다).
+- **실패 시 워크플로우는 편집기 메뉴에.** `ErrorWorkflowModal` 이 `/api/projects/my` 중 같은 소유자의 다른 프로젝트를 고르게 하고 곧바로
+  저장한다. `graph_data.errorWorkflowId` 는 `getCurrentFlowData()` 에 항상 실린다(없으면 null) — AI 생성 뒤 자동 저장처럼 override 로
+  저장하는 경로에서도 `handleSave` 가 키가 없으면 현재 값을 얹어 잃지 않는다.
+- **실행 진행 표시.** 편집기(소유자)가 `/api/workflow-runs/stream` 을 fetch 스트림으로 구독한다(EventSource 는 Authorization 헤더를 못
+  붙인다 — MessagesPage 와 같은 방식). `runProgress.parseSseFrames`/`applyRunEvent`/`applyRunNote` 가 `event: run` 프레임을
+  executionNodeStates(running/success/error)와 executionNotes("재시도 n/m")로 접는다. **이 편집기가 시작한 실행에만 반영한다**
+  (`liveRunActiveRef`) — 스케줄·웹훅으로 도는 같은 프로젝트의 실행이 편집 중 캔버스를 흔들지 않게. 진행 이벤트를 받은 실행은 끝난 뒤 로그
+  재생 애니메이션을 건너뛰고 최종 로그만 반영한다(`settleExecutionLogs`) — 두 번 그리지 않는다. 결과 배지(`NodeResultBadge`)는 실행 중이면
+  `executionNote` 를 보인다.
+- 검증: `errorBranch.test.js` 5건 · `runProgress.test.js` 4건(node:test) · eslint 0 errors · vite build.
+- 남은 것: 앱 빌더·앱 러너의 진행 표시(33번 APP-2 와 함께 — 큐로 보내는 순간 필요해진다).

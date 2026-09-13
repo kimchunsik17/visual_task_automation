@@ -412,7 +412,8 @@ export const NodeResultBadge = ({ id, data }) => {
   const status = data.executionStatus;
   const pinned = data.isPinnedOutput;
   if (!status && !pinned) return null;
-  const label = pinned ? '고정' : status === 'error' ? '오류' : status === 'running' ? '실행 중' : '성공';
+  // 실행 중이면 진행 이벤트가 붙인 표시("재시도 1/3", ENGINE-3)가 있을 때 그것을 보인다.
+  const label = pinned ? '고정' : status === 'error' ? '오류' : status === 'running' ? (data.executionNote || '실행 중') : '성공';
   const tone = pinned ? 'pinned' : status === 'error' ? 'error' : status === 'running' ? 'running' : 'success';
   return (
     <button

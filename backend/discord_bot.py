@@ -5,7 +5,7 @@ import io
 from sqlalchemy.orm import Session
 from database import SessionLocal
 import models
-from graph import run_workflow
+import execution
 from credential_crypto import decrypt_secret
 
 def _reply_attachments(logs, project_id):
@@ -157,7 +157,7 @@ def start_discord_bot(project_id: int, token: str):
                     n.get('type') == 'discordNode' and n.get('id') not in sources_with_outgoing
                     for n in nodes
                 )
-                result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id=str(message.author), project_id=project_id, default_input=content)
+                result_text, tokens, logs = execution.start(nodes, edges, trigger_source="bot", db=db, session_id=str(message.author), project_id=project_id, default_input=content)
                 return result_text, tokens, logs, ends_in_discord_send
             except Exception as e:
                 import traceback

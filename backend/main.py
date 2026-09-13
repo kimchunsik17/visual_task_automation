@@ -25,7 +25,8 @@ from google.auth.transport import requests as google_requests
 from database import engine, Base, get_db
 import db_migrate
 import models
-from graph import compile_workflow, run_workflow
+from graph import compile_workflow
+import execution
 from node_errors import runtime as node_error_runtime
 from dry_run import dry_run_workflow
 from meta_agent import FLOW_REPAIR_PROMPT_VERSION, run_agent_turn
@@ -219,6 +220,27 @@ async def startup_event():
         print(f"Failed to boot scheduler: {e}")
     finally:
         db.close()
+    # 실행 큐(ENGINE-2, ADR-0029). 큐가 켜져 있으면 워커가 있어야 한다 — 인프로세스 스레드를 켰으면 여기서 띄우고, 아니면
+    # 별도 프로세스(run_worker.py)가 떠 있어야 한다는 것을 경고로 남긴다(없으면 queued 가 쌓이기만 한다).
+    try:
+        import run_queue
+        import run_worker
+        if run_worker.inprocess_enabled():
+            from database import SessionLocal as _worker_sessions
+            run_worker.start_inprocess_worker(_worker_sessions)
+        elif run_queue.queue_enabled():
+            print(f"[run-worker] {run_queue.QUEUE_ENV}=1 인데 인프로세스 워커가 꺼져 있다 — python run_worker.py 가 떠 있어야 queued 가 실행된다.")
+    except Exception as e:
+        print(f"Failed to start run worker: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        import run_worker
+        run_worker.stop_inprocess_worker()
+    except Exception as e:
+        print(f"Failed to stop run worker: {e}")
     # 노드 지식 색인(ADR-0013)을 백그라운드에서 증분 동기화한다. embedding provider가 없거나
     # 실패하면 hybrid 선별이 lexical 폴백으로만 동작할 뿐, 서버 기동과 생성에는 영향이 없다.
     try:
@@ -279,6 +301,25 @@ def ready():
         except Exception as exc:
             checks["scheduler"] = False
             detail["scheduler"] = type(exc).__name__
+
+    # 실행 큐(ENGINE-2, ADR-0029). 꺼져 있으면 고장이 아니다(None). 켜져 있으면 "queued 가 오래 기다리는데 heartbeat 를 찍는
+    # 워커가 없다"(stalled) 를 고장으로 본다 — 스케줄·웹훅 실행이 조용히 멈춘 상태다. 적체는 detail.queue.depth 로만 보인다.
+    import run_queue as _run_queue
+    if not _run_queue.queue_enabled():
+        checks["queue"] = None
+    else:
+        try:
+            from database import SessionLocal as _ready_sessions
+            _qdb = _ready_sessions()
+            try:
+                queue_state = _run_queue.queue_health(_qdb)
+            finally:
+                _qdb.close()
+            checks["queue"] = not queue_state["stalled"]
+            detail["queue"] = queue_state
+        except Exception as exc:
+            checks["queue"] = False
+            detail["queue"] = type(exc).__name__
 
     ok = all(v for v in checks.values() if v is not None)
     body = {"status": "ready" if ok else "not_ready", "checks": checks}
@@ -1417,6 +1458,11 @@ class DatabasePreviewPayload(BaseModel):
     output_format: str = "rows"
 
 
+def _run_queue_module():
+    import run_queue
+    return run_queue
+
+
 @app.get("/api/features")
 def get_features():
     """클라이언트가 어떤 경로의 UI 를 그릴지 정하는 배포 플래그."""
@@ -1430,6 +1476,12 @@ def get_features():
         # 꺼져 있으면 편집기가 팔레트에서 pythonNode 를 빼야 한다. 실행 경로는 이 값과 무관하게
         # 서버에서 다시 막으므로, 이건 UI 가 헛수고를 안 하게 하는 힌트다.
         "python_node_enabled": python_runtime.node_enabled(),
+        # 실행 엔진 기본값(백로그 32 ENGINE-0, ADR-0027) — legacy | shadow | interpreter. 프로젝트별 예외
+        # (EXECUTION_ENGINE_PROJECT_OVERRIDES)는 여기 드러나지 않는다. UI 힌트이고 판정은 실행 시점에 다시 한다.
+        "execution_engine": execution.default_engine_mode(),
+        "execution_engine_overrides": len(execution.project_engine_overrides()),
+        # 실행 큐(ENGINE-2) — 켜져 있으면 스케줄·웹훅은 202 로 큐에 들어가고 워커가 실행한다. 결과는 workflow-runs 타임라인.
+        "execution_queue": _run_queue_module().queue_enabled(),
         # 시연장 로그인(opt-in) — 켜져 있으면 로그인 화면에 "시연 로그인" 입구를 그린다.
         "demo_login": bool(os.getenv("DEMO_LOGIN_CODE")),
         "demo_login_seats": demo_login_seats(),
@@ -2270,7 +2322,7 @@ def execute_app(share_token: str, request: Request, payload: AppExecutePayload =
     _reject_oversized_inputs(user_inputs)
 
     try:
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='app_runner', project_id=project.id, user_inputs=user_inputs)
+        result_text, tokens, logs = execution.start(nodes, edges, trigger_source="app", db=db, session_id='app_runner', project_id=project.id, user_inputs=user_inputs)
         
         db_log = record_usage(
             db,
@@ -2358,7 +2410,7 @@ def run_project_workflow(project_id: int, request: Request, payload: Optional[Pr
     _reject_oversized_inputs(user_inputs)
 
     try:
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='custom_app_run', project_id=project.id, user_inputs=user_inputs)
+        result_text, tokens, logs = execution.start(nodes, edges, trigger_source="app", db=db, session_id='custom_app_run', project_id=project.id, user_inputs=user_inputs)
         
         record_usage(
             db,
@@ -2461,8 +2513,8 @@ def execute_flow(payload: FlowPayload, db: Session = Depends(get_db),
 
     # 1. Run LangGraph
     try:
-        result_text, tokens, logs = run_workflow(
-            payload.nodes, payload.edges, db=db, session_id='editor', project_id=payload.project_id,
+        result_text, tokens, logs = execution.start(
+            payload.nodes, payload.edges, trigger_source="manual", db=db, session_id='editor', project_id=payload.project_id,
             executor_user_id=user.id,   # 저장 전 그래프도 실행한 사람을 소유자로 — {{USER_EMAIL}} 수신자 해석
             stop_node_id=payload.stop_node_id, scope_node_ids=payload.scope_node_ids,
             pinned_outputs=payload.pinned_outputs,
@@ -2916,7 +2968,9 @@ def get_project_runs(project_id: int, db: Session = Depends(get_db), user: model
             "execution_time": run.execution_time,
             "status": run.status,
             "total_tokens": run.total_tokens,
-            "result_summary": run.result[:100] + "..." if run.result and len(run.result) > 100 else run.result
+            "result_summary": run.result[:100] + "..." if run.result and len(run.result) > 100 else run.result,
+            # 이 사건을 만든 실행 상태 기록(workflow_runs, ENGINE-1) — /api/projects/{id}/workflow-runs/{run_id} 로 건너간다.
+            "run_id": run.run_id,
         } for run in runs
     ]
 
@@ -3564,7 +3618,7 @@ def execute_deployed_project(project_id: int, payload: ExecutePayload, db: Sessi
                 inputs_dict["input_text"] = values[0]
                 inputs_dict["text"] = values[0]
 
-    result_text, tokens, logs = run_workflow(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), db=db, session_id='api_call_' + str(project.id), project_id=project.id, **inputs_dict)
+    result_text, tokens, logs = execution.start(project.graph_data.get('nodes', []), project.graph_data.get('edges', []), trigger_source="api", db=db, session_id='api_call_' + str(project.id), project_id=project.id, **inputs_dict)
     
     import json
     try:
@@ -3664,9 +3718,33 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
     # Run the workflow
     import json
     inputs = {webhook_node_id: json.dumps(payload, ensure_ascii=False)}
-    
+
+    # 큐가 켜져 있으면(ENGINE-2) 실행하지 않고 넣고 202 로 곧바로 답한다 — 웹훅 발신자(GitHub 등)는 10초 안 2xx 를 기대한다.
+    # 워커가 같은 run 행 위에서 실행하고 과금(FlowExecutionLog)도 남긴다. 결과는 /api/projects/{id}/workflow-runs/{run_id} 로.
+    # 중복 제거(ENGINE-3 4단계, ADR-0030 추기): 발신자의 전달 id 헤더(X-GitHub-Delivery 등) 또는 webhookNode 가 켠 payload 해시로
+    # 키를 만든다. 같은 키는 run 하나 — 재전송은 실행하지 않고 그 run 을 알려 준다(발신자는 2xx 만 보면 된다). 키가 없으면 예전과 같다.
+    import idempotency
+    webhook_node = next((n for n in nodes if isinstance(n, dict) and n.get('id') == webhook_node_id), None)
+    dedupe_key = idempotency.webhook_key(project.id, request.headers, payload, node=webhook_node)
+
+    import run_queue
+    if run_queue.queue_enabled():
+        try:
+            enqueue_kwargs = dict(nodes=nodes, edges=edges, trigger_source="webhook", project_id=project.id,
+                                  session_id='webhook_' + str(project.id), runtime_inputs=inputs)
+            if dedupe_key:
+                run, created = run_queue.enqueue_or_existing(db, idempotency_key=dedupe_key, **enqueue_kwargs)
+            else:
+                run, created = run_queue.enqueue(db, **enqueue_kwargs), True
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
+        return JSONResponse(status_code=202, content={"status": "queued" if created else "duplicate", "run_id": run.id,
+                                                     "project_id": project.id})
+
     try:
-        result_text, tokens, logs = run_workflow(nodes, edges, db=db, session_id='webhook_' + str(project.id), project_id=project.id, **inputs)
+        result_text, tokens, logs = execution.start(nodes, edges, trigger_source="webhook", db=db, session_id='webhook_' + str(project.id), project_id=project.id, idempotency_key=dedupe_key, **inputs)
         # 성공/실패는 실행 로그의 구조화 오류(NodeError v1)로 판정한다 — 결과 문자열 검색은
         # legacy 문구가 남은 경로의 fallback 으로만 남아 있다(ADR-0016, node_errors.runtime).
         flow_status = node_error_runtime.flow_outcome(result_text, logs)
@@ -3686,6 +3764,10 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
         )
         db.commit()
         return {"status": "success", "result": result_text}
+    except execution.DuplicateRun as dup:
+        # 같은 전달 id 의 재전송 — 실행하지 않았다. 2xx 로 답해 발신자의 재시도를 멈추고 원래 run 을 알려 준다.
+        db.rollback()
+        return {"status": "duplicate", "run_id": dup.run_id, "project_id": project.id}
     except Exception as e:
         db.rollback()
         return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
@@ -5020,6 +5102,55 @@ async def stream_messages(request: Request, last_event_id: int = 0,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
                  "X-Accel-Buffering": "no"},
+    )
+
+
+# ── 실행 상태 타임라인 · 진행 이벤트 (백로그 32 ENGINE-1, ADR-0028) ─────────────
+# 정본은 workflow_runs·run_steps(run_records) 다. 경로가 `workflow-runs` 인 이유: `/api/projects/{id}/runs` 는 과금 사건
+# (FlowExecutionLog) 목록으로 이미 쓰이고(ProjectRunsPage), `/api/runs/{run_id}` 가 int 경로라 `/api/runs/stream` 을 가로챈다.
+# 권한은 RUN — 실행 기록은 결과 미리보기를 담으므로 위 runs 라우트와 같은 이유로 공개 범위(VIEW)에 열지 않는다.
+# 스트림은 실행한 사용자에게 노드 경계 이벤트를 즉시 흘리는 지연 최적화이고, 놓친 것은 타임라인으로 메운다.
+
+@app.get("/api/projects/{project_id}/workflow-runs")
+def list_project_workflow_runs(project_id: int, limit: int = 20, offset: int = 0,
+                               user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    import run_records
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    _require_project_action(db, user, project, project_access.RUN)
+    return {"runs": run_records.list_runs(db, project_id, limit=limit, offset=offset)}
+
+
+@app.get("/api/projects/{project_id}/workflow-runs/{run_id}")
+def get_project_workflow_run(project_id: int, run_id: int,
+                             user: models.User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    import run_records
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    _require_project_action(db, user, project, project_access.RUN)
+    run = (db.query(models.WorkflowRun)
+           .filter(models.WorkflowRun.id == run_id, models.WorkflowRun.project_id == project_id).first())
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run_records.public_run(run, with_steps=True)
+
+
+@app.get("/api/workflow-runs/stream")
+async def stream_run_events(user: models.User = Depends(get_current_user_required)):
+    """SSE — 내가 실행한 워크플로우의 노드 경계 이벤트(node_started·node_finished·run_finished). 실행 전에 열어 둔다.
+    재전송은 없다(정본은 타임라인 API). nginx 버퍼링은 X-Accel-Buffering 으로 끈다(message_stream 과 같다)."""
+    import run_events
+
+    if not run_events.enabled():
+        raise HTTPException(status_code=404, detail="실행 진행 이벤트가 꺼져 있습니다(RUN_EVENTS=0).")
+    if run_events.stream_count(user.id) >= run_events.MAX_STREAMS_PER_USER:
+        raise HTTPException(status_code=429, detail="열려 있는 연결이 너무 많습니다. 다른 탭을 닫아주세요.")
+    return StreamingResponse(
+        run_events.event_stream(user.id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
 
