@@ -192,6 +192,26 @@ export const NODE_DOCS = {
     tips: ['Workflow 중간에서 검색하려면 트리거가 아니라 네이버 검색(액션) 노드를 쓰세요.'],
     related: ['naverSearchNode', 'naverCafeNode', 'distributorNode'],
   },
+  githubTriggerNode: {
+    summary: 'GitHub 저장소에 이벤트(PR·이슈·릴리스·푸시·CI 결과 등)가 생기면 실행되는 시작점입니다.',
+    details: [
+      '시작 노드 대신 사용합니다. GitHub 저장소 → Settings → Webhooks 에 이 노드의 수신 주소(Payload URL)와 Secret 을 등록하면 GitHub 이 이벤트를 보내고, 서명(HMAC SHA-256)이 맞는 요청만 실행됩니다. Secret 은 API 센터 → 웹훅 서명 비밀에 같은 값을 저장하세요.',
+      '이벤트·action·브랜치·라벨 필터에 맞지 않는 전달은 실행되지 않습니다(GitHub 에는 200 으로 답합니다). 같은 전달 ID 의 재전송은 한 번만 실행됩니다.',
+      '출력은 이벤트 종류가 달라도 같은 키로 읽을 수 있게 평탄화한 JSON 입니다 — event·action·repo·number·title·body·url·branch·baseBranch·sha·labels·author·tag·status·conclusion 과 원본 raw.',
+    ],
+    usage: ['PR 이 열리면 diff 를 요약해 디스코드로', '이슈가 올라오면 LLM 이 분류해 라벨 붙이기', '릴리스가 게시되면 노트를 한국어로 정리해 이메일'],
+    io: { input: '없음 — 흐름의 출발점입니다.', output: '평탄화한 이벤트(JSON 문자열). 뒤의 GitHub 노드는 repo·number 를 비워 두면 여기서 이어받습니다.' },
+    fields: {
+      webhookUrl: 'GitHub 웹훅 Payload URL 의 경로. 비우면 프로젝트 번호가 경로가 됩니다.',
+      events: '받을 이벤트를 쉼표로. push, pull_request, pull_request_review, issues, issue_comment, release, workflow_run, check_run, deployment_status, dependabot_alert. 비우면 전부.',
+      actionFilter: 'payload 의 action 값(opened, closed, labeled, synchronize, published, completed …). 비우면 전부.',
+      branchFilter: 'glob 패턴(main, release/*). PR 은 head·base 브랜치 중 하나가 맞으면 통과. 브랜치가 없는 이벤트(이슈 등)는 거르지 않습니다.',
+      labelFilter: '라벨 이름. 하나라도 붙어 있으면 통과(labeled 이벤트는 방금 붙인 라벨도 봅니다).',
+      verifyMode: '기본 HMAC SHA-256. "없음" 은 로컬 테스트용 — 공개 서버에서는 켜 두세요.',
+    },
+    tips: ['GitHub 은 10초 안에 응답을 기대합니다 — 실행이 길면 운영자가 큐 모드(EXECUTION_QUEUE)를 켜면 즉시 202 로 답합니다.', '웹훅 등록 직후 GitHub 이 보내는 ping 은 실행되지 않고 200 만 돌려줍니다.'],
+    related: ['githubNode', 'webhookNode', 'llmNode', 'conditionNode'],
+  },
 
   // ── AI ──────────────────────────────────────────────────────────────────
   promptNode: {
@@ -579,6 +599,31 @@ export const NODE_DOCS = {
     },
     tips: ['링크 본문까지 필요하면 뒤에 분배기 → 웹 크롤러를 연결하세요.'],
     related: ['naverSearchTriggerNode', 'webCrawlerNode', 'distributorNode'],
+  },
+  githubNode: {
+    summary: 'GitHub 저장소에 이슈·PR·릴리스·워크플로우 작업을 하는 액션 노드입니다.',
+    details: [
+      '동작(mode)을 고르면 필요한 칸만 보입니다. 이슈 만들기·코멘트·라벨·수정, PR 조회·diff·머지·코멘트, 릴리스 만들기·릴리스 노트 생성, Actions 워크플로우 실행, Dependabot 취약점 알림 조회, 파일 내용 읽기.',
+      'API 센터 → GitHub 개인 액세스 토큰(fine-grained)이 필요합니다. 저장소 단위로 발급하고 쓰는 권한(Issues·Pull requests·Contents·Actions·Dependabot alerts)만 켜세요.',
+      '저장소(repo)와 번호(number)를 비우면 직전 GitHub 트리거 출력에서 이어받습니다. 코멘트·새 이슈 본문을 비우면 직전 노드 출력(예: LLM 요약)이 본문이 됩니다.',
+    ],
+    usage: ['PR diff → LLM 리뷰 → PR 코멘트', '이슈 분류 → 라벨 추가 → 담당자 지정', '릴리스 노트 생성 → 한국어 요약 → 문서·이메일'],
+    io: { input: '직전 노드 출력 — 본문 대체 값 또는 트리거의 repo·number.', output: '모드별 JSON 문자열(number·url·title, diff, alerts[], content 등).' },
+    fields: {
+      mode: '수행할 동작.',
+      repo: 'owner/repo. GitHub 주소를 붙여도 됩니다.',
+      number: '이슈 또는 PR 번호(PR 코멘트도 같은 번호).',
+      body: '마크다운 본문. {{last_result}} 로 직전 노드 출력을 끼워 넣을 수 있습니다.',
+      labels: '쉼표로 구분한 라벨 이름.',
+      labelAction: 'add(추가) · set(이 라벨들만 남김) · remove(제거).',
+      mergeMethod: 'merge · squash · rebase.',
+      tagName: '릴리스 태그. 비우면 트리거 출력의 tag.',
+      workflowId: '워크플로우 파일명(deploy.yml) 또는 숫자 id. 워크플로우에 workflow_dispatch 트리거가 있어야 합니다.',
+      inputs: 'workflow_dispatch inputs (JSON 객체, 최대 25개, 값은 문자열로 보냅니다).',
+      path: '읽을 파일 경로. 디렉터리를 주면 목록이 옵니다.',
+    },
+    tips: ['pr.merge·issue.create 같은 쓰기 동작은 dry-run 에서 실행되지 않습니다.', '대량 생성은 GitHub 2차 한도(분당 80건)에 걸릴 수 있어 노드가 분당 60건 간격을 지킵니다.', 'PR diff 는 20만 자까지만 가져옵니다(truncated 로 표시).'],
+    related: ['githubTriggerNode', 'llmNode', 'humanApprovalNode', 'conditionNode'],
   },
   jusoNode: {
     summary: '사람이 쓴 주소를 행정안전부 도로명주소 표준으로 정규화합니다.',

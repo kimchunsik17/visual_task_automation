@@ -250,6 +250,8 @@ def test_registry_loads_every_provider_the_api_center_offers():
         "youtube_data_api",
         # 백로그 34 DEV-0 — 인바운드 웹훅 서명 비밀(HMAC/고정 토큰). 노드에는 참조만 남고 원문은 여기 저장된다(ADR-0031)
         "webhook_secret",
+        # 백로그 34 DEV-1 — GitHub fine-grained PAT. 노드에는 참조만 남는다(ADR-0032)
+        "github",
     }
 
 

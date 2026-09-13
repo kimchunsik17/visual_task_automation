@@ -595,3 +595,109 @@ def generate_data_go_kr_node(node_id, node, indent, active_llm_id, prev_res_var,
     for target_id, _handle in forward_edges.get(node_id, []):
         generate_block_fn(target_id, indent, active_llm_id=active_llm_id,
                           prev_res_var=f"_dg_out_{node_id}", visited=visited)
+
+
+# ── 백로그 34 DEV-1: GitHub (ADR-0032) ─────────────────────────────────────
+
+@node_registry.register('githubTriggerNode')
+def generate_github_trigger_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict,
+                                 forward_edges, incoming_edges, lines, generate_block_fn):
+    """GitHub 이벤트 수신.
+
+    필터(events·action·브랜치·라벨)는 핸들러(`main.receive_webhook`)가 **실행 전에** 이미 걸었다 — 여기서는 envelope
+    (`{event, delivery, payload}`)을 평탄화해 내보내는 것이 전부다. 외부 호출이 없다. 목업 샘플·수동 입력처럼 이벤트 헤더 없이
+    원본 payload 만 온 경우도 같은 함수가 이벤트를 모양으로 추정한다(connectors/services/github.flatten_envelope).
+    """
+    lines.append(f"{indent}# --- GitHub Trigger Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    lines.append(f"{indent}import json as _json")
+    lines.append(f"{indent}from connectors.services import github as _github")
+    lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
+    lines.append(f"{indent}if dyn_input_{node_id} is None:")
+    lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', '<<No input provided>>')")
+    lines.append(f"{indent}_ght_event_{node_id} = _github.flatten_envelope(dyn_input_{node_id})")
+    lines.append(f"{indent}_ght_out_{node_id} = _json.dumps(_ght_event_{node_id}, ensure_ascii=False, default=str)")
+    lines.append(f"{indent}if _ght_event_{node_id}.get('event'):")
+    lines.append(f"{indent}    print('[GitHub Trigger] ' + str(_ght_event_{node_id}['event']) + ' ' + str(_ght_event_{node_id}.get('action') or '')"
+                 f" + ' ' + str(_ght_event_{node_id}.get('repo') or '')"
+                 f" + ('#' + str(_ght_event_{node_id}['number']) if _ght_event_{node_id}.get('number') else ''))")
+    lines.append(f"{indent}last_result = _ght_out_{node_id}")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+
+    for target_id, _handle in forward_edges.get(node_id, []):
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id,
+                          prev_res_var=f"_ght_out_{node_id}", visited=visited)
+
+
+# githubNode.data 에서 그대로 서비스로 넘기는 문자열 필드. 정의(node_definitions/githubNode.json)의 fields 와 짝이다.
+GITHUB_PARAM_KEYS = ('repo', 'number', 'title', 'body', 'labels', 'labelAction', 'assignees', 'state', 'mergeMethod',
+                     'commitTitle', 'tagName', 'targetCommitish', 'previousTagName', 'workflowId', 'ref', 'inputs', 'path',
+                     'alertState', 'severity', 'ecosystem', 'perPage')
+GITHUB_BOOL_KEYS = ('draft', 'prerelease', 'generateNotes')
+# 본문이 비면 직전 노드 출력을 쓰는 모드 — "LLM 요약 → PR 코멘트" 가 가장 흔한 배선이다. 이슈 수정(빈 본문 = 변경 없음)과
+# 릴리스(빈 본문 = GitHub 자동 노트)는 제외한다.
+GITHUB_BODY_FALLBACK_MODES = ('issue.create', 'issue.comment', 'pr.comment')
+
+
+def _github_literal(value):
+    import json as _json_mod
+    if isinstance(value, (dict, list)):
+        value = _json_mod.dumps(value, ensure_ascii=False)
+    return str('' if value is None else value).replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+
+
+@node_registry.register('githubNode')
+def generate_github_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict,
+                         forward_edges, incoming_edges, lines, generate_block_fn):
+    """GitHub 액션. 생성 코드는 서비스 모듈 호출 한 번이 전부다(ADR-0008).
+
+    repo·number·tagName 을 비우면 직전 노드(GitHub 트리거) 출력에서 이어받는다 — 트리거 → 액션이 가장 흔한 배선이라 같은
+    저장소·번호를 두 번 적지 않게 한다(`_github.fill_from_upstream`). 토큰은 실행 시점에 API 센터에서 가져온다 — graph_data 에
+    담기지 않아 revision/템플릿/로그로 새지 않는다.
+    """
+    data = node.get('data', {})
+    mode = _github_literal(data.get('mode') or 'pr.get')
+    upstream = prev_res_var if prev_res_var else 'last_result'
+
+    lines.append(f"{indent}# --- GitHub Node ({node_id}, {mode}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    lines.append(f"{indent}_cx_err_{node_id} = None")
+    lines.append(f"{indent}import json as _json")
+    lines.append(f"{indent}from connectors.services import github as _github")
+    lines.append(f"{indent}from connectors import oauth as _oauth")
+    lines.append(f"{indent}from connectors.errors import ConnectorError as _ConnectorError")
+    lines.append(f"{indent}import node_definition as _node_definition")
+    lines.append(f"{indent}from connectors import mock_runtime as _mock_runtime")
+    lines.append(f"{indent}_gh_params_{node_id} = {{")
+    for key in GITHUB_PARAM_KEYS:
+        lines.append(f"{indent}    '{key}': \"{_github_literal(data.get(key, ''))}\",")
+    for key in GITHUB_BOOL_KEYS:
+        lines.append(f"{indent}    '{key}': {bool(data.get(key, key == 'generateNotes'))!r},")
+    lines.append(f"{indent}}}")
+    lines.append(f"{indent}_gh_upstream_{node_id} = str({upstream}) if {upstream} is not None else ''")
+    lines.append(f"{indent}for _k, _v in list(_gh_params_{node_id}.items()):")
+    lines.append(f"{indent}    if isinstance(_v, str) and '{{{{last_result}}}}' in _v:")
+    lines.append(f"{indent}        _gh_params_{node_id}[_k] = _v.replace('{{{{last_result}}}}', _gh_upstream_{node_id})")
+    if mode in GITHUB_BODY_FALLBACK_MODES:
+        lines.append(f"{indent}if not _gh_params_{node_id}['body']:")
+        lines.append(f"{indent}    _gh_params_{node_id}['body'] = _gh_upstream_{node_id}")
+    lines.append(f"{indent}_github.fill_from_upstream(_gh_params_{node_id}, _gh_upstream_{node_id})")
+    lines.append(f"{indent}_gh_out_{node_id} = ''")
+    lines.append(f"{indent}try:")
+    lines.append(f"{indent}    _gh_token_{node_id} = _oauth.require_token('github', __owner_user_id__, db, service='GitHub')")
+    lines.append(f"{indent}    _gh_def_{node_id} = _node_definition.get_definition('githubNode')")
+    lines.append(f"{indent}    with _mock_runtime.node('{node_id}', '{node['type']}'):")
+    lines.append(f"{indent}        _gh_result_{node_id} = _github.run_action(_gh_def_{node_id}, \"{mode}\", _gh_token_{node_id}, _gh_params_{node_id})")
+    lines.append(f"{indent}    _gh_out_{node_id} = _json.dumps(_gh_result_{node_id}, ensure_ascii=False, default=str)")
+    lines.append(f"{indent}    print('[GitHub {mode} 성공] ' + _github.describe_action(\"{mode}\", _gh_params_{node_id}))")
+    lines.append(f"{indent}except _ConnectorError as _e:")
+    # 실패해도 만들려던 내용은 버리지 않는다 — 다른 발송 노드와 같은 규약이다.
+    lines.append(f"{indent}    print(f'[GitHub {mode} 실패] {{_e.code}}: {{_e.user_message}}')")
+    lines.append(f"{indent}    _gh_out_{node_id} = _gh_upstream_{node_id} + f'\\n\\n[⚠️ {{_e.user_message}}]'")
+    lines.append(f"{indent}    _cx_err_{node_id} = _e.to_node_error(domain='{_error_domain('githubNode', mode)}', node_type='githubNode', node_id='{node_id}')")
+    lines.append(f"{indent}last_result = _gh_out_{node_id}")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result, error=_cx_err_{node_id})")
+
+    for target_id, _handle in forward_edges.get(node_id, []):
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id,
+                          prev_res_var=f"_gh_out_{node_id}", visited=visited)

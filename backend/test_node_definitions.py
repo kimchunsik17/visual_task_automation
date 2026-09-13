@@ -39,6 +39,9 @@ CONNECTOR_TYPES = [
     "rssTriggerNode", "gmailTriggerNode", "gmailNode", "googleDriveNode",
     # 한국형 노드 계획 Phase 2(2026-08-30): NAVER API HUB 검색.
     "naverSearchNode", "naverSearchTriggerNode", "naverCafeNode", "jusoNode", "dataGoKrNode",
+    # 백로그 34 DEV-1(2026-09-13): GitHub. 트리거는 인바운드 웹훅 위에 있어 외부 호출이 없다 — connector 블록 대신
+    # mock.samples(GitHub 문서 예시 payload)만 갖는다. 액션은 PAT 하나로 13개 모드.
+    "githubTriggerNode", "githubNode",
 ]
 
 

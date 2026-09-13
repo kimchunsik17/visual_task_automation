@@ -35,6 +35,11 @@ MODE_HMAC = "hmac_sha256"
 MODE_TOKEN = "static_token"
 MODES = (MODE_NONE, MODE_HMAC, MODE_TOKEN)
 DEFAULT_HEADERS = {MODE_HMAC: "X-Hub-Signature-256", MODE_TOKEN: "X-Gitlab-Token"}
+#: `/webhook/{endpoint_id}` 가 엔드포인트로 인정하는 노드 타입. githubTriggerNode(DEV-1)는 webhookNode 와 같은 수신 경로를 쓰고
+#: 그 위에 이벤트 필터·평탄화가 얹힌다(connectors/services/github.py).
+INBOUND_NODE_TYPES = ("webhookNode", "githubTriggerNode")
+#: 노드가 verifyMode 를 비웠을 때의 기본 모드. GitHub 트리거는 기본이 HMAC 이다 — 공개 URL 에 서명 없이 열어 두는 것이 예외여야 한다.
+DEFAULT_MODE_BY_TYPE = {"githubTriggerNode": MODE_HMAC}
 DEFAULT_SECRET_REF = "{{API_CENTER:webhook_secret}}"
 SECRET_PROVIDER = "webhook_secret"
 
@@ -60,11 +65,12 @@ class VerifyOutcome:
 
 
 def settings_from_node(node: Optional[dict]) -> VerifySettings:
-    """webhookNode.data → 설정. 모르는 모드는 none 으로, 헤더가 비면 모드별 기본값."""
+    """webhookNode/githubTriggerNode.data → 설정. 모르는 모드는 타입 기본값으로, 헤더가 비면 모드별 기본값."""
     data = (node or {}).get("data") or {}
-    mode = str(data.get("verifyMode") or MODE_NONE).strip().lower()
+    default_mode = DEFAULT_MODE_BY_TYPE.get(str((node or {}).get("type") or ""), MODE_NONE)
+    mode = str(data.get("verifyMode") or default_mode).strip().lower()
     if mode not in MODES:
-        mode = MODE_NONE
+        mode = default_mode
     header = str(data.get("verifyHeader") or "").strip() or DEFAULT_HEADERS.get(mode, "")
     secret_ref = str(data.get("verifySecret") or "").strip() or (DEFAULT_SECRET_REF if mode != MODE_NONE else None)
     dedupe = str(data.get("dedupeHeader") or "").strip() or None

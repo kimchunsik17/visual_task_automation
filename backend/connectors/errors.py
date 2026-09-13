@@ -143,15 +143,36 @@ def code_for_status(status: int) -> str:
     return UNKNOWN
 
 
+def seconds_until_epoch(value: Any, *, now: Optional[float] = None) -> Optional[float]:
+    """`x-ratelimit-reset` 류 헤더(유닉스 초) → 지금부터 몇 초 뒤인지. 숫자가 아니면 None."""
+    if value is None:
+        return None
+    try:
+        reset = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    import time as _time
+
+    return max(0.0, reset - (_time.time() if now is None else now))
+
+
 def from_response(status: int, *, service: str, body: Any = None, headers: Any = None) -> ConnectorError:
-    """HTTP 응답을 정규화된 오류로 바꾼다."""
-    headers = headers or {}
-    retry_after = parse_retry_after(
-        headers.get("Retry-After") or headers.get("retry-after")
-    )
+    """HTTP 응답을 정규화된 오류로 바꾼다.
+
+    한도 초과를 403 으로 알리는 API 가 있다(GitHub 1차 한도 — `403 + x-ratelimit-remaining: 0`). 그대로 두면 AUTH_FORBIDDEN 이 되어
+    사용자에게 "권한을 확인하라" 는 틀린 안내가 가고 재시도도 되지 않는다. 헤더가 그렇게 말하면 RATE_LIMITED 로 읽고, Retry-After 가
+    없으면 `x-ratelimit-reset`(유닉스 초)에서 대기 시간을 계산한다 — 재시도 정책이 max_delay 보다 길면 알아서 포기한다.
+    """
+    lowered = {str(k).lower(): v for k, v in (headers or {}).items()}
+    retry_after = parse_retry_after(lowered.get("retry-after"))
+    code = code_for_status(status)
+    if status == 403 and str(lowered.get("x-ratelimit-remaining", "")).strip() == "0":
+        code = RATE_LIMITED
+    if code == RATE_LIMITED and retry_after is None:
+        retry_after = seconds_until_epoch(lowered.get("x-ratelimit-reset"))
     detail = body if isinstance(body, str) else (None if body is None else str(body))
     return ConnectorError(
-        code=code_for_status(status),
+        code=code,
         service=service,
         status=status,
         detail=(detail[:500] if detail else None),

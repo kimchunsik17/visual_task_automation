@@ -111,6 +111,11 @@ NODE_ALIASES: Dict[str, List[str]] = {
                         "하나씩"],
     "breakNode": ["중단", "멈춰", "break", "빠져나"],
     "webhookNode": ["웹훅", "webhook", "콜백", "외부에서 호출"],
+    # 백로그 34 DEV-1 — GitHub. 트리거는 "열리면/올라오면/실패하면", 액션은 "코멘트/라벨/머지/릴리스" 쪽 말로 갈린다.
+    "githubTriggerNode": ["github", "깃허브", "PR이 열리면", "PR 이 열리면", "이슈가 올라오면", "이슈가 생기면", "릴리스되면",
+                          "푸시되면", "CI 실패하면", "pull request", "풀 리퀘스트"],
+    "githubNode": ["github", "깃허브", "이슈 생성", "이슈에 코멘트", "PR 코멘트", "PR 에 코멘트", "라벨 붙", "머지", "릴리스 노트",
+                   "릴리스 만들", "workflow_dispatch", "dependabot", "취약점 알림", "저장소 파일"],
     "discordTriggerNode": ["디스코드 메시지가 오면", "디스코드에서 메시지", "디스코드 명령",
                            "디스코드로 물어보면"],
     "telegramTriggerNode": ["텔레그램 메시지가 오면", "텔레그램에서 메시지", "텔레그램으로 물어보면"],
@@ -505,6 +510,7 @@ def vector_candidates(
 # 적용한다(로드맵 원칙 3 — 필수 구조 규칙은 결정론적으로 주입).
 _TRIGGER_TYPES = {
     "scheduleNode", "webhookNode", "discordTriggerNode", "telegramTriggerNode", "youtubeTriggerNode",
+    "githubTriggerNode",
 }
 _BRANCHING_TYPES = {"conditionNode", "humanApprovalNode", "distributorNode"}
 

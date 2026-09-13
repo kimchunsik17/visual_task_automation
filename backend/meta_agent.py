@@ -56,7 +56,7 @@ PLACEHOLDER_URL = "REPLACE_WITH_ACTUAL_URL"
 # ── ① 노드 카탈로그 (핵심 11종) ────────────────────────────────────────────
 # 여기에 노드를 한 줄씩 추가하면 챗봇이 다룰 수 있는 노드가 늘어난다(P2 확장).
 _NODE_CATALOG_TEMPLATE = """\
-[사용 가능한 노드 — 이 51종만 사용한다]
+[사용 가능한 노드 — 이 53종만 사용한다]
 - startNode      : 플로우 시작점. data 없음. 모든 플로우는 이 노드에서 시작한다.
 - scheduleNode   : {{NODE_DEFINITION}}
 - promptNode     : 사용자 프롬프트. data.userPrompt(문자열).
@@ -71,6 +71,8 @@ _NODE_CATALOG_TEMPLATE = """\
 - jusoNode: {{NODE_DEFINITION}}
 - dataGoKrNode: {{NODE_DEFINITION}}
 - naverSearchTriggerNode: {{NODE_DEFINITION}}
+- githubTriggerNode: {{NODE_DEFINITION}}
+- githubNode: {{NODE_DEFINITION}}
 - naverCafeNode: {{NODE_DEFINITION}}
 - posterGeneratorNode: {{NODE_DEFINITION}}
 - imageGenerationNode: {{NODE_DEFINITION}}
@@ -504,6 +506,8 @@ NodeType = Literal[
     # 같은 일이 반복되지 않도록 `test_node_definitions.py` 가 이 목록과 카탈로그를 대조한다.
     "naverSearchNode", "naverSearchTriggerNode", "naverCafeNode", "hwpxDocumentNode",
     "jusoNode", "dataGoKrNode",
+    # 백로그 34 DEV-1(2026-09-13): GitHub 트리거/액션(ADR-0032). 카탈로그 줄과 함께 늘린다.
+    "githubTriggerNode", "githubNode",
     # 문서 포맷(포맷 스튜디오 계획 Phase 1) — 빈칸 선언된 포맷에 값을 채워 파일 생성.
     "formatNode",
     # memoNode는 캔버스 주석(스티키 노트)이다 — 실행/검증에서 제외되지만, 사용자가 그래프에

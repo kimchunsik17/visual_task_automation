@@ -42,6 +42,9 @@ const STATIC_EDITOR_NODES = [
   ['jusoNode', '도로명주소', 'integration', '#0b6bcb', 'provider-juso'],
   ['dataGoKrNode', '공공데이터포털', 'integration', '#1e5eb8', 'provider-data-go-kr'],
   ['naverCafeNode', '네이버 카페', 'integration', '#03c75a', 'provider-naver-user-oauth'],
+  // 백로그 34 DEV-1 — GitHub 트리거(인바운드 웹훅 위)와 액션(PAT).
+  ['githubTriggerNode', 'GitHub 이벤트 수신', 'input', '#8250df', 'provider-github', 'trigger'],
+  ['githubNode', 'GitHub', 'integration', '#8250df', 'provider-github'],
   // 문서 카테고리(포맷 스튜디오 계획 §4.3) — 새 문서·포스터는 formatNode, 기존 서식 파일
   // 채우기는 templateAnalyzer→fileModifier, 코드 없는 .hwpx 생성은 hwpxDocumentNode.
   ['formatNode', '문서 포맷', 'document', '#0d9488', 'node-file-modifier'],

@@ -61,6 +61,7 @@ TRIGGER_SENTENCE = {
     "rssTriggerNode": "구독한 RSS 에 새 글이 올라오면 시작합니다.",
     "naverSearchTriggerNode": "네이버 검색 결과가 바뀌면 시작합니다.",
     "youtubeTriggerNode": "지정한 채널에 새 영상이 올라오면 시작합니다.",
+    "githubTriggerNode": "GitHub 저장소에 이벤트(PR·이슈·릴리스·푸시·CI 결과)가 생기면 시작합니다.",
     "telegramTriggerNode": "텔레그램 메시지가 오면 시작합니다.",
     "discordTriggerNode": "디스코드 메시지가 오면 시작합니다.",
 }
@@ -91,6 +92,7 @@ STEP_SENTENCE = {
     "googleDriveNode": "Google Drive 에 올립니다",
     "youtubeNode": "YouTube 정보를 가져옵니다",
     "naverSearchNode": "네이버에서 검색합니다",
+    "githubNode": "GitHub 에 이슈·PR·릴리스 작업을 합니다",
     "naverCafeNode": "네이버 카페에 글을 올립니다",
     "jusoNode": "도로명주소를 조회합니다",
     "dataGoKrNode": "공공데이터포털에서 자료를 받아옵니다",
