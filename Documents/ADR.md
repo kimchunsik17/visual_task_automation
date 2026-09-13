@@ -1992,7 +1992,7 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
 
 ## ADR-0027 · 그래프 인터프리터 이관: 순회 규칙 공유 · 생성기 본문 재사용 · 정적 계획
 
-| 상태 | 수락됨 · 2026-09-06 · **4단계 인터프리터·섀도 구현 2026-09-08** (남은 것: 프로젝트별 flag, 커뮤니티 242종 오프라인 대조) |
+| 상태 | 수락됨 · 2026-09-06 · **4단계 인터프리터·섀도 구현 2026-09-08** · 프로젝트별 flag 2026-09-08 · **운영 코퍼스 대조 차이 0 — 2026-09-13** |
 | --- | --- |
 | 결정자 | 백엔드 |
 | 관련 | ROADMAP §3.1(백로그 32), ADR-0015(승인 재개), ADR-0016(NodeError v1), ADR-0019(pythonNode 격리), `plans/실행엔진_앱빌더_시연준비_종합보고서.md` §1 |
@@ -2092,8 +2092,11 @@ jsonParserNode 사슬이 필요했다. 이 구조에는 세 가지 대가가 있
   검증할 수 있게 했다 — 한도는 여전히 POSIX 에서만 걸리고, 없으면 실행을 거부한다.
 - **DB 코퍼스 대조(2026-09-08)**: 로컬 DB(게시 템플릿 0·프로젝트 10) 포함 310 그래프 차이 0. 갤러리 242종은 운영 DB 에만 있어
   서버에서 내보내야 한다.
-- **남은 일(운영 절차)**: 운영 DB 에서 242종 내보내 대조 → 스테이징 `shadow` 계획 검사 → 프로젝트별 `:interpreter` → 기본값
-  interpreter. executor 레지스트리 슬롯은 만들지 않았다 — 하이브리드에서 executor 는 두 종류(네이티브 6종·래퍼)뿐이고, 노드를
+- **운영 DB 코퍼스 대조(2026-09-13, 운영 서버에서)**: `export_community_graphs.py /tmp/… --include-projects` 로 240 그래프(게시 템플릿
+  168·프로젝트 72)를 내보내 `engine_shadow_diff.py --projects-json` — 기본 코퍼스 300 과 합쳐 **540 그래프 차이 0**. 내보낸 파일은 보고 뒤
+  지웠다(저장소 밖). 등가성 출시 게이트 통과.
+- **남은 일(운영 절차)**: ~~운영 DB 에서 242종 내보내 대조~~(2026-09-13 완료) → 운영 `EXECUTION_ENGINE=shadow` 계획 검사 → 프로젝트별
+  `:interpreter` → 기본값 interpreter. executor 레지스트리 슬롯은 만들지 않았다 — 하이브리드에서 executor 는 두 종류(네이티브 6종·래퍼)뿐이고, 노드를
   네이티브로 이식할 때(ENGINE-3) 타입별 슬롯이 처음 필요해진다.
 
 ## ADR-0028 · 실행 상태 기록: workflow_runs · run_steps 를 단일 진입점에서 남긴다
@@ -2271,9 +2274,11 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
 - 검증: `test_run_queue.py` +4(queue_health 빈 큐·적체·정지·stale heartbeat, 인라인 running 제외, 임계값 env, 슬롯 키 unique),
   `test_run_producers.py` +2(같은 슬롯 두 인스턴스 → run 1·다음 분은 새 run, IntegrityError 경쟁 → 스킵), `test_health_endpoints.py`
   +2(큐 꺼짐 → queue None, 워커 없이 오래된 queued → 503 → heartbeat 생기면 200), `test_deploy_script.py` +2(워커 단계 순서, 스크립트 파싱).
-- **남은 것은 서버 리허설이다(사용자 몫)** — 절차는 `scripts/server/README.md` "큐 모드 켜기": 08 로 유닛 → `.env` `EXECUTION_QUEUE=1` → API
-  재기동 → `/api/ready` checks.queue → 긴 run 실행 중 `systemctl restart run-worker@1`(SIGTERM 에 마치고 재기동) 과 `kill -9`(stale 뒤
-  failed 확정) 두 가지를 타임라인에서 확인. 통과하면 출시 게이트 "ENGINE-2 뒤 재시작이 run 을 잃지 않는지" 가 닫힌다.
+- **운영 서버 리허설 통과(2026-09-13)** — `scripts/server/README.md` "큐 모드 켜기" 절차 A1~A7 그대로, 웹훅 → 딜레이 90초 그래프로.
+  202 queued 뒤 6초에 claim·91초에 완료 · `systemctl restart run-worker@1` 은 86초 블록되며 "현재 run 을 마치고 종료" 뒤 재기동(처리 2) ·
+  SIGKILL 은 3초 뒤 유닛 재기동, 죽은 run 은 126초 뒤 heartbeat 끊김으로 failed 확정, 그동안 ready 200 · 워커 stop 상태의 queued 는
+  309초에 ready 503·`detail.queue.stalled` true, start 하니 즉시 claim·200 복귀. 출시 게이트 "재시작이 run 을 잃지 않는지" 가 닫혔다.
+  큐는 다시 꺼 두고(`EXECUTION_QUEUE=0`) 워커 유닛은 남겼다 — 상시 ON 은 웹훅 응답 본문을 쓰는 외부 연동 확인 뒤 결정.
 
 ## ADR-0030 · 노드 재시도: 오류 코드가 재시도 가능성을 말하고, 인터프리터가 본문만 다시 돌린다
 

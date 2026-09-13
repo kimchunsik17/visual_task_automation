@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. ENGINE-2 는 서버 리허설만 남음(`scripts/server/README.md` 큐 모드 켜기), ENGINE-0 은 운영 절차만 남음 | 서버 큐 리허설·ENGINE-0 운영 절차(운영 DB 242종 shadow diff) → 프로젝트별 인터프리터 전환 |
+| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. **운영 서버 리허설 통과(2026-09-13)** — 큐 모드 A1~A7(restart 는 현재 run 을 마치고 재기동 · SIGKILL 은 126초 뒤 failed 확정 · 워커 부재는 309초에 ready 503 → start 로 복귀) · 운영 DB 코퍼스 240종(게시 템플릿 168+프로젝트 72) 포함 **540 그래프 실행 대조 차이 0**. 출시 게이트 둘(등가성·재시작 무손실)이 닫혔다. 큐는 다시 꺼 둠, 워커 유닛은 유지 | 운영 `EXECUTION_ENGINE=shadow` 계획 검사 → 프로젝트별 `:interpreter` 전환 → 스케줄·웹훅 큐 상시 ON 결정 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -383,8 +383,12 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    **systemd 유닛·배포(2026-09-11)**: `scripts/server/08-run-worker-unit.sh` 가 템플릿 유닛 `run-worker@.service` 를 만들고 `run-worker@1`
    (INSTANCES=N 으로 더) 을 켠다 — fastapi 유닛과 같은 User/Group, `.env` 는 앱이 읽음, SIGTERM → 현재 run 마치고 종료(TimeoutStopSec 900).
    `scripts/deploy.sh` 는 alembic 뒤 `run-worker@*` 를 재기동하고(유닛 없으면 건너뜀) 스모크에서 is-active 를 본다. 켜는 절차·리허설
-   체크리스트는 `scripts/server/README.md` "큐 모드 켜기". **서버 리허설(재시작 중 run → 마치고 종료 / kill -9 → failed 확정)은
-   사용자 몫**으로 남는다 — 통과하면 출시 게이트 "재시작이 run 을 잃지 않는지" 가 닫힌다.
+   체크리스트는 `scripts/server/README.md` "큐 모드 켜기". **운영 서버 리허설 통과(2026-09-13)** — 웹훅 → 딜레이 90초 그래프로:
+   202 queued 뒤 6초에 claim·91초에 완료 · `systemctl restart run-worker@1` 은 86초 블록되며 "현재 run 을 마치고 종료" 뒤 재기동 ·
+   SIGKILL 은 3초 뒤 재기동하고 죽은 run 은 126초 뒤 failed 확정(그동안 ready 200) · 워커 stop 상태의 queued 는 309초에 ready 503·
+   stalled true, start 하니 즉시 claim·200 복귀. 큐는 다시 꺼 두고(`EXECUTION_QUEUE=0`) 워커 유닛은 active·enabled 로 남겼다 —
+   상시 ON 은 웹훅 응답 본문(200 result)을 쓰는 외부 연동이 없는지 확인한 뒤 결정. 08 스크립트가 0644 로 체크아웃돼 `sudo bash`
+   로 실행했다(Windows 커밋이 실행 비트를 빠뜨림 — 같은 날 git 모드 755 로 고침).
 
 ##### ENGINE-3. 재시도 · 에러 분기 · 멱등성 — 1~2주
 
@@ -435,7 +439,7 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 
 | 층 | 필수 검증 |
 | --- | --- |
-| 등가성 | 코퍼스 242+508 에서 옛 엔진과 새 엔진의 출력·로그 순서·토큰 집계 차이 0. `test_merge_rejoin.py` 9건, PR #69 회귀 2건, 코드젠 스모크 51종. **소스 층**: `codegen_corpus_diff.py`(835 그래프, git ref 대 작업 트리) — 순회·프렐류드·생성기를 손댄 PR 은 결과를 본문에 남긴다. **실행 층**: `engine_shadow_diff.py` — 2026-09-08 공식·큐레이션·스모크 300 그래프 차이 0; 커뮤니티 242종은 전환 전 |
+| 등가성 | 코퍼스 242+508 에서 옛 엔진과 새 엔진의 출력·로그 순서·토큰 집계 차이 0. `test_merge_rejoin.py` 9건, PR #69 회귀 2건, 코드젠 스모크 51종. **소스 층**: `codegen_corpus_diff.py`(835 그래프, git ref 대 작업 트리) — 순회·프렐류드·생성기를 손댄 PR 은 결과를 본문에 남긴다. **실행 층**: `engine_shadow_diff.py` — 2026-09-08 공식·큐레이션·스모크 300 그래프 차이 0; **2026-09-13 운영 서버에서 커뮤니티 코퍼스 240종(게시 템플릿 168·운영 프로젝트 72) 포함 540 그래프 차이 0**(`export_community_graphs.py --include-projects` → `engine_shadow_diff.py --projects-json`) |
 | 부분 실행 | entry/stop/scope/pinned 네 파라미터의 기존 테스트가 새 엔진에서 그대로 통과 — **통과(2026-09-08, `test_editor_execution.py` 인터프리터 재생)** |
 | 승인 재개 | ADR-0015 의 durable 대기 → 재개가 Run/Step 위에서 같은 결과 — 대기 전환·재개는 인터프리터에서 통과(2026-09-08, `test_approval_flow.py` 재생); Run/Step 위 검증은 ENGINE-1 |
 | 큐 | 워커 2개에서 같은 run 이 두 번 실행되지 않는지 — **PG SKIP LOCKED 통과(09-10)** · heartbeat 끊김 뒤 failed 확정 — **통과(09-10)** · 스케줄 중복 발화 0 — **슬롯 키 통과(09-11)**. 서버 재시작 리허설은 남음 |
@@ -449,7 +453,8 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 - 전환은 프로젝트별 flag → 커뮤니티 템플릿 설치분 → 전체 순. 끄면 옛 엔진으로 즉시 복귀(생성 코드는
   ENGINE-0 동안 삭제하지 않는다).
 - ENGINE-2 뒤 `systemctl restart` 가 실행 중 run 을 잃지 않는지 배포 리허설로 확인한 뒤에야 옛 인라인 경로를
-  닫는다.
+  닫는다. **확인됨(2026-09-13 운영 리허설 — restart 는 run 을 마치고 재기동, SIGKILL 은 failed 확정)** — 스케줄·웹훅 큐 상시 ON 은
+  이제 결정만 남았다.
 
 전체 크기는 **XL, 약 7~9주**다. ENGINE-0 만으로도 pythonNode 격리와 개입 지점이 생기므로 나머지 세 단계는
 각각 독립적으로 출시할 수 있다.
