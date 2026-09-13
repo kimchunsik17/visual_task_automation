@@ -22,6 +22,7 @@ from typing import Any, Mapping, Optional
 
 DELIVERY_HEADERS = ("X-GitHub-Delivery", "X-GitLab-Event-UUID", "Idempotency-Key", "X-Idempotency-Key")
 DEDUPE_PAYLOAD_KEY = "dedupeByPayload"     # webhookNode data
+DEDUPE_HEADER_KEY = "dedupeHeader"         # webhookNode data — 발신자 고유 헤더가 위 목록에 없을 때(DEV-0)
 MAX_HEADER_VALUE = 200
 
 
@@ -51,7 +52,12 @@ def dedupe_by_payload(node: Optional[dict]) -> bool:
 
 
 def webhook_key(project_id, headers: Optional[Mapping[str, str]], payload: Any, *, node: Optional[dict] = None) -> Optional[str]:
-    """웹훅 한 번의 idempotency_key. 전달 id 헤더 → (설정 시) payload 해시 → None."""
+    """웹훅 한 번의 idempotency_key. 노드가 지정한 dedupeHeader → 알려진 전달 id 헤더 → (설정 시) payload 해시 → None."""
+    custom = str(((node or {}).get("data") or {}).get(DEDUPE_HEADER_KEY) or "").strip()
+    if custom:
+        value = _header(headers, custom)
+        if value:
+            return f"webhook:{project_id}:{custom.lower()}:{value}"
     for name in DELIVERY_HEADERS:
         value = _header(headers, name)
         if value:

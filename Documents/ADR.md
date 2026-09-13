@@ -2430,3 +2430,49 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
   `executionNote` 를 보인다.
 - 검증: `errorBranch.test.js` 5건 · `runProgress.test.js` 4건(node:test) · eslint 0 errors · vite build.
 - 남은 것: 앱 빌더·앱 러너의 진행 표시(33번 APP-2 와 함께 — 큐로 보내는 순간 필요해진다).
+
+## ADR-0031 · 인바운드 웹훅 하드닝: 서명은 원문 바이트로, 비밀은 API 센터 참조만, 상한은 엔드포인트 단위로
+
+| 상태 | 수락됨 · 2026-09-13 (백로그 34 DEV-0. GitHub Trigger/Action 은 DEV-1 에서 이 위에) |
+| --- | --- |
+| 결정자 | 백엔드 |
+| 관련 | ROADMAP §3.3 DEV-0, ADR-0030(웹훅 멱등성 `idempotency_key`), ADR-0017(명명된 자격증명 참조), `rate_limit.py` |
+
+**맥락 (Context)**
+
+`/webhook/{endpoint_id}` 는 공개 URL 이고 `is_live` 만 보면 누구나 워크플로우를 돌릴 수 있었다. 노드 문서는 "요청 검증을 흐름 안에서 하라"
+고 사용자에게 떠넘겼다. GitHub 을 첫 개발 도구 연동으로 삼기로 했으므로(§3.3 판단) 서명 검증·크기·빈도 상한이 먼저 있어야 한다.
+조사한 발신자들은 두 부류다 — HMAC SHA-256 서명(GitHub `X-Hub-Signature-256`, Bitbucket, Sentry)과 고정 토큰 헤더(GitLab `X-Gitlab-Token`).
+
+**결정 (Decision)**
+
+1. **모드 둘, 노드 설정에.** `webhookNode.data.verifyMode ∈ {none, hmac_sha256, static_token}`, `verifyHeader`(모드별 기본값),
+   `verifySecret`, `dedupeHeader`. 기본은 none — 기존 웹훅은 그대로 돈다.
+2. **HMAC 은 파싱 전 원문 바이트로.** 핸들러가 `await request.body()` 를 먼저 읽고 그 바이트로 `hmac.new(secret, body, sha256)` 을
+   계산해 `hmac.compare_digest` 로 비교한다(GitHub 문서 그대로). 헤더 값은 `sha256=<hex>` 와 `<hex>` 둘 다 받는다. JSON 을 다시
+   직렬화해 비교하면 키 순서·공백 차이로 깨진다.
+3. **비밀은 API 센터 참조만.** `verifySecret` 은 `{{API_CENTER:webhook_secret}}`(신설 provider, kind api_key) 또는 `#<id>` 명명 참조여야
+   한다. 원문을 넣으면 해석되지 않아 검증이 실패한다 — graph_data·revision·공유 템플릿에 비밀이 남는 길을 처음부터 막는다
+   (databaseNode 접속 문자열과 같은 규칙). 해석 주체는 `project_access.credential_owner_for` — workspace 프로젝트면 workspace owner 의 키.
+4. **순서: 크기(413) → 빈도(429) → 서명(401) → 중복 제거 → 실행.** 크기 상한(`WEBHOOK_MAX_BODY_BYTES`, 기본 1 MiB, 바닥 1 KiB)은 파싱보다
+   앞. 분당 상한은 `rate_limit` 의 `webhook.receive`(기본 120/분, `RATE_LIMIT_WEBHOOK_RECEIVE`)이고 **주체는 엔드포인트(프로젝트)** 다 —
+   공개 URL 이라 사용자를 모른다. 서명 계산은 상한 안에서만 한다.
+5. **실패 사유는 로그에만.** 401·413·429 응답 본문은 일반 문구다. 어느 겹이 틀렸는지 알려 주면 공격자에게 힌트다.
+6. **즉시 202 는 큐가 담당한다.** 로드맵 초안의 "ENGINE-2 전까지 BackgroundTasks" 는 ENGINE-2 가 먼저 끝나 필요가 없어졌다.
+   GitHub 의 10초 규칙이 문제가 되면 `EXECUTION_QUEUE=1`.
+7. **재전송 판별 헤더를 노드가 지정할 수 있다.** `dedupeHeader` 가 있으면 idempotency 키를 그 헤더에서 먼저 만든다(ADR-0030 의 기본
+   목록 X-GitHub-Delivery·X-GitLab-Event-UUID·Idempotency-Key 앞에).
+
+**대안 (Alternatives)**
+
+- **흐름 안에서 검증(현행 문서)**: 사용자마다 다시 만들고 대부분 안 만든다. 서명이 틀린 요청도 워크플로우가 돌아 과금·부작용이 난다. 기각.
+- **비밀 원문을 노드에 저장 + 정화**: 정화는 공유 경로에만 걸리고 revision·백업에는 남는다. 기각.
+- **사용자 단위 빈도 상한**: 공개 URL 은 호출자가 익명이다. 엔드포인트 단위가 맞다.
+
+**결과 (Consequences)**
+
+- `backend/webhook_verify.py`, `main.receive_webhook`(원문 바이트·상한·검증), `rate_limit.DEFAULT_RULES["webhook.receive"]`,
+  `idempotency.webhook_key`(dedupeHeader), `credential_providers.json` `webhook_secret`(+프론트 번들 재생성), 편집기 웹훅 카드
+  "요청 검증", 노드 문서 갱신. `test_webhook_verify.py` 9건.
+- 검증을 켠 웹훅은 GitHub 쪽 Secret 과 API 센터의 값이 같아야 한다. 값을 바꾸면 양쪽을 함께 바꾼다.
+- 다음(DEV-1): `githubTriggerNode`(이 검증 위에 이벤트·action·브랜치 필터와 평탄화 출력) 와 `githubNode`(PAT, issue/PR/release 동작).

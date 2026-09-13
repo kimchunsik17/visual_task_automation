@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. **운영 서버 리허설 통과(2026-09-13)** — 큐 모드 A1~A7(restart 는 현재 run 을 마치고 재기동 · SIGKILL 은 126초 뒤 failed 확정 · 워커 부재는 309초에 ready 503 → start 로 복귀) · 운영 DB 코퍼스 240종(게시 템플릿 168+프로젝트 72) 포함 **540 그래프 실행 대조 차이 0**. 출시 게이트 둘(등가성·재시작 무손실)이 닫혔다. 큐는 다시 꺼 둠, 워커 유닛은 유지 | 운영 `EXECUTION_ENGINE=shadow` 계획 검사 → 프로젝트별 `:interpreter` 전환 → 스케줄·웹훅 큐 상시 ON 결정 |
+| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **34 DEV-0 웹훅 하드닝(2026-09-13, ADR-0031)** · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. **운영 서버 리허설 통과(2026-09-13)** — 큐 모드 A1~A7(restart 는 현재 run 을 마치고 재기동 · SIGKILL 은 126초 뒤 failed 확정 · 워커 부재는 309초에 ready 503 → start 로 복귀) · 운영 DB 코퍼스 240종(게시 템플릿 168+프로젝트 72) 포함 **540 그래프 실행 대조 차이 0**. 출시 게이트 둘(등가성·재시작 무손실)이 닫혔다. 큐는 다시 꺼 둠, 워커 유닛은 유지 | 운영 `EXECUTION_ENGINE=shadow` 계획 검사 → 프로젝트별 `:interpreter` 전환 → 스케줄·웹훅 큐 상시 ON 결정 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -570,7 +570,7 @@ Action(resource × operation)으로 나눠 있어 이 계약과 그대로 맞는
 
 | 영역 | 현재 | 간극 |
 | --- | --- | --- |
-| 인바운드 웹훅 | `webhookNode` + `/webhook/{endpoint_id}`. `is_live` 게이트, payload 가 첫 입력 | **서명 검증이 없다.** 노드 문서가 "요청 검증을 흐름 안에서 하라"고 사용자에게 떠넘긴다. replay 방지·사용자별 상한·즉시 응답(GitHub 는 10초 안에 2xx 요구) 없음 |
+| 인바운드 웹훅 | `webhookNode` + `/webhook/{endpoint_id}`. `is_live` 게이트, payload 가 첫 입력. **2026-09-13 DEV-0**: 서명 검증(HMAC SHA-256·고정 토큰)·본문 상한·분당 상한·재전송 dedupe | ~~**서명 검증이 없다.**~~ DEV-0 로 닫힘. 노드 문서가 "요청 검증을 흐름 안에서 하라"고 사용자에게 떠넘긴다. replay 방지·사용자별 상한·즉시 응답(GitHub 는 10초 안에 2xx 요구) 없음 |
 | GitHub | 코드·정의·provider 어디에도 없다(`seed_curated_templates.py` 의 옮겨 온 n8n 템플릿 이름에만 등장) | 전부 |
 | 자격증명 | `credential_providers.json` 18종. `api_key`·`token_pair`(자동 갱신) 두 kind, OAuth 인가 코드 callback(0016) | GitHub PAT 는 `api_key` kind 로 바로 들어간다. GitHub App(JWT → 설치 토큰 1시간) 은 새 kind |
 | 커넥터 실행부 | `connectors/services/*` 9종. `ConnectorSession` 이 타임아웃·재시도·오류 분류·페이지네이션·rate limit 을 처리 | 서비스 파일 하나 추가로 끝난다. YouTube(`youtube.py`)가 Trigger/Action 두 노드의 선례 |
@@ -579,10 +579,15 @@ Action(resource × operation)으로 나눠 있어 이 계약과 그대로 맞는
 
 #### 단계별 구현
 
-##### DEV-0. 인바운드 웹훅 하드닝 — 3~4일 (지금 가능, 다른 트랙과 독립)
+##### DEV-0. 인바운드 웹훅 하드닝 — 3~4일 (지금 가능, 다른 트랙과 독립) — **구현(2026-09-13, ADR-0031)**
 
 `webhookNode` 에 검증 모드를 추가한다. 두 모드면 GitHub·Bitbucket·Sentry(HMAC)와 GitLab(고정 토큰 헤더)을
-전부 덮는다.
+전부 덮는다. **구현**: `backend/webhook_verify.py`(설정 읽기·API 센터 참조 해석·HMAC/토큰 판정·크기 상한), `/webhook/{endpoint_id}` 는
+원문 바이트를 먼저 읽고 **크기 상한(413) → 분당 상한(429, `rate_limit` `webhook.receive` 엔드포인트 주체, 기본 120/분) → 서명(401)**
+→ 중복 제거(idempotency, `dedupeHeader` 우선) 순으로 거른다. 비밀은 API 센터 provider `webhook_secret`(신설) 참조만 —
+`{{API_CENTER:webhook_secret}}` 또는 `#<id>` 명명 참조. 편집기 웹훅 카드에 "요청 검증"(모드·헤더·재전송 헤더) UI. 즉시 202 는
+`EXECUTION_QUEUE=1`(ENGINE-2)이 담당한다 — BackgroundTasks 를 따로 두지 않았다. `test_webhook_verify.py` 9건(엔드포인트 시나리오:
+GitHub ping 모양 payload 로 정상 200·불일치/헤더 없음/다른 비밀 401·변조 401·재전송 duplicate·GitLab 토큰·413·dedupeHeader·429).
 
 ```text
 webhookNode.verify

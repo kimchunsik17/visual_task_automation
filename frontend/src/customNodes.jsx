@@ -2778,9 +2778,52 @@ export const WebhookNode = ({ id, data }) => {
           <div style={{fontSize: '11px', color: '#666', marginTop: '4px'}}>
             이 URL로 POST 요청이 오면 플로우가 시작됩니다.
           </div>
+          <WebhookVerifyFields id={id} data={data} />
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+};
+
+// 요청 검증(백로그 34 DEV-0, ADR-0031) — 서버(backend/webhook_verify.py)가 읽는 data 키: verifyMode·verifyHeader·verifySecret·dedupeHeader.
+// 비밀은 API 센터 참조만 저장한다({{API_CENTER:webhook_secret}}) — 원문을 그래프에 두면 revision·공유 템플릿에 그대로 남는다.
+const WEBHOOK_VERIFY_DEFAULT_HEADER = { hmac_sha256: 'X-Hub-Signature-256', static_token: 'X-Gitlab-Token' };
+const WEBHOOK_SECRET_REF = '{{API_CENTER:webhook_secret}}';
+const webhookFieldStyle = { width: '100%', padding: '0.4rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', fontSize: '0.8rem' };
+
+const WebhookVerifyFields = ({ id, data }) => {
+  const mode = data.verifyMode || 'none';
+  const setMode = (next) => {
+    data.onChange(id, 'verifyMode', next === 'none' ? undefined : next);
+    if (next !== 'none') {
+      if (!data.verifyHeader) data.onChange(id, 'verifyHeader', WEBHOOK_VERIFY_DEFAULT_HEADER[next]);
+      if (!data.verifySecret) data.onChange(id, 'verifySecret', WEBHOOK_SECRET_REF);
+    }
+  };
+  return (
+    <div style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+      <label>요청 검증</label>
+      <select className="nodrag" value={mode} onChange={(e) => setMode(e.target.value)} style={webhookFieldStyle}>
+        <option value="none">없음 — URL 을 아는 누구나 실행</option>
+        <option value="hmac_sha256">HMAC SHA-256 서명 (GitHub·Bitbucket·Sentry)</option>
+        <option value="static_token">고정 토큰 헤더 (GitLab 등)</option>
+      </select>
+      {mode !== 'none' && (
+        <>
+          <input type="text" className="nodrag" value={data.verifyHeader || ''} placeholder={WEBHOOK_VERIFY_DEFAULT_HEADER[mode]}
+            onChange={(e) => data.onChange(id, 'verifyHeader', e.target.value)} style={webhookFieldStyle} title="서명 또는 토큰이 든 헤더 이름" />
+          <div style={{ fontSize: '11px', color: '#666' }}>
+            비밀은 <strong>API 센터 → 웹훅 서명 비밀</strong>에 저장한 값을 씁니다({WEBHOOK_SECRET_REF}). 발신 서비스의 Secret 과 같은 문자열이어야 합니다.
+          </div>
+        </>
+      )}
+      <input type="text" className="nodrag" value={data.dedupeHeader || ''} placeholder="재전송 판별 헤더 (선택, 예: X-GitHub-Delivery)"
+        onChange={(e) => data.onChange(id, 'dedupeHeader', e.target.value || undefined)} style={webhookFieldStyle}
+        title="같은 값으로 다시 오면 실행하지 않고 원래 실행을 알려 줍니다. 비우면 GitHub·GitLab·Idempotency-Key 헤더를 자동으로 봅니다." />
+      <div style={{ fontSize: '11px', color: '#666' }}>
+        GitHub 같은 발신자는 10초 안에 응답을 기대합니다 — 실행이 길면 운영자가 큐 모드(EXECUTION_QUEUE)를 켜면 즉시 202 로 답합니다.
+      </div>
     </div>
   );
 };
