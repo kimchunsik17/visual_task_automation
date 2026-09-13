@@ -823,7 +823,7 @@ mcpClientNode
 
 | # | 항목 | 크기 | 시점 | 내용 |
 | ---: | --- | --- | --- | --- |
-| O-1 | GitHub Actions CI | S | **지금** | push/PR 마다 `pytest`(파일 단위 병렬 또는 전체) + `vite build` + `export_node_definitions.py --check` + ESLint. 운영 DB 를 잡는 테스트는 `TEST_POSTGRES_URL` 없이 어디까지 검사할지 먼저 정한다(C3 결정 참조) |
+| O-1 | GitHub Actions CI | S | **구현(2026-09-13)** | `.github/workflows/ci.yml` — push/PR(main·dev·release) 마다 두 job: **backend**(Python 3.10, `pip install -r requirements.txt`, `export_node_definitions.py --check`, **전체 pytest** sqlite — DATABASE_URL 없이 conftest 강제, PG 전용 테스트는 skip) · **frontend**(Node 22, `npm ci`, `node --test src/*.test.js`, `eslint --quiet`(오류만), `vite build`). 비밀 없음. 전체 suite 를 도는 이유: 스택 PR 에서 22파일 묶음 회귀로는 못 잡는 실패가 두 번 있었다. 운영 PG 검사는 로컬 `TEST_POSTGRES_URL`(임시 스키마) 로 — CI 에 PG 서비스를 붙이는 것은 필요가 생길 때 |
 | O-2 | 헬스체크 확장 | S | **큐 부분 완료(2026-09-11)** | `/api/ready` 에 스케줄러 생존·DB 연결은 있었고, 큐 정지(`checks.queue`·`detail.queue`, ENGINE-2 3단계)를 넣었다 |
 | O-3 | API 상한 | S~M | 지금 | 실행(`/api/execute`·`/api/projects/{id}/run`·공개 앱)·업로드·인증(`/api/auth/guest` 는 정원만 있다)에 사용자·IP 별 상한. `rate_limit` 모듈 재사용. 실행 시간·메모리 상한은 ENGINE-0 의 pythonNode 격리와 함께 |
 | O-4 | 예외 수집 + 구조화 로깅 | M | ENGINE-1 뒤 | Sentry 계열(또는 자체 호스팅 GlitchTip) + `run_id` 상관관계. 로그는 실행 ID 로 묶인다 |

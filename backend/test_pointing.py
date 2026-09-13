@@ -866,10 +866,12 @@ def test_종류를_안_주면_예전처럼_병합한다():
               {"id": "e2", "source": "n2", "target": "n3"}])
     tools, get_graph, _c, _l = meta_agent.make_tools(graph)
     update = next(t for t in tools if t.name == "update_node")
-    update.invoke({"node_id": "n2", "data": {"model": "gpt-5.6"}})
+    # 허용 모델 목록(node_definition llmNode.model)에 있는 값이어야 한다 — 목록 밖 값은 validate_flow 가 새 오류로 보고
+    # update_node 가 롤백한다(2026-09-13: 시연 LLM 5.4-mini PR 뒤 'gpt-5.6' 이 목록에서 빠져 이 테스트가 main 에서 깨져 있었다).
+    update.invoke({"node_id": "n2", "data": {"model": "gpt-5.6-terra"}})
 
     data = {n.id: n.data for n in get_graph().nodes}["n2"]
-    assert data["model"] == "gpt-5.6"
+    assert data["model"] == "gpt-5.6-terra"
     assert data["systemPrompt"] == "요약", "병합이 아니라 교체가 됐다"
 
 
