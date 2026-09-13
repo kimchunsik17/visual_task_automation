@@ -1,0 +1,78 @@
+# CI — 백로그 37 O-1. push/PR 마다 백엔드 전체 pytest, 노드 정의 동기화 검사, 프론트 단위 테스트·ESLint·빌드.
+#
+# 왜 전체 suite 인가: 스택 PR 회귀를 "관련 22파일" 로만 돌렸을 때 전체에서만 드러나는 실패가 두 번 있었다
+# (2026-09-11 test_public_input_guard, ENGINE-0 #95 부터). 3,100건이 2~3분이라 전체를 돈다.
+#
+# DB: DATABASE_URL 을 주지 않는다 — backend/conftest.py 가 테스트 전용 sqlite 로 강제한다. PostgreSQL 전용 테스트
+# (SKIP LOCKED 동시 claim 등)는 TEST_POSTGRES_URL 이 없으면 skip 이다. 비밀은 필요 없다(JWT_SECRET 도 conftest 가 세운다).
+name: CI
+
+on:
+  push:
+    branches: [main, dev, release]
+  pull_request:
+    branches: [main, dev, release]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend · pytest · node definitions check
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 정의를 고쳐 놓고 파생물(frontend/src/generated/*.json)을 안 만들면 프론트는 옛 정의로 그리고 백엔드는 새 정의로 실행한다.
+      # deploy.sh 도 같은 검사를 한다 — 여기서 먼저 잡는다.
+      - name: Node definitions in sync with the frontend bundle
+        run: python export_node_definitions.py --check
+
+      - name: pytest (full suite, sqlite)
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m pytest -p no:cacheprovider -q --durations=15
+
+  frontend:
+    name: frontend · node:test · eslint · vite build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Unit tests (node:test)
+        run: node --test src/*.test.js
+
+      # 경고는 기존 기준(JSX 전용 사용을 unused 로 보는 설정 등 106건)이라 오류만 막는다.
+      - name: ESLint (errors only)
+        run: npx eslint . --quiet
+
+      - name: Build
+        run: npm run build

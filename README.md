@@ -65,3 +65,22 @@ This project is a pilot prototype for a business automation visualization tool. 
 1. **UI Operation**: Open the frontend URL. You should see a "Start Trigger" node and a "Generate Summary Task" node. You can click and drag from the handle on the right of the Start node to the handle on the left of the Task node to connect them.
 2. **API Communication**: Click the "Run Flow" button in the top right. Check the browser's Network tab (F12 Developer Tools). A `POST /api/execute` request should be sent with the node and edge JSON data.
 3. **Graph Execution**: The backend's LangGraph parses the graph data and sends it to the Gemini API. The response from Gemini summarizing the workflow will be returned to the client and displayed in the "Execution Result" panel on the right side of the screen.
+
+## CI
+
+`.github/workflows/ci.yml` 이 `main`·`dev`·`release` 로 가는 push/PR 마다 돈다. 비밀은 필요 없다.
+
+| job | 하는 일 |
+| --- | --- |
+| backend | Python 3.10 · `pip install -r backend/requirements.txt` · `python export_node_definitions.py --check`(노드 정의 ↔ 프론트 번들 동기화) · **전체 pytest**(sqlite — `DATABASE_URL` 없이 `conftest.py` 가 강제; PostgreSQL 전용 테스트는 `TEST_POSTGRES_URL` 없으면 skip) |
+| frontend | Node 22 · `npm ci` · `node --test src/*.test.js` · `eslint --quiet`(오류만 — 경고는 기존 기준) · `vite build` |
+
+로컬에서 같은 것을 돌리려면:
+
+```bash
+cd backend && venv/Scripts/python -m pytest -p no:cacheprovider -q          # Windows; 리눅스는 venv/bin/python
+cd backend && venv/Scripts/python export_node_definitions.py --check
+cd frontend && node --test src/*.test.js && npx eslint . --quiet && npm run build
+```
+
+전체 suite 를 도는 이유: 스택 PR 을 "관련 파일 묶음" 으로만 회귀했을 때 전체에서만 드러나는 실패가 두 번 있었다(2026-09-11). 3,100건이 2~3분이다.
