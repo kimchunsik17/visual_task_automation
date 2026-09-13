@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030). **ENGINE-3 백엔드 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. ENGINE-2 는 서버 리허설만 남음(`scripts/server/README.md` 큐 모드 켜기), ENGINE-0 은 운영 절차만 남음 | 프론트 PR(error 포트·retries/backoffSec 설정·errorWorkflowId 설정·dedupeByPayload·진행 표시) → 서버 큐 리허설·ENGINE-0 운영 절차 |
+| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. ENGINE-2 는 서버 리허설만 남음(`scripts/server/README.md` 큐 모드 켜기), ENGINE-0 은 운영 절차만 남음 | 서버 큐 리허설·ENGINE-0 운영 절차(운영 DB 242종 shadow diff) → 프로젝트별 인터프리터 전환 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -397,7 +397,7 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    진행 이벤트 `node_retry`(attempt·maxAttempts·errorCode·delaySec). **`timeoutSec` 은 만들지 않았다** — exec 중인 본문은 안전하게
    끊을 수 없고(스레드로 감싸 버리면 본문이 계속 돌며 이름공간을 건드린다) 커넥터 요청 시간 제한은 이미 있으며 CONNECTOR_TIMEOUT 은
    retryable 이라 여기서 재시도된다. 노드 단위 시간 제한은 본문을 별도 프로세스로 돌릴 수 있게 되는 때(pythonNode 격리 방식)의 몫.
-   설정 UI(노드 설정 패널의 retries/backoffSec)는 프론트 진행 표시와 함께. `test_node_retry.py` 11건.
+   설정 UI: Inspector "실행 옵션"(retries·backoffSec, 2026-09-13 프론트 PR). `test_node_retry.py` 11건.
 2. ~~에러 출력 핸들 — executor 가 NodeError 를 던지면 엔진이 `error` 핸들로 흐름을 돌린다.~~ **구현(2026-09-11, ADR-0030 추기) —
    두 엔진 모두.** `sourceHandle='error'` 간선이 있는 노드는 본문만 방출/실행하고, log_step 이 남긴 메타(status=error)로 실패를
    판정해 실패면 error 갈래(첫 노드 입력 = 오류 계약 공개 필드 JSON: nodeId·nodeType·code·message·requestId·retryable),
@@ -405,16 +405,18 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    `graph.emit_error_split`(if/else, 본문/하류 분리는 인터프리터와 같은 `render_node_body`), 인터프리터는 `ErrorSplit` 계획.
    프렐류드 헬퍼(`_node_failed`·`_node_error_payload`)는 error 간선이 있는 그래프에만 방출 — 없는 그래프의 생성 소스는 그대로
    (코퍼스 835 그래프 차이 0). 감쌀 수 없는 본문(흐름 노드)의 error 간선은 무시. 재시도와 결합: 재시도를 다 써도 실패면 error 갈래.
-   **편집기 핸들 UI 는 아직 없다**(프론트 PR — 노드 카드에 `error` 출력 포트, retries/backoffSec 설정, 진행 표시와 함께).
-   `test_error_branch.py` 8건.
+   **편집기 UI(2026-09-13)**: 흐름 노드·시작·메모를 뺀 모든 노드 카드 오른쪽 아래에 빨간 `error` 출력 포트(`components/ErrorPort.jsx` 가
+   nodeTypes 등록 지점에서 감싼다 — 컴포넌트 41종을 고치지 않음), error 간선은 빨간 점선 + "실패 시" 라벨(`errorBranch.decorateErrorEdge`,
+   그릴 때만 입혀 저장하지 않음). `test_error_branch.py` 8건, `errorBranch.test.js` 5건.
 3. ~~에러 트리거 — 워크플로우 실패 시 지정 워크플로우 실행(n8n Error Trigger 상당).~~ **구현(2026-09-11, ADR-0030 추기).**
    설정은 실패하는 프로젝트의 `graph_data.errorWorkflowId`(`is_live` 처럼 graph_data 안, 정수 project id). `execution.start` 가 실행을
    failed 로 닫은 뒤(노드 오류·엔진 예외 둘 다) `error_trigger.fire` — 큐가 켜져 있으면 enqueue(워커가 실행·과금), 아니면 인라인으로
    `execution.start(trigger_source='error_trigger', default_input=payload)` + 과금. payload 는 `{event, failedProjectId, failedProjectTitle,
    runId, triggerSource, errorSummary, failedNodes[{nodeId,nodeType,code,message}], at}` — 웹훅·봇 트리거 노드가 읽는 `default_input` 으로
    들어간다. 막는 것: 연쇄(에러 워크플로우 자신의 실패)·자기 자신·없는 프로젝트·다른 소유자·mock/evaluation 출처. `TRIGGER_SOURCES` 는
-   10종(`error_trigger` 추가). 인라인 실행은 직전 run id 슬롯을 보존한다(`execution.preserving_last_run`). **설정 UI 는 아직 없다**(프로젝트
-   설정에 "실패 시 실행할 워크플로우" 선택 — 프론트 PR). `test_error_trigger.py` 11건.
+   10종(`error_trigger` 추가). 인라인 실행은 직전 run id 슬롯을 보존한다(`execution.preserving_last_run`). **설정 UI(2026-09-13)**: 편집기
+   메뉴 "실패 시 실행할 워크플로우"(`components/ErrorWorkflowModal.jsx`, `/api/projects/my` 중 같은 소유자의 다른 프로젝트) — 고르면
+   곧바로 저장(`graph_data.errorWorkflowId`, 없으면 null). `test_error_trigger.py` 11건.
 4. **멱등성은 재시도와 반드시 동시에.** 재시도가 생기는 순간 이메일 중복 발송이 실제로 발생한다. 두 겹:
    ~~트리거 중복 방지(`idempotency_key` — 웹훅 payload 해시·`X-GitHub-Delivery`·RSS 항목 id 에 unique)~~ **트리거 중복 방지 구현
    (2026-09-11, ADR-0030 추기)** — `idempotency.webhook_key`: 전달 id 헤더(`X-GitHub-Delivery`·`X-GitLab-Event-UUID`·`Idempotency-Key`)
@@ -423,7 +425,8 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    IntegrityError 는 롤백 뒤 기존 run 으로 읽음), 큐는 `run_queue.enqueue_or_existing`. 웹훅 응답: 인라인 200 `{status: duplicate,
    run_id}`, 큐 202 `{status: duplicate, run_id}` — 발신자는 2xx 만 보면 된다. 실행 기록이 없으면(RUN_RECORDS=0) 걸러낼 수 없어 경고 뒤
    그대로 실행. RSS 항목 id 는 rssTriggerNode 의 cursor(SEEN_WINDOW)가 이미 같은 일을 한다. 스케줄 슬롯 키(ENGINE-2 3단계)와 같은 컬럼.
-   `test_webhook_idempotency.py` 6건(서브프로세스 엔드포인트 시나리오 포함).
+   `test_webhook_idempotency.py` 6건(서브프로세스 엔드포인트 시나리오 포함). 설정 UI(2026-09-13): webhookNode Inspector "실행 옵션" 의
+   "같은 본문의 재전송은 한 번만 실행" 체크(`dedupeByPayload`).
    **남은 겹**: 부작용 노드 중복 방지(이메일·슬랙·카카오·GitHub 쓰기 executor 가 `(run_id, node_id)` 전송 기록을 보고 성공분을 건너뜀)
    — 마지막 완료 step 부터의 재개(ENGINE-2 4)와 함께 온다. 재시도(1단계)는 effectState 가 unknown/applied 면 다시 보내지 않으므로
    지금도 중복 발송은 나지 않는다.

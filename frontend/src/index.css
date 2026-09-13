@@ -2790,3 +2790,25 @@ button, input, textarea {
   background: color-mix(in srgb, #6366f1 18%, var(--card-bg)); color: #a5b4fc;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #6366f1 45%, transparent);
 }
+
+/* error 출력 포트(백로그 32 ENGINE-3, ADR-0030) — 노드 오른쪽 아래의 빨간 점. 가운데의 보통 출력 포트와 구분한다.
+   EditorPage 가 nodeTypes 등록 지점에서 withErrorPort 로 감싼 노드에만 있다(흐름 노드·시작·메모 제외). */
+.react-flow__node .error-port-handle {
+  top: auto !important;
+  bottom: 10px !important;
+  transform: none !important;
+  width: 10px;
+  height: 10px;
+  background: var(--ts-danger, #ef4444);
+  border: 2px solid var(--card-bg, #fff);
+  z-index: 21;
+}
+.react-flow__node .error-port-handle:hover { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35); }
+/* error 간선 — 빨간 점선과 "실패 시" 라벨(errorBranch.decorateErrorEdge 가 그릴 때 입힌다) */
+.react-flow__edge.edge-error .react-flow__edge-text { fill: var(--ts-danger, #ef4444); font-size: 11px; }
+.react-flow__edge.edge-error .react-flow__edge-textbg { fill: var(--card-bg, #fff); }
+/* Inspector 실행 옵션(retries·backoffSec·dedupeByPayload) */
+.exec-settings { gap: 14px; align-items: flex-end; }
+.exec-setting { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.exec-setting input[type="number"] { width: 120px; }
+.exec-setting.check { flex-direction: row; align-items: center; gap: 6px; }

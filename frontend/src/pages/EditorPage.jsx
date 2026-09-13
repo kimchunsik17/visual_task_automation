@@ -17,7 +17,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import './EditorPage.css';
 import axios from 'axios';
-import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, BrainCircuit, History, TerminalSquare, X, Square, Network, TestTube, FlaskConical, ChevronsDown, ChevronsUp, Undo2, Redo2, Plus, MoreVertical, Keyboard, Copy, Scissors, Trash2, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, AlignStartVertical, AlignStartHorizontal, Maximize2, Command, Search, ClipboardPaste, Check, Star, Replace, CornerDownRight , Lock, Unlock , AlertTriangle, LayoutTemplate, Zap} from 'lucide-react';
+import { Play, Code, Folder, Save, Share2, ArrowLeft, Wand2, Settings, Sparkles, BrainCircuit, History, TerminalSquare, X, Square, Network, TestTube, FlaskConical, ChevronsDown, ChevronsUp, Undo2, Redo2, Plus, MoreVertical, Keyboard, Copy, Scissors, Trash2, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, AlignStartVertical, AlignStartHorizontal, Maximize2, Command, Search, ClipboardPaste, Check, Star, Replace, CornerDownRight , Lock, Unlock , AlertTriangle, LayoutTemplate, Zap, Siren} from 'lucide-react';
 import Sidebar from '../Sidebar';
 import TemplateModal from '../TemplateModal';
 import DeployModal from '../DeployModal';
@@ -31,6 +31,10 @@ import MockPanel from '../components/MockPanel';
 import NodeErrorCard from '../components/NodeErrorCard';
 import NodeInspector from '../components/NodeInspector';
 import DataLayerOverlay from '../components/DataLayerOverlay';
+import ErrorWorkflowModal from '../components/ErrorWorkflowModal';
+import { withErrorPort } from '../components/ErrorPort';
+import { decorateErrorEdge, errorWorkflowIdFrom, supportsErrorPort } from '../errorBranch';
+import { applyRunEvent, applyRunNote, isEventForProject, parseSseFrames } from '../runProgress';
 import {
   clearPinnedOutput,
   collectPinnedOutputs,
@@ -268,6 +272,11 @@ Object.keys(NodeRegistry).forEach(key => {
   nodeTypes[key] = DynamicNode;
 });
 
+// error 출력 포트(ENGINE-3, ADR-0030) — 흐름 노드·시작·메모를 뺀 모든 노드에. 컴포넌트를 하나씩 고치지 않고 등록 지점에서 감싼다.
+Object.keys(nodeTypes).forEach((key) => {
+  if (supportsErrorPort(key)) nodeTypes[key] = withErrorPort(nodeTypes[key]);
+});
+
 // id 는 서버 생성 코드의 식별자에 쓰이므로 하이픈이 없어야 한다(editorCommands.makeEntityId 참고).
 const getEntityId = (prefix = 'node') => makeEntityId(prefix);
 const getId = () => getEntityId('node');
@@ -458,6 +467,13 @@ function FlowContent() {
   // 실행 후 노드에 남는 성공/실패 하이라이트의 해제 여부 — 캔버스 빈 곳을 클릭하면 걷힌다.
   // 진행 중(running) 표시는 이 플래그와 무관하게 항상 보인다. 결과 배지(§7.2)도 유지된다.
   const [isExecHighlightDismissed, setIsExecHighlightDismissed] = useState(false);
+  // 실행 진행 이벤트(SSE, /api/workflow-runs/stream) — 노드별 재시도 표시("재시도 1/3"). 상태 색은 executionNodeStates 가 갖는다.
+  const [executionNotes, setExecutionNotes] = useState({});
+  const liveRunActiveRef = useRef(false);      // 이 편집기가 시작한 실행이 진행 중인가 — 그때만 SSE 를 캔버스에 반영한다
+  const liveEventsSeenRef = useRef(false);     // 이번 실행에서 진행 이벤트를 받았나 — 받았으면 끝난 뒤 로그 재생 애니메이션을 건너뛴다
+  // 실패 시 실행할 워크플로우(ENGINE-3 3단계) — graph_data.errorWorkflowId, 저장과 함께 간다.
+  const [errorWorkflowId, setErrorWorkflowId] = useState(null);
+  const [isErrorWorkflowModalOpen, setIsErrorWorkflowModalOpen] = useState(false);
   // NodeError v1(ADR-0016): 서버가 구조화한 실행 오류 목록과, 그것을 카드로 그릴지 여부(서버 플래그).
   const [executionErrors, setExecutionErrors] = useState([]);
   // 직전 목업 실행이 무엇이었는지 — 결과 탭이 "실제 실행이 아니다" 를 분명히 알린다(§7.1).
@@ -842,6 +858,7 @@ function FlowContent() {
           replaceGraph(loadedNodes, absorbed.edges, { saved: !normalized.changed && !absorbed.changed });
         }
         setIsLive(data.graph_data.is_live || false);
+        setErrorWorkflowId(errorWorkflowIdFrom(data.graph_data));
       } else {
         replaceGraph([], [], { saved: true });
       }
@@ -877,7 +894,11 @@ function FlowContent() {
     const payload = {
       title: projectTitle,
       description: projectDescription,
-      graph_data: overrideFlowData || getCurrentFlowData(),
+      // errorWorkflowId 는 graph_data 에 산다 — AI 생성 뒤 자동 저장처럼 override 로 올 때도 잃지 않는다.
+      graph_data: (() => {
+        const flow = overrideFlowData || getCurrentFlowData();
+        return 'errorWorkflowId' in flow ? flow : { ...flow, errorWorkflowId: errorWorkflowId || null };
+      })(),
       visibility: overrideVisibility !== null ? overrideVisibility : visibility,
       generation_trace_id: overrideTraceId || latestGenerationTraceId,
       base_revision: baseRevision,
@@ -999,6 +1020,47 @@ function FlowContent() {
       return { ...node, data };
     }));
   }, [markNextHistory, setNodes]);
+
+  // 실행 진행 이벤트 구독(ENGINE-1 3단계 SSE · ENGINE-3 node_retry). EventSource 는 Authorization 헤더를 못 붙여 fetch 스트림.
+  // 이 편집기가 시작한 실행(liveRunActiveRef)에만 반영한다 — 스케줄·웹훅으로 도는 같은 프로젝트의 실행이 편집 중 캔버스를 흔들지 않게.
+  useEffect(() => {
+    if (!token || !currentId || !isOwner) return undefined;
+    const controller = new AbortController();
+    let stopped = false;
+    const projectId = currentId;
+    const connect = async () => {
+      while (!stopped) {
+        try {
+          const res = await fetch('/api/workflow-runs/stream', {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          });
+          if (!res.ok || !res.body) throw new Error('stream unavailable');
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parsed = parseSseFrames(buffer);
+            buffer = parsed.rest;
+            for (const frame of parsed.frames) {
+              if (frame.event !== 'run' || !liveRunActiveRef.current || !isEventForProject(frame.data, projectId)) continue;
+              liveEventsSeenRef.current = true;
+              setExecutionNodeStates((current) => applyRunEvent(current, frame.data));
+              setExecutionNotes((current) => applyRunNote(current, frame.data));
+            }
+          }
+        } catch {
+          if (stopped) return;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
+      }
+    };
+    connect();
+    return () => { stopped = true; controller.abort(); };
+  }, [token, currentId, isOwner]);
 
   const onConnect = useCallback((params) => {
     // 필드 입력 포트(bind:<필드>)로 떨어졌으면 실행 엣지를 만들지 않는다 — 정본은 data.bindings 다.
@@ -1641,6 +1703,17 @@ function FlowContent() {
     }
   };
 
+  // 진행 이벤트(SSE)로 이미 노드별 상태를 그린 실행 — 재생 애니메이션 없이 최종 로그·상태만 반영한다.
+  const settleExecutionLogs = useCallback((logs) => {
+    const ordered = [...(logs || [])].sort((left, right) => (
+      (left.start_time ? Date.parse(left.start_time) : 0) - (right.start_time ? Date.parse(right.start_time) : 0)
+    ));
+    setExecutionLogs(ordered);
+    setExecutionNodeStates(Object.fromEntries(ordered.map((log) => [String(log.node_id), log.status === 'error' ? 'error' : 'success'])));
+    setExecutionNotes({});
+    setIsExecHighlightDismissed(false);
+  }, []);
+
   const replayExecutionLogs = useCallback(async (logs, animationToken) => {
     const orderedLogs = [...(logs || [])].sort((left, right) => {
       const leftTime = left.start_time ? Date.parse(left.start_time) : 0;
@@ -1751,6 +1824,9 @@ function FlowContent() {
     setIsCompiled(false);
     setExecutionLogs([]); // Clear previous logs
     setExecutionNodeStates({});
+    setExecutionNotes({});
+    liveRunActiveRef.current = true;
+    liveEventsSeenRef.current = false;
     setIsExecHighlightDismissed(false);
     setExecutionErrors([]);
     setMockRunSummary(null);   // 실제 실행이므로 목업 배지를 지운다
@@ -1777,7 +1853,13 @@ function FlowContent() {
       setExecutionNodeStates(Object.fromEntries(entryNodeIds.map((nodeId) => [nodeId, 'running'])));
 
       const res = await axios.post('/api/execute', payload, getAuthHeaders());
-      await replayExecutionLogs(res.data.logs || [], animationToken);
+      liveRunActiveRef.current = false;
+      if (liveEventsSeenRef.current) {
+        // 진행 이벤트로 노드별 상태를 이미 그렸다 — 재생 애니메이션 대신 최종 로그만 반영한다.
+        settleExecutionLogs(res.data.logs || []);
+      } else {
+        await replayExecutionLogs(res.data.logs || [], animationToken);
+      }
       setResponse(res.data.result || 'No content returned.');
       setTokenUsage(res.data.token_usage || null);
       setExecutionErrors(Array.isArray(res.data.errors) ? res.data.errors : []);
@@ -1798,9 +1880,11 @@ function FlowContent() {
       console.error(error);
       executionAnimationTokenRef.current += 1;
       setExecutionNodeStates({});
+      setExecutionNotes({});
       setResponse('Error communicating with backend: ' + (error.response?.data?.detail || error.message));
       setTokenUsage(null);
     } finally {
+      liveRunActiveRef.current = false;
       setIsLoading(false);
     }
   };
@@ -2047,7 +2131,17 @@ function FlowContent() {
       description: projectDescription,
       nodes: snapshot.nodes,
       edges: snapshot.edges,
+      // 실패 시 실행할 워크플로우(ENGINE-3) — is_live 처럼 graph_data 에 산다. 없으면 null 로 보내 서버 값을 지운다.
+      errorWorkflowId: errorWorkflowId || null,
     };
+  };
+
+  // 실패 시 실행할 워크플로우 저장 — 설정만 바뀌어도 곧바로 저장한다(graph_data 에 실린다). 지우면 null 로 보낸다.
+  // 상태 갱신은 비동기라 getCurrentFlowData() 가 옛 값을 읽으므로 override 로 새 값을 명시한다.
+  const saveErrorWorkflow = async (nextId) => {
+    setErrorWorkflowId(nextId || null);
+    const saved = await handleSave(null, { ...getCurrentFlowData(), errorWorkflowId: nextId || null });
+    if (!saved) throw new Error('save failed');
   };
 
   const handleClearAllHighlights = () => {
@@ -2871,6 +2965,7 @@ function FlowContent() {
           costCurrency,
           isExecuting: visualStatus === 'running',
           executionStatus: visualStatus,
+          executionNote: executionNotes[String(n.id)] || null,
           // 결과 배지(§7.2) — 눌러서 Inspector 를 열고, 고정 출력이면 실행되지 않았음을 표시한다.
           isPinnedOutput: Boolean(pinnedOutputs[String(n.id)]),
           onInspect: openInspector,
@@ -2882,7 +2977,7 @@ function FlowContent() {
         }
       };
     });
-  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage, tokenDisplayMode, costCurrency, executionLogs, executionNodeStates, isExecHighlightDismissed, expandAllCommand, openInspector, openFormatStudio, insertFillLLM, bindingContext, pinnedOutputs, resizeMemoNodeToContent]);
+  }, [nodes, isTokenTrackingMode, estimatedTokens, tokenUsage, tokenDisplayMode, costCurrency, executionLogs, executionNodeStates, executionNotes, isExecHighlightDismissed, expandAllCommand, openInspector, openFormatStudio, insertFillLLM, bindingContext, pinnedOutputs, resizeMemoNodeToContent]);
 
   // 실행 패널 탭 배지 — 로그 수, 문제 수(0이면 ✓), 평가 점수
   const executionTabBadge = (tabId) => {
@@ -3100,6 +3195,11 @@ function FlowContent() {
                   {isOwner && currentId && (
                     <button className="editor-menu-item" data-onboarding="deploy-workflow" onClick={() => { setIsMobileToolsDrawerOpen(false); handleOpenDeployModal(); }}>
                       <Wand2 size={17} /><span><strong>배포</strong><small>외부에서 사용할 실행 방식 설정</small></span>
+                    </button>
+                  )}
+                  {isOwner && currentId && (
+                    <button className="editor-menu-item" onClick={() => { setIsMobileToolsDrawerOpen(false); setIsErrorWorkflowModalOpen(true); }}>
+                      <Siren size={17} /><span><strong>실패 시 실행할 워크플로우</strong><small>{errorWorkflowId ? `실패하면 #${errorWorkflowId} 이 돕니다` : '실패하면 알림 워크플로우를 부릅니다'}</small></span>
                     </button>
                   )}
                 </section>
@@ -3495,7 +3595,7 @@ function FlowContent() {
           </button>
           <ReactFlow
             nodes={enrichedNodes}
-            edges={edges.map(e => ({
+            edges={edges.map(decorateErrorEdge).map(e => ({
               ...e,
               animated: executionNodeStates[String(e.source)] === 'running' || executionNodeStates[String(e.target)] === 'running' || e.animated,
               // 실행 중/성공 색은 토큰으로. 기본 상태는 stroke 를 주지 않고 CSS(--ts-edge)에 맡긴다 —
@@ -3659,6 +3759,16 @@ function FlowContent() {
         currentFlowData={getCurrentFlowData}
       />
 
+      {isErrorWorkflowModalOpen && currentId && (
+        <ErrorWorkflowModal
+          isOpen={isErrorWorkflowModalOpen}
+          onClose={() => setIsErrorWorkflowModalOpen(false)}
+          currentProjectId={currentId}
+          value={errorWorkflowId}
+          token={token}
+          onSave={saveErrorWorkflow}
+        />
+      )}
       {isDeployModalOpen && currentId && (
         <DeployModal
           isOpen={isDeployModalOpen}
@@ -3759,6 +3869,7 @@ function FlowContent() {
                   onRealRun={runFromNode}
                   onRunUpTo={runUpToNode}
                   onReplayLast={replayNodeWithLastInput}
+                  onSettingChange={onNodeDataChange}
                   busy={isLoading}
                 />
               );

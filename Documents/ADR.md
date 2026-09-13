@@ -2402,3 +2402,26 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
 - **남은 겹 — 부작용 노드 `(run_id, node_id)` 전송 기록.** 마지막 완료 step 부터의 재개(ENGINE-2 4 "끊긴 run 재개")와 함께 만든다 — 지금은
   재개가 없어 필요가 생기는 자리가 없고, 재시도(1단계)는 effectState 가 unknown/applied 면 다시 보내지 않으므로 중복 발송은 나지 않는다.
   ENGINE-3 백엔드는 여기까지. 다음은 프론트(error 포트·retries/backoffSec·errorWorkflowId·dedupeByPayload 설정·진행 표시).
+
+**추기 (2026-09-13) — 편집기: error 포트 · 실행 옵션 · 실패 시 워크플로우 · 실행 진행 표시**
+
+- **error 출력 포트는 컴포넌트를 고치지 않고 등록 지점에서 감싼다.** `frontend/src/components/ErrorPort.jsx` 의 `withErrorPort(Component)`
+  가 노드 루트의 형제로 `<Handle type="source" id="error">` 를 둔다(React Flow 는 노드 래퍼 안에만 있으면 된다). EditorPage 의 nodeTypes 가
+  만들어진 뒤 `errorBranch.supportsErrorPort(type)` 인 것만 감싼다 — 백엔드 `graph_traversal.is_error_branch_source` 와 같은 제외 규칙
+  (흐름 노드 6종·startNode·memoNode). 위치·색은 `.error-port-handle`(오른쪽 아래 빨간 점).
+- **error 간선은 그릴 때만 꾸민다.** `errorBranch.decorateErrorEdge` 가 ReactFlow 에 넘기는 순간 빨간 점선 + "실패 시" 라벨을 입히고
+  저장하지 않는다 — graph_data 의 간선은 `sourceHandle: "error"` 만 갖는다(서버 규칙의 정본).
+- **실행 옵션은 Inspector 에.** 노드 카드가 아니라 `NodeInspector` 의 "실행 옵션" 절(retries 0~5 · backoffSec 0~60 · webhookNode 의
+  dedupeByPayload) — 노드 컴포넌트 41종에 필드를 넣지 않는다. 값은 `errorBranch.normalizeRetries/normalizeBackoffSec` 로 백엔드와 같은
+  범위로 잘라 `onNodeDataChange` 로 data 에 쓴다(비우면 undefined → 저장 시 키가 빠진다).
+- **실패 시 워크플로우는 편집기 메뉴에.** `ErrorWorkflowModal` 이 `/api/projects/my` 중 같은 소유자의 다른 프로젝트를 고르게 하고 곧바로
+  저장한다. `graph_data.errorWorkflowId` 는 `getCurrentFlowData()` 에 항상 실린다(없으면 null) — AI 생성 뒤 자동 저장처럼 override 로
+  저장하는 경로에서도 `handleSave` 가 키가 없으면 현재 값을 얹어 잃지 않는다.
+- **실행 진행 표시.** 편집기(소유자)가 `/api/workflow-runs/stream` 을 fetch 스트림으로 구독한다(EventSource 는 Authorization 헤더를 못
+  붙인다 — MessagesPage 와 같은 방식). `runProgress.parseSseFrames`/`applyRunEvent`/`applyRunNote` 가 `event: run` 프레임을
+  executionNodeStates(running/success/error)와 executionNotes("재시도 n/m")로 접는다. **이 편집기가 시작한 실행에만 반영한다**
+  (`liveRunActiveRef`) — 스케줄·웹훅으로 도는 같은 프로젝트의 실행이 편집 중 캔버스를 흔들지 않게. 진행 이벤트를 받은 실행은 끝난 뒤 로그
+  재생 애니메이션을 건너뛰고 최종 로그만 반영한다(`settleExecutionLogs`) — 두 번 그리지 않는다. 결과 배지(`NodeResultBadge`)는 실행 중이면
+  `executionNote` 를 보인다.
+- 검증: `errorBranch.test.js` 5건 · `runProgress.test.js` 4건(node:test) · eslint 0 errors · vite build.
+- 남은 것: 앱 빌더·앱 러너의 진행 표시(33번 APP-2 와 함께 — 큐로 보내는 순간 필요해진다).

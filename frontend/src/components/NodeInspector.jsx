@@ -6,6 +6,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Download, FlaskConical, Play, Pin, PinOff, Search, AlertTriangle } from 'lucide-react';
 import NodeErrorCard from './NodeErrorCard';
+import {
+  BACKOFF_DEFAULT_SEC, BACKOFF_MAX_SEC, RETRIES_MAX, normalizeBackoffSec, normalizeRetries, supportsErrorPort, supportsPayloadDedupe,
+} from '../errorBranch';
 
 const TABS = [
   { id: 'input', label: '입력' },
@@ -63,6 +66,7 @@ export default function NodeInspector({
   onRealRun,        // (nodeId) — 실제 실행
   onRunUpTo,        // (nodeId) — 여기까지 실제 실행
   onReplayLast,     // (nodeId) — 직전 실행의 입력으로 다시 목업 실행
+  onSettingChange,  // (nodeId, key, value) — 실행 옵션(retries·backoffSec·dedupeByPayload) 저장, ENGINE-3
   busy,
 }) {
   const [tab, setTab] = useState('output');
@@ -146,6 +150,45 @@ export default function NodeInspector({
               <Play size={14} /> 이 노드부터 실제 실행
             </button>
           </div>
+        </div>
+      )}
+
+      {isOwner && onSettingChange && supportsErrorPort(node.type) && (
+        <div className="exec-field">
+          <label>
+            실행 옵션
+            <small>재시도는 429·시간 초과·5xx 처럼 "다시 하면 되는" 오류에만 걸립니다. 인증 실패나 보냈는지 모르는 발송은 다시 하지 않습니다.</small>
+          </label>
+          <div className="exec-actions wrap exec-settings">
+            <label className="exec-setting">
+              <span>재시도 횟수 (0~{RETRIES_MAX})</span>
+              <input
+                type="number" min={0} max={RETRIES_MAX} step={1} placeholder="0"
+                value={node.data?.retries ?? ''}
+                onChange={(event) => onSettingChange(node.id, 'retries', normalizeRetries(event.target.value))}
+              />
+            </label>
+            <label className="exec-setting">
+              <span>첫 대기(초, 시도마다 2배)</span>
+              <input
+                type="number" min={0} max={BACKOFF_MAX_SEC} step={0.5} placeholder={String(BACKOFF_DEFAULT_SEC)}
+                value={node.data?.backoffSec ?? ''}
+                disabled={!node.data?.retries}
+                onChange={(event) => onSettingChange(node.id, 'backoffSec', normalizeBackoffSec(event.target.value))}
+              />
+            </label>
+            {supportsPayloadDedupe(node.type) && (
+              <label className="exec-setting check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(node.data?.dedupeByPayload)}
+                  onChange={(event) => onSettingChange(node.id, 'dedupeByPayload', event.target.checked || undefined)}
+                />
+                <span>같은 본문의 재전송은 한 번만 실행 (전달 id 헤더가 없을 때)</span>
+              </label>
+            )}
+          </div>
+          <span className="exec-hint">실패하면 노드 오른쪽 아래의 빨간 포트(실패 시)에서 이은 선으로 흐릅니다 — 재시도를 다 쓴 뒤에도. 재시도는 새 실행 엔진에서만 동작합니다.</span>
         </div>
       )}
 
