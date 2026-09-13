@@ -38,6 +38,48 @@ NON_CONTROL_HANDLES: Tuple[str, ...] = ('template', 'tools', 'attachments')
 # 분기 구문이 닫힌 자리에서 방출된다(JoinGate.flush_ready).
 EXCLUSIVE_BRANCH_TYPES: Tuple[str, ...] = ('conditionNode', 'humanApprovalNode')
 
+# 에러 출력 핸들(ENGINE-3 2단계, ADR-0030 추기). 노드가 실패하면(log_step 이 status=error 로 적으면) 흐름이 이 핸들의 간선으로
+# 가고 보통 하류는 건너뛴다. 성공이면 반대. 두 엔진이 같은 판정을 쓴다 — 옛 엔진은 if/else 를 방출하고(graph.emit_error_split)
+# 인터프리터는 ErrorSplit 계획을 만든다. 배타 분기이므로 갈래 경로 키는 ERROR_HANDLE / OK_BRANCH_KEY 다.
+ERROR_HANDLE = 'error'
+OK_BRANCH_KEY = 'ok'
+
+
+def error_branch_targets(node_id: str, forward_edges) -> List[str]:
+    """이 노드에서 error 핸들로 나가는 간선의 대상(간선 순서, 중복 제거)."""
+    targets: List[str] = []
+    for target, handle in forward_edges.get(node_id, []):
+        if handle == ERROR_HANDLE and target not in targets:
+            targets.append(target)
+    return targets
+
+
+def normal_branch_targets(node_id: str, forward_edges) -> Set[str]:
+    """error 핸들이 아닌 간선의 대상 — 성공했을 때 이어갈 하류."""
+    return {target for target, handle in forward_edges.get(node_id, []) if handle != ERROR_HANDLE}
+
+
+def error_payload_var(node_id: str) -> str:
+    """error 갈래의 첫 노드가 입력으로 받는 변수 이름. 공유 변수 last_result 대신 노드 전용 변수로 넘기는 이유: 갈래 진입 시
+    형제 복원(sibling_restore_source)이 last_result 를 상류 기록(__node_results__)으로 되돌리는데, 그러면 오류 payload 가 상류의
+    결과 문자열로 덮인다. 노드 전용 변수는 복원 대상이 아니다(val_x·res_text_x 와 같은 규칙)."""
+    return f"_error_payload_{node_id}"
+
+
+def is_error_branch_source(node: Optional[dict]) -> bool:
+    """이 노드의 'error' 핸들 간선이 에러 출력 핸들인가. 흐름 노드(conditionNode 규칙 id·approval·loop/distributor done 등)의
+    핸들 이름은 자기 뜻이 있다 — conditionNode 규칙 id 가 'error' 인 큐레이션 템플릿이 실제로 있다. 그런 노드는 제외한다."""
+    if not isinstance(node, dict):
+        return False
+    import node_bodies  # NATIVE_FLOW_TYPES 의 정본 — 지연 import(node_bodies 가 이 모듈을 쓴다)
+    return node.get('type') not in node_bodies.NATIVE_FLOW_TYPES
+
+
+def has_error_branches(edges: list, node_dict: Dict[str, dict]) -> bool:
+    """그래프에 에러 출력 핸들 간선이 하나라도 있는가 — 프렐류드 헬퍼(_node_failed·_node_error_payload)를 그때만 방출한다."""
+    return any(isinstance(e, dict) and e.get('sourceHandle') == ERROR_HANDLE and is_error_branch_source(node_dict.get(e.get('source')))
+               for e in edges or [])
+
 # 형제 오염 복원(sibling_restore_source)을 걸지 않는 상류 — 배타 분기는 한 갈래만 실행돼 오염이
 # 없고, loopNode 는 반복 값을 last_result 로 넘기므로 복원하면 반복 값이 덮인다.
 SIBLING_RESTORE_EXEMPT_TYPES: Tuple[str, ...] = ('conditionNode', 'humanApprovalNode', 'loopNode')

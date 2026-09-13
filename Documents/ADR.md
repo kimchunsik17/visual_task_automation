@@ -2332,3 +2332,26 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
 - 다음 단계(추기 예정): `error` 출력 핸들(NodeError 가 나면 흐름이 error 간선으로 — 두 엔진 모두, 생성 코드는 error 간선이 있을 때만
   달라진다), 에러 트리거(실패 시 지정 워크플로우), 멱등성(웹훅 `X-GitHub-Delivery`·payload 해시 → `idempotency_key`, 부작용 노드
   `(run_id, node_id)` 전송 기록).
+
+**추기 (2026-09-11) — 2단계 `error` 출력 핸들**
+
+- **판정은 log_step 의 메타다.** 노드가 실패했는가는 `__node_meta__[node_id].status == 'error'` 로 본다 — 구조화 오류(NodeError)든
+  legacy 문구 감지든 log_step 이 같은 자리에 남긴다(ADR-0025 §B). 그래서 "executor 가 NodeError 를 던지면" 이 아니라 "노드가 error 로
+  기록되면" 이 규칙이고, 예전 방식으로 실패하는 노드도 error 갈래를 탄다.
+- **두 엔진 모두.** 옛 엔진은 `graph.generate_block` 이 error 간선이 있는 노드를 만나면 `node_bodies.render_node_body` 로 본문과
+  하류를 분리해(인터프리터가 쓰는 것과 같은 렌더러) 본문 뒤에 `if _node_failed(...): error 갈래 / else: 보통 하류` 를 방출한다
+  (`graph.emit_error_split`). 인터프리터는 `ErrorSplit(body, on_error, normal)` 계획을 만들고 `_Executor._error_split` 이 본문(재시도
+  포함)을 돌린 뒤 같은 헬퍼로 판정한다. 배타 분기이므로 conditionNode 와 같이 갈래마다 JoinGate 경로(`error`/`ok`)를 표시하고
+  분기 뒤 `flush_ready` — 두 갈래에서 만나는 재합류 노드는 한 번만 실행된다.
+- **error 갈래의 입력은 오류 계약의 공개 필드 JSON** — `{nodeId, nodeType, code, message, requestId, retryable}`
+  (`_node_error_payload`). 원문 예외·비밀은 없다(ADR-0016). 보통 하류는 생성기가 기록한 prev_res_var 그대로.
+- **생성 소스는 error 간선이 있을 때만 달라진다.** 프렐류드 헬퍼(`_node_failed`·`_node_error_payload`)도 그때만 방출한다
+  (`emit_module_prelude(error_branches=…)`, 인터프리터는 `Plan.error_branches`). 코퍼스 835 그래프 대조 차이 0.
+- 감쌀 수 없는 본문(흐름 노드 6종처럼 생성기가 제어 구문을 내는 노드)의 error 간선은 무시하고 보통 방출로 간다 — 그런 노드는
+  "실패" 의 뜻이 다르고 핸들 이름은 자기 뜻이 있다. **conditionNode 규칙 id 가 'error' 인 큐레이션 템플릿("DB 데이터 비서 챗봇")이
+  실제로 있어서**, `has_error_branches`·`error_branch_targets` 는 source 가 흐름 노드가 아닐 때만 에러 핸들로 본다
+  (`is_error_branch_source`). 이것을 빼먹었을 때 코퍼스 대조가 그 템플릿 1건을 잡아냈다 — 프렐류드 헬퍼가 방출돼 소스가 달라졌다.
+- 검증: `test_error_branch.py` 8건 — 실패 → error 갈래만·payload 공개 필드만 · 성공 → 보통 하류만 · 재합류 한 번(실패/성공) ·
+  error 간선 없으면 헬퍼·분기 없음, 있으면 있음 · 흐름 노드의 error 간선 무시 · 재시도 소진 뒤 error 갈래(attempts 2) · 재시도 끝
+  성공 시 보통 하류. 전부 두 엔진 결과·로그 동일.
+- 남은 것: 편집기 노드 카드의 `error` 출력 포트(프론트 PR), 에러 트리거(실패 시 지정 워크플로우), 멱등성(3단계).

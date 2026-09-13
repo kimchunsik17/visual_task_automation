@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터, 오류 코드의 retryable·effectState 로 판정, ADR-0030). ENGINE-2 는 서버 리허설만 남음(`scripts/server/README.md` 큐 모드 켜기), ENGINE-0 은 운영 절차만 남음 | ENGINE-3 2단계 `error` 출력 핸들·에러 트리거 → 3단계 멱등성(웹훅 idempotency_key·부작용 노드) |
+| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진, ADR-0030). ENGINE-2 는 서버 리허설만 남음(`scripts/server/README.md` 큐 모드 켜기), ENGINE-0 은 운영 절차만 남음 | ENGINE-3 3단계 에러 트리거·멱등성(웹훅 idempotency_key·부작용 노드) → 프론트(error 포트·retries 설정·진행 표시) |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -398,8 +398,15 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    끊을 수 없고(스레드로 감싸 버리면 본문이 계속 돌며 이름공간을 건드린다) 커넥터 요청 시간 제한은 이미 있으며 CONNECTOR_TIMEOUT 은
    retryable 이라 여기서 재시도된다. 노드 단위 시간 제한은 본문을 별도 프로세스로 돌릴 수 있게 되는 때(pythonNode 격리 방식)의 몫.
    설정 UI(노드 설정 패널의 retries/backoffSec)는 프론트 진행 표시와 함께. `test_node_retry.py` 11건.
-2. 에러 출력 핸들 — executor 가 NodeError 를 던지면 엔진이 `error` 핸들로 흐름을 돌린다. 인터프리터에서
-   구현이 자명하다.
+2. ~~에러 출력 핸들 — executor 가 NodeError 를 던지면 엔진이 `error` 핸들로 흐름을 돌린다.~~ **구현(2026-09-11, ADR-0030 추기) —
+   두 엔진 모두.** `sourceHandle='error'` 간선이 있는 노드는 본문만 방출/실행하고, log_step 이 남긴 메타(status=error)로 실패를
+   판정해 실패면 error 갈래(첫 노드 입력 = 오류 계약 공개 필드 JSON: nodeId·nodeType·code·message·requestId·retryable),
+   성공이면 보통 하류로 간다 — 배타 분기라 두 갈래에서 만나는 재합류는 분기 뒤에 한 번(JoinGate 경로 키 error/ok). 옛 엔진은
+   `graph.emit_error_split`(if/else, 본문/하류 분리는 인터프리터와 같은 `render_node_body`), 인터프리터는 `ErrorSplit` 계획.
+   프렐류드 헬퍼(`_node_failed`·`_node_error_payload`)는 error 간선이 있는 그래프에만 방출 — 없는 그래프의 생성 소스는 그대로
+   (코퍼스 835 그래프 차이 0). 감쌀 수 없는 본문(흐름 노드)의 error 간선은 무시. 재시도와 결합: 재시도를 다 써도 실패면 error 갈래.
+   **편집기 핸들 UI 는 아직 없다**(프론트 PR — 노드 카드에 `error` 출력 포트, retries/backoffSec 설정, 진행 표시와 함께).
+   `test_error_branch.py` 8건.
 3. 에러 트리거 — 워크플로우 실패 시 지정 워크플로우 실행(n8n Error Trigger 상당). "실패하면 알림" 패턴.
 4. **멱등성은 재시도와 반드시 동시에.** 재시도가 생기는 순간 이메일 중복 발송이 실제로 발생한다. 두 겹:
    트리거 중복 방지(`idempotency_key` — 웹훅 payload 해시·`X-GitHub-Delivery`·RSS 항목 id 에 unique), 부작용

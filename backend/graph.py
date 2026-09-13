@@ -33,7 +33,7 @@ def add_tracking(res_var, track_id, indent_str):
 {indent_str}    __token_usage__['total_output'] += o_tok
 {indent_str}    __token_usage__['total_tokens'] += t_tok"""
 
-def emit_module_prelude(lines: list, nodes: list, project_id=None) -> None:
+def emit_module_prelude(lines: list, nodes: list, project_id=None, *, error_branches: bool = False) -> None:
     """생성 소스의 모듈 수준 프렐류드 — import, 공용 헬퍼(_safe_user_path·_compose_llm_input·_resolve_binding …),
     실행 상태 전역(__token_usage__·__execution_logs__·__node_results__·__node_meta__), log_step.
 
@@ -120,6 +120,9 @@ def emit_module_prelude(lines: list, nodes: list, project_id=None) -> None:
     lines.append("    __node_meta__.setdefault(node_id, {}).update(kv)")
     # 이번 실행에서 이미 어떤 노드에 귀속된 legacy 오류 문구(ADR-0016 log_step 참고).
     lines.append("__legacy_seen__ = set()")
+    # 에러 출력 핸들 헬퍼(ENGINE-3 2단계)는 error 간선이 있는 그래프에만 — 없는 그래프의 생성 소스는 바이트 단위로 그대로다.
+    if error_branches:
+        emit_error_branch_helpers(lines)
     lines.append("def _extract_text(obj):")
     lines.append("    if hasattr(obj, 'content'):")
     lines.append("        c = obj.content")
@@ -426,6 +429,56 @@ def emit_module_prelude(lines: list, nodes: list, project_id=None) -> None:
     lines.append("        _set_node_meta(node_id, status='success')")
 
 
+def emit_error_branch_helpers(lines: list) -> None:
+    """에러 출력 핸들(ENGINE-3 2단계, ADR-0030 추기)이 쓰는 프렐류드 헬퍼. error 간선이 있는 그래프에만 방출한다.
+
+    _node_failed: log_step 이 남긴 메타(status=error)로 판정한다 — 구조화 오류든 legacy 문구 감지든 같은 자리에 남는다.
+    _node_error_payload: error 갈래의 첫 노드가 받는 입력. 오류 계약(ADR-0016)의 공개 필드만 JSON 으로 — 원문 예외·비밀은 없다.
+    """
+    lines.append("def _node_failed(node_id):")
+    lines.append("    return (__node_meta__.get(node_id) or {}).get('status') == 'error'")
+    lines.append("def _node_error_payload(node_id):")
+    lines.append("    import json as _json")
+    lines.append("    entry = next((e for e in reversed(__execution_logs__) if e.get('node_id') == node_id), None) or {}")
+    lines.append("    err = entry.get('error') or {}")
+    lines.append("    return _json.dumps({'nodeId': node_id, 'nodeType': entry.get('node_type'), 'code': err.get('code') or 'LEGACY_NODE_ERROR',")
+    lines.append("                       'message': err.get('userMessage') or entry.get('error_message') or entry.get('result_data'),")
+    lines.append("                       'requestId': err.get('requestId'), 'retryable': bool(err.get('retryable'))}, ensure_ascii=False)")
+
+
+def emit_error_split(lines: list, indent: str, node_id: str, *, error_targets: list, downstream, normal_targets: set,
+                     generate_block, gate, visited, active_llm_id) -> None:
+    """본문 뒤에 `if _node_failed: error 갈래 / else: 보통 하류` 를 방출한다(ENGINE-3 2단계).
+
+    배타 분기이므로 conditionNode 생성기처럼 갈래마다 begin_branch/end_branch 로 경로를 표시한다 — 두 갈래에서 만나는 재합류
+    노드는 분기 뒤에 한 번 방출된다(호출자가 flush_ready). error 갈래의 첫 노드는 last_result 로 오류 payload 를 받고, 보통
+    하류는 생성기가 기록해 둔 그대로(prev_res_var 포함) 이어간다.
+    """
+    inner = indent + "    "
+    payload_var = graph_traversal.error_payload_var(node_id)
+    lines.append(f"{indent}if _node_failed('{node_id}'):")
+    lines.append(f"{inner}{payload_var} = _node_error_payload('{node_id}')")
+    lines.append(f"{inner}last_result = {payload_var}")
+    gate.begin_branch(node_id, graph_traversal.ERROR_HANDLE)
+    try:
+        for target_id in error_targets:
+            generate_block(target_id, inner, active_llm_id=active_llm_id, prev_res_var=payload_var, visited=visited)
+    finally:
+        gate.end_branch()
+    lines.append(f"{indent}else:")
+    before = len(lines)
+    gate.begin_branch(node_id, graph_traversal.OK_BRANCH_KEY)
+    try:
+        for call in downstream:
+            if call.target_id in normal_targets:
+                generate_block(call.target_id, inner, active_llm_id=call.active_llm_id, prev_res_var=call.prev_res_var,
+                               visited=visited)
+    finally:
+        gate.end_branch()
+    if len(lines) == before:
+        lines.append(f"{inner}pass")
+
+
 def emit_run_header(lines: list) -> None:
     """`def run_workflow(**kwargs):` 와 실행 상태 초기화. 생성 코드 전용 — 인터프리터는 함수 대신
     네임스페이스의 전역을 직접 초기화한다."""
@@ -531,7 +584,7 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
     incoming_edges = edge_index.incoming_edges
     
     lines = []
-    emit_module_prelude(lines, nodes, project_id)
+    emit_module_prelude(lines, nodes, project_id, error_branches=graph_traversal.has_error_branches(prepared.edges, node_dict))
     emit_run_header(lines)
     emit_llm_setup(lines, nodes, project_id)
 
@@ -596,6 +649,23 @@ def compile_workflow(nodes: list, edges: list, project_id=None, entry_node_id=No
                                                               node_dict=node_dict, index=edge_index)
         if _restore_src is not None:
             lines.append(sibling_restore_line(indent, _restore_src))
+
+        # 0.7 에러 출력 핸들(ENGINE-3 2단계, ADR-0030 추기) — error 간선이 있는 노드는 본문만 방출하고, 실패면 error 갈래·
+        #     성공이면 보통 하류를 if/else 로 잇는다. 본문/하류 분리는 인터프리터와 같은 render_node_body. 감쌀 수 없는 본문
+        #     (흐름 노드 등)은 error 간선을 무시하고 아래 보통 방출로 간다. error 간선이 없는 그래프는 이 블록을 지나지 않는다.
+        _error_targets = graph_traversal.error_branch_targets(node_id, forward_edges) if graph_traversal.is_error_branch_source(node) else []
+        if _error_targets and node_registry.has_node(node['type']):
+            import node_bodies
+            _rendered = node_bodies.render_node_body(node_id, node_dict=node_dict, forward_edges=forward_edges,
+                                                     incoming_edges=incoming_edges, active_llm_id=active_llm_id,
+                                                     prev_res_var=prev_res_var, indent=indent, visited=visited)
+            if _rendered.wrappable:
+                lines.extend(_rendered.lines)
+                emit_error_split(lines, indent, node_id, error_targets=_error_targets, downstream=_rendered.downstream,
+                                 normal_targets=graph_traversal.normal_branch_targets(node_id, forward_edges),
+                                 generate_block=generate_block, gate=gate, visited=visited, active_llm_id=active_llm_id)
+                gate.flush_ready(_join_emitter(indent))
+                return
 
         # 1. Use Registry if available (New Architecture)
         if node_registry.has_node(node['type']):
