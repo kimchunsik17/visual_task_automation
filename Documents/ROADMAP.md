@@ -45,7 +45,7 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId`(ADR-0030). ENGINE-2 는 서버 리허설만 남음(`scripts/server/README.md` 큐 모드 켜기), ENGINE-0 은 운영 절차만 남음 | ENGINE-3 4단계 멱등성(웹훅 idempotency_key·부작용 노드) → 프론트(error 포트·retries 설정·errorWorkflowId 설정·진행 표시) |
+| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030). **ENGINE-3 백엔드 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. ENGINE-2 는 서버 리허설만 남음(`scripts/server/README.md` 큐 모드 켜기), ENGINE-0 은 운영 절차만 남음 | 프론트 PR(error 포트·retries/backoffSec 설정·errorWorkflowId 설정·dedupeByPayload·진행 표시) → 서버 큐 리허설·ENGINE-0 운영 절차 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
 | 개발 도구 연동 노드 (34) | 계획 초안(이 문서 §3.3) | DEV-0 웹훅 서명 검증 → DEV-1 GitHub |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
@@ -416,9 +416,17 @@ node 설정 (모든 노드 공통, 정의에서 파생)
    10종(`error_trigger` 추가). 인라인 실행은 직전 run id 슬롯을 보존한다(`execution.preserving_last_run`). **설정 UI 는 아직 없다**(프로젝트
    설정에 "실패 시 실행할 워크플로우" 선택 — 프론트 PR). `test_error_trigger.py` 11건.
 4. **멱등성은 재시도와 반드시 동시에.** 재시도가 생기는 순간 이메일 중복 발송이 실제로 발생한다. 두 겹:
-   트리거 중복 방지(`idempotency_key` — 웹훅 payload 해시·`X-GitHub-Delivery`·RSS 항목 id 에 unique), 부작용
-   노드 중복 방지(이메일·슬랙·카카오·GitHub 쓰기 executor 가 `(run_id, node_id)` 전송 기록을 보고 성공분을
-   건너뜀). RSS cursor 의 SEEN_WINDOW 와 같은 종류의 사고방식이다.
+   ~~트리거 중복 방지(`idempotency_key` — 웹훅 payload 해시·`X-GitHub-Delivery`·RSS 항목 id 에 unique)~~ **트리거 중복 방지 구현
+   (2026-09-11, ADR-0030 추기)** — `idempotency.webhook_key`: 전달 id 헤더(`X-GitHub-Delivery`·`X-GitLab-Event-UUID`·`Idempotency-Key`)
+   → webhookNode 설정 `dedupeByPayload` 가 켜진 경우에만 payload 해시(sha256, 키 정렬; unique 는 영구라 기본은 꺼짐) → 없으면 None.
+   `execution.start(idempotency_key=)` 가 같은 키의 run 이 있으면 실행하지 않고 `DuplicateRun`(조회→INSERT 경쟁은 unique 가 막고
+   IntegrityError 는 롤백 뒤 기존 run 으로 읽음), 큐는 `run_queue.enqueue_or_existing`. 웹훅 응답: 인라인 200 `{status: duplicate,
+   run_id}`, 큐 202 `{status: duplicate, run_id}` — 발신자는 2xx 만 보면 된다. 실행 기록이 없으면(RUN_RECORDS=0) 걸러낼 수 없어 경고 뒤
+   그대로 실행. RSS 항목 id 는 rssTriggerNode 의 cursor(SEEN_WINDOW)가 이미 같은 일을 한다. 스케줄 슬롯 키(ENGINE-2 3단계)와 같은 컬럼.
+   `test_webhook_idempotency.py` 6건(서브프로세스 엔드포인트 시나리오 포함).
+   **남은 겹**: 부작용 노드 중복 방지(이메일·슬랙·카카오·GitHub 쓰기 executor 가 `(run_id, node_id)` 전송 기록을 보고 성공분을 건너뜀)
+   — 마지막 완료 step 부터의 재개(ENGINE-2 4)와 함께 온다. 재시도(1단계)는 effectState 가 unknown/applied 면 다시 보내지 않으므로
+   지금도 중복 발송은 나지 않는다.
 
 #### 검증 매트릭스
 
@@ -428,7 +436,7 @@ node 설정 (모든 노드 공통, 정의에서 파생)
 | 부분 실행 | entry/stop/scope/pinned 네 파라미터의 기존 테스트가 새 엔진에서 그대로 통과 — **통과(2026-09-08, `test_editor_execution.py` 인터프리터 재생)** |
 | 승인 재개 | ADR-0015 의 durable 대기 → 재개가 Run/Step 위에서 같은 결과 — 대기 전환·재개는 인터프리터에서 통과(2026-09-08, `test_approval_flow.py` 재생); Run/Step 위 검증은 ENGINE-1 |
 | 큐 | 워커 2개에서 같은 run 이 두 번 실행되지 않는지 — **PG SKIP LOCKED 통과(09-10)** · heartbeat 끊김 뒤 failed 확정 — **통과(09-10)** · 스케줄 중복 발화 0 — **슬롯 키 통과(09-11)**. 서버 재시작 리허설은 남음 |
-| 재시도·멱등성 | 429/5xx 에서 백오프 후 성공, 401 에서 즉시 실패, 재시도 중 이메일 1통, 같은 `idempotency_key` 두 번 → 실행 1회 |
+| 재시도·멱등성 | 429/5xx 에서 백오프 후 성공 — **통과(09-11, test_node_retry)** · 401 에서 즉시 실패 — **통과** · 재시도 중 이메일 1통 — effectState unknown/applied 는 재시도 안 함(**규칙으로 통과**, 발송 노드 실측은 프론트 뒤) · 같은 `idempotency_key` 두 번 → 실행 1회 — **통과(09-11, test_webhook_idempotency)** |
 | 격리 | pythonNode 자식 프로세스의 rlimit·시간·네트워크 차단이 ADR-0019 테스트를 그대로 통과 |
 | 회귀 | flag 를 끄면 옛 엔진이 바이트 단위로 같은 결과 |
 

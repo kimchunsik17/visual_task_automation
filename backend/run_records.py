@@ -62,8 +62,9 @@ def _parse_time(value) -> Optional[datetime.datetime]:
 
 
 def begin(db, *, trigger_source: str, engine: str, project_id=None, executor_user_id=None,
-          session_id=None) -> models.WorkflowRun:
-    """실행 시작 — status=running 행을 만들고 flush 해 id 를 얻는다. 소유자는 프로젝트가 있으면 프로젝트 소유자."""
+          session_id=None, idempotency_key: Optional[str] = None) -> models.WorkflowRun:
+    """실행 시작 — status=running 행을 만들고 flush 해 id 를 얻는다. 소유자는 프로젝트가 있으면 프로젝트 소유자.
+    idempotency_key 는 unique 컬럼 — 같은 키가 이미 있으면 flush 에서 IntegrityError(호출자 execution._begin_deduplicated 가 읽는다)."""
     owner_user_id = None
     pid = None
     if project_id is not None:
@@ -85,10 +86,16 @@ def begin(db, *, trigger_source: str, engine: str, project_id=None, executor_use
         session_id=str(session_id) if session_id is not None else None,
         started_at=now,
         heartbeat_at=now,
+        idempotency_key=str(idempotency_key) if idempotency_key else None,
     )
     db.add(run)
     db.flush()
     return run
+
+
+def find_by_idempotency_key(db, key: str) -> Optional[models.WorkflowRun]:
+    """같은 트리거 사건의 run(스케줄 슬롯·웹훅 전달 id·payload 해시). 없으면 None."""
+    return db.query(models.WorkflowRun).filter(models.WorkflowRun.idempotency_key == str(key)).first()
 
 
 def run_status(result_text: Any, logs: Optional[List[dict]]) -> str:

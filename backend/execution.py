@@ -210,14 +210,45 @@ def record_shadow_plan_failure(project_id, exc: BaseException) -> None:
 
 
 # ── 진입점 ─────────────────────────────────────────────────────────────────
+class DuplicateRun(Exception):
+    """같은 idempotency_key 의 run 이 이미 있다 — 실행하지 않았다. 호출자는 그 run 을 알려 주고 2xx 로 답한다(발신자 재전송 규약)."""
+
+    def __init__(self, run_id: int, status: Optional[str], key: str):
+        super().__init__(f"idempotency_key={key!r} 는 이미 run {run_id}({status}) 다")
+        self.run_id = run_id
+        self.status = status
+        self.key = key
+
+
+def _begin_deduplicated(db, key: str, **begin_kwargs):
+    """idempotency_key 가 있는 실행의 기록 시작(ENGINE-3 4단계). 같은 키의 run 이 있으면 DuplicateRun. 조회→INSERT 사이의 경쟁은
+    unique 가 막고, IntegrityError 는 롤백 뒤 기존 run 으로 읽는다 — 그래서 호출자 세션에 미커밋 작업이 없어야 한다(웹훅 핸들러는 그렇다)."""
+    import run_records
+    from sqlalchemy.exc import IntegrityError
+
+    existing = run_records.find_by_idempotency_key(db, key)
+    if existing is not None:
+        raise DuplicateRun(existing.id, existing.status, key)
+    try:
+        return run_records.begin(db, idempotency_key=key, **begin_kwargs)
+    except IntegrityError:
+        db.rollback()
+        existing = run_records.find_by_idempotency_key(db, key)
+        if existing is not None:
+            raise DuplicateRun(existing.id, existing.status, key)
+        raise
+
+
 def start(nodes: list, edges: list, *, trigger_source: str, existing_run_id: Optional[int] = None,
-          **kwargs: Any) -> Tuple[str, dict, list]:
+          idempotency_key: Optional[str] = None, **kwargs: Any) -> Tuple[str, dict, list]:
     """워크플로우를 실행한다. `graph.run_workflow(nodes, edges, **kwargs)` 와 인자·반환·예외가 같다.
 
     trigger_source 만 추가 인자다 — 생성 코드의 runtime_inputs 로 새지 않게 여기서 떼어 contextvar 에
     둔다(사용자 입력 키와 충돌하지 않도록 kwargs 에 섞지 않는다).
     existing_run_id 를 주면 새 run 을 만들지 않고 그 행 위에서 실행한다 — paused 는 다시 열고(resume), 워커가 claim 한
     running 은 그대로(run_queue). 같은 행에 기록이 이어 붙는다.
+    idempotency_key 를 주면 같은 키의 run 이 이미 있을 때 실행하지 않고 DuplicateRun 을 던진다(ENGINE-3 4단계, 웹훅 재전송). 실행
+    기록이 없는 실행(db 없음·RUN_RECORDS=0)에서는 걸러낼 수 없어 경고만 남기고 그대로 실행한다.
     """
     if trigger_source not in TRIGGER_SOURCES:
         raise ValueError(f"trigger_source={trigger_source!r} 는 허용 목록에 없다: {sorted(TRIGGER_SOURCES)}")
@@ -238,6 +269,10 @@ def start(nodes: list, edges: list, *, trigger_source: str, existing_run_id: Opt
         if existing_run_id is not None:
             # 기록 실패로 삼키지 않는다 — 이어서 실행할 수 없는 상태의 run 을 주는 것은 호출자의 상태 오류다.
             run = run_records.adopt(db, existing_run_id)
+        elif idempotency_key:
+            # 중복이면 여기서 DuplicateRun — 기록 실패로 삼키지 않는다(삼키면 두 번 실행된다).
+            run = _begin_deduplicated(db, idempotency_key, trigger_source=trigger_source, engine=engine, project_id=project_id,
+                                      executor_user_id=executor_user_id, session_id=kwargs.get("session_id"))
         else:
             run = _record_guarded(
                 run_records.begin, db, trigger_source=trigger_source, engine=engine, project_id=project_id,
@@ -246,6 +281,10 @@ def start(nodes: list, edges: list, *, trigger_source: str, existing_run_id: Opt
             _last_run.set((run.id, run.project_id))
     elif existing_run_id is not None:
         raise ValueError("existing_run_id 는 db 가 있는 실행에서만 쓸 수 있다")
+    elif idempotency_key:
+        logging.getLogger("execution").warning(
+            "idempotency_key=%r 가 있지만 실행 기록이 없어(db 없음 또는 RUN_RECORDS=0) 중복을 걸러낼 수 없다 — 그대로 실행한다",
+            idempotency_key)
 
     observer = None
     if run_events.enabled() and executor_user_id is not None:
