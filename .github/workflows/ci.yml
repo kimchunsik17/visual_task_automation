@@ -39,6 +39,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # 포맷 프리셋 렌더 테스트(test_format_spec — PDF/PNG)가 실제 Chromium 으로 그린다. 서버도 ~/.cache/ms-playwright 의
+      # Chromium 을 쓰므로(requirements.txt 머리말) 여기서도 같은 경로를 검증한다. --with-deps 가 apt 의존성까지 넣는다.
+      - name: Playwright Chromium (format preset render tests)
+        run: python -m playwright install --with-deps chromium
+
       # 정의를 고쳐 놓고 파생물(frontend/src/generated/*.json)을 안 만들면 프론트는 옛 정의로 그리고 백엔드는 새 정의로 실행한다.
       # deploy.sh 도 같은 검사를 한다 — 여기서 먼저 잡는다.
       - name: Node definitions in sync with the frontend bundle
