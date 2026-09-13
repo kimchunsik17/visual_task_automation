@@ -101,7 +101,11 @@ export const NODE_DOCS = {
       { name: 'method', label: 'HTTP Method', kind: 'select', description: 'GET·POST·PUT·DELETE 중 수신할 방식. Payload를 받으려면 보통 POST를 씁니다.' },
       { name: 'path', label: '엔드포인트 경로', kind: 'text', description: '웹훅 URL의 마지막 경로 부분.' },
     ],
-    tips: ['공개 URL이므로 요청 검증(시크릿 헤더 등)을 흐름 안에서 확인하는 것이 안전합니다.'],
+    tips: [
+      '공개 URL이므로 노드의 "요청 검증"을 켜세요. GitHub·Bitbucket·Sentry 는 HMAC SHA-256 서명(X-Hub-Signature-256), GitLab 은 고정 토큰(X-Gitlab-Token)입니다. 비밀은 API 센터 → 웹훅 서명 비밀에 저장하고, 발신 서비스의 Secret 과 같은 값이어야 합니다.',
+      '서명이 맞지 않으면 401 로 거부되고 실행되지 않습니다. 같은 전달 ID(X-GitHub-Delivery 등)의 재전송은 한 번만 실행됩니다.',
+      '본문은 1 MiB, 엔드포인트별 분당 120회가 상한입니다(운영자가 조정 가능). 실행이 10초를 넘기면 발신자가 실패로 기록할 수 있으니 운영자에게 큐 모드를 요청하세요.',
+    ],
     related: ['startNode', 'httpRequestNode', 'jsonParserNode'],
   },
   discordTriggerNode: {

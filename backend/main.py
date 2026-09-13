@@ -3702,14 +3702,41 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
     if not project or not webhook_node_id:
         return JSONResponse(status_code=404, content={"status": "error", "detail": "Webhook endpoint not found, or project is not active (Live Mode is OFF)"})
         
-    # Get payload
+    # 원문 바이트를 먼저 읽는다 — 서명(HMAC)은 파싱 전 원문으로 계산한다(DEV-0, ADR-0031). 크기 상한은 파싱보다 앞.
+    import json   # 아래 '# Run the workflow' 의 import json 이 이 함수 안에서 json 을 지역 이름으로 만든다 — 여기서 먼저 묶는다
+    import webhook_verify
+    raw_body = await request.body() if request.method == "POST" else b""
+    if webhook_verify.body_too_large(raw_body):
+        return JSONResponse(status_code=413, content={"status": "error", "detail": "payload too large"})
     try:
         if request.method == "POST":
-            payload = await request.json()
+            payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
         else:
             payload = dict(request.query_params)
     except Exception:
         payload = {}
+
+    # 엔드포인트별 분당 상한(DEV-0). 서명 검증보다 앞 — 검증 계산조차 상한 안에서만 한다.
+    import rate_limit
+    try:
+        rate_limit.enforce(db, f"webhook:{project.id}", webhook_verify.RATE_ACTION)
+    except rate_limit.RateLimited as exc:
+        return JSONResponse(status_code=429, content={"status": "error", "detail": "too many requests"},
+                            headers={"Retry-After": str(exc.retry_after)})
+
+    # 서명 검증(DEV-0). 비밀은 API 센터 참조만 — 소유자(workspace 프로젝트면 workspace owner)의 키로 해석한다.
+    # 실패는 401 이고 실행하지 않는다. 사유는 로그에만 — 응답으로 어느 겹이 틀렸는지 알려 주면 공격자에게 힌트다.
+    _graph_nodes = (project.graph_data or {}).get('nodes', []) if isinstance(project.graph_data, dict) else []
+    _webhook_node = next((n for n in _graph_nodes if isinstance(n, dict) and n.get('id') == webhook_node_id), None)
+    _verify = webhook_verify.settings_from_node(_webhook_node)
+    if _verify.mode != webhook_verify.MODE_NONE:
+        import project_access
+        _secret_owner = project_access.credential_owner_for(db, project) or project.user_id
+        _secret = webhook_verify.resolve_secret(db, _secret_owner, _verify.secret_ref)
+        _outcome = webhook_verify.verify(_verify, request.headers, raw_body, _secret)
+        if not _outcome.ok:
+            webhook_verify.log_rejection(project.id, _outcome, remote=(request.client.host if request.client else None))
+            return JSONResponse(status_code=401, content={"status": "error", "detail": "webhook verification failed"})
         
     graph_data = project.graph_data or {}
     nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []
