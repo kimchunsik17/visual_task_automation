@@ -2355,3 +2355,28 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
   error 간선 없으면 헬퍼·분기 없음, 있으면 있음 · 흐름 노드의 error 간선 무시 · 재시도 소진 뒤 error 갈래(attempts 2) · 재시도 끝
   성공 시 보통 하류. 전부 두 엔진 결과·로그 동일.
 - 남은 것: 편집기 노드 카드의 `error` 출력 포트(프론트 PR), 에러 트리거(실패 시 지정 워크플로우), 멱등성(3단계).
+
+**추기 (2026-09-11) — 3단계 에러 트리거**
+
+- **설정은 `graph_data.errorWorkflowId` 다.** `is_live` 와 같은 자리 — 편집기가 그래프와 함께 저장하고 별도 컬럼·마이그레이션이 없다.
+  정수 project id, 없거나 0 이면 꺼짐(`error_trigger.configured_error_workflow_id`).
+- **발화 지점은 `execution.start` 하나다.** 실행을 failed 로 닫은 뒤 — 노드 오류로 결과가 error 인 경우(finish 뒤)와 엔진이 예외를 던진
+  경우(fail 뒤, raise 전) 둘 다 `_record_guarded(_fire_error_trigger, …)` 로 부른다. 성공·paused 는 아니다. 실패해도 원래 결과·예외를
+  바꾸지 않는다.
+- **큐가 켜져 있으면 enqueue, 아니면 인라인.** 큐 모드에서는 `run_queue.enqueue(trigger_source='error_trigger', runtime_inputs={default_input})`
+  만 하고 워커가 실행·과금한다(생산자 트랜잭션 안 flush — 호출자가 커밋). 인라인은 `execution.start(trigger_source='error_trigger',
+  default_input=payload)` 를 같은 세션에서 부르고 `record_usage(trigger_type='error_trigger')` 로 과금까지 남긴다 — 인라인 호출부가 자기
+  실행에 하는 것과 같다. 인라인 실행이 직전 실행의 run id 슬롯(`take_last_run_id`)을 덮으면 원래 실행의 FlowExecutionLog 가 run 과 이어지지
+  않으므로 `execution.preserving_last_run()` 으로 보존한다.
+- **payload 는 오류 계약 공개 필드만** — `{event: workflow_failed, failedProjectId, failedProjectTitle, runId, triggerSource, errorSummary,
+  failedNodes[{nodeId, nodeType, code, message}], at}`. 원문 예외 스택·비밀은 없다. 웹훅·봇 트리거 노드가 읽는 `default_input` 으로 들어가므로
+  에러 워크플로우는 보통 "웹훅/시작 → 알림 노드" 모양이다.
+- **막는 것.** (1) 연쇄 — 에러 워크플로우 자신의 실패는 다시 트리거하지 않는다(`trigger_source == 'error_trigger'`). (2) 자기 자신을 가리키면
+  무시. (3) 소유자가 다르면 무시 — 남의 워크플로우를 내 실패로 돌릴 수 없다. (4) mock·evaluation 출처의 실패는 시험 실행이라 부르지 않는다.
+  (5) db 가 없거나 세션이 아니면 조용히 넘어간다.
+- `TRIGGER_SOURCES` 는 10종이 됐다(`error_trigger` 추가). 워커의 과금 표기(`trigger_type`)도 같은 문자열.
+- 검증: `test_error_trigger.py` 11건 — 노드 오류 인라인(payload 필드·run id 슬롯 보존·과금 trigger_type) · 엔진 예외 · 큐 모드(enqueue 만 →
+  워커 실행·과금) · 연쇄 금지 · 설정 없음/0/문자/자기 자신/없는 프로젝트/다른 소유자 · 성공·mock 출처 · db 없음 · 에러 워크플로우 예외가 원래
+  결과를 바꾸지 않음 · 출처 목록.
+- 남은 것: 프로젝트 설정 UI("실패 시 실행할 워크플로우"), 4단계 멱등성(웹훅 `X-GitHub-Delivery`·payload 해시 → `idempotency_key`, 부작용 노드
+  `(run_id, node_id)` 전송 기록).
