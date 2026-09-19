@@ -701,3 +701,87 @@ def generate_github_node(node_id, node, indent, active_llm_id, prev_res_var, vis
     for target_id, _handle in forward_edges.get(node_id, []):
         generate_block_fn(target_id, indent, active_llm_id=active_llm_id,
                           prev_res_var=f"_gh_out_{node_id}", visited=visited)
+
+
+# ── 백로그 34 DEV-3 2차: GitLab (ADR-0036) — GitHub 생성기와 같은 모양 ──────────
+
+@node_registry.register('gitlabTriggerNode')
+def generate_gitlab_trigger_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict,
+                                 forward_edges, incoming_edges, lines, generate_block_fn):
+    """GitLab 이벤트 수신 — 필터는 핸들러가 실행 전에 걸었다. envelope 을 평탄화해 내보낸다(GitHub 트리거와 같은 키)."""
+    lines.append(f"{indent}# --- GitLab Trigger Node ({node_id}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    lines.append(f"{indent}import json as _json")
+    lines.append(f"{indent}from connectors.services import gitlab as _gitlab")
+    lines.append(f"{indent}dyn_input_{node_id} = kwargs.get('{node_id}')")
+    lines.append(f"{indent}if dyn_input_{node_id} is None:")
+    lines.append(f"{indent}    dyn_input_{node_id} = kwargs.get('default_input', '<<No input provided>>')")
+    lines.append(f"{indent}_glt_event_{node_id} = _gitlab.flatten_envelope(dyn_input_{node_id})")
+    lines.append(f"{indent}_glt_out_{node_id} = _json.dumps(_glt_event_{node_id}, ensure_ascii=False, default=str)")
+    lines.append(f"{indent}if _glt_event_{node_id}.get('event'):")
+    lines.append(f"{indent}    print('[GitLab Trigger] ' + str(_glt_event_{node_id}['event']) + ' ' + str(_glt_event_{node_id}.get('action') or '')"
+                 f" + ' ' + str(_glt_event_{node_id}.get('repo') or '')"
+                 f" + ('!' + str(_glt_event_{node_id}['number']) if _glt_event_{node_id}.get('number') else ''))")
+    lines.append(f"{indent}last_result = _glt_out_{node_id}")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result)")
+
+    for target_id, _handle in forward_edges.get(node_id, []):
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id,
+                          prev_res_var=f"_glt_out_{node_id}", visited=visited)
+
+
+GITLAB_PARAM_KEYS = ('baseUrl', 'project', 'number', 'title', 'body', 'labels', 'state', 'commitTitle', 'tagName', 'ref', 'variables',
+                     'pipelineId', 'path')
+GITLAB_BOOL_KEYS = ('squash', 'removeSourceBranch')
+GITLAB_BODY_FALLBACK_MODES = ('issue.create', 'issue.comment', 'mr.comment')
+
+
+@node_registry.register('gitlabNode')
+def generate_gitlab_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict,
+                         forward_edges, incoming_edges, lines, generate_block_fn):
+    """GitLab 액션. baseUrl·project·number·tagName 을 비우면 직전 노드(GitLab 트리거) 출력에서 이어받는다."""
+    data = node.get('data', {})
+    mode = _github_literal(data.get('mode') or 'mr.get')
+    upstream = prev_res_var if prev_res_var else 'last_result'
+
+    lines.append(f"{indent}# --- GitLab Node ({node_id}, {mode}) ---")
+    lines.append(f"{indent}_start_{node_id} = datetime.datetime.utcnow().isoformat()")
+    lines.append(f"{indent}_cx_err_{node_id} = None")
+    lines.append(f"{indent}import json as _json")
+    lines.append(f"{indent}from connectors.services import gitlab as _gitlab")
+    lines.append(f"{indent}from connectors import oauth as _oauth")
+    lines.append(f"{indent}from connectors.errors import ConnectorError as _ConnectorError")
+    lines.append(f"{indent}import node_definition as _node_definition")
+    lines.append(f"{indent}from connectors import mock_runtime as _mock_runtime")
+    lines.append(f"{indent}_gl_params_{node_id} = {{")
+    for key in GITLAB_PARAM_KEYS:
+        lines.append(f"{indent}    '{key}': \"{_github_literal(data.get(key, ''))}\",")
+    for key in GITLAB_BOOL_KEYS:
+        lines.append(f"{indent}    '{key}': {bool(data.get(key))!r},")
+    lines.append(f"{indent}}}")
+    lines.append(f"{indent}_gl_upstream_{node_id} = str({upstream}) if {upstream} is not None else ''")
+    lines.append(f"{indent}for _k, _v in list(_gl_params_{node_id}.items()):")
+    lines.append(f"{indent}    if isinstance(_v, str) and '{{{{last_result}}}}' in _v:")
+    lines.append(f"{indent}        _gl_params_{node_id}[_k] = _v.replace('{{{{last_result}}}}', _gl_upstream_{node_id})")
+    if mode in GITLAB_BODY_FALLBACK_MODES:
+        lines.append(f"{indent}if not _gl_params_{node_id}['body']:")
+        lines.append(f"{indent}    _gl_params_{node_id}['body'] = _gl_upstream_{node_id}")
+    lines.append(f"{indent}_gitlab.fill_from_upstream(_gl_params_{node_id}, _gl_upstream_{node_id})")
+    lines.append(f"{indent}_gl_out_{node_id} = ''")
+    lines.append(f"{indent}try:")
+    lines.append(f"{indent}    _gl_token_{node_id} = _oauth.require_token('gitlab', __owner_user_id__, db, service='GitLab')")
+    lines.append(f"{indent}    _gl_def_{node_id} = _node_definition.get_definition('gitlabNode')")
+    lines.append(f"{indent}    with _mock_runtime.node('{node_id}', '{node['type']}'):")
+    lines.append(f"{indent}        _gl_result_{node_id} = _gitlab.run_action(_gl_def_{node_id}, \"{mode}\", _gl_token_{node_id}, _gl_params_{node_id})")
+    lines.append(f"{indent}    _gl_out_{node_id} = _json.dumps(_gl_result_{node_id}, ensure_ascii=False, default=str)")
+    lines.append(f"{indent}    print('[GitLab {mode} 성공] ' + _gitlab.describe_action(\"{mode}\", _gl_params_{node_id}))")
+    lines.append(f"{indent}except _ConnectorError as _e:")
+    lines.append(f"{indent}    print(f'[GitLab {mode} 실패] {{_e.code}}: {{_e.user_message}}')")
+    lines.append(f"{indent}    _gl_out_{node_id} = _gl_upstream_{node_id} + f'\\n\\n[⚠️ {{_e.user_message}}]'")
+    lines.append(f"{indent}    _cx_err_{node_id} = _e.to_node_error(domain='{_error_domain('gitlabNode', mode)}', node_type='gitlabNode', node_id='{node_id}')")
+    lines.append(f"{indent}last_result = _gl_out_{node_id}")
+    lines.append(f"{indent}log_step('{node_id}', '{node['type']}', _start_{node_id}, result=last_result, error=_cx_err_{node_id})")
+
+    for target_id, _handle in forward_edges.get(node_id, []):
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id,
+                          prev_res_var=f"_gl_out_{node_id}", visited=visited)

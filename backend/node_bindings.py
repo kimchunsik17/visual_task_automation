@@ -228,6 +228,7 @@ PATH_DOCUMENTED_SOURCES: Dict[str, str] = {
     "youtubeTriggerNode": "[0].video_id, [0].title, [0].published_at",
     "rssTriggerNode": "[0].title, [0].link, [0].summary, [0].published_at",
     "githubTriggerNode": "event, action, repo, number, title, body, url, branch, labels[0], author",
+    "gitlabTriggerNode": "event, action, repo, instance, number, title, body, url, branch, baseBranch, status, labels[0], author",
     "textDiffNode": "changed, added, removed, diff",
     "regexExtractNode": "match, groups.<그룹이름> (mode=first 일 때)",
     "httpCheckNode": "ok, changed, problems[0], http.status, http.responseMs, tls.daysLeft",

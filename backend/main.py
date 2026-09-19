@@ -1863,7 +1863,7 @@ def get_my_webhooks(user: models.User = Depends(get_current_user_required), db: 
                     "status": "Active" if p.graph_data.get("is_live", False) else "Stopped",
                     "lastTriggered": last_triggered,
                     "updatedAt": p.updated_at,
-                    "methods": ["POST"] if n.get('type') == 'githubTriggerNode' else ["GET", "POST"],
+                    "methods": ["POST"] if n.get('type') in webhook_verify.INBOUND_SERVICES else ["GET", "POST"],
                 })
                 break
 
@@ -3783,17 +3783,19 @@ async def receive_webhook(endpoint_id: str, request: Request, db: Session = Depe
             webhook_verify.log_rejection(project.id, _outcome, remote=(request.client.host if request.client else None))
             return JSONResponse(status_code=401, content={"status": "error", "detail": "webhook verification failed"})
 
-    # GitHub 트리거(백로그 34 DEV-1, ADR-0032): 서명이 맞은 뒤, 실행 **전에** 이벤트·action·브랜치·라벨 필터를 건다. 걸러진 이벤트는
-    # run 을 만들지 않고 200 으로 답한다 — GitHub 은 2xx 만 보고, 필터에 걸린 push 마다 run 행이 쌓이는 것은 사용자에게 잡음이다.
+    # 개발 도구 트리거(DEV-1 GitHub ADR-0032 · DEV-3 GitLab ADR-0036): 서명이 맞은 뒤, 실행 **전에** 이벤트·action·브랜치·라벨 필터를 건다.
+    # 걸러진 이벤트는 run 을 만들지 않고 200 으로 답한다 — 발신자는 2xx 만 보고, 필터에 걸린 push 마다 run 행이 쌓이는 것은 사용자에게 잡음이다.
     # 통과한 이벤트는 헤더에만 있던 이벤트 이름·전달 id 를 payload 와 함께 envelope 로 싸서 트리거 노드의 입력으로 넘긴다.
-    if (_webhook_node or {}).get('type') == 'githubTriggerNode':
-        from connectors.services import github as _github
-        _gh_event = str(request.headers.get('X-GitHub-Event') or '').strip()
-        _gh_delivery = str(request.headers.get('X-GitHub-Delivery') or '').strip()
-        _gh_ok, _gh_reason = _github.trigger_matches(_webhook_node.get('data') or {}, _gh_event, payload)
-        if not _gh_ok:
-            return {"status": "ignored", "event": _gh_event, "reason": _gh_reason}
-        payload = _github.envelope(_gh_event, _gh_delivery, payload)
+    _inbound = webhook_verify.INBOUND_SERVICES.get(str((_webhook_node or {}).get('type') or ''))
+    if _inbound:
+        import importlib
+        _svc = importlib.import_module(f"connectors.services.{_inbound['module']}")
+        _ev_name = str(request.headers.get(_inbound['event_header']) or '').strip()
+        _ev_delivery = str(request.headers.get(_inbound['delivery_header']) or '').strip()
+        _ev_ok, _ev_reason = _svc.trigger_matches(_webhook_node.get('data') or {}, _ev_name, payload)
+        if not _ev_ok:
+            return {"status": "ignored", "event": _ev_name, "reason": _ev_reason}
+        payload = _svc.envelope(_ev_name, _ev_delivery, payload)
 
     graph_data = project.graph_data or {}
     nodes = graph_data.get('nodes', []) if isinstance(graph_data, dict) else []

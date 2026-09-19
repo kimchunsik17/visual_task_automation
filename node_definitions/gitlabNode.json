@@ -1,0 +1,535 @@
+{
+  "type": "gitlabNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "GitLab",
+    "icon": "provider-gitlab",
+    "color": "#FC6D26"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "동작",
+      "default": "mr.get",
+      "options": [
+        {
+          "value": "issue.create",
+          "label": "이슈 만들기"
+        },
+        {
+          "value": "issue.comment",
+          "label": "이슈에 코멘트"
+        },
+        {
+          "value": "issue.update",
+          "label": "이슈 수정 (제목·본문·상태·라벨)"
+        },
+        {
+          "value": "mr.get",
+          "label": "MR 정보 조회"
+        },
+        {
+          "value": "mr.diff",
+          "label": "MR diff 가져오기"
+        },
+        {
+          "value": "mr.merge",
+          "label": "MR 머지"
+        },
+        {
+          "value": "mr.comment",
+          "label": "MR 에 코멘트"
+        },
+        {
+          "value": "pipeline.trigger",
+          "label": "파이프라인 실행"
+        },
+        {
+          "value": "pipeline.get",
+          "label": "파이프라인 조회"
+        },
+        {
+          "value": "release.create",
+          "label": "릴리스 만들기"
+        },
+        {
+          "value": "file.get",
+          "label": "파일 내용 읽기"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(gitlabNode)에 mode가 없다"
+        },
+        {
+          "rule": "enum",
+          "message": "{node_id}(gitlabNode)의 mode가 허용값이 아니다"
+        }
+      ]
+    },
+    {
+      "name": "baseUrl",
+      "kind": "text",
+      "label": "GitLab 인스턴스 주소 (비우면 gitlab.com, 트리거 뒤면 그 인스턴스)",
+      "placeholder": "https://gitlab.example.com"
+    },
+    {
+      "name": "project",
+      "kind": "text",
+      "label": "프로젝트 (group/project 또는 숫자 id)",
+      "placeholder": "acme/site — 비우면 직전 GitLab 트리거 출력의 repo"
+    },
+    {
+      "name": "number",
+      "kind": "text",
+      "label": "이슈/MR 번호 (iid)",
+      "placeholder": "42 — 비우면 직전 GitLab 트리거 출력의 number",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "issue.comment",
+          "issue.update",
+          "mr.get",
+          "mr.diff",
+          "mr.merge",
+          "mr.comment"
+        ]
+      }
+    },
+    {
+      "name": "title",
+      "kind": "text",
+      "label": "제목 (릴리스는 표시 이름)",
+      "placeholder": "이슈 제목 / 릴리스 이름",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "issue.create",
+          "issue.update",
+          "release.create"
+        ]
+      }
+    },
+    {
+      "name": "body",
+      "kind": "textarea",
+      "label": "본문 (코멘트·새 이슈는 비우면 직전 노드 출력)",
+      "placeholder": "마크다운. {{last_result}} 로 직전 노드 출력을 끼워 넣을 수 있습니다",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "issue.create",
+          "issue.comment",
+          "issue.update",
+          "mr.comment",
+          "release.create"
+        ]
+      }
+    },
+    {
+      "name": "labels",
+      "kind": "text",
+      "label": "라벨 (쉼표로 구분)",
+      "placeholder": "bug, priority::high",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "issue.create",
+          "issue.update"
+        ]
+      }
+    },
+    {
+      "name": "state",
+      "kind": "select",
+      "label": "상태",
+      "default": "",
+      "options": [
+        {
+          "value": "",
+          "label": "변경 없음"
+        },
+        {
+          "value": "close",
+          "label": "닫기"
+        },
+        {
+          "value": "reopen",
+          "label": "다시 열기"
+        }
+      ],
+      "showWhen": {
+        "field": "mode",
+        "equals": "issue.update"
+      }
+    },
+    {
+      "name": "squash",
+      "kind": "checkbox",
+      "label": "squash 머지",
+      "default": false,
+      "showWhen": {
+        "field": "mode",
+        "equals": "mr.merge"
+      }
+    },
+    {
+      "name": "removeSourceBranch",
+      "kind": "checkbox",
+      "label": "머지 뒤 소스 브랜치 삭제",
+      "default": false,
+      "showWhen": {
+        "field": "mode",
+        "equals": "mr.merge"
+      }
+    },
+    {
+      "name": "commitTitle",
+      "kind": "text",
+      "label": "머지 커밋 메시지 (선택)",
+      "placeholder": "비우면 GitLab 기본값",
+      "showWhen": {
+        "field": "mode",
+        "equals": "mr.merge"
+      }
+    },
+    {
+      "name": "tagName",
+      "kind": "text",
+      "label": "태그",
+      "placeholder": "v1.2.0 — 비우면 직전 GitLab 트리거 출력의 tag",
+      "showWhen": {
+        "field": "mode",
+        "equals": "release.create"
+      }
+    },
+    {
+      "name": "ref",
+      "kind": "text",
+      "label": "브랜치/태그/커밋 (ref)",
+      "placeholder": "main",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "pipeline.trigger",
+          "release.create",
+          "file.get"
+        ]
+      }
+    },
+    {
+      "name": "variables",
+      "kind": "json",
+      "label": "파이프라인 변수 (JSON 객체, 최대 30개)",
+      "placeholder": "{\"DEPLOY_ENV\": \"staging\"}",
+      "showWhen": {
+        "field": "mode",
+        "equals": "pipeline.trigger"
+      }
+    },
+    {
+      "name": "pipelineId",
+      "kind": "text",
+      "label": "파이프라인 id",
+      "placeholder": "318 — 비우면 직전 GitLab 트리거 출력의 pipelineId",
+      "showWhen": {
+        "field": "mode",
+        "equals": "pipeline.get"
+      }
+    },
+    {
+      "name": "path",
+      "kind": "text",
+      "label": "파일 경로",
+      "placeholder": "README.md 또는 docs/CHANGELOG.md",
+      "showWhen": {
+        "field": "mode",
+        "equals": "file.get"
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "gitlab",
+      "provider": "gitlab",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-write",
+  "executor": "gitlabNode",
+  "connector": {
+    "service": "GitLab",
+    "role": "action",
+    "modes": [
+      "issue.create",
+      "issue.comment",
+      "issue.update",
+      "mr.get",
+      "mr.diff",
+      "mr.merge",
+      "mr.comment",
+      "pipeline.trigger",
+      "pipeline.get",
+      "release.create",
+      "file.get"
+    ],
+    "credentials": [
+      {
+        "provider": "gitlab",
+        "scopes": []
+      }
+    ],
+    "baseUrl": "https://gitlab.com/api/v4",
+    "timeoutSeconds": 20.0,
+    "rateLimit": {
+      "requestsPerMinute": 60
+    },
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 30.0
+    },
+    "sideEffectByMode": {
+      "issue.create": "external-write",
+      "issue.comment": "external-write",
+      "issue.update": "external-write",
+      "mr.get": "external-read",
+      "mr.diff": "external-read",
+      "mr.merge": "external-write",
+      "mr.comment": "external-write",
+      "pipeline.trigger": "external-write",
+      "pipeline.get": "external-read",
+      "release.create": "external-write",
+      "file.get": "external-read"
+    },
+    "docsUrl": "https://docs.gitlab.com/ee/api/rest/"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/notes"
+            },
+            "status": 201,
+            "body": {
+              "id": 7001,
+              "body": "확인했습니다.",
+              "author": {
+                "username": "acme-bot"
+              },
+              "created_at": "2026-09-19T00:00:00Z"
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/changes"
+            },
+            "status": 200,
+            "body": {
+              "iid": 42,
+              "changes": [
+                {
+                  "old_path": "src/login.js",
+                  "new_path": "src/login.js",
+                  "diff": "@@ -1,3 +1,8 @@\n+const EMAIL_RE = /^[^@\\s]+@[^@\\s]+$/;\n+export function validate(email, password) {\n+  return EMAIL_RE.test(email) && password.length >= 8;\n+}\n"
+                }
+              ]
+            }
+          },
+          {
+            "match": {
+              "method": "PUT",
+              "urlContains": "/merge"
+            },
+            "status": 200,
+            "body": {
+              "iid": 42,
+              "state": "merged",
+              "merge_commit_sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+              "web_url": "https://gitlab.com/acme/site/-/merge_requests/42"
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/merge_requests/"
+            },
+            "status": 200,
+            "body": {
+              "iid": 42,
+              "id": 987001,
+              "title": "로그인 폼 유효성 검사 추가",
+              "description": "이메일 형식과 비밀번호 길이를 검사합니다.",
+              "state": "opened",
+              "draft": false,
+              "detailed_merge_status": "mergeable",
+              "author": {
+                "username": "octocat"
+              },
+              "source_branch": "feature/login-validation",
+              "target_branch": "main",
+              "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+              "web_url": "https://gitlab.com/acme/site/-/merge_requests/42",
+              "labels": [
+                "enhancement"
+              ],
+              "changes_count": "3"
+            }
+          },
+          {
+            "match": {
+              "method": "PUT",
+              "urlContains": "/issues/"
+            },
+            "status": 200,
+            "body": {
+              "iid": 57,
+              "id": 555001,
+              "title": "결제 페이지에서 500 오류",
+              "state": "closed",
+              "web_url": "https://gitlab.com/acme/site/-/issues/57",
+              "labels": [
+                "bug"
+              ]
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/issues"
+            },
+            "status": 201,
+            "body": {
+              "iid": 58,
+              "id": 555002,
+              "title": "새 이슈",
+              "state": "opened",
+              "web_url": "https://gitlab.com/acme/site/-/issues/58",
+              "labels": []
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/pipelines/"
+            },
+            "status": 200,
+            "body": {
+              "id": 318,
+              "status": "failed",
+              "ref": "main",
+              "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+              "web_url": "https://gitlab.com/acme/site/-/pipelines/318",
+              "duration": 312,
+              "started_at": "2026-09-19T00:00:00Z",
+              "finished_at": "2026-09-19T00:05:12Z"
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/pipeline"
+            },
+            "status": 201,
+            "body": {
+              "id": 319,
+              "status": "created",
+              "ref": "main",
+              "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+              "web_url": "https://gitlab.com/acme/site/-/pipelines/319"
+            }
+          },
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/releases"
+            },
+            "status": 201,
+            "body": {
+              "tag_name": "v2.3.0",
+              "name": "v2.3.0",
+              "created_at": "2026-09-19T00:00:00Z",
+              "_links": {
+                "self": "https://gitlab.com/acme/site/-/releases/v2.3.0"
+              }
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/repository/files/"
+            },
+            "status": 200,
+            "body": "# acme/site\n\n결제 서비스 프론트엔드\n"
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "message": "401 Unauthorized"
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "60",
+              "RateLimit-Remaining": "0"
+            },
+            "body": {
+              "message": "Retry later"
+            }
+          }
+        ]
+      },
+      "not_found": {
+        "responses": [
+          {
+            "status": 404,
+            "body": {
+              "message": "404 Project Not Found"
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "GitLab(gitlab.com 또는 자체 호스팅) 프로젝트에 이슈·MR·파이프라인·릴리스 작업을 한다. API 센터에 'GitLab 개인 액세스 토큰' 이 등록되어 있어야 한다.\n                   data.mode(문자열): \"issue.create\" | \"issue.comment\" | \"issue.update\"(data.state: close|reopen) | \"mr.get\"(기본값) | \"mr.diff\" | \"mr.merge\"(data.squash·data.removeSourceBranch)\n                   | \"mr.comment\" | \"pipeline.trigger\"(data.ref·data.variables JSON) | \"pipeline.get\"(data.pipelineId) | \"release.create\"(data.tagName·data.ref) | \"file.get\"(data.path·data.ref).\n                   data.baseUrl(문자열 — 비우면 gitlab.com; 자체 호스팅이면 인스턴스 주소), data.project(\"group/project\" 또는 숫자 id), data.number(이슈/MR iid) 는\n                   **비우면 직전 GitLab 트리거 출력(instance·repo·number·tag)에서 이어받는다**. data.body 는 코멘트·새 이슈에서 비우면 직전 노드 출력.\n                   data.title, data.labels(쉼표 구분), data.commitTitle. 출력은 JSON 문자열이고 모드별로 다르다 — mr.get: title·body·state·branch·baseBranch·labels·author ·\n                   mr.diff: diff(텍스트) · pipeline.*: pipelineId·status·url · file.get: content. 쓰기 동작은 dry-run 에서 실행되지 않는다.\n"
+  }
+}

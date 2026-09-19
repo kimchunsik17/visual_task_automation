@@ -1,0 +1,199 @@
+{
+  "type": "gitlabTriggerNode",
+  "version": 1,
+  "category": "trigger",
+  "display": {
+    "label": "GitLab 이벤트 수신",
+    "icon": "provider-gitlab",
+    "color": "#FC6D26"
+  },
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "webhookUrl",
+      "kind": "text",
+      "label": "수신 주소 (GitLab 웹훅 URL 의 경로)",
+      "placeholder": "/webhook/gitlab-acme-site (비우면 프로젝트 번호)"
+    },
+    {
+      "name": "events",
+      "kind": "text",
+      "label": "받을 이벤트 (object_kind, 쉼표로 구분, 비우면 전부)",
+      "placeholder": "merge_request, issue, pipeline"
+    },
+    {
+      "name": "actionFilter",
+      "kind": "text",
+      "label": "action 필터 (쉼표로 구분, 비우면 전부)",
+      "placeholder": "open, reopen, update, merge, close, approved"
+    },
+    {
+      "name": "branchFilter",
+      "kind": "text",
+      "label": "브랜치 필터 (glob, 쉼표로 구분)",
+      "placeholder": "main, release/*"
+    },
+    {
+      "name": "labelFilter",
+      "kind": "text",
+      "label": "라벨 필터 (쉼표로 구분)",
+      "placeholder": "bug, needs-review"
+    },
+    {
+      "name": "verifyMode",
+      "kind": "select",
+      "label": "요청 검증",
+      "default": "static_token",
+      "options": [
+        {
+          "value": "static_token",
+          "label": "Secret token 헤더 X-Gitlab-Token (= API 센터 '웹훅 서명 비밀')"
+        },
+        {
+          "value": "none",
+          "label": "없음 — 테스트용. URL 을 아는 누구나 실행"
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "name": "webhook_secret",
+      "provider": "webhook_secret",
+      "optional": true
+    }
+  ],
+  "capabilities": [],
+  "sideEffect": "none",
+  "executor": "gitlabTriggerNode",
+  "mock": {
+    "samples": [
+      {
+        "id": "merge_request_opened",
+        "label": "MR 열림 (merge_request.open)",
+        "payload": {
+          "event": "Merge Request Hook",
+          "delivery": "c1e5a7e2-0f3d-4b6c-9a1d-2e8f7b6c5d4a",
+          "payload": {
+            "object_kind": "merge_request",
+            "event_type": "merge_request",
+            "user": {
+              "username": "octocat",
+              "name": "Octo Cat"
+            },
+            "project": {
+              "id": 1234,
+              "name": "site",
+              "path_with_namespace": "acme/site",
+              "web_url": "https://gitlab.com/acme/site",
+              "default_branch": "main"
+            },
+            "object_attributes": {
+              "iid": 42,
+              "id": 987001,
+              "title": "로그인 폼 유효성 검사 추가",
+              "description": "이메일 형식과 비밀번호 길이를 검사합니다.\n\nCloses #40",
+              "state": "opened",
+              "action": "open",
+              "url": "https://gitlab.com/acme/site/-/merge_requests/42",
+              "source_branch": "feature/login-validation",
+              "target_branch": "main",
+              "draft": false,
+              "detailed_merge_status": "mergeable",
+              "last_commit": {
+                "id": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+                "message": "feat: validate login form"
+              }
+            },
+            "labels": [
+              {
+                "id": 1,
+                "title": "enhancement"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "issue_opened",
+        "label": "이슈 등록 (issue.open)",
+        "payload": {
+          "event": "Issue Hook",
+          "delivery": "9c1e5a72-0d6a-4f3e-9d3b-2f6e1a8c4b10",
+          "payload": {
+            "object_kind": "issue",
+            "event_type": "issue",
+            "user": {
+              "username": "jane-doe",
+              "name": "Jane Doe"
+            },
+            "project": {
+              "id": 1234,
+              "name": "site",
+              "path_with_namespace": "acme/site",
+              "web_url": "https://gitlab.com/acme/site",
+              "default_branch": "main"
+            },
+            "object_attributes": {
+              "iid": 57,
+              "id": 555001,
+              "title": "결제 페이지에서 500 오류",
+              "description": "쿠폰 코드를 넣으면 500 이 납니다.",
+              "state": "opened",
+              "action": "open",
+              "url": "https://gitlab.com/acme/site/-/issues/57"
+            },
+            "labels": []
+          }
+        }
+      },
+      {
+        "id": "pipeline_failed",
+        "label": "파이프라인 실패 (pipeline.failed)",
+        "payload": {
+          "event": "Pipeline Hook",
+          "delivery": "e7a9d3c1-2b4f-4a6e-8c0d-1f3e5a7b9c2d",
+          "payload": {
+            "object_kind": "pipeline",
+            "user": {
+              "username": "octocat"
+            },
+            "project": {
+              "id": 1234,
+              "path_with_namespace": "acme/site",
+              "web_url": "https://gitlab.com/acme/site",
+              "default_branch": "main"
+            },
+            "object_attributes": {
+              "id": 318,
+              "ref": "main",
+              "tag": false,
+              "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+              "source": "push",
+              "status": "failed",
+              "duration": 312,
+              "url": "https://gitlab.com/acme/site/-/pipelines/318"
+            },
+            "builds": [
+              {
+                "id": 9001,
+                "stage": "test",
+                "name": "pytest",
+                "status": "failed"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "llm": {
+    "description": "GitLab(gitlab.com 또는 자체 호스팅) 프로젝트에 이벤트(MR·이슈·파이프라인·푸시·코멘트·릴리스 등)가 생기면 실행되는 플로우의 시작점이다. startNode 대신 쓴다.\n                   사용자가 GitLab 프로젝트 설정(Webhooks)에 이 노드의 수신 주소와 Secret token(API 센터 '웹훅 서명 비밀'과 같은 값)을 등록하면 GitLab 이 보낸다.\n                   data.events(문자열, 선택 — object_kind 쉼표 구분: push | tag_push | merge_request | issue | note | pipeline | job | release | deployment. 비우면 전부),\n                   data.actionFilter(문자열, 선택 — open, reopen, update, merge, close, approved 등), data.branchFilter(문자열, 선택 — glob),\n                   data.labelFilter(문자열, 선택), data.verifyMode(\"static_token\" 기본값 | \"none\").\n                   출력은 GitHub 트리거와 **같은 키의 평탄화 JSON** — event, action, repo(\"group/project\"), repoUrl, instance(인스턴스 주소), number(MR/이슈 iid), title, body, url,\n                   state, branch, baseBranch, sha, labels(배열), author, sender, tag, status(파이프라인), commits, delivery, raw. 뒤의 gitlabNode 는 baseUrl·project·number 를 비워 두면 이 출력에서 이어받는다.\n                   조건에 맞지 않는 이벤트는 실행되지 않는다(GitLab 에는 200 으로 답한다). 같은 X-Gitlab-Event-UUID 재전송은 한 번만 실행된다.\n"
+  }
+}

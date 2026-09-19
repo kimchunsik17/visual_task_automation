@@ -770,6 +770,48 @@ export const NODE_DOCS = {
     tips: ['수신자를 앞 노드 값으로 정하려면 email 이나 conversationId 에 ⚡ 바인딩을 걸 수 있습니다.'],
     related: ['doorayNode', 'jandiNode', 'kakaoNode', 'humanApprovalNode'],
   },
+  gitlabTriggerNode: {
+    summary: 'GitLab(gitlab.com 또는 자체 호스팅) 프로젝트에 이벤트(MR·이슈·파이프라인·푸시 등)가 생기면 실행되는 시작점입니다.',
+    details: [
+      '시작 노드 대신 사용합니다. GitLab 프로젝트 → Settings → Webhooks 에 이 노드의 수신 주소와 Secret token 을 등록하면 GitLab 이 이벤트를 보내고, X-Gitlab-Token 이 맞는 요청만 실행됩니다. Secret token 은 API 센터 → 웹훅 서명 비밀에 같은 값을 저장하세요.',
+      '이벤트(object_kind)·action·브랜치·라벨 필터에 맞지 않는 전달은 실행되지 않습니다(GitLab 에는 200 으로 답합니다). 같은 X-Gitlab-Event-UUID 재전송은 한 번만 실행됩니다.',
+      '출력은 GitHub 트리거와 같은 키의 평탄화 JSON 입니다 — event·action·repo·instance·number·title·body·url·branch·baseBranch·sha·labels·author·status 와 원본 raw. 뒤의 GitLab 노드는 인스턴스·프로젝트·번호를 비워 두면 여기서 이어받습니다.',
+    ],
+    usage: ['MR 이 열리면 diff 를 요약해 코멘트', '파이프라인 실패 시 잔디·Dooray 알림', '이슈가 올라오면 분류해 라벨'],
+    io: { input: '없음 — 흐름의 출발점입니다.', output: '평탄화한 이벤트(JSON 문자열).' },
+    fields: {
+      webhookUrl: 'GitLab 웹훅 URL 의 경로. 비우면 프로젝트 번호.',
+      events: 'object_kind 를 쉼표로 — push, tag_push, merge_request, issue, note, pipeline, job, release, deployment. 비우면 전부.',
+      actionFilter: 'object_attributes.action(open, reopen, update, merge, close, approved …). 비우면 전부.',
+      branchFilter: 'glob 패턴. MR 은 source·target 브랜치 중 하나가 맞으면 통과.',
+      labelFilter: '라벨 이름. 하나라도 붙어 있으면 통과.',
+      verifyMode: '기본 Secret token(X-Gitlab-Token). "없음" 은 테스트용.',
+    },
+    tips: ['자체 호스팅 GitLab 이 사설망에 있으면 우리 서버가 그 인스턴스로 요청할 때 SSRF 검사에 막힙니다 — 수신(웹훅)은 되지만 액션 노드는 운영자가 허용 목록을 열어야 합니다.'],
+    related: ['gitlabNode', 'githubTriggerNode', 'webhookNode', 'conditionNode'],
+  },
+  gitlabNode: {
+    summary: 'GitLab 프로젝트에 이슈·MR·파이프라인·릴리스 작업을 하는 액션 노드입니다.',
+    details: [
+      '동작(mode)을 고르면 필요한 칸만 보입니다. 이슈 만들기·코멘트·수정, MR 조회·diff·머지·코멘트, 파이프라인 실행·조회, 릴리스 만들기, 파일 읽기.',
+      'API 센터 → GitLab 개인 액세스 토큰(api 또는 read_api)이 필요합니다. gitlab.com 과 자체 호스팅 모두 같은 토큰 형식이고, 인스턴스 주소는 노드 필드입니다.',
+      '인스턴스·프로젝트·번호를 비우면 직전 GitLab 트리거 출력에서 이어받습니다. 코멘트·새 이슈 본문을 비우면 직전 노드 출력(예: LLM 요약)이 본문이 됩니다.',
+    ],
+    usage: ['MR diff → LLM 리뷰 → MR 코멘트', '이슈 분류 → 라벨 추가', '릴리스 태그 → 릴리스 만들기 → 알림'],
+    io: { input: '직전 노드 출력 — 본문 대체 값 또는 트리거의 인스턴스·프로젝트·번호.', output: '모드별 JSON 문자열(number·url·title, diff, pipelineId·status, content 등).' },
+    fields: {
+      mode: '수행할 동작.',
+      baseUrl: '비우면 https://gitlab.com. 자체 호스팅이면 인스턴스 주소.',
+      project: 'group/project 경로 또는 숫자 id. GitLab 주소를 붙여도 됩니다.',
+      number: '이슈 또는 MR 의 iid(프로젝트 안 번호).',
+      body: '마크다운 본문. {{last_result}} 로 직전 노드 출력을 끼워 넣을 수 있습니다.',
+      labels: '쉼표로 구분한 라벨 이름(scoped label 은 priority::high 형태).',
+      variables: '파이프라인 변수(JSON 객체, 최대 30개, 값은 문자열로 보냅니다).',
+      ref: '브랜치/태그/커밋. 파이프라인 실행·릴리스·파일 읽기에 씁니다(기본 main).',
+    },
+    tips: ['mr.merge·issue.create 같은 쓰기 동작은 dry-run 에서 실행되지 않습니다.', 'MR diff 는 20만 자까지만 가져옵니다(truncated 로 표시).'],
+    related: ['gitlabTriggerNode', 'githubNode', 'llmNode', 'humanApprovalNode'],
+  },
   jusoNode: {
     summary: '사람이 쓴 주소를 행정안전부 도로명주소 표준으로 정규화합니다.',
     details: [

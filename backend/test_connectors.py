@@ -254,6 +254,8 @@ def test_registry_loads_every_provider_the_api_center_offers():
         "github",
         # 백로그 34 DEV-3 — 국내 협업 메신저. 웹훅 URL 자체가 비밀(Dooray·잔디), 봇 App Key(카카오워크)(ADR-0035)
         "dooray_webhook", "jandi_webhook", "kakaowork",
+        # 백로그 34 DEV-3 2차 — GitLab PAT(gitlab.com·자체 호스팅 공용, 인스턴스 주소는 노드 필드)(ADR-0036)
+        "gitlab",
     }
 
 

@@ -37,9 +37,15 @@ MODES = (MODE_NONE, MODE_HMAC, MODE_TOKEN)
 DEFAULT_HEADERS = {MODE_HMAC: "X-Hub-Signature-256", MODE_TOKEN: "X-Gitlab-Token"}
 #: `/webhook/{endpoint_id}` 가 엔드포인트로 인정하는 노드 타입. githubTriggerNode(DEV-1)는 webhookNode 와 같은 수신 경로를 쓰고
 #: 그 위에 이벤트 필터·평탄화가 얹힌다(connectors/services/github.py).
-INBOUND_NODE_TYPES = ("webhookNode", "githubTriggerNode")
+INBOUND_NODE_TYPES = ("webhookNode", "githubTriggerNode", "gitlabTriggerNode")
 #: 노드가 verifyMode 를 비웠을 때의 기본 모드. GitHub 트리거는 기본이 HMAC 이다 — 공개 URL 에 서명 없이 열어 두는 것이 예외여야 한다.
-DEFAULT_MODE_BY_TYPE = {"githubTriggerNode": MODE_HMAC}
+DEFAULT_MODE_BY_TYPE = {"githubTriggerNode": MODE_HMAC, "gitlabTriggerNode": MODE_TOKEN}
+#: 개발 도구 트리거 — 핸들러가 서명 뒤·실행 전에 서비스 모듈의 trigger_matches 로 거르고 envelope 으로 싼다(DEV-1 GitHub, DEV-3 GitLab).
+#: 모듈은 connectors/services/<module> 이고 trigger_matches(data, event, payload)·envelope(event, delivery, payload) 를 갖는다.
+INBOUND_SERVICES = {
+    "githubTriggerNode": {"module": "github", "event_header": "X-GitHub-Event", "delivery_header": "X-GitHub-Delivery"},
+    "gitlabTriggerNode": {"module": "gitlab", "event_header": "X-Gitlab-Event", "delivery_header": "X-Gitlab-Event-UUID"},
+}
 DEFAULT_SECRET_REF = "{{API_CENTER:webhook_secret}}"
 SECRET_PROVIDER = "webhook_secret"
 

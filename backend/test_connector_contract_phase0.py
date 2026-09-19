@@ -248,6 +248,7 @@ UNVERIFIED_ON_PURPOSE = {
     "doorayNode": "Dooray Incoming Webhook payload(botName·text·attachments)를 문서 지식으로 옮겼다. 실제 채널로 첫 발송 확인 뒤 채운다",
     "jandiNode": "잔디 커넥트 Incoming Webhook(body·connectColor·connectInfo, Accept 헤더)을 문서 지식으로 옮겼다. 실제 토픽 발송 확인 뒤 채운다",
     "kakaoWorkNode": "카카오워크 봇 API(messages.send·send_by_email, Bearer App Key)를 문서 지식으로 옮겼다. 실제 봇으로 발송 확인 뒤 채운다",
+    "gitlabNode": "GitLab REST v4(issues·merge_requests·pipeline·releases·repository/files)를 문서 지식으로 옮겼다. 실제 PAT 로 한 번 호출해 대조한 뒤 채운다",
 }
 
 

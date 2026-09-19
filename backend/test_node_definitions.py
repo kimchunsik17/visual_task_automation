@@ -46,6 +46,8 @@ CONNECTOR_TYPES = [
     "httpCheckNode", "osvScanNode",
     # 백로그 34 DEV-3 1차(2026-09-19, ADR-0035): 국내 협업 메신저 발송. 비밀은 웹훅 URL(Dooray·잔디)·App Key(카카오워크).
     "doorayNode", "jandiNode", "kakaoWorkNode",
+    # 백로그 34 DEV-3 2차(2026-09-19, ADR-0036): GitLab. 트리거는 GitHub 과 같이 인바운드 웹훅 위(connector 없음, mock.samples), 액션은 PAT.
+    "gitlabTriggerNode", "gitlabNode",
 ]
 # 백로그 34 DEV-2(2026-09-19, ADR-0033): 개발 편의 노드 — 결정적·외부 호출 없음. connector 블록도 mock 도 없다.
 UTILITY_TYPES = [
