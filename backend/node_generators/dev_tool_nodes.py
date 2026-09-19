@@ -131,3 +131,113 @@ def generate_template_render_node(node_id, node, indent, active_llm_id, prev_res
     lines.append(f"{indent}    _tt_out_{node_id} = _text_tools.render_template(")
     lines.append(f"{indent}        {template}, {variables}, upstream_text=_tt_in_{node_id}, missing={str(data.get('missing') or 'empty')!r})")
     _emit_tail(node_id, node, indent, lines, '템플릿 렌더', forward_edges, generate_block_fn, active_llm_id, visited)
+
+
+# ── DEV-2 2차: 감시형 유틸(네트워크) — ADR-0034 ──────────────────────────────
+# 점검 결과가 나쁜 것(503·키워드 없음·인증서 만료 임박·취약점 있음)은 노드 **실패가 아니라 결과**다. 뒤의 conditionNode 가 ok/vulnerable 을
+# 본다. failOnProblem/failOnVulnerable 을 켠 경우에만 NodeError(HTTPCHECK_PROBLEM/OSV_VULNERABLE)로 승격해 error 갈래로 보낸다.
+
+def _emit_network_tail(node_id, node, indent, lines, label, forward_edges, generate_block_fn, active_llm_id, visited):
+    """try 블록 뒤 — 커넥터 오류(URL 차단·타임아웃)·ToolError(lockfile)·바인딩·기타를 순서대로 잡는다."""
+    node_type = node['type']
+    out = f"_tt_out_{node_id}"
+    lines.append(f"{indent}except _text_tools.ToolError as _e:")
+    lines.append(f"{indent}    _tt_err_{node_id} = _make_node_error(_e.reason, node_type='{node_type}', node_id='{node_id}', field=_e.field,")
+    lines.append(f"{indent}        safe_details=_e.safe_details, user_message=str(_e))")
+    lines.append(f"{indent}    {out} = f'[⚠️ {{_e}}]'")
+    lines.append(f"{indent}    log_step('{node_id}', '{node_type}', _start_{node_id}, result={out}, error=_tt_err_{node_id})")
+    lines.append(f"{indent}except _ConnectorError as _e:")
+    lines.append(f"{indent}    print(f'[{label} 실패] {{_e.code}}: {{_e.user_message}}')")
+    lines.append(f"{indent}    {out} = f'[⚠️ {{_e.user_message}}]'")
+    lines.append(f"{indent}    log_step('{node_id}', '{node_type}', _start_{node_id}, result={out},")
+    lines.append(f"{indent}             error=_e.to_node_error(domain='connector', node_type='{node_type}', node_id='{node_id}'))")
+    lines.append(f"{indent}except _NodeErrorException as _e:")
+    lines.append(f"{indent}    {out} = f'[⚠️ {{_e.error.user_message}}]'")
+    lines.append(f"{indent}    log_step('{node_id}', '{node_type}', _start_{node_id}, result={out}, error=_e.error)")
+    lines.append(f"{indent}except Exception as _e:")
+    lines.append(f"{indent}    {out} = f'{label} 실패: {{_e}}'")
+    lines.append(f"{indent}    log_step('{node_id}', '{node_type}', _start_{node_id}, result={out}, error=_e)")
+    lines.append(f"{indent}last_result = {out}")
+    for target_id, _handle in forward_edges.get(node_id, []):
+        generate_block_fn(target_id, indent, active_llm_id=active_llm_id, prev_res_var=out, visited=visited)
+
+
+def _emit_network_head(node_id, node, indent, lines, label, upstream, module):
+    _emit_head(node_id, node, indent, lines, label, upstream)
+    lines.append(f"{indent}import json as _json")
+    lines.append(f"{indent}from connectors.services import {module} as _{module}")
+    lines.append(f"{indent}from connectors.errors import ConnectorError as _ConnectorError")
+    lines.append(f"{indent}import node_definition as _node_definition")
+    lines.append(f"{indent}from connectors import mock_runtime as _mock_runtime")
+
+
+@node_registry.register('httpCheckNode')
+def generate_http_check_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict,
+                             forward_edges, incoming_edges, lines, generate_block_fn):
+    """웹사이트 점검. 지난 점검의 본문 해시·상태는 connector_cursors(_load/_save_node_cursor)에 남겨 changed 를 판정한다."""
+    data = node.get('data', {})
+    upstream = prev_res_var if prev_res_var else 'last_result'
+    track = _flag(data, 'trackChanges', True)
+    fail_on_problem = _flag(data, 'failOnProblem')
+    _emit_network_head(node_id, node, indent, lines, '웹사이트 점검', upstream, 'http_check')
+    url = _emit_field(node_id, node, indent, lines, 'url', fallback_upstream=False)
+    lines.append(f"{indent}try:")
+    lines.append(f"{indent}    _hc_def_{node_id} = _node_definition.get_definition('httpCheckNode')")
+    if track:
+        lines.append(f"{indent}    _hc_prev_{node_id} = _load_node_cursor('{node_id}', db, kwargs)")
+    else:
+        lines.append(f"{indent}    _hc_prev_{node_id} = {{}}")
+    lines.append(f"{indent}    with _mock_runtime.node('{node_id}', '{node['type']}'):")
+    lines.append(f"{indent}        _hc_result_{node_id} = _http_check.check(")
+    lines.append(f"{indent}            _hc_def_{node_id}, url={url}, mode={str(data.get('mode') or 'all')!r}, method={str(data.get('method') or 'GET')!r},")
+    lines.append(f"{indent}            expect_status={str(data.get('expectStatus') or '200-399')!r}, keyword={str(data.get('keyword') or '')!r},")
+    lines.append(f"{indent}            track_changes={track!r}, previous=_hc_prev_{node_id}, tls_warn_days={_int(data, 'tlsWarnDays', 14)!r},")
+    lines.append(f"{indent}            dns_record={str(data.get('dnsRecord') or 'any')!r})")
+    lines.append(f"{indent}    _hc_cursor_{node_id} = _hc_result_{node_id}.pop('cursor', None)")
+    if track:
+        lines.append(f"{indent}    if _hc_cursor_{node_id}:")
+        lines.append(f"{indent}        _save_node_cursor('{node_id}', _hc_cursor_{node_id}, db, kwargs, provider='http_check')")
+    lines.append(f"{indent}    _tt_out_{node_id} = _json.dumps(_hc_result_{node_id}, ensure_ascii=False, default=str)")
+    lines.append(f"{indent}    print('[웹사이트 점검] ' + ('정상' if _hc_result_{node_id}['ok'] else '문제: ' + ', '.join(_hc_result_{node_id}['problems'])) + ' — ' + str({url}))")
+    if fail_on_problem:
+        lines.append(f"{indent}    if not _hc_result_{node_id}['ok']:")
+        lines.append(f"{indent}        _hc_err_{node_id} = _make_node_error('HTTPCHECK_PROBLEM', node_type='{node['type']}', node_id='{node_id}',")
+        lines.append(f"{indent}            safe_details={{'url': str({url}), 'problems': list(_hc_result_{node_id}['problems'])}},")
+        lines.append(f"{indent}            user_message='점검에서 문제가 발견됐습니다: ' + ', '.join(_hc_result_{node_id}['problems']))")
+        lines.append(f"{indent}        log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_tt_out_{node_id}, error=_hc_err_{node_id})")
+        lines.append(f"{indent}    else:")
+        lines.append(f"{indent}        log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_tt_out_{node_id})")
+    else:
+        lines.append(f"{indent}    log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_tt_out_{node_id})")
+    _emit_network_tail(node_id, node, indent, lines, '웹사이트 점검', forward_edges, generate_block_fn, active_llm_id, visited)
+
+
+@node_registry.register('osvScanNode')
+def generate_osv_scan_node(node_id, node, indent, active_llm_id, prev_res_var, visited, node_dict,
+                           forward_edges, incoming_edges, lines, generate_block_fn):
+    """의존성 취약점 검사. lockfile 을 비우면 직전 노드 출력(보통 githubNode file.get 의 content 바인딩)."""
+    data = node.get('data', {})
+    upstream = prev_res_var if prev_res_var else 'last_result'
+    fail_on_vulnerable = _flag(data, 'failOnVulnerable')
+    _emit_network_head(node_id, node, indent, lines, '의존성 취약점 검사', upstream, 'osv')
+    lockfile = _emit_field(node_id, node, indent, lines, 'lockfile', fallback_upstream=True)
+    lines.append(f"{indent}try:")
+    lines.append(f"{indent}    _osv_def_{node_id} = _node_definition.get_definition('osvScanNode')")
+    lines.append(f"{indent}    with _mock_runtime.node('{node_id}', '{node['type']}'):")
+    lines.append(f"{indent}        _osv_result_{node_id} = _osv.scan(")
+    lines.append(f"{indent}            _osv_def_{node_id}, {lockfile}, fmt={str(data.get('format') or 'auto')!r}, min_severity={str(data.get('minSeverity') or 'all')!r},")
+    lines.append(f"{indent}            include_details={_flag(data, 'includeDetails', True)!r}, max_packages={_int(data, 'maxPackages', 1000)!r})")
+    lines.append(f"{indent}    _tt_out_{node_id} = _json.dumps(_osv_result_{node_id}, ensure_ascii=False, default=str)")
+    lines.append(f"{indent}    print(f\"[의존성 취약점 검사] 패키지 {{_osv_result_{node_id}['queried']}}개 중 {{_osv_result_{node_id}['vulnerable']}}개에 취약점 {{_osv_result_{node_id}['alertCount']}}건\")")
+    if fail_on_vulnerable:
+        lines.append(f"{indent}    if _osv_result_{node_id}['alertCount'] > 0:")
+        lines.append(f"{indent}        _osv_err_{node_id} = _make_node_error('OSV_VULNERABLE', node_type='{node['type']}', node_id='{node_id}',")
+        lines.append(f"{indent}            safe_details={{'vulnerable': _osv_result_{node_id}['vulnerable'], 'alertCount': _osv_result_{node_id}['alertCount'],")
+        lines.append(f"{indent}                          'top': [a['id'] for a in _osv_result_{node_id}['alerts'][:5]]}},")
+        lines.append(f"{indent}            user_message=f\"의존성에 알려진 취약점 {{_osv_result_{node_id}['alertCount']}}건이 있습니다.\")")
+        lines.append(f"{indent}        log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_tt_out_{node_id}, error=_osv_err_{node_id})")
+        lines.append(f"{indent}    else:")
+        lines.append(f"{indent}        log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_tt_out_{node_id})")
+    else:
+        lines.append(f"{indent}    log_step('{node_id}', '{node['type']}', _start_{node_id}, result=_tt_out_{node_id})")
+    _emit_network_tail(node_id, node, indent, lines, '의존성 취약점 검사', forward_edges, generate_block_fn, active_llm_id, visited)

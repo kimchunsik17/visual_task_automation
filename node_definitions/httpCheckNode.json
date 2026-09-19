@@ -1,0 +1,317 @@
+{
+  "type": "httpCheckNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "웹사이트 점검",
+    "icon": "node-http-check",
+    "color": "#22c55e"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "url",
+      "kind": "text",
+      "label": "점검할 주소",
+      "placeholder": "https://example.com/health",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(httpCheckNode)에 url이 없다"
+        }
+      ]
+    },
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "점검 종류",
+      "default": "all",
+      "options": [
+        {
+          "value": "all",
+          "label": "전부 (HTTP + 인증서 + DNS)"
+        },
+        {
+          "value": "http",
+          "label": "HTTP 상태·응답시간·본문 변경"
+        },
+        {
+          "value": "tls",
+          "label": "TLS 인증서 만료"
+        },
+        {
+          "value": "dns",
+          "label": "DNS 해석"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "message": "{node_id}(httpCheckNode)의 mode는 all/http/tls/dns 중 하나여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "method",
+      "kind": "select",
+      "label": "HTTP 메서드",
+      "default": "GET",
+      "options": [
+        {
+          "value": "GET",
+          "label": "GET"
+        },
+        {
+          "value": "HEAD",
+          "label": "HEAD (본문 없이 상태만)"
+        }
+      ],
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "all",
+          "http"
+        ]
+      }
+    },
+    {
+      "name": "expectStatus",
+      "kind": "text",
+      "label": "정상으로 볼 상태 코드",
+      "default": "200-399",
+      "placeholder": "200-399, 200,204, 2xx",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "all",
+          "http"
+        ]
+      }
+    },
+    {
+      "name": "keyword",
+      "kind": "text",
+      "label": "본문에 있어야 하는 문구 (선택)",
+      "placeholder": "\"status\":\"ok\"",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "all",
+          "http"
+        ]
+      }
+    },
+    {
+      "name": "trackChanges",
+      "kind": "checkbox",
+      "label": "지난 점검과 본문이 달라졌는지 기억해 비교 (changed)",
+      "default": true,
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "all",
+          "http"
+        ]
+      }
+    },
+    {
+      "name": "tlsWarnDays",
+      "kind": "number",
+      "label": "인증서 만료 경고 (일)",
+      "default": 14,
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "all",
+          "tls"
+        ]
+      }
+    },
+    {
+      "name": "dnsRecord",
+      "kind": "select",
+      "label": "DNS 레코드",
+      "default": "any",
+      "options": [
+        {
+          "value": "any",
+          "label": "A + AAAA"
+        },
+        {
+          "value": "A",
+          "label": "A (IPv4)"
+        },
+        {
+          "value": "AAAA",
+          "label": "AAAA (IPv6)"
+        }
+      ],
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "all",
+          "dns"
+        ]
+      }
+    },
+    {
+      "name": "failOnProblem",
+      "kind": "checkbox",
+      "label": "문제가 있으면 실패로 처리 (error 갈래로)",
+      "default": false
+    }
+  ],
+  "credentials": [],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "httpCheckNode",
+  "connector": {
+    "service": "HTTP 점검",
+    "role": "action",
+    "modes": [
+      "all",
+      "http",
+      "tls",
+      "dns"
+    ],
+    "credentials": [],
+    "timeoutSeconds": 10.0,
+    "retryPolicy": {
+      "maxAttempts": 2,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 5.0
+    },
+    "sideEffectByMode": {
+      "all": "external-read",
+      "http": "external-read",
+      "tls": "external-read",
+      "dns": "external-read"
+    },
+    "outputSchemaByMode": {
+      "all": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "http": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "number"
+              },
+              "responseMs": {
+                "type": "number"
+              },
+              "contentHash": {
+                "type": "string"
+              },
+              "keywordFound": {
+                "type": "boolean"
+              }
+            }
+          },
+          "tls": {
+            "type": "object",
+            "properties": {
+              "daysLeft": {
+                "type": "number"
+              },
+              "expiresAt": {
+                "type": "string"
+              },
+              "issuer": {
+                "type": "string"
+              }
+            }
+          },
+          "dns": {
+            "type": "object",
+            "properties": {
+              "records": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "docsUrl": "https://developer.mozilla.org/docs/Web/HTTP/Status",
+    "verifiedAt": "2026-09-19"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "status": 200,
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "status": "ok",
+              "version": "2.3.0",
+              "message": "목업 응답입니다"
+            }
+          }
+        ]
+      },
+      "not_found": {
+        "responses": [
+          {
+            "status": 404,
+            "body": "<html><body>Not Found</body></html>"
+          }
+        ]
+      },
+      "server_error": {
+        "responses": [
+          {
+            "status": 503,
+            "headers": {
+              "Retry-After": "30"
+            },
+            "body": {
+              "error": "service unavailable"
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "웹사이트·API 를 점검한다 — HTTP 상태·응답시간·본문 변경, TLS 인증서 만료일, DNS 해석. 점검 결과가 나쁜 것은 실패가 아니라 **결과**다:\n                   출력 JSON 의 ok(불리언)·problems(배열: http_status·http_keyword·http_unreachable·tls_expiring·tls_expired·tls_verify_failed·dns_unresolved)를\n                   뒤의 conditionNode 가 보고 알림을 보낸다. scheduleNode 뒤에 두어 주기적으로 감시하는 것이 정석이다.\n                   data.url(문자열, 필수), data.mode(문자열): \"all\"(기본값) | \"http\" | \"tls\" | \"dns\", data.method(\"GET\"|\"HEAD\"), data.expectStatus(문자열, 기본 \"200-399\"),\n                   data.keyword(문자열, 선택 — 본문에 있어야 하는 문구), data.trackChanges(불리언, 기본 true — 지난 점검과 본문 해시를 비교해 changed 를 준다),\n                   data.tlsWarnDays(숫자, 기본 14), data.dnsRecord(\"any\"|\"A\"|\"AAAA\"), data.failOnProblem(불리언 — 켜면 문제가 있을 때 error 갈래로).\n                   출력: {ok, problems, changed, statusChanged, firstRun, http{status, statusOk, responseMs, bytes, contentHash, keywordFound}, tls{ok, daysLeft, expiresAt, issuer},\n                   dns{ok, records}, previous{contentHash, status, checkedAt}, checkedAt}. 사설 IP·내부 주소는 SSRF 검사로 막힌다. 자격증명이 필요 없다.\n"
+  }
+}

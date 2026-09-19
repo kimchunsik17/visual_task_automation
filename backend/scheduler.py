@@ -121,7 +121,10 @@ def sync_project_schedule(project_id: int, project: models.Project):
     if schedule_node and project.graph_data.get("is_live", False):
         cron_expr = schedule_node.get('data', {}).get('cronExpression', '0 7 * * *')
         try:
-            trigger = CronTrigger.from_crontab(cron_expr)
+            # 표준 crontab 요일 번호(0=일요일)로 해석한다 — APScheduler 3.x from_crontab 은 0 을 월요일로 읽어 편집기의 '월요일' 이 화요일에
+            # 돌았다(cron_helper.to_trigger 주석, DEV-2 cronHelper 에서 발견). 미리보기(/api/tools/cron-preview)와 같은 함수다.
+            import cron_helper
+            trigger = cron_helper.to_trigger(cron_expr)
             
             # If job exists, update it, else add it
             if scheduler.get_job(job_id):

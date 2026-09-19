@@ -70,6 +70,9 @@
 | <a id="template_syntax_invalid"></a>`TEMPLATE_SYNTAX_INVALID` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 템플릿 문법이 잘못됐습니다. {{#each}}/{{#if}} 짝과 자리표시자를 확인해주세요. |
 | <a id="template_var_missing"></a>`TEMPLATE_VAR_MISSING` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 템플릿 변수에 해당하는 값이 없습니다. 변수 이름이나 앞 노드 출력을 확인해주세요. |
 | <a id="template_variables_invalid"></a>`TEMPLATE_VARIABLES_INVALID` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 템플릿 변수가 JSON 객체가 아닙니다. |
+| <a id="httpcheck_problem"></a>`HTTPCHECK_PROBLEM` | connector | http_check | 아니오 | `not_applicable` | 조치 없음 | 점검 대상에 문제가 있습니다 — 응답 상태·키워드·인증서·DNS 중 하나가 기대와 다릅니다. problems 를 확인해주세요. |
+| <a id="osv_vulnerable"></a>`OSV_VULNERABLE` | connector | osv | 아니오 | `not_applicable` | 조치 없음 | 의존성에 알려진 취약점이 있습니다. alerts 목록을 확인하고 수정 버전으로 올려주세요. |
+| <a id="osv_lockfile_unrecognized"></a>`OSV_LOCKFILE_UNRECOGNIZED` | validation | osv | 아니오 | `not_started` | 해당 입력으로 이동 | lockfile 형식을 알아내지 못했습니다. package-lock.json·yarn.lock·requirements.txt·Pipfile.lock·poetry.lock·go.sum·Cargo.lock 을 지원합니다. |
 
 ## safeDetails 허용 key
 
@@ -140,3 +143,6 @@
 - `TEMPLATE_SYNTAX_INVALID`: `field`, `detail`, `position`
 - `TEMPLATE_VAR_MISSING`: `field`, `path`
 - `TEMPLATE_VARIABLES_INVALID`: `field`, `detail`
+- `HTTPCHECK_PROBLEM`: `url`, `problems`
+- `OSV_VULNERABLE`: `vulnerable`, `alertCount`, `top`
+- `OSV_LOCKFILE_UNRECOGNIZED`: `field`, `detail`

@@ -50,6 +50,9 @@ const STATIC_EDITOR_NODES = [
   ['textDiffNode', '텍스트 비교 (diff)', 'code', '#0ea5e9', 'node-diff'],
   ['dataConvertNode', '데이터 형식 변환', 'code', '#14b8a6', 'node-convert'],
   ['templateRenderNode', '템플릿 렌더', 'code', '#a855f7', 'node-template'],
+  // DEV-2 2차 — 감시형 유틸(네트워크, 자격증명 없음).
+  ['httpCheckNode', '웹사이트 점검', 'integration', '#22c55e', 'node-http-check'],
+  ['osvScanNode', '의존성 취약점 검사', 'integration', '#dc2626', 'node-shield'],
   // 문서 카테고리(포맷 스튜디오 계획 §4.3) — 새 문서·포스터는 formatNode, 기존 서식 파일
   // 채우기는 templateAnalyzer→fileModifier, 코드 없는 .hwpx 생성은 hwpxDocumentNode.
   ['formatNode', '문서 포맷', 'document', '#0d9488', 'node-file-modifier'],

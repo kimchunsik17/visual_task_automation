@@ -246,6 +246,8 @@ MINIMAL_DATA = {
     "textDiffNode": {},
     "dataConvertNode": {"toFormat": "yaml"},
     "templateRenderNode": {"template": "{{x}}"},
+    "httpCheckNode": {"url": "https://example.com"},
+    "osvScanNode": {},
 }
 
 

@@ -45,9 +45,9 @@
 
 | 트랙 | 상태 | 다음 한 걸음 |
 | --- | --- | --- |
-| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **34 DEV-0 웹훅 하드닝(2026-09-13, ADR-0031) · 34 DEV-1 GitHub(2026-09-13, ADR-0032) · 34 DEV-2 1차 유틸 노드 4종(2026-09-19, ADR-0033)** · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. **운영 서버 리허설 통과(2026-09-13)** — 큐 모드 A1~A7(restart 는 현재 run 을 마치고 재기동 · SIGKILL 은 126초 뒤 failed 확정 · 워커 부재는 309초에 ready 503 → start 로 복귀) · 운영 DB 코퍼스 240종(게시 템플릿 168+프로젝트 72) 포함 **540 그래프 실행 대조 차이 0**. 출시 게이트 둘(등가성·재시작 무손실)이 닫혔다. 큐는 다시 꺼 둠, 워커 유닛은 유지 | 운영 `EXECUTION_ENGINE=shadow` 계획 검사 → 프로젝트별 `:interpreter` 전환 → 스케줄·웹훅 큐 상시 ON 결정 |
+| 실행 엔진 v2 (32) | **ENGINE-0~2 dev 머지(2026-09-11, PR #95~#107) · ENGINE-3 착수** — 1단계 노드 재시도 `retries`/`backoffSec`(인터프리터) · 2단계 `error` 출력 핸들(두 엔진) · 3단계 에러 트리거 `graph_data.errorWorkflowId` · 4단계 웹훅 멱등성 `idempotency_key`(ADR-0030) · **34 DEV-0 웹훅 하드닝(2026-09-13, ADR-0031) · 34 DEV-1 GitHub(2026-09-13, ADR-0032) · 34 DEV-2 1차 유틸 노드 4종(2026-09-19, ADR-0033) · DEV-2 2차 감시형 유틸·cronHelper(2026-09-19, ADR-0034)** · **프론트(2026-09-13)**: error 포트·Inspector 실행 옵션(retries·backoffSec·dedupeByPayload)·"실패 시 실행할 워크플로우" 메뉴·**실행 진행 표시**(편집기가 `/api/workflow-runs/stream` 을 구독해 노드별 running/성공/실패·"재시도 n/m" 을 실시간으로). **ENGINE-3 완료** — 부작용 노드 (run_id,node_id) 기록은 재개와 함께. **운영 서버 리허설 통과(2026-09-13)** — 큐 모드 A1~A7(restart 는 현재 run 을 마치고 재기동 · SIGKILL 은 126초 뒤 failed 확정 · 워커 부재는 309초에 ready 503 → start 로 복귀) · 운영 DB 코퍼스 240종(게시 템플릿 168+프로젝트 72) 포함 **540 그래프 실행 대조 차이 0**. 출시 게이트 둘(등가성·재시작 무손실)이 닫혔다. 큐는 다시 꺼 둠, 워커 유닛은 유지 | 운영 `EXECUTION_ENGINE=shadow` 계획 검사 → 프로젝트별 `:interpreter` 전환 → 스케줄·웹훅 큐 상시 ON 결정 |
 | 앱 빌더–캔버스 통합 (33) | 계획 완료(종합보고서 §2) | APP-0 사용자 제공 필드 스키마(T1 동시 해결) |
-| 개발 도구 연동 노드 (34) | **DEV-0 웹훅 하드닝(2026-09-13, ADR-0031) · DEV-1 GitHub Trigger/Action 구현(2026-09-13, ADR-0032)** — `githubTriggerNode`(인바운드 웹훅 위 이벤트·action·브랜치·라벨 필터, 평탄화 출력) · `githubNode`(fine-grained PAT, 13 모드) · GitHub 문서 예시 payload 목업 샘플 · **DEV-2 1차(2026-09-19, ADR-0033)**: `regexExtractNode`(+AI 정규식 도우미)·`textDiffNode`·`dataConvertNode`·`templateRenderNode` | DEV-2 2차(httpCheck·osvScan·cronHelper) → DEV-3 2차 연동 |
+| 개발 도구 연동 노드 (34) | **DEV-0 웹훅 하드닝(2026-09-13, ADR-0031) · DEV-1 GitHub Trigger/Action 구현(2026-09-13, ADR-0032)** — `githubTriggerNode`(인바운드 웹훅 위 이벤트·action·브랜치·라벨 필터, 평탄화 출력) · `githubNode`(fine-grained PAT, 13 모드) · GitHub 문서 예시 payload 목업 샘플 · **DEV-2 1차(2026-09-19, ADR-0033)**: `regexExtractNode`(+AI 정규식 도우미)·`textDiffNode`·`dataConvertNode`·`templateRenderNode` · **DEV-2 2차(2026-09-19, ADR-0034)**: `httpCheckNode`(상태·본문 변경·TLS·DNS, cursor 상태)·`osvScanNode`(lockfile 7종 → OSV)·cronHelper(한국어 → cron + 다음 실행 미리보기). **DEV-2 완료** | DEV-3 2차 연동(Dooray·네이버웍스·GitLab·Jira·Jenkins·DB write) |
 | 흐름 제어·데이터 조작 보완 (35) | 미착수 | 결정적 변환 노드 3종 |
 | 실행형 AI 에이전트 노드·MCP (36) | 미착수 | 도구 정책 모듈(28번과 공유) |
 | 운영 가시성·배포·CI (37) | 미착수 | GitHub Actions 테스트 |
@@ -650,7 +650,7 @@ githubNode  (Action)
 - 생성 평가 사례 3개 이상: "PR 열리면 요약해서 디스코드", "이슈 올라오면 분류해 라벨", "릴리스 태그 → 노트
   생성 → 이메일".
 
-##### DEV-2. 개발 편의 노드(비커넥터) — 1~2주 — **1차 구현(2026-09-19, ADR-0033: regexExtract·textDiff·dataConvert·templateRender)**
+##### DEV-2. 개발 편의 노드(비커넥터) — 1~2주 — **완료(2026-09-19). 1차 ADR-0033: regexExtract·textDiff·dataConvert·templateRender · 2차 ADR-0034: httpCheck·osvScan·cronHelper**
 
 **1차 구현**: 로직은 `backend/text_tools.py` 한 모듈(결정적·표준 라이브러리 + PyYAML/tomli, TOML 쓰기는 자체 직렬화기), 생성기는
 `node_generators/dev_tool_nodes.py`(함수 호출 한 번). 실패는 `ToolError(reason)` → NodeError(validation 범주 9 코드: TOOL_INPUT/OUTPUT_TOO_LARGE·
@@ -658,7 +658,16 @@ REGEX_INVALID/NO_MATCH·CONVERT_PARSE_FAILED/UNSUPPORTED·TEMPLATE_SYNTAX_INVALI
 대상 텍스트를 비우면 직전 출력, `source`·`oldText`·`newText`·`template`·`variables` 는 ⚡ 바인딩(BINDABLE_FIELDS). 템플릿 문법은 `{{경로}}`·
 `{{#each}}`·`{{#if}}{{else}}` 셋뿐(ADR-0026 원칙 — 필터·연산 없음). 정규식 도우미는 `POST /api/tools/regex-suggest`(`regex_assist.py`: 설명 →
 구조화 출력 → 컴파일 확인·1회 재시도 → 샘플 매치 미리보기) — 노드 실행은 LLM 을 쓰지 않는다. 입력 1 MB·출력 2 MB 상한. `test_text_tools.py` 47건.
-**2차(남음)**: `httpCheckNode`·`osvScanNode`(네트워크 — url_guard·connector 계약 위), `cronHelper`(scheduleNode 인스펙터).
+**2차 구현(2026-09-19, ADR-0034)**: `connectors/services/http_check.py`(url_guard SSRF 검사 → HTTP 상태·응답시간·본문 해시·키워드, `ssl` 소켓으로 인증서
+만료일, `socket.getaddrinfo` 로 A/AAAA; 지난 해시·상태는 `connector_cursors`(`_load/_save_node_cursor`, provider http_check)에 남겨 `changed`),
+`connectors/services/osv.py`(package-lock v1~3·yarn v1·requirements·Pipfile.lock·poetry.lock·go.sum·Cargo.lock 을 내용으로 감지 → `POST /v1/querybatch`
+1,000개씩 → 상세 `GET /v1/vulns/{id}` 50건 상한, 심각도는 database_specific 우선), `cron_helper.py`(규칙 파서 → LLM 폴백, 결과는 항상 CronTrigger 로
+검증, 다음 실행은 스케줄러와 같은 해석기; `POST /api/tools/cron-suggest`·`GET /api/tools/cron-preview`, ScheduleNode 카드 "말로 설정" + 다음 실행
+미리보기). **점검 결과는 실패가 아니다** — ok/problems·vulnerable 로 분기하고 `failOnProblem`/`failOnVulnerable` 을 켠 때만 HTTPCHECK_PROBLEM·
+OSV_VULNERABLE 로 error 갈래. 목업에서 TLS·DNS 는 `mock: true` 고정값. `test_http_check.py`·`test_osv.py`·`test_cron_helper.py`.
+미구현: CNAME·MX·TXT(dnspython 필요), 본문 바이트 스트리밍 상한(전체 수신 뒤 해시), CVSS 벡터 → 점수 계산(라벨 없으면 UNKNOWN).
+**부수 수정**: `scheduler.py` 가 APScheduler `from_crontab`(0=월요일 결함) 대신 `cron_helper.to_trigger`(표준 0=일요일)를 쓴다 — 매주 스케줄이
+하루 늦게 돌던 결함이 미리보기를 만들다 드러났다.
 
 전부 외부 의존이 없어 2GB VM 에 맞고, 결정적이라 dry-run 에서 그대로 실행된다. n8n DevOps 인기 템플릿의 절반이
 GitHub 커넥터가 아니라 **감시형 유틸**(웹사이트·도메인·SSL 만료·링크 체크)이라는 관측이 근거다.
@@ -669,9 +678,9 @@ GitHub 커넥터가 아니라 **감시형 유틸**(웹사이트·도메인·SSL 
 | `textDiffNode` ✅ | unified diff 생성(텍스트·설정) | S~M | 설정 변경 diff → 승인 노드 → 적용 흐름의 핵심. n8n 은 레코드 단위 비교만 있다 |
 | `dataConvertNode` ✅ | JSON ↔ YAML ↔ TOML | S | K8s/CI 설정 파이프라인 부품 |
 | `templateRenderNode` ✅ | 텍스트 템플릿 렌더(`{{ }}`, 반복) | S | 릴리스 노트·보고서 본문을 `formatNode` 앞단에서 만든다. 표현식 언어는 만들지 않는다(ADR-0026 원칙) |
-| `cronHelper` (스케줄 노드 개선) | 한국어 자연어 → cron + 다음 5회 실행 미리보기 | S | 새 노드가 아니라 `scheduleNode` 인스펙터 기능 |
-| `httpCheckNode` | HTTP 상태·응답시간·본문 해시 변경 감지·TLS 인증서 만료일·DNS 레코드 | M | 상태 저장은 `connector_cursors`(0017) 재사용. 인증서는 Python `ssl` 소켓으로 외부 API 없이 — 폐쇄망 친화 |
-| `osvScanNode` | lockfile(package-lock·requirements·go.sum) → OSV `POST /v1/querybatch` → 취약점 목록 | M | 키 불필요·무료. `npm audit` 로컬 실행 없이 HTTP 만으로. 결과는 `formatNode` 보고서로 |
+| `cronHelper` ✅ (스케줄 노드 개선) | 한국어 자연어 → cron + 다음 5회 실행 미리보기 | S | 새 노드가 아니라 `scheduleNode` 인스펙터 기능 |
+| `httpCheckNode` ✅ | HTTP 상태·응답시간·본문 해시 변경 감지·TLS 인증서 만료일·DNS 레코드 | M | 상태 저장은 `connector_cursors`(0017) 재사용. 인증서는 Python `ssl` 소켓으로 외부 API 없이 — 폐쇄망 친화 |
+| `osvScanNode` ✅ | lockfile(package-lock·requirements·go.sum) → OSV `POST /v1/querybatch` → 취약점 목록 | M | 키 불필요·무료. `npm audit` 로컬 실행 없이 HTTP 만으로. 결과는 `formatNode` 보고서로 |
 
 ##### DEV-3. 2차 연동 — 국내 도구와 플랫폼 확장 — 2~3주
 

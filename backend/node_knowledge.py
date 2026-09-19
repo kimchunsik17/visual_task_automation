@@ -121,6 +121,10 @@ NODE_ALIASES: Dict[str, List[str]] = {
     "textDiffNode": ["diff", "차이", "비교해서", "바뀐 부분", "달라진", "변경 사항", "이전과 비교", "설정이 바뀌면"],
     "dataConvertNode": ["yaml", "toml", "json으로 변환", "형식 변환", "포맷 변환", "yaml로", "json을 yaml"],
     "templateRenderNode": ["템플릿", "template", "본문 만들", "양식에 채워", "자리표시자", "{{", "릴리스 노트 본문", "보고서 본문"],
+    # DEV-2 2차 — 감시형 유틸. "죽었는지/살아있는지/응답/인증서/SSL/도메인" 과 "취약점/CVE/의존성/lockfile" 로 갈린다.
+    "httpCheckNode": ["사이트 점검", "웹사이트 살아", "서버 죽었", "응답 확인", "헬스체크", "health", "uptime", "SSL", "인증서 만료",
+                      "도메인 확인", "DNS", "사이트가 바뀌면", "페이지 변경 감지"],
+    "osvScanNode": ["취약점", "CVE", "보안 점검", "의존성 검사", "lockfile", "package-lock", "requirements.txt", "npm audit", "OSV"],
     "discordTriggerNode": ["디스코드 메시지가 오면", "디스코드에서 메시지", "디스코드 명령",
                            "디스코드로 물어보면"],
     "telegramTriggerNode": ["텔레그램 메시지가 오면", "텔레그램에서 메시지", "텔레그램으로 물어보면"],

@@ -3495,6 +3495,367 @@
     "type": "googleDriveNode",
     "version": 1
   },
+  "httpCheckNode": {
+    "capabilities": [
+      "network"
+    ],
+    "category": "integration",
+    "connector": {
+      "credentials": [],
+      "docsUrl": "https://developer.mozilla.org/docs/Web/HTTP/Status",
+      "errorStyle": "http",
+      "inputSchema": {},
+      "modes": [
+        "all",
+        "http",
+        "tls",
+        "dns"
+      ],
+      "outputSchemaByMode": {
+        "all": {
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "dns": {
+              "properties": {
+                "records": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "http": {
+              "properties": {
+                "contentHash": {
+                  "type": "string"
+                },
+                "keywordFound": {
+                  "type": "boolean"
+                },
+                "responseMs": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "problems": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tls": {
+              "properties": {
+                "daysLeft": {
+                  "type": "number"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "issuer": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "retryPolicy": {
+        "baseDelaySeconds": 1.0,
+        "maxAttempts": 2,
+        "maxDelaySeconds": 5.0,
+        "retryNonIdempotent": false
+      },
+      "role": "action",
+      "service": "HTTP 점검",
+      "sideEffectByMode": {
+        "all": "external-read",
+        "dns": "external-read",
+        "http": "external-read",
+        "tls": "external-read"
+      },
+      "timeoutSeconds": 10.0,
+      "verifiedAt": "2026-09-19"
+    },
+    "credentials": [],
+    "display": {
+      "color": "#22c55e",
+      "icon": "node-http-check",
+      "label": "웹사이트 점검"
+    },
+    "executor": "httpCheckNode",
+    "fields": [
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "점검할 주소",
+        "name": "url",
+        "options": [],
+        "placeholder": "https://example.com/health",
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(httpCheckNode)에 url이 없다",
+            "requireKeys": {},
+            "rule": "required"
+          }
+        ]
+      },
+      {
+        "default": "all",
+        "itemFields": [],
+        "kind": "select",
+        "label": "점검 종류",
+        "name": "mode",
+        "options": [
+          {
+            "label": "전부 (HTTP + 인증서 + DNS)",
+            "value": "all"
+          },
+          {
+            "label": "HTTP 상태·응답시간·본문 변경",
+            "value": "http"
+          },
+          {
+            "label": "TLS 인증서 만료",
+            "value": "tls"
+          },
+          {
+            "label": "DNS 해석",
+            "value": "dns"
+          }
+        ],
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(httpCheckNode)의 mode는 all/http/tls/dns 중 하나여야 한다",
+            "requireKeys": {},
+            "rule": "enum"
+          }
+        ]
+      },
+      {
+        "default": "GET",
+        "itemFields": [],
+        "kind": "select",
+        "label": "HTTP 메서드",
+        "name": "method",
+        "options": [
+          {
+            "label": "GET",
+            "value": "GET"
+          },
+          {
+            "label": "HEAD (본문 없이 상태만)",
+            "value": "HEAD"
+          }
+        ],
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "all",
+            "http"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "200-399",
+        "itemFields": [],
+        "kind": "text",
+        "label": "정상으로 볼 상태 코드",
+        "name": "expectStatus",
+        "options": [],
+        "placeholder": "200-399, 200,204, 2xx",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "all",
+            "http"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "본문에 있어야 하는 문구 (선택)",
+        "name": "keyword",
+        "options": [],
+        "placeholder": "\"status\":\"ok\"",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "all",
+            "http"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": true,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "지난 점검과 본문이 달라졌는지 기억해 비교 (changed)",
+        "name": "trackChanges",
+        "options": [],
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "all",
+            "http"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": 14,
+        "itemFields": [],
+        "kind": "number",
+        "label": "인증서 만료 경고 (일)",
+        "name": "tlsWarnDays",
+        "options": [],
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "all",
+            "tls"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "any",
+        "itemFields": [],
+        "kind": "select",
+        "label": "DNS 레코드",
+        "name": "dnsRecord",
+        "options": [
+          {
+            "label": "A + AAAA",
+            "value": "any"
+          },
+          {
+            "label": "A (IPv4)",
+            "value": "A"
+          },
+          {
+            "label": "AAAA (IPv6)",
+            "value": "AAAA"
+          }
+        ],
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "all",
+            "dns"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "문제가 있으면 실패로 처리 (error 갈래로)",
+        "name": "failOnProblem",
+        "options": [],
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "웹사이트·API 를 점검한다 — HTTP 상태·응답시간·본문 변경, TLS 인증서 만료일, DNS 해석. 점검 결과가 나쁜 것은 실패가 아니라 **결과**다:\n                   출력 JSON 의 ok(불리언)·problems(배열: http_status·http_keyword·http_unreachable·tls_expiring·tls_expired·tls_verify_failed·dns_unresolved)를\n                   뒤의 conditionNode 가 보고 알림을 보낸다. scheduleNode 뒤에 두어 주기적으로 감시하는 것이 정석이다.\n                   data.url(문자열, 필수), data.mode(문자열): \"all\"(기본값) | \"http\" | \"tls\" | \"dns\", data.method(\"GET\"|\"HEAD\"), data.expectStatus(문자열, 기본 \"200-399\"),\n                   data.keyword(문자열, 선택 — 본문에 있어야 하는 문구), data.trackChanges(불리언, 기본 true — 지난 점검과 본문 해시를 비교해 changed 를 준다),\n                   data.tlsWarnDays(숫자, 기본 14), data.dnsRecord(\"any\"|\"A\"|\"AAAA\"), data.failOnProblem(불리언 — 켜면 문제가 있을 때 error 갈래로).\n                   출력: {ok, problems, changed, statusChanged, firstRun, http{status, statusOk, responseMs, bytes, contentHash, keywordFound}, tls{ok, daysLeft, expiresAt, issuer},\n                   dns{ok, records}, previous{contentHash, status, checkedAt}, checkedAt}. 사설 IP·내부 주소는 SSRF 검사로 막힌다. 자격증명이 필요 없다.\n"
+    },
+    "mock": {
+      "scenarios": {
+        "not_found": {
+          "responses": [
+            {
+              "body": "<html><body>Not Found</body></html>",
+              "status": 404
+            }
+          ]
+        },
+        "server_error": {
+          "responses": [
+            {
+              "body": {
+                "error": "service unavailable"
+              },
+              "headers": {
+                "Retry-After": "30"
+              },
+              "status": 503
+            }
+          ]
+        },
+        "success": {
+          "responses": [
+            {
+              "body": {
+                "message": "목업 응답입니다",
+                "status": "ok",
+                "version": "2.3.0"
+              },
+              "headers": {
+                "Content-Type": "application/json"
+              },
+              "status": 200
+            }
+          ]
+        },
+        "timeout": {
+          "responses": [
+            {
+              "raise": "timeout"
+            }
+          ]
+        }
+      }
+    },
+    "outputs": [
+      {
+        "dataType": "json",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "external-read",
+    "type": "httpCheckNode",
+    "version": 1
+  },
   "httpRequestNode": {
     "capabilities": [
       "network"
@@ -5701,6 +6062,318 @@
     ],
     "sideEffect": "external-read",
     "type": "naverSearchTriggerNode",
+    "version": 1
+  },
+  "osvScanNode": {
+    "capabilities": [
+      "network"
+    ],
+    "category": "integration",
+    "connector": {
+      "baseUrl": "https://api.osv.dev",
+      "credentials": [],
+      "docsUrl": "https://google.github.io/osv.dev/post-v1-querybatch/",
+      "errorStyle": "http",
+      "inputSchema": {},
+      "modes": [
+        "scan"
+      ],
+      "outputSchemaByMode": {
+        "scan": {
+          "properties": {
+            "alertCount": {
+              "type": "number"
+            },
+            "alerts": {
+              "items": {
+                "properties": {
+                  "fixedVersion": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "package": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "format": {
+              "type": "string"
+            },
+            "packages": {
+              "type": "number"
+            },
+            "vulnerable": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "rateLimit": {
+        "requestsPerMinute": 60
+      },
+      "retryPolicy": {
+        "baseDelaySeconds": 1.0,
+        "maxAttempts": 3,
+        "maxDelaySeconds": 20.0,
+        "retryNonIdempotent": false
+      },
+      "role": "action",
+      "service": "OSV",
+      "sideEffectByMode": {
+        "scan": "external-read"
+      },
+      "timeoutSeconds": 20.0,
+      "verifiedAt": "2026-09-19"
+    },
+    "credentials": [],
+    "display": {
+      "color": "#dc2626",
+      "icon": "node-shield",
+      "label": "의존성 취약점 검사 (OSV)"
+    },
+    "executor": "osvScanNode",
+    "fields": [
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "lockfile 내용 (비우면 직전 노드 출력)",
+        "name": "lockfile",
+        "options": [],
+        "placeholder": "package-lock.json · yarn.lock · requirements.txt · Pipfile.lock · poetry.lock · go.sum · Cargo.lock 의 내용을 붙이거나 ⚡ 로 앞 노드(GitHub 파일 읽기 등) 값을 꽂습니다",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "auto",
+        "itemFields": [],
+        "kind": "select",
+        "label": "lockfile 형식",
+        "name": "format",
+        "options": [
+          {
+            "label": "자동 감지",
+            "value": "auto"
+          },
+          {
+            "label": "package-lock.json (npm)",
+            "value": "package-lock"
+          },
+          {
+            "label": "yarn.lock (npm)",
+            "value": "yarn"
+          },
+          {
+            "label": "requirements.txt (PyPI)",
+            "value": "requirements"
+          },
+          {
+            "label": "Pipfile.lock (PyPI)",
+            "value": "pipfile-lock"
+          },
+          {
+            "label": "poetry.lock (PyPI)",
+            "value": "poetry-lock"
+          },
+          {
+            "label": "go.sum (Go)",
+            "value": "go-sum"
+          },
+          {
+            "label": "Cargo.lock (crates.io)",
+            "value": "cargo-lock"
+          }
+        ],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "all",
+        "itemFields": [],
+        "kind": "select",
+        "label": "이 심각도 이상만",
+        "name": "minSeverity",
+        "options": [
+          {
+            "label": "전부 (심각도 미상 포함)",
+            "value": "all"
+          },
+          {
+            "label": "LOW 이상",
+            "value": "LOW"
+          },
+          {
+            "label": "MODERATE 이상",
+            "value": "MODERATE"
+          },
+          {
+            "label": "HIGH 이상",
+            "value": "HIGH"
+          },
+          {
+            "label": "CRITICAL 만",
+            "value": "CRITICAL"
+          }
+        ],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": true,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "취약점 상세(요약·심각도·수정 버전) 조회 (최대 50건)",
+        "name": "includeDetails",
+        "options": [],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": 1000,
+        "itemFields": [],
+        "kind": "number",
+        "label": "조회할 최대 패키지 수",
+        "name": "maxPackages",
+        "options": [],
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(osvScanNode)의 maxPackages는 숫자여야 한다",
+            "requireKeys": {},
+            "rule": "number"
+          }
+        ]
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "취약점이 있으면 실패로 처리 (error 갈래로)",
+        "name": "failOnVulnerable",
+        "options": [],
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "lockfile(package-lock.json·yarn.lock·requirements.txt·Pipfile.lock·poetry.lock·go.sum·Cargo.lock)의 패키지 버전을 OSV(오픈소스 취약점 DB, 무료·키 불필요)에 조회해\n                   취약점 목록을 만든다. npm audit 같은 도구를 서버에서 돌리지 않고 HTTP 만 쓴다. 취약점이 있는 것은 실패가 아니라 **결과**다 —\n                   뒤의 conditionNode 가 vulnerable 을 보고 분기하고, formatNode 로 보고서를 만들거나 githubNode issue.create 로 이슈를 연다.\n                   data.lockfile(문자열 — 비우면 직전 노드 출력. 보통 ⚡ 로 githubNode file.get 의 content 를 꽂는다), data.format(\"auto\" 기본값 또는 형식 이름),\n                   data.minSeverity(\"all\" | \"LOW\" | \"MODERATE\" | \"HIGH\" | \"CRITICAL\"), data.includeDetails(불리언, 기본 true), data.maxPackages(숫자, 기본 1000),\n                   data.failOnVulnerable(불리언 — 켜면 취약점이 있을 때 error 갈래로).\n                   출력: {format, ecosystem, packages, vulnerable, alertCount, bySeverity{CRITICAL, HIGH, MODERATE, LOW, UNKNOWN}, alerts[{package, version, id, aliases, summary,\n                   severity, fixedVersion, url}], truncated}. 자격증명이 필요 없다.\n"
+    },
+    "mock": {
+      "scenarios": {
+        "server_error": {
+          "responses": [
+            {
+              "body": {
+                "code": 14,
+                "message": "unavailable"
+              },
+              "status": 503
+            }
+          ]
+        },
+        "success": {
+          "responses": [
+            {
+              "body": {
+                "results": [
+                  {
+                    "vulns": [
+                      {
+                        "id": "GHSA-35jh-r3h4-6jhm",
+                        "modified": "2024-04-04T00:00:00Z"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "match": {
+                "method": "POST",
+                "urlContains": "/v1/querybatch"
+              },
+              "status": 200
+            },
+            {
+              "body": {
+                "affected": [
+                  {
+                    "package": {
+                      "ecosystem": "npm",
+                      "name": "lodash"
+                    },
+                    "ranges": [
+                      {
+                        "events": [
+                          {
+                            "introduced": "0"
+                          },
+                          {
+                            "fixed": "4.17.21"
+                          }
+                        ],
+                        "type": "SEMVER"
+                      }
+                    ]
+                  }
+                ],
+                "aliases": [
+                  "CVE-2021-23337"
+                ],
+                "database_specific": {
+                  "severity": "HIGH"
+                },
+                "id": "GHSA-35jh-r3h4-6jhm",
+                "modified": "2024-04-04T00:00:00Z",
+                "summary": "Command Injection in lodash"
+              },
+              "match": {
+                "method": "GET",
+                "urlContains": "/v1/vulns/"
+              },
+              "status": 200
+            }
+          ]
+        },
+        "timeout": {
+          "responses": [
+            {
+              "raise": "timeout"
+            }
+          ]
+        }
+      }
+    },
+    "outputs": [
+      {
+        "dataType": "json",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "external-read",
+    "type": "osvScanNode",
     "version": 1
   },
   "posterGeneratorNode": {
