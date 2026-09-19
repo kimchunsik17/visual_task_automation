@@ -2537,3 +2537,56 @@ LLM 대기가 이벤트 루프를 점유한다. 실행을 프로세스 밖 큐�
 - 미구현(후속): PAT 로 웹훅 자동 등록(`admin:repo_hook`), 이슈 대량 생성 노드 레벨 쓰로틀(정의 rateLimit 분당 60 만), GitHub App(DEV-4),
   생성 평가 사례 3종(로드맵 DEV-1 마지막 항목 — 템플릿 게시와 함께).
 - 조직 저장소는 workspace 자격증명(TEAM-2)이 오면 `project_access.credential_owner_for` 가 그대로 소유자를 정한다 — 노드 쪽 변경 없음.
+
+## ADR-0033 · 개발 편의 노드: 로직은 한 모듈에, 실패는 validation 코드로, 템플릿은 표현식 언어가 아니다
+
+| 상태 | 수락됨 · 2026-09-19 (백로그 34 DEV-2 1차 — regexExtract·textDiff·dataConvert·templateRender. 2차 httpCheck·osvScan·cronHelper 는 별도) |
+| --- | --- |
+| 결정자 | 백엔드 · 프론트엔드 |
+| 관련 | ROADMAP §3.3 DEV-2, ADR-0008(생성기는 호출 한 번), ADR-0016(NodeError v1), ADR-0026(필드 바인딩·값은 옮기기만), ADR-0030(error 갈래) |
+
+**맥락 (Context)**
+
+n8n DevOps 인기 템플릿의 절반은 커넥터가 아니라 감시·변환 유틸이다. 지금까지 "티켓 번호 하나 뽑기", "설정이 바뀌었나 보기", "JSON 을
+YAML 로", "릴리스 노트 본문 만들기" 는 전부 llmNode 를 세워야 했다 — 환각·토큰·비결정성을 값 이동에 지불했다(ADR-0026 이 지적한 대가).
+DEV-2 는 그 자리를 결정적 노드로 채운다. 결정할 것은 (1) 로직을 어디 두나, (2) 실패를 어떻게 드러내나, (3) 템플릿을 얼마나 강하게 만드나,
+(4) 정규식 도우미의 LLM 을 어디까지 허용하나, (5) TOML 쓰기 의존성이었다.
+
+**결정 (Decision)**
+
+1. **로직은 `backend/text_tools.py` 한 모듈, 생성기는 호출 한 번.** 네 노드의 함수(`regex_extract`·`text_diff`·`data_convert`·`render_template`)가
+   네트워크·DB 없이 직접 테스트되고, 두 엔진(legacy·interpreter)이 같은 함수를 지난다(ADR-0008 과 같은 원칙).
+2. **결정성은 계약이다.** LLM·시계·난수 없음. 같은 입력이면 같은 출력이라 dry-run 에서 그대로 실행되고 `sideEffect: none`·connector 블록 없음·
+   mock 없음이다. 정의 카테고리는 `code`.
+3. **실패는 `ToolError(reason)` → NodeError validation 범주.** 9개 코드(TOOL_INPUT_TOO_LARGE·TOOL_OUTPUT_TOO_LARGE·REGEX_INVALID·REGEX_NO_MATCH·
+   CONVERT_PARSE_FAILED·CONVERT_UNSUPPORTED·TEMPLATE_SYNTAX_INVALID·TEMPLATE_VAR_MISSING·TEMPLATE_VARIABLES_INVALID), 전부 재시도 불가·`focus_field`.
+   safe_details 에 field·path·position 을 실어 인스펙터가 그 칸으로 이동한다. 결과 문자열은 `[⚠️ …]` 로 흘려보내고 error 갈래(ENGINE-3)가 받는다 —
+   "매치 없음", "값 없는 변수" 는 옵션(`failIfNoMatch`, `missing=error`)으로만 실패가 된다. 기본은 빈 값(흐름을 멈추지 않는다).
+4. **상한은 입력 1 MB·출력 2 MB.** 결과가 실행 로그·run step 에 그대로 남는 값이라 무제한이면 DB 가 부푼다. 정규식은 2,000자, 매치 1만 개, 반복 1만 항목.
+5. **템플릿은 표현식 언어가 아니다.** `{{경로}}`(바인딩과 같은 a.b[0].c 문법)·`{{#each}}`(this·@index·@number·@first·@last, 바깥 변수 보임)·
+   `{{#if}}{{else}}`(truthy) 셋뿐. 필터·연산·함수는 만들지 않는다 — 값은 옮기기만 한다(ADR-0026). 변환이 필요하면 llmNode·pythonNode 의 일이다.
+   변수를 비우면 직전 출력을 JSON 으로 읽고, JSON 이 아니면 `{{input}}`, 배열이면 `{{#each items}}`. 원문은 항상 `input` 으로도 보인다.
+6. **직전 출력과 바인딩이 기본 배선이다.** `source`·`newText` 를 비우면 직전 노드 출력, `{{last_result}}` 치환, `source`·`oldText`·`newText`·
+   `template`·`variables` 는 BINDABLE_FIELDS — textDiff 의 "이전 텍스트" 는 보통 ⚡ 로 앞 노드(DB·파일·GitHub file.get) 값을 꽂는다.
+7. **정규식 도우미는 편집 시에만 LLM.** `POST /api/tools/regex-suggest`(`regex_assist.py`) — 설명(+샘플) → 구조화 출력(pattern·플래그·설명) →
+   **서버가 컴파일해 보고** 실패하면 오류 문구를 붙여 한 번 재시도 → 샘플 매치 미리보기. 노드 실행 경로에는 LLM 이 없다. 정규식은 repr() 리터럴로
+   굽는다 — 백슬래시가 많은 값이라 손 이스케이프는 틀린다.
+8. **TOML 쓰기는 자체 직렬화기.** 의존성을 늘리지 않는다(tomli_w 미설치). 최상위 스칼라 → 테이블 → 테이블 배열 순서, null 은 CONVERT_UNSUPPORTED
+   (경로 포함), 비-bare 키는 인용. 읽기는 tomllib/tomli. 자동 감지는 **JSON → TOML → YAML** — YAML 은 `a = 1` 도 문자열 스칼라로 읽어 버리므로 마지막.
+   PyYAML·tomli 는 이미 간접 의존이지만 노드가 직접 쓰므로 requirements.txt 에 명시했다.
+
+**대안 (Alternatives)**
+
+- **Jinja2 템플릿**: 표현식·필터·매크로가 들어와 "값은 옮기기만" 원칙이 깨지고, 샌드박스 없는 Jinja 는 임의 속성 접근 경로다. 기각.
+- **노드마다 생성기 안에 로직**: 테스트 불가·두 엔진 불일치(ADR-0008 이전의 상태). 기각.
+- **실패를 문자열로만**("JSON Parser Error: …" 방식): 조건 분기·인스펙터 안내·error 갈래가 못 읽는다. 기각.
+- **정규식을 실행 시 LLM 으로 보정**: 비결정성이 실행에 들어온다. 편집 시 한 번으로 한정.
+
+**결과 (Consequences)**
+
+- `backend/text_tools.py`, `regex_assist.py`, `node_generators/dev_tool_nodes.py`, 정의 4종, `error_catalog.json` +9(번들·ERROR_CATALOG.md 재생성),
+  `node_bindings.BINDABLE_FIELDS` +4 노드(bindableFields.json 재생성), 카탈로그 57종, `POST /api/tools/regex-suggest`, 편집기 ConnectorNode `extra`
+  슬롯(정의로 그릴 수 없는 도우미 자리)·팔레트·문서·아이콘 4종, `requirements.txt` PyYAML·tomli. `test_text_tools.py` 47건.
+- 남은 DEV-2: `httpCheckNode`(url_guard·connector_cursors 상태)·`osvScanNode`(api.osv.dev, connector 계약+mock)·`cronHelper`(scheduleNode 인스펙터).
+- 카탈로그가 57종이 되면서 LLM 선택지가 늘었다 — node_knowledge 별칭으로 "정규식/diff/yaml/템플릿" 요청이 이 노드로 가게 했고, 생성 평가 사례는
+  DEV-2 2차·템플릿 게시 때 함께 본다.

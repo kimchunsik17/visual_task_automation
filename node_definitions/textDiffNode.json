@@ -1,0 +1,82 @@
+{
+  "type": "textDiffNode",
+  "version": 1,
+  "category": "code",
+  "display": {
+    "label": "텍스트 비교 (diff)",
+    "icon": "node-diff",
+    "color": "#0ea5e9"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "oldText",
+      "kind": "textarea",
+      "label": "이전 텍스트 (⚡ 로 앞 노드 값을 꽂거나 직접 입력)",
+      "placeholder": "비교 기준. 예: 데이터베이스에서 읽은 이전 설정"
+    },
+    {
+      "name": "newText",
+      "kind": "textarea",
+      "label": "이후 텍스트 (비우면 직전 노드 출력)",
+      "placeholder": "{{last_result}} 로 직전 출력을 끼워 넣을 수 있습니다"
+    },
+    {
+      "name": "oldLabel",
+      "kind": "text",
+      "label": "이전 라벨",
+      "default": "이전",
+      "placeholder": "이전"
+    },
+    {
+      "name": "newLabel",
+      "kind": "text",
+      "label": "이후 라벨",
+      "default": "이후",
+      "placeholder": "이후"
+    },
+    {
+      "name": "contextLines",
+      "kind": "number",
+      "label": "문맥 줄 수",
+      "default": 3,
+      "validation": [
+        {
+          "rule": "number",
+          "message": "{node_id}(textDiffNode)의 contextLines는 숫자여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "normalizeJson",
+      "kind": "checkbox",
+      "label": "둘 다 JSON 이면 키 정렬·들여쓰기 후 비교 (설정 비교용)",
+      "default": false
+    },
+    {
+      "name": "ignoreWhitespace",
+      "kind": "checkbox",
+      "label": "공백 차이 무시",
+      "default": false
+    }
+  ],
+  "credentials": [],
+  "capabilities": [],
+  "sideEffect": "none",
+  "executor": "textDiffNode",
+  "mock": {},
+  "llm": {
+    "description": "두 텍스트의 차이를 unified diff 로 만든다. LLM 없이 결정적이다 — \"설정이 바뀌었으면 승인 뒤 적용\" 흐름의 핵심 부품.\n                   data.oldText(문자열 — 비교 기준. 보통 ⚡ 바인딩으로 앞 노드(데이터베이스·파일·GitHub file.get) 값을 꽂는다), data.newText(문자열 — 비우면 직전 노드 출력),\n                   data.oldLabel·data.newLabel(문자열, 선택), data.contextLines(숫자, 기본 3), data.normalizeJson(불리언 — 둘 다 JSON 이면 키 정렬 뒤 비교),\n                   data.ignoreWhitespace(불리언). 출력은 JSON 문자열 {changed(불리언), added, removed, oldLines, newLines, diff(unified diff 텍스트)}.\n                   뒤에 conditionNode 를 두고 changed 경로로 분기하거나, diff 를 llmNode 에 넘겨 변경 요약을 만든다.\n"
+  }
+}

@@ -116,6 +116,11 @@ NODE_ALIASES: Dict[str, List[str]] = {
                           "푸시되면", "CI 실패하면", "pull request", "풀 리퀘스트"],
     "githubNode": ["github", "깃허브", "이슈 생성", "이슈에 코멘트", "PR 코멘트", "PR 에 코멘트", "라벨 붙", "머지", "릴리스 노트",
                    "릴리스 만들", "workflow_dispatch", "dependabot", "취약점 알림", "저장소 파일"],
+    # 백로그 34 DEV-2 — 개발 편의 노드. "정규식/패턴/추출", "비교/diff/바뀐", "yaml/toml/변환", "템플릿/양식 채우기" 로 갈린다.
+    "regexExtractNode": ["정규식", "regex", "패턴으로 추출", "티켓 번호", "이메일만 추출", "숫자만 뽑", "형식이 정해진", "매칭"],
+    "textDiffNode": ["diff", "차이", "비교해서", "바뀐 부분", "달라진", "변경 사항", "이전과 비교", "설정이 바뀌면"],
+    "dataConvertNode": ["yaml", "toml", "json으로 변환", "형식 변환", "포맷 변환", "yaml로", "json을 yaml"],
+    "templateRenderNode": ["템플릿", "template", "본문 만들", "양식에 채워", "자리표시자", "{{", "릴리스 노트 본문", "보고서 본문"],
     "discordTriggerNode": ["디스코드 메시지가 오면", "디스코드에서 메시지", "디스코드 명령",
                            "디스코드로 물어보면"],
     "telegramTriggerNode": ["텔레그램 메시지가 오면", "텔레그램에서 메시지", "텔레그램으로 물어보면"],

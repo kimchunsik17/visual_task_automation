@@ -705,6 +705,105 @@
       "deprecated": false,
       "replacedBy": null,
       "transitional": false
+    },
+    "TOOL_INPUT_TOO_LARGE": {
+      "category": "validation",
+      "messageKey": "validation.tool_input_too_large",
+      "userMessage": "입력이 너무 커서 처리할 수 없습니다. 앞 노드 출력을 줄이거나 나눠서 넣어주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "TOOL_OUTPUT_TOO_LARGE": {
+      "category": "validation",
+      "messageKey": "validation.tool_output_too_large",
+      "userMessage": "결과가 너무 커서 저장할 수 없습니다. 범위를 좁혀주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "REGEX_INVALID": {
+      "category": "validation",
+      "messageKey": "validation.regex_invalid",
+      "userMessage": "정규식이 잘못됐습니다. 패턴이나 그룹 이름을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "REGEX_NO_MATCH": {
+      "category": "validation",
+      "messageKey": "validation.regex_no_match",
+      "userMessage": "정규식에 맞는 부분이 없습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONVERT_PARSE_FAILED": {
+      "category": "validation",
+      "messageKey": "validation.convert_parse_failed",
+      "userMessage": "입력을 JSON/YAML/TOML 로 읽지 못했습니다. 형식과 문법을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "CONVERT_UNSUPPORTED": {
+      "category": "validation",
+      "messageKey": "validation.convert_unsupported",
+      "userMessage": "선택한 출력 형식으로 표현할 수 없는 값이 있습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "TEMPLATE_SYNTAX_INVALID": {
+      "category": "validation",
+      "messageKey": "validation.template_syntax_invalid",
+      "userMessage": "템플릿 문법이 잘못됐습니다. {{#each}}/{{#if}} 짝과 자리표시자를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "TEMPLATE_VAR_MISSING": {
+      "category": "validation",
+      "messageKey": "validation.template_var_missing",
+      "userMessage": "템플릿 변수에 해당하는 값이 없습니다. 변수 이름이나 앞 노드 출력을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
+    },
+    "TEMPLATE_VARIABLES_INVALID": {
+      "category": "validation",
+      "messageKey": "validation.template_variables_invalid",
+      "userMessage": "템플릿 변수가 JSON 객체가 아닙니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "deprecated": false,
+      "replacedBy": null,
+      "transitional": false
     }
   }
 }

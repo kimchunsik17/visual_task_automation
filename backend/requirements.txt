@@ -24,6 +24,9 @@ langchain-anthropic
 langchain-community
 python-dotenv
 pydantic
+# 개발 편의 노드(백로그 34 DEV-2, text_tools.py)가 직접 쓴다 — YAML 은 PyYAML, TOML 읽기는 3.11 미만에서 tomli(3.11+ 는 tomllib).
+PyYAML
+tomli; python_version < "3.11"
 python-multipart
 cryptography>=41
 

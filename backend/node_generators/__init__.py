@@ -9,3 +9,4 @@ from . import template_nodes
 from . import connector_nodes
 from . import image_nodes
 from . import document_nodes
+from . import dev_tool_nodes

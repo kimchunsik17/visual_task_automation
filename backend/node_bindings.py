@@ -38,6 +38,11 @@ BINDABLE_FIELDS: Dict[str, Tuple[str, ...]] = {
     # 변수 허브(§5-5) — valueNode 가 상류 값을 한 번 받아 이름을 붙이고, 하류 여러 곳이 이 노드를
     # 바인딩한다. 같은 경로를 5곳에 복사하는 대신 허브 하나만 고치면 된다.
     "valueNode": ("value",),
+    # 백로그 34 DEV-2 개발 편의 노드(ADR-0033) — 대상 텍스트·변수는 앞 노드 값을 그대로 꽂는 것이 정상 사용법이다.
+    "regexExtractNode": ("source",),
+    "textDiffNode": ("oldText", "newText"),
+    "dataConvertNode": ("source",),
+    "templateRenderNode": ("template", "variables"),
 }
 
 # JSON 경로 문법: a.b[0].c — databaseNode.parameters 의 path 와 같은 규칙.
@@ -216,6 +221,8 @@ PATH_DOCUMENTED_SOURCES: Dict[str, str] = {
     "youtubeTriggerNode": "[0].video_id, [0].title, [0].published_at",
     "rssTriggerNode": "[0].title, [0].link, [0].summary, [0].published_at",
     "githubTriggerNode": "event, action, repo, number, title, body, url, branch, labels[0], author",
+    "textDiffNode": "changed, added, removed, diff",
+    "regexExtractNode": "match, groups.<그룹이름> (mode=first 일 때)",
     "databaseNode": "data.rows[0][0], data.rowCount (outputFormat='result' 일 때)",
 }
 
