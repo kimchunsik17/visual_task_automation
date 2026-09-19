@@ -138,6 +138,125 @@
     "type": "conditionNode",
     "version": 1
   },
+  "dataConvertNode": {
+    "capabilities": [],
+    "category": "code",
+    "credentials": [],
+    "display": {
+      "color": "#14b8a6",
+      "icon": "node-convert",
+      "label": "데이터 형식 변환"
+    },
+    "executor": "dataConvertNode",
+    "fields": [
+      {
+        "default": "auto",
+        "itemFields": [],
+        "kind": "select",
+        "label": "입력 형식",
+        "name": "fromFormat",
+        "options": [
+          {
+            "label": "자동 감지 (JSON → TOML → YAML)",
+            "value": "auto"
+          },
+          {
+            "label": "JSON",
+            "value": "json"
+          },
+          {
+            "label": "YAML",
+            "value": "yaml"
+          },
+          {
+            "label": "TOML",
+            "value": "toml"
+          }
+        ],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "yaml",
+        "itemFields": [],
+        "kind": "select",
+        "label": "출력 형식",
+        "name": "toFormat",
+        "options": [
+          {
+            "label": "JSON",
+            "value": "json"
+          },
+          {
+            "label": "YAML",
+            "value": "yaml"
+          },
+          {
+            "label": "TOML",
+            "value": "toml"
+          }
+        ],
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(dataConvertNode)의 toFormat은 json/yaml/toml 중 하나여야 한다",
+            "requireKeys": {},
+            "rule": "enum"
+          }
+        ]
+      },
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "변환할 텍스트 (비우면 직전 노드 출력)",
+        "name": "source",
+        "options": [],
+        "placeholder": "{{last_result}} 로 직전 출력을 끼워 넣을 수 있습니다",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": 2,
+        "itemFields": [],
+        "kind": "number",
+        "label": "들여쓰기",
+        "name": "indent",
+        "options": [],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "키 정렬",
+        "name": "sortKeys",
+        "options": [],
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "JSON ↔ YAML ↔ TOML 을 서로 변환한다. LLM 없이 결정적이다 — K8s/CI 설정 파이프라인 부품.\n                   data.fromFormat(문자열): \"auto\"(기본값, JSON → TOML → YAML 순으로 시도) | \"json\" | \"yaml\" | \"toml\", data.toFormat(문자열): \"json\" | \"yaml\"(기본값) | \"toml\",\n                   data.source(문자열, 선택 — 비우면 직전 노드 출력), data.indent(숫자, 기본 2), data.sortKeys(불리언).\n                   출력은 변환된 텍스트. TOML 은 최상위가 객체여야 하고 null 을 표현할 수 없다(그 경우 실패로 처리된다).\n"
+    },
+    "mock": {},
+    "outputs": [
+      {
+        "dataType": "text",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "none",
+    "type": "dataConvertNode",
+    "version": 1
+  },
   "dataGoKrNode": {
     "capabilities": [
       "network"
@@ -5731,6 +5850,180 @@
     "type": "posterGeneratorNode",
     "version": 1
   },
+  "regexExtractNode": {
+    "capabilities": [],
+    "category": "code",
+    "credentials": [],
+    "display": {
+      "color": "#eab308",
+      "icon": "node-regex",
+      "label": "정규식 추출"
+    },
+    "executor": "regexExtractNode",
+    "fields": [
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "정규식 (Python re 문법, 이름 그룹 (?P<이름>…) 지원)",
+        "name": "pattern",
+        "options": [],
+        "placeholder": "예: (?P<ticket>[A-Z]+-\\d+)",
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(regexExtractNode)에 pattern이 없다",
+            "requireKeys": {},
+            "rule": "required"
+          }
+        ]
+      },
+      {
+        "default": "first",
+        "itemFields": [],
+        "kind": "select",
+        "label": "동작",
+        "name": "mode",
+        "options": [
+          {
+            "label": "첫 매치 추출",
+            "value": "first"
+          },
+          {
+            "label": "모든 매치 추출 (배열)",
+            "value": "all"
+          },
+          {
+            "label": "일치 여부 (true/false)",
+            "value": "test"
+          },
+          {
+            "label": "치환",
+            "value": "replace"
+          }
+        ],
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(regexExtractNode)의 mode는 first/all/test/replace 중 하나여야 한다",
+            "requireKeys": {},
+            "rule": "enum"
+          }
+        ]
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "꺼낼 그룹 (이름 또는 번호, 비우면 매치 전체 구조)",
+        "name": "group",
+        "options": [],
+        "placeholder": "ticket",
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "first",
+            "all"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "치환 문자열 (\\1, \\g<이름> 사용 가능)",
+        "name": "replacement",
+        "options": [],
+        "placeholder": "[\\g<ticket>]",
+        "showWhen": {
+          "equals": "replace",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "대상 텍스트 (비우면 직전 노드 출력)",
+        "name": "source",
+        "options": [],
+        "placeholder": "{{last_result}} 로 직전 출력을 끼워 넣을 수 있습니다",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "대소문자 무시 (i)",
+        "name": "ignoreCase",
+        "options": [],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "줄마다 ^ $ (m)",
+        "name": "multiline",
+        "options": [],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": ". 이 줄바꿈도 포함 (s)",
+        "name": "dotAll",
+        "options": [],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "매치가 없으면 실패로 처리 (error 갈래로)",
+        "name": "failIfNoMatch",
+        "options": [],
+        "showWhen": {
+          "field": "mode",
+          "oneOf": [
+            "first",
+            "all"
+          ],
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "정규식으로 텍스트에서 값을 추출·검사·치환한다. LLM 없이 결정적으로 동작한다 — 로그·커밋 메시지·티켓 번호·이메일처럼 형식이 정해진 값을 꺼낼 때 llmNode 대신 쓴다.\n                   data.pattern(문자열, 필수 — Python re 문법, 이름 그룹 (?P<이름>…) 권장), data.mode(문자열): \"first\"(첫 매치, 기본값) | \"all\"(모든 매치 배열)\n                   | \"test\"(일치 여부 true/false) | \"replace\"(치환, data.replacement 에 \\\\1·\\\\g<이름>).\n                   data.group(문자열, 선택 — 그룹 이름/번호를 주면 그 값만 문자열로 돌려준다), data.source(문자열, 선택 — 비우면 직전 노드 출력),\n                   data.ignoreCase·data.multiline·data.dotAll(불리언), data.failIfNoMatch(불리언 — 매치가 없으면 실패로 처리해 error 갈래로 보낸다).\n                   출력: first 는 {match, groups{이름: 값}, positional[], start, end} JSON(group 지정 시 문자열 하나, 매치 없으면 빈 문자열) · all 은 그 배열 ·\n                   test 는 \"true\"/\"false\" · replace 는 치환된 전체 텍스트. 뒤 노드가 groups.이름 경로로 바인딩할 수 있다.\n"
+    },
+    "mock": {},
+    "outputs": [
+      {
+        "dataType": "any",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "none",
+    "type": "regexExtractNode",
+    "version": 1
+  },
   "rssTriggerNode": {
     "capabilities": [
       "network"
@@ -6030,6 +6323,199 @@
     ],
     "sideEffect": "none",
     "type": "templateAnalyzerNode",
+    "version": 1
+  },
+  "templateRenderNode": {
+    "capabilities": [],
+    "category": "code",
+    "credentials": [],
+    "display": {
+      "color": "#a855f7",
+      "icon": "node-template",
+      "label": "템플릿 렌더"
+    },
+    "executor": "templateRenderNode",
+    "fields": [
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "템플릿 ({{경로}} · {{#each 배열}}…{{/each}} · {{#if 경로}}…{{else}}…{{/if}})",
+        "name": "template",
+        "options": [],
+        "placeholder": "# {{title}}\n\n{{#each items}}- {{this.name}}: {{this.value}}\n{{/each}}",
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(templateRenderNode)에 template이 없다",
+            "requireKeys": {},
+            "rule": "required"
+          }
+        ]
+      },
+      {
+        "itemFields": [],
+        "kind": "json",
+        "label": "변수 (JSON 객체, 비우면 직전 노드 출력을 JSON 으로 읽음)",
+        "name": "variables",
+        "options": [],
+        "placeholder": "{\"title\": \"주간 보고\", \"items\": [{\"name\": \"A\", \"value\": 1}]}",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "empty",
+        "itemFields": [],
+        "kind": "select",
+        "label": "값이 없는 변수는",
+        "name": "missing",
+        "options": [
+          {
+            "label": "빈 문자열로",
+            "value": "empty"
+          },
+          {
+            "label": "{{이름}} 그대로 남김",
+            "value": "keep"
+          },
+          {
+            "label": "실패로 처리 (error 갈래로)",
+            "value": "error"
+          }
+        ],
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "텍스트 템플릿에 값을 채워 본문을 만든다. LLM 없이 결정적이다 — 릴리스 노트·보고서·알림 본문을 formatNode 나 발송 노드 앞에서 만들 때 쓴다.\n                   data.template(문자열, 필수): {{경로}} 자리표시자(경로는 바인딩과 같은 a.b[0].c 문법, dict/list 는 JSON 으로), {{#each 배열}}…{{/each}} 반복\n                   (안에서 {{this}} {{this.키}} {{@index}} {{@number}}), {{#if 경로}}…{{else}}…{{/if}} 조건. **필터·연산·함수는 없다** — 그런 변환은 llmNode·pythonNode 로.\n                   data.variables(JSON 객체, 선택 — 비우면 직전 노드 출력을 JSON 으로 읽는다. JSON 이 아니면 {{input}} 으로 원문을 쓸 수 있고, 배열이면 {{#each items}}),\n                   data.missing(문자열): \"empty\"(기본값) | \"keep\" | \"error\". 출력은 렌더된 텍스트.\n"
+    },
+    "mock": {},
+    "outputs": [
+      {
+        "dataType": "text",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "none",
+    "type": "templateRenderNode",
+    "version": 1
+  },
+  "textDiffNode": {
+    "capabilities": [],
+    "category": "code",
+    "credentials": [],
+    "display": {
+      "color": "#0ea5e9",
+      "icon": "node-diff",
+      "label": "텍스트 비교 (diff)"
+    },
+    "executor": "textDiffNode",
+    "fields": [
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "이전 텍스트 (⚡ 로 앞 노드 값을 꽂거나 직접 입력)",
+        "name": "oldText",
+        "options": [],
+        "placeholder": "비교 기준. 예: 데이터베이스에서 읽은 이전 설정",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "이후 텍스트 (비우면 직전 노드 출력)",
+        "name": "newText",
+        "options": [],
+        "placeholder": "{{last_result}} 로 직전 출력을 끼워 넣을 수 있습니다",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "이전",
+        "itemFields": [],
+        "kind": "text",
+        "label": "이전 라벨",
+        "name": "oldLabel",
+        "options": [],
+        "placeholder": "이전",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "이후",
+        "itemFields": [],
+        "kind": "text",
+        "label": "이후 라벨",
+        "name": "newLabel",
+        "options": [],
+        "placeholder": "이후",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": 3,
+        "itemFields": [],
+        "kind": "number",
+        "label": "문맥 줄 수",
+        "name": "contextLines",
+        "options": [],
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(textDiffNode)의 contextLines는 숫자여야 한다",
+            "requireKeys": {},
+            "rule": "number"
+          }
+        ]
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "둘 다 JSON 이면 키 정렬·들여쓰기 후 비교 (설정 비교용)",
+        "name": "normalizeJson",
+        "options": [],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": false,
+        "itemFields": [],
+        "kind": "checkbox",
+        "label": "공백 차이 무시",
+        "name": "ignoreWhitespace",
+        "options": [],
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "두 텍스트의 차이를 unified diff 로 만든다. LLM 없이 결정적이다 — \"설정이 바뀌었으면 승인 뒤 적용\" 흐름의 핵심 부품.\n                   data.oldText(문자열 — 비교 기준. 보통 ⚡ 바인딩으로 앞 노드(데이터베이스·파일·GitHub file.get) 값을 꽂는다), data.newText(문자열 — 비우면 직전 노드 출력),\n                   data.oldLabel·data.newLabel(문자열, 선택), data.contextLines(숫자, 기본 3), data.normalizeJson(불리언 — 둘 다 JSON 이면 키 정렬 뒤 비교),\n                   data.ignoreWhitespace(불리언). 출력은 JSON 문자열 {changed(불리언), added, removed, oldLines, newLines, diff(unified diff 텍스트)}.\n                   뒤에 conditionNode 를 두고 changed 경로로 분기하거나, diff 를 llmNode 에 넘겨 변경 요약을 만든다.\n"
+    },
+    "mock": {},
+    "outputs": [
+      {
+        "dataType": "json",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "none",
+    "type": "textDiffNode",
     "version": 1
   },
   "youtubeNode": {

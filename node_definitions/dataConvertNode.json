@@ -1,0 +1,100 @@
+{
+  "type": "dataConvertNode",
+  "version": 1,
+  "category": "code",
+  "display": {
+    "label": "데이터 형식 변환",
+    "icon": "node-convert",
+    "color": "#14b8a6"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "text"
+    }
+  ],
+  "fields": [
+    {
+      "name": "fromFormat",
+      "kind": "select",
+      "label": "입력 형식",
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "자동 감지 (JSON → TOML → YAML)"
+        },
+        {
+          "value": "json",
+          "label": "JSON"
+        },
+        {
+          "value": "yaml",
+          "label": "YAML"
+        },
+        {
+          "value": "toml",
+          "label": "TOML"
+        }
+      ]
+    },
+    {
+      "name": "toFormat",
+      "kind": "select",
+      "label": "출력 형식",
+      "default": "yaml",
+      "options": [
+        {
+          "value": "json",
+          "label": "JSON"
+        },
+        {
+          "value": "yaml",
+          "label": "YAML"
+        },
+        {
+          "value": "toml",
+          "label": "TOML"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "message": "{node_id}(dataConvertNode)의 toFormat은 json/yaml/toml 중 하나여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "source",
+      "kind": "textarea",
+      "label": "변환할 텍스트 (비우면 직전 노드 출력)",
+      "placeholder": "{{last_result}} 로 직전 출력을 끼워 넣을 수 있습니다"
+    },
+    {
+      "name": "indent",
+      "kind": "number",
+      "label": "들여쓰기",
+      "default": 2
+    },
+    {
+      "name": "sortKeys",
+      "kind": "checkbox",
+      "label": "키 정렬",
+      "default": false
+    }
+  ],
+  "credentials": [],
+  "capabilities": [],
+  "sideEffect": "none",
+  "executor": "dataConvertNode",
+  "mock": {},
+  "llm": {
+    "description": "JSON ↔ YAML ↔ TOML 을 서로 변환한다. LLM 없이 결정적이다 — K8s/CI 설정 파이프라인 부품.\n                   data.fromFormat(문자열): \"auto\"(기본값, JSON → TOML → YAML 순으로 시도) | \"json\" | \"yaml\" | \"toml\", data.toFormat(문자열): \"json\" | \"yaml\"(기본값) | \"toml\",\n                   data.source(문자열, 선택 — 비우면 직전 노드 출력), data.indent(숫자, 기본 2), data.sortKeys(불리언).\n                   출력은 변환된 텍스트. TOML 은 최상위가 객체여야 하고 null 을 표현할 수 없다(그 경우 실패로 처리된다).\n"
+  }
+}

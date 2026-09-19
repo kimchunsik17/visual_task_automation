@@ -1,0 +1,134 @@
+{
+  "type": "regexExtractNode",
+  "version": 1,
+  "category": "code",
+  "display": {
+    "label": "정규식 추출",
+    "icon": "node-regex",
+    "color": "#eab308"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "any"
+    }
+  ],
+  "fields": [
+    {
+      "name": "pattern",
+      "kind": "text",
+      "label": "정규식 (Python re 문법, 이름 그룹 (?P<이름>…) 지원)",
+      "placeholder": "예: (?P<ticket>[A-Z]+-\\d+)",
+      "validation": [
+        {
+          "rule": "required",
+          "message": "{node_id}(regexExtractNode)에 pattern이 없다"
+        }
+      ]
+    },
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "동작",
+      "default": "first",
+      "options": [
+        {
+          "value": "first",
+          "label": "첫 매치 추출"
+        },
+        {
+          "value": "all",
+          "label": "모든 매치 추출 (배열)"
+        },
+        {
+          "value": "test",
+          "label": "일치 여부 (true/false)"
+        },
+        {
+          "value": "replace",
+          "label": "치환"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "message": "{node_id}(regexExtractNode)의 mode는 first/all/test/replace 중 하나여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "group",
+      "kind": "text",
+      "label": "꺼낼 그룹 (이름 또는 번호, 비우면 매치 전체 구조)",
+      "placeholder": "ticket",
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "first",
+          "all"
+        ]
+      }
+    },
+    {
+      "name": "replacement",
+      "kind": "text",
+      "label": "치환 문자열 (\\1, \\g<이름> 사용 가능)",
+      "placeholder": "[\\g<ticket>]",
+      "showWhen": {
+        "field": "mode",
+        "equals": "replace"
+      }
+    },
+    {
+      "name": "source",
+      "kind": "textarea",
+      "label": "대상 텍스트 (비우면 직전 노드 출력)",
+      "placeholder": "{{last_result}} 로 직전 출력을 끼워 넣을 수 있습니다"
+    },
+    {
+      "name": "ignoreCase",
+      "kind": "checkbox",
+      "label": "대소문자 무시 (i)",
+      "default": false
+    },
+    {
+      "name": "multiline",
+      "kind": "checkbox",
+      "label": "줄마다 ^ $ (m)",
+      "default": false
+    },
+    {
+      "name": "dotAll",
+      "kind": "checkbox",
+      "label": ". 이 줄바꿈도 포함 (s)",
+      "default": false
+    },
+    {
+      "name": "failIfNoMatch",
+      "kind": "checkbox",
+      "label": "매치가 없으면 실패로 처리 (error 갈래로)",
+      "default": false,
+      "showWhen": {
+        "field": "mode",
+        "oneOf": [
+          "first",
+          "all"
+        ]
+      }
+    }
+  ],
+  "credentials": [],
+  "capabilities": [],
+  "sideEffect": "none",
+  "executor": "regexExtractNode",
+  "mock": {},
+  "llm": {
+    "description": "정규식으로 텍스트에서 값을 추출·검사·치환한다. LLM 없이 결정적으로 동작한다 — 로그·커밋 메시지·티켓 번호·이메일처럼 형식이 정해진 값을 꺼낼 때 llmNode 대신 쓴다.\n                   data.pattern(문자열, 필수 — Python re 문법, 이름 그룹 (?P<이름>…) 권장), data.mode(문자열): \"first\"(첫 매치, 기본값) | \"all\"(모든 매치 배열)\n                   | \"test\"(일치 여부 true/false) | \"replace\"(치환, data.replacement 에 \\\\1·\\\\g<이름>).\n                   data.group(문자열, 선택 — 그룹 이름/번호를 주면 그 값만 문자열로 돌려준다), data.source(문자열, 선택 — 비우면 직전 노드 출력),\n                   data.ignoreCase·data.multiline·data.dotAll(불리언), data.failIfNoMatch(불리언 — 매치가 없으면 실패로 처리해 error 갈래로 보낸다).\n                   출력: first 는 {match, groups{이름: 값}, positional[], start, end} JSON(group 지정 시 문자열 하나, 매치 없으면 빈 문자열) · all 은 그 배열 ·\n                   test 는 \"true\"/\"false\" · replace 는 치환된 전체 텍스트. 뒤 노드가 groups.이름 경로로 바인딩할 수 있다.\n"
+  }
+}

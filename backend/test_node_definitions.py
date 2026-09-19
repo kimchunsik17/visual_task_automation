@@ -43,6 +43,10 @@ CONNECTOR_TYPES = [
     # mock.samples(GitHub 문서 예시 payload)만 갖는다. 액션은 PAT 하나로 13개 모드.
     "githubTriggerNode", "githubNode",
 ]
+# 백로그 34 DEV-2(2026-09-19, ADR-0033): 개발 편의 노드 — 결정적·외부 호출 없음. connector 블록도 mock 도 없다.
+UTILITY_TYPES = [
+    "regexExtractNode", "textDiffNode", "dataConvertNode", "templateRenderNode",
+]
 
 
 def _catalog_template() -> str:
@@ -56,10 +60,10 @@ def _catalog_template() -> str:
 
 # ── 정의 파일 자체 ──────────────────────────────────────────────────────
 def test_definitions_load():
-    assert node_definition.defined_types() == sorted(MIGRATED_TYPES + CONNECTOR_TYPES)
+    assert node_definition.defined_types() == sorted(MIGRATED_TYPES + CONNECTOR_TYPES + UTILITY_TYPES)
 
 
-@pytest.mark.parametrize("node_type", MIGRATED_TYPES + CONNECTOR_TYPES)
+@pytest.mark.parametrize("node_type", MIGRATED_TYPES + CONNECTOR_TYPES + UTILITY_TYPES)
 def test_definition_is_self_consistent(node_type):
     definition = node_definition.get_definition(node_type)
     # 정의 스키마 버전은 노드 계약이 바뀔 때 올라간다(databaseNode v2 = ADR-0017). 1 로 고정하지
@@ -82,7 +86,7 @@ def test_definition_is_self_consistent(node_type):
     walk(definition.fields)
 
 
-@pytest.mark.parametrize("node_type", MIGRATED_TYPES + CONNECTOR_TYPES)
+@pytest.mark.parametrize("node_type", MIGRATED_TYPES + CONNECTOR_TYPES + UTILITY_TYPES)
 def test_catalog_description_only_mentions_declared_fields(node_type):
     """카탈로그 설명이 'data.xxx' 로 안내하는 필드는 반드시 정의에 선언돼 있어야 한다.
     필드 이름을 바꾸면서 프롬프트 문구를 안 고치면 LLM이 존재하지 않는 필드를 채운다."""
@@ -141,7 +145,7 @@ def test_catalog_header_count_matches_the_actual_entry_count():
 def test_meta_agent_assembles_catalog_from_definitions():
     source = META_AGENT_PATH.read_text(encoding="utf-8")
     assert "NODE_CATALOG = node_definition.inject_catalog_entries(_NODE_CATALOG_TEMPLATE)" in source
-    for node_type in MIGRATED_TYPES + CONNECTOR_TYPES:
+    for node_type in MIGRATED_TYPES + CONNECTOR_TYPES + UTILITY_TYPES:
         # 접두사는 카탈로그 원문의 패딩을 그대로 보존한다(바이트 동등성) — 폭을 재조립하지 않는다.
         assert re.search(
             rf"^- {node_type}\s*: {re.escape(node_definition.CATALOG_PLACEHOLDER)}$", source, re.M,
@@ -341,7 +345,7 @@ def _generic_field_node_types() -> set:
     return set(re.findall(r'<ConnectorNode[^>]*nodeType="(\w+)"', source))
 
 
-@pytest.mark.parametrize("node_type", MIGRATED_TYPES + CONNECTOR_TYPES)
+@pytest.mark.parametrize("node_type", MIGRATED_TYPES + CONNECTOR_TYPES + UTILITY_TYPES)
 def test_정의된_노드는_캔버스에_그려질_수_있다(node_type):
     assert node_type in (_explicit_node_types() | _dynamic_node_types()), (
         f"{node_type}: EditorPage 의 nodeTypes 에도 nodeRegistry 에도 없다 — 캔버스에 놓으면 "
@@ -349,7 +353,7 @@ def test_정의된_노드는_캔버스에_그려질_수_있다(node_type):
     )
 
 
-@pytest.mark.parametrize("node_type", MIGRATED_TYPES + CONNECTOR_TYPES)
+@pytest.mark.parametrize("node_type", MIGRATED_TYPES + CONNECTOR_TYPES + UTILITY_TYPES)
 def test_정의된_노드는_팔레트에서_고를_수_있다(node_type):
     """등록만 하고 팔레트에 없으면 사용자가 캔버스에 놓을 방법이 없다."""
     catalog = EDITOR_CATALOG_PATH.read_text(encoding="utf-8")

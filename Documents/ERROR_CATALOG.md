@@ -61,6 +61,15 @@
 | <a id="binding_source_not_run"></a>`BINDING_SOURCE_NOT_RUN` | validation | runtime | 아니오 | `not_started` | 해당 입력으로 이동 | 연결한 값의 출처 노드가 이번 실행에서 실행되지 않았습니다. 분기 경로를 확인해주세요. |
 | <a id="binding_path_missing"></a>`BINDING_PATH_MISSING` | validation | runtime | 아니오 | `not_started` | 해당 입력으로 이동 | 연결한 값이 출처 노드의 결과에 없습니다. 경로를 다시 선택해주세요. |
 | <a id="binding_source_failed"></a>`BINDING_SOURCE_FAILED` | validation | runtime | 아니오 | `not_started` | 해당 입력으로 이동 | 연결한 값의 출처 노드가 오류로 끝나 값을 가져올 수 없습니다. |
+| <a id="tool_input_too_large"></a>`TOOL_INPUT_TOO_LARGE` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 입력이 너무 커서 처리할 수 없습니다. 앞 노드 출력을 줄이거나 나눠서 넣어주세요. |
+| <a id="tool_output_too_large"></a>`TOOL_OUTPUT_TOO_LARGE` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 결과가 너무 커서 저장할 수 없습니다. 범위를 좁혀주세요. |
+| <a id="regex_invalid"></a>`REGEX_INVALID` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 정규식이 잘못됐습니다. 패턴이나 그룹 이름을 확인해주세요. |
+| <a id="regex_no_match"></a>`REGEX_NO_MATCH` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 정규식에 맞는 부분이 없습니다. |
+| <a id="convert_parse_failed"></a>`CONVERT_PARSE_FAILED` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 입력을 JSON/YAML/TOML 로 읽지 못했습니다. 형식과 문법을 확인해주세요. |
+| <a id="convert_unsupported"></a>`CONVERT_UNSUPPORTED` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 선택한 출력 형식으로 표현할 수 없는 값이 있습니다. |
+| <a id="template_syntax_invalid"></a>`TEMPLATE_SYNTAX_INVALID` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 템플릿 문법이 잘못됐습니다. {{#each}}/{{#if}} 짝과 자리표시자를 확인해주세요. |
+| <a id="template_var_missing"></a>`TEMPLATE_VAR_MISSING` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 템플릿 변수에 해당하는 값이 없습니다. 변수 이름이나 앞 노드 출력을 확인해주세요. |
+| <a id="template_variables_invalid"></a>`TEMPLATE_VARIABLES_INVALID` | validation | text_tools | 아니오 | `not_started` | 해당 입력으로 이동 | 템플릿 변수가 JSON 객체가 아닙니다. |
 
 ## safeDetails 허용 key
 
@@ -122,3 +131,12 @@
 - `BINDING_SOURCE_NOT_RUN`: `field`, `sourceNodeId`
 - `BINDING_PATH_MISSING`: `field`, `sourceNodeId`, `path`
 - `BINDING_SOURCE_FAILED`: `field`, `sourceNodeId`
+- `TOOL_INPUT_TOO_LARGE`: `field`, `chars`, `limit`
+- `TOOL_OUTPUT_TOO_LARGE`: `chars`, `limit`
+- `REGEX_INVALID`: `field`, `detail`, `position`
+- `REGEX_NO_MATCH`: `field`
+- `CONVERT_PARSE_FAILED`: `field`, `fromFormat`, `detail`
+- `CONVERT_UNSUPPORTED`: `toFormat`, `path`, `detail`
+- `TEMPLATE_SYNTAX_INVALID`: `field`, `detail`, `position`
+- `TEMPLATE_VAR_MISSING`: `field`, `path`
+- `TEMPLATE_VARIABLES_INVALID`: `field`, `detail`

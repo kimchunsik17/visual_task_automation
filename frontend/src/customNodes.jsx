@@ -454,7 +454,7 @@ const ConnectorInputHandles = ({ nodeType }) => {
   ));
 };
 
-const ConnectorNode = ({ id, data, nodeType, hasInput = true }) => {
+const ConnectorNode = ({ id, data, nodeType, hasInput = true, extra = null }) => {
   const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const display = getNodeDisplay(nodeType);
   const handleNodeClick = () => {
@@ -482,6 +482,7 @@ const ConnectorNode = ({ id, data, nodeType, hasInput = true }) => {
       {isExpanded && (
         <div className="node-body">
           <DefinitionFields id={id} data={data} nodeType={nodeType} />
+          {extra ? extra({ id, data }) : null}
         </div>
       )}
       <Handle type="source" position={Position.Right} id="out" />
@@ -504,6 +505,51 @@ export const NaverCafeNode = (props) => <ConnectorNode {...props} nodeType="nave
 // 백로그 34 DEV-1 — GitHub. 트리거는 인바운드 웹훅이라 들어오는 연결이 없고, 요청 검증 모드는 정의의 select 로 그린다(기본 HMAC).
 export const GithubTriggerNode = (props) => <ConnectorNode {...props} nodeType="githubTriggerNode" hasInput={false} />;
 export const GithubNode = (props) => <ConnectorNode {...props} nodeType="githubNode" />;
+
+// ── 개발 편의 노드(백로그 34 DEV-2, ADR-0033) — 결정적, 외부 호출 없음. 실행 로직은 backend/text_tools.py.
+// 정규식 도우미: 노드 실행은 LLM 을 쓰지 않는다. 편집할 때만 설명 → 정규식을 서버(/api/tools/regex-suggest)가 만들어 컴파일·샘플 적용까지
+// 확인해 돌려주고, 여기서 pattern·플래그 필드에 채운다.
+const RegexSuggest = ({ id, data }) => {
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const run = async () => {
+    if (!description.trim() || busy) return;
+    setBusy(true); setNote('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tools/regex-suggest', { description, sample: data.source || '' },
+        { headers: { Authorization: `Bearer ${token}` } });
+      const s = res.data || {};
+      data.onChange(id, 'pattern', s.pattern || '');
+      data.onChange(id, 'ignoreCase', Boolean(s.ignoreCase));
+      data.onChange(id, 'multiline', Boolean(s.multiline));
+      data.onChange(id, 'dotAll', Boolean(s.dotAll));
+      const preview = Array.isArray(s.preview) && s.preview.length ? ` · 샘플 매치 ${s.matchCount}건: ${s.preview.join(', ')}` : (data.source ? ' · 샘플에서 매치 없음' : '');
+      setNote(`${s.explanation || '정규식을 채웠습니다.'}${preview}`);
+    } catch (err) {
+      setNote(err?.response?.data?.detail || '정규식 제안에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const style = { width: '100%', padding: '0.4rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', fontSize: '0.8rem' };
+  return (
+    <div style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+      <label>AI 로 정규식 만들기 (편집 시에만 사용, 실행에는 LLM 을 쓰지 않음)</label>
+      <input type="text" className="nodrag" value={description} placeholder="무엇을 뽑을지 설명 — 예: ABC-123 형식의 티켓 번호"
+        onChange={(e) => setDescription(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') run(); }} style={style} />
+      <button type="button" className="nodrag" onClick={run} disabled={busy || !description.trim()} style={{ ...style, cursor: busy ? 'wait' : 'pointer' }}>
+        {busy ? '만드는 중…' : '정규식 제안 받기'}
+      </button>
+      {note && <div style={{ fontSize: '11px', color: '#666', whiteSpace: 'pre-wrap' }}>{note}</div>}
+    </div>
+  );
+};
+export const RegexExtractNode = (props) => <ConnectorNode {...props} nodeType="regexExtractNode" extra={({ id, data }) => <RegexSuggest id={id} data={data} />} />;
+export const TextDiffNode = (props) => <ConnectorNode {...props} nodeType="textDiffNode" />;
+export const DataConvertNode = (props) => <ConnectorNode {...props} nodeType="dataConvertNode" />;
+export const TemplateRenderNode = (props) => <ConnectorNode {...props} nodeType="templateRenderNode" />;
 // 연동 노드는 아니지만(connector 블록 없음) 화면에서 필요한 것은 같다 — 정의에서 색·아이콘·
 // 필드를 읽어 그리고 펼칠 수 있으면 된다. ConnectorNode 는 그 셋만 쓰므로 그대로 재사용한다.
 export const HwpxDocumentNode = (props) => <ConnectorNode {...props} nodeType="hwpxDocumentNode" />;

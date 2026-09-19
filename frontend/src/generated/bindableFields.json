@@ -1,6 +1,9 @@
 {
   "version": 1,
   "fields": {
+    "dataConvertNode": [
+      "source"
+    ],
     "discordNode": [
       "channelId"
     ],
@@ -20,12 +23,23 @@
     "kakaoNode": [
       "receiver"
     ],
+    "regexExtractNode": [
+      "source"
+    ],
     "slackNode": [
       "channel",
       "message"
     ],
     "telegramNode": [
       "chatId"
+    ],
+    "templateRenderNode": [
+      "template",
+      "variables"
+    ],
+    "textDiffNode": [
+      "oldText",
+      "newText"
     ],
     "valueNode": [
       "value"

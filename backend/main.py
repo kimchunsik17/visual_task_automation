@@ -739,6 +739,24 @@ def generate_document_format(payload: FormatGeneratePayload,
     return {"spec": spec}
 
 
+# ── 개발 편의 노드 도우미(백로그 34 DEV-2) ─────────────────────────────────
+# regexExtractNode 의 실행은 결정적이다(LLM 없음). 편집할 때만 설명 → 정규식을 한 번 만들어 주고, 컴파일·샘플 적용까지 확인해 돌려준다.
+class RegexSuggestPayload(BaseModel):
+    description: str
+    sample: str = ""
+
+
+@app.post("/api/tools/regex-suggest")
+def suggest_regex(payload: RegexSuggestPayload, user: models.User = Depends(get_current_user_required)):
+    import regex_assist
+    try:
+        return regex_assist.suggest(payload.description, payload.sample)
+    except regex_assist.RegexAssistError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"정규식 제안에 실패했습니다: {exc}")
+
+
 # 가져오기 파일은 파싱만 하고 버린다 — 업로드 저장소·쿼터에 남기지 않으므로 상한만 지킨다.
 MAX_FORMAT_IMPORT_BYTES = int(os.getenv("MAX_FORMAT_IMPORT_BYTES", 15 * 1024 * 1024))
 

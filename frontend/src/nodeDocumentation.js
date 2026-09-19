@@ -625,6 +625,73 @@ export const NODE_DOCS = {
     tips: ['pr.merge·issue.create 같은 쓰기 동작은 dry-run 에서 실행되지 않습니다.', '대량 생성은 GitHub 2차 한도(분당 80건)에 걸릴 수 있어 노드가 분당 60건 간격을 지킵니다.', 'PR diff 는 20만 자까지만 가져옵니다(truncated 로 표시).'],
     related: ['githubTriggerNode', 'llmNode', 'humanApprovalNode', 'conditionNode'],
   },
+  regexExtractNode: {
+    summary: '정규식으로 텍스트에서 값을 추출·검사·치환하는 결정적 노드입니다.',
+    details: [
+      '티켓 번호·이메일·로그의 코드처럼 형식이 정해진 값은 LLM 없이 이 노드로 뽑습니다 — 같은 입력이면 항상 같은 결과, 토큰 비용 0.',
+      '동작: 첫 매치(구조 {match, groups, positional, start, end}) · 모든 매치(배열) · 일치 여부(true/false) · 치환. 그룹 이름을 지정하면 그 값만 문자열로 돌려줍니다.',
+      '정규식을 직접 쓰기 어려우면 노드 아래 "AI 로 정규식 만들기"에 설명을 적으세요 — 서버가 만들어 컴파일과 샘플 적용까지 확인한 뒤 채워 줍니다(편집 시에만 LLM 사용).',
+    ],
+    usage: ['커밋 메시지에서 티켓 번호 추출 → GitHub 이슈 코멘트', '로그에서 오류 코드만 모아 보고서', '이메일 본문에서 주문 번호 추출'],
+    io: { input: '대상 텍스트(비우면 직전 노드 출력).', output: '모드별 — 구조 JSON, 배열, true/false, 치환된 텍스트.' },
+    fields: {
+      pattern: 'Python re 문법. 뽑을 값은 (?P<이름>…) 이름 그룹으로 감싸면 뒤 노드가 groups.이름 으로 바인딩할 수 있습니다.',
+      mode: 'first(첫 매치) · all(모든 매치) · test(일치 여부) · replace(치환).',
+      group: '그룹 이름 또는 번호. 지정하면 매치 구조 대신 그 값만.',
+      replacement: '치환 문자열. \\1, \\g<이름> 으로 그룹을 참조합니다.',
+      source: '대상 텍스트. 비우면 직전 노드 출력, ⚡ 로 앞 노드 값을 꽂을 수도 있습니다.',
+      failIfNoMatch: '켜면 매치가 없을 때 실패로 처리해 error 갈래로 보냅니다.',
+    },
+    tips: ['조건 분기가 목적이면 mode=test 뒤에 조건 노드를 두세요.', '입력 1 MB 상한. 아주 큰 로그는 앞에서 잘라 넣으세요.'],
+    related: ['jsonParserNode', 'conditionNode', 'templateRenderNode', 'llmNode'],
+  },
+  textDiffNode: {
+    summary: '두 텍스트의 차이를 unified diff 로 만드는 결정적 노드입니다.',
+    details: [
+      '"설정이 바뀌었으면 승인 뒤 적용" 흐름의 핵심 부품입니다. 이전 텍스트는 보통 ⚡ 바인딩으로 앞 노드(데이터베이스·파일·GitHub 파일 읽기) 값을 꽂고, 이후 텍스트는 직전 노드 출력입니다.',
+      '출력은 {changed, added, removed, oldLines, newLines, diff} JSON. 바뀐 것이 없으면 changed 가 false 이고 diff 는 빈 문자열입니다.',
+    ],
+    usage: ['K8s/CI 설정 변경 diff → 사용자 승인 → 적용', '크롤링한 페이지가 어제와 달라졌는지 감시', 'AI 가 고친 문서와 원문 비교'],
+    io: { input: '이후 텍스트(비우면 직전 노드 출력).', output: 'diff 요약 JSON 문자열.' },
+    fields: {
+      oldText: '비교 기준. ⚡ 로 앞 노드 값을 꽂거나 직접 입력.',
+      newText: '비교 대상. 비우면 직전 노드 출력.',
+      contextLines: 'diff 에 함께 보여줄 문맥 줄 수(기본 3).',
+      normalizeJson: '둘 다 JSON 이면 키 정렬·들여쓰기를 맞춘 뒤 비교합니다 — 키 순서만 다른 설정을 "변경"으로 보지 않습니다.',
+      ignoreWhitespace: '줄 안 공백 차이를 무시합니다.',
+    },
+    tips: ['뒤에 조건 노드를 두고 changed 경로로 분기하세요.', 'diff 를 LLM 에 넘겨 변경 요약을 만들면 승인자가 읽기 쉽습니다.'],
+    related: ['conditionNode', 'humanApprovalNode', 'databaseNode', 'githubNode'],
+  },
+  dataConvertNode: {
+    summary: 'JSON · YAML · TOML 을 서로 변환하는 결정적 노드입니다.',
+    details: [
+      '입력 형식은 자동 감지(JSON → TOML → YAML 순)하거나 지정합니다. 값 구조를 중간 표현으로 두고 다시 직렬화하므로 주석은 보존되지 않습니다.',
+      'TOML 은 최상위가 객체여야 하고 null 을 표현할 수 없습니다 — 그런 값이 있으면 어느 경로인지 알려 주며 실패합니다.',
+    ],
+    usage: ['API 응답(JSON) → K8s 매니페스트(YAML)', 'pyproject(TOML) 설정을 JSON 으로 읽어 조건 분기', 'LLM 이 만든 JSON 을 사람이 읽기 좋은 YAML 로'],
+    io: { input: '변환할 텍스트(비우면 직전 노드 출력).', output: '변환된 텍스트.' },
+    fields: { fromFormat: 'auto 또는 json/yaml/toml.', toFormat: 'json/yaml/toml.', indent: '들여쓰기 칸 수.', sortKeys: '키를 정렬합니다(비교·diff 전에 유용).' },
+    tips: ['변경 감시가 목적이면 뒤에 텍스트 비교 노드를 두세요.'],
+    related: ['jsonParserNode', 'textDiffNode', 'templateRenderNode'],
+  },
+  templateRenderNode: {
+    summary: '텍스트 템플릿에 값을 채워 본문을 만드는 결정적 노드입니다.',
+    details: [
+      '릴리스 노트·보고서·알림 본문을 발송 노드나 문서 포맷 노드 앞에서 만듭니다. {{경로}} 자리표시자, {{#each 배열}}…{{/each}} 반복, {{#if 경로}}…{{else}}…{{/if}} 조건 — 셋뿐입니다.',
+      '필터·연산·함수는 의도적으로 없습니다(값은 옮기기만 한다는 원칙). 그런 변환은 LLM 이나 파이썬 노드에서 하세요.',
+      '변수를 비우면 직전 노드 출력을 JSON 으로 읽습니다. JSON 이 아니면 {{input}} 으로 원문을, 배열이면 {{#each items}} 로 쓸 수 있습니다.',
+    ],
+    usage: ['GitHub 릴리스 노트 → 한국어 공지 본문', '검색 결과 배열 → 마크다운 목록', 'diff 요약 → 승인 요청 메시지'],
+    io: { input: '변수 JSON(비우면 직전 노드 출력).', output: '렌더된 텍스트.' },
+    fields: {
+      template: '반복 안에서는 {{this}} {{this.키}} {{@index}}(0부터) {{@number}}(1부터). 바깥 변수도 그대로 보입니다.',
+      variables: 'JSON 객체. ⚡ 로 앞 노드 출력을 통째로 꽂을 수 있습니다.',
+      missing: '값이 없는 변수를 빈 문자열로 · {{이름}} 그대로 · 실패(error 갈래)로.',
+    },
+    tips: ['마크다운을 그대로 쓰면 디스코드·GitHub 코멘트에 바로 보낼 수 있습니다.'],
+    related: ['formatNode', 'emailNode', 'githubNode', 'llmNode'],
+  },
   jusoNode: {
     summary: '사람이 쓴 주소를 행정안전부 도로명주소 표준으로 정규화합니다.',
     details: [

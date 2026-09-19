@@ -948,6 +948,145 @@
         "sourceNodeId"
       ],
       "docs": "Documents/ERROR_CATALOG.md#binding_source_failed"
+    },
+    {
+      "code": "TOOL_INPUT_TOO_LARGE",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.tool_input_too_large",
+      "userMessage": "입력이 너무 커서 처리할 수 없습니다. 앞 노드 출력을 줄이거나 나눠서 넣어주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "chars",
+        "limit"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#tool_input_too_large"
+    },
+    {
+      "code": "TOOL_OUTPUT_TOO_LARGE",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.tool_output_too_large",
+      "userMessage": "결과가 너무 커서 저장할 수 없습니다. 범위를 좁혀주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "chars",
+        "limit"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#tool_output_too_large"
+    },
+    {
+      "code": "REGEX_INVALID",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.regex_invalid",
+      "userMessage": "정규식이 잘못됐습니다. 패턴이나 그룹 이름을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "detail",
+        "position"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#regex_invalid"
+    },
+    {
+      "code": "REGEX_NO_MATCH",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.regex_no_match",
+      "userMessage": "정규식에 맞는 부분이 없습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#regex_no_match"
+    },
+    {
+      "code": "CONVERT_PARSE_FAILED",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.convert_parse_failed",
+      "userMessage": "입력을 JSON/YAML/TOML 로 읽지 못했습니다. 형식과 문법을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "fromFormat",
+        "detail"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#convert_parse_failed"
+    },
+    {
+      "code": "CONVERT_UNSUPPORTED",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.convert_unsupported",
+      "userMessage": "선택한 출력 형식으로 표현할 수 없는 값이 있습니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "toFormat",
+        "path",
+        "detail"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#convert_unsupported"
+    },
+    {
+      "code": "TEMPLATE_SYNTAX_INVALID",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.template_syntax_invalid",
+      "userMessage": "템플릿 문법이 잘못됐습니다. {{#each}}/{{#if}} 짝과 자리표시자를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "detail",
+        "position"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#template_syntax_invalid"
+    },
+    {
+      "code": "TEMPLATE_VAR_MISSING",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.template_var_missing",
+      "userMessage": "템플릿 변수에 해당하는 값이 없습니다. 변수 이름이나 앞 노드 출력을 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "path"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#template_var_missing"
+    },
+    {
+      "code": "TEMPLATE_VARIABLES_INVALID",
+      "category": "validation",
+      "owner": "text_tools",
+      "messageKey": "validation.template_variables_invalid",
+      "userMessage": "템플릿 변수가 JSON 객체가 아닙니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "detail"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#template_variables_invalid"
     }
   ]
 }

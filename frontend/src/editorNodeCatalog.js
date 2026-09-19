@@ -45,6 +45,11 @@ const STATIC_EDITOR_NODES = [
   // 백로그 34 DEV-1 — GitHub 트리거(인바운드 웹훅 위)와 액션(PAT).
   ['githubTriggerNode', 'GitHub 이벤트 수신', 'input', '#8250df', 'provider-github', 'trigger'],
   ['githubNode', 'GitHub', 'integration', '#8250df', 'provider-github'],
+  // 백로그 34 DEV-2 — 개발 편의 노드(결정적, 외부 호출 없음). 코드 카테고리에 둔다.
+  ['regexExtractNode', '정규식 추출', 'code', '#eab308', 'node-regex'],
+  ['textDiffNode', '텍스트 비교 (diff)', 'code', '#0ea5e9', 'node-diff'],
+  ['dataConvertNode', '데이터 형식 변환', 'code', '#14b8a6', 'node-convert'],
+  ['templateRenderNode', '템플릿 렌더', 'code', '#a855f7', 'node-template'],
   // 문서 카테고리(포맷 스튜디오 계획 §4.3) — 새 문서·포스터는 formatNode, 기존 서식 파일
   // 채우기는 templateAnalyzer→fileModifier, 코드 없는 .hwpx 생성은 hwpxDocumentNode.
   ['formatNode', '문서 포맷', 'document', '#0d9488', 'node-file-modifier'],

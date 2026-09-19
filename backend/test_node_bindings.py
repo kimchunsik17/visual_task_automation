@@ -242,6 +242,10 @@ MINIMAL_DATA = {
     "formatNode": {"formatId": "incident-report", "output": "hwpx"},
     "webCrawlerNode": {"url": "https://example.com"},
     "valueNode": {"value": ""},
+    "regexExtractNode": {"pattern": "(?P<x>\\d+)"},
+    "textDiffNode": {},
+    "dataConvertNode": {"toFormat": "yaml"},
+    "templateRenderNode": {"template": "{{x}}"},
 }
 
 
