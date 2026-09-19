@@ -42,6 +42,8 @@ CONNECTOR_TYPES = [
     # 백로그 34 DEV-1(2026-09-13): GitHub. 트리거는 인바운드 웹훅 위에 있어 외부 호출이 없다 — connector 블록 대신
     # mock.samples(GitHub 문서 예시 payload)만 갖는다. 액션은 PAT 하나로 13개 모드.
     "githubTriggerNode", "githubNode",
+    # 백로그 34 DEV-2 2차(2026-09-19, ADR-0034): 감시형 유틸. 자격증명 없는 connector — mock 은 success/timeout(+not_found/server_error).
+    "httpCheckNode", "osvScanNode",
 ]
 # 백로그 34 DEV-2(2026-09-19, ADR-0033): 개발 편의 노드 — 결정적·외부 호출 없음. connector 블록도 mock 도 없다.
 UTILITY_TYPES = [

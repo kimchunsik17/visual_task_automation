@@ -550,6 +550,9 @@ export const RegexExtractNode = (props) => <ConnectorNode {...props} nodeType="r
 export const TextDiffNode = (props) => <ConnectorNode {...props} nodeType="textDiffNode" />;
 export const DataConvertNode = (props) => <ConnectorNode {...props} nodeType="dataConvertNode" />;
 export const TemplateRenderNode = (props) => <ConnectorNode {...props} nodeType="templateRenderNode" />;
+// DEV-2 2차 — 감시형 유틸(네트워크, 자격증명 없음). 점검 결과가 나쁜 것은 노드 실패가 아니라 결과다(ok/vulnerable 로 분기).
+export const HttpCheckNode = (props) => <ConnectorNode {...props} nodeType="httpCheckNode" />;
+export const OsvScanNode = (props) => <ConnectorNode {...props} nodeType="osvScanNode" />;
 // 연동 노드는 아니지만(connector 블록 없음) 화면에서 필요한 것은 같다 — 정의에서 색·아이콘·
 // 필드를 읽어 그리고 펼칠 수 있으면 된다. ConnectorNode 는 그 셋만 쓰므로 그대로 재사용한다.
 export const HwpxDocumentNode = (props) => <ConnectorNode {...props} nodeType="hwpxDocumentNode" />;
@@ -2485,6 +2488,68 @@ function buildScheduleCron(mode, hour, minute, weekday, day) {
   return `${minute} ${hour} * * *`; // daily
 }
 
+// cron 도우미(DEV-2 cronHelper, ADR-0034): 말로 적으면 서버(/api/tools/cron-suggest)가 규칙 우선·LLM 폴백으로 cron 을 만들고,
+// 표현식이 바뀔 때마다 /api/tools/cron-preview 로 스케줄러와 같은 해석기의 다음 실행 시각을 보여준다 — 미리보기와 실제가 어긋나지 않는다.
+const formatRunTime = (iso) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()}(${'일월화수목금토'[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const CronHelper = ({ cronExpression, onApply }) => {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const [preview, setPreview] = useState(null);
+  useEffect(() => {
+    const expr = (cronExpression || '').trim();
+    if (expr.split(/\s+/).length !== 5) { setPreview(null); return undefined; }
+    let on = true;
+    const timer = setTimeout(async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get('/api/tools/cron-preview', { params: { expr }, headers: { Authorization: `Bearer ${token}` } });
+        if (on) setPreview(res.data);
+      } catch (err) {
+        if (on) setPreview({ error: err?.response?.data?.detail || '해석할 수 없는 표현식입니다.' });
+      }
+    }, 400);
+    return () => { on = false; clearTimeout(timer); };
+  }, [cronExpression]);
+  const run = async () => {
+    if (!text.trim() || busy) return;
+    setBusy(true); setNote('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tools/cron-suggest', { text }, { headers: { Authorization: `Bearer ${token}` } });
+      onApply(res.data.cron);
+      setNote(`${res.data.explanation || res.data.cron}${res.data.assumedTime ? ' (시각을 적지 않아 오전 9시로 두었습니다)' : ''}`);
+    } catch (err) {
+      setNote(err?.response?.data?.detail || '일정을 해석하지 못했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="input-group" style={{ marginTop: '0.5rem' }}>
+      <label>말로 설정</label>
+      <div style={{ display: 'flex', gap: '4px' }}>
+        <input type="text" className="nodrag" value={text} placeholder="예: 평일 오전 9시 30분, 매주 월·수 10시, 30분마다"
+          onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') run(); }} style={{ flex: 1 }} />
+        <button type="button" className="nodrag" onClick={run} disabled={busy || !text.trim()}>{busy ? '…' : '변환'}</button>
+      </div>
+      {note && <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)' }}>{note}</small>}
+      {preview && !preview.error && Array.isArray(preview.next) && preview.next.length > 0 && (
+        <small style={{ display: 'block', marginTop: '6px', color: 'var(--text-muted)' }}>
+          {preview.description && preview.description !== preview.cron ? `${preview.description} · ` : ''}다음 실행: {preview.next.slice(0, 3).map(formatRunTime).join(', ')}
+        </small>
+      )}
+      {preview?.error && <small style={{ display: 'block', marginTop: '6px', color: '#f87171' }}>{preview.error}</small>}
+    </div>
+  );
+};
+
 export const ScheduleNode = ({ id, data }) => {
   const { isExpanded, toggleExpand } = useNodeExpand(id, data);
   const isAIModified = data.isAIModified;
@@ -2575,6 +2640,8 @@ export const ScheduleNode = ({ id, data }) => {
               <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)' }}>분 시 일 월 요일 순서 (예: 0 7 * * * → 매일 오전 7시)</small>
             </div>
           )}
+
+          <CronHelper cronExpression={data.cronExpression} onApply={(cron) => { data.onChange(id, 'cronExpression', cron); setMode(parseScheduleCron(cron).mode); }} />
 
           {data.cronExpression && (
             <small style={{ display: 'block', marginTop: '8px', color: 'var(--text-muted)' }}>

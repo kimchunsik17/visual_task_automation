@@ -2590,3 +2590,64 @@ DEV-2 는 그 자리를 결정적 노드로 채운다. 결정할 것은 (1) 로�
 - 남은 DEV-2: `httpCheckNode`(url_guard·connector_cursors 상태)·`osvScanNode`(api.osv.dev, connector 계약+mock)·`cronHelper`(scheduleNode 인스펙터).
 - 카탈로그가 57종이 되면서 LLM 선택지가 늘었다 — node_knowledge 별칭으로 "정규식/diff/yaml/템플릿" 요청이 이 노드로 가게 했고, 생성 평가 사례는
   DEV-2 2차·템플릿 게시 때 함께 본다.
+
+## ADR-0034 · 감시형 유틸: 점검 결과는 실패가 아니다, 상태는 connector_cursors 에, 인증서는 ssl 소켓으로
+
+| 상태 | 수락됨 · 2026-09-19 (백로그 34 DEV-2 2차 — httpCheckNode·osvScanNode·cronHelper. DEV-2 완료) |
+| --- | --- |
+| 결정자 | 백엔드 · 프론트엔드 |
+| 관련 | ROADMAP §3.3 DEV-2, ADR-0033(유틸 노드 1차), ADR-0007/0008(연동 계약·mock), ADR-0016(NodeError), ADR-0030(error 갈래), url_guard(§6.5), connector_cursors(0017) |
+
+**맥락 (Context)**
+
+n8n DevOps 템플릿의 절반은 **감시형 유틸**이다 — 사이트가 살았나, 인증서가 언제 끝나나, 의존성에 알려진 취약점이 있나. 이 셋은 유틸 1차와
+달리 네트워크를 탄다. 결정할 것은 (1) "점검 결과가 나쁨" 을 노드 실패로 볼 것인가, (2) "지난번과 달라졌나" 의 상태를 어디 두나, (3) 인증서·DNS 를
+외부 API 없이 어떻게 보나, (4) OSV 조회를 어떻게 자르나, (5) scheduleNode 의 한국어 → cron 을 LLM 에 맡길 것인가였다.
+
+**결정 (Decision)**
+
+1. **점검 결과는 실패가 아니라 결과다.** 503·키워드 없음·타임아웃·인증서 만료 임박·취약점 있음은 전부 출력 JSON(`ok`/`problems`,
+   `vulnerable`/`alerts`)으로 나오고 노드는 성공한다 — 뒤의 conditionNode 가 분기한다. 노드 **실패**는 URL 이 막혔거나(SSRF) 입력이
+   틀렸거나 OSV 서버가 죽은 때만이다. 사용자가 `failOnProblem`/`failOnVulnerable` 을 켜면 그때만 HTTPCHECK_PROBLEM·OSV_VULNERABLE
+   (connector 범주, 재시도 불가, 조치 없음)로 승격해 error 갈래(ADR-0030)로 보낸다. "장애 = 노드 실패" 로 만들면 정상 흐름(알림)이 예외
+   처리 경로가 되고, 재시도 정책이 장애 감지를 지연시킨다.
+2. **HTTP 실패 상태는 예외로 받지 않는다.** `session.request(expected_status=100~599)` 로 4xx/5xx 를 응답으로 받고, 타임아웃·연결 실패만
+   `http_unreachable` 결과로 바꾼다. 재시도 정책은 maxAttempts 2 — 감시는 빠른 판정이 우선이다.
+3. **상태는 connector_cursors 에.** 지난 점검의 본문 해시·상태·인증서 남은 일수를 트리거 cursor 표(0017)에 `{version, contentHash, status,
+   checkedAt, tlsDaysLeft}` 로 둔다 — 프로젝트·노드 단위 격리와 workspace 소유가 그대로 따라온다(검증 매트릭스 "사용자·프로젝트 단위 격리").
+   연결 실패 한 번으로 기준 해시를 잃지 않는다(직전 해시를 유지). JSON 본문은 키 정렬 뒤 해시 — 키 순서만 바뀐 응답을 "변경" 으로 보지 않는다.
+4. **인증서는 `ssl` 소켓, DNS 는 `socket.getaddrinfo`.** 외부 API 없이 핸드셰이크만 하고 `getpeercert()` 를 읽는다 — 폐쇄망 친화. 검증 실패
+   (만료·이름 불일치·자체 서명)도 결과(`tls_verify_failed`)다. DNS 는 A/AAAA 만 — CNAME·MX·TXT 는 dnspython 이 필요해 범위 밖. 목업에서는
+   소켓을 열 수 없으므로 `mock: true` 고정값을 돌려준다 — 흐름은 끝까지 돌되 진짜 점검이 아니었다는 표시가 남는다. 판정 로직(`tls_summary`)은
+   소켓과 분리해 getpeercert dict 로 테스트한다.
+5. **SSRF 검사는 url_guard 한 곳.** `check_url` + 리다이렉트 홉 훅(http_request 와 같은 배선). 목업(네트워크를 타지 않음)에서는 건너뛴다.
+6. **OSV 는 내용으로 형식을 감지하고 1,000개씩 묻는다.** 파일 이름이 없다(앞 노드 출력으로 들어온다) — package-lock v1~3·yarn v1·requirements·
+   Pipfile.lock·poetry.lock·go.sum·Cargo.lock 을 모양으로 알아본다(TOML 은 text_tools 파서 재사용). querybatch 상한 1,000 에 맞춰 나누고 결과를
+   순서로 맞춘다. 상세(`GET /v1/vulns/{id}`)는 50건 상한 — 그 뒤는 id·링크만. 심각도는 `database_specific.severity` → `ecosystem_specific`
+   → UNKNOWN; CVSS 벡터에서 점수를 계산하지 않는다(대략치는 오해를 부른다). `minSeverity` 를 두면 UNKNOWN 은 빠지고 수만 남긴다.
+7. **cron 은 규칙 우선, LLM 폴백, 항상 검증.** 매일/평일/주말/매주 요일/매월 N일/매시간/N분마다 + 시각(오전·오후·정오·자정·H시 M분·HH:MM·반)은
+   결정적 규칙으로. 시각이 없으면 오전 9시로 두고 `assumedTime` 을 표시한다. 규칙이 못 알아들으면 LLM(구조화 출력)에 맡기되 결과를
+   **APScheduler CronTrigger 로 검증**하고, 다음 5회를 스케줄러와 같은 해석기로 계산해 함께 돌려준다 — 미리보기와 실제가 어긋나지 않는다.
+   프론트는 표현식이 바뀔 때마다 미리보기를 갱신한다(400 ms 디바운스).
+8. **요일 번호는 표준 crontab(0=일요일)으로 고정한다 — 스케줄러 결함 수정.** APScheduler 3.x 의 `CronTrigger.from_crontab` 은 역사적 실수로
+   0 을 **월요일**로 읽는다(공식 문서 경고, issue 286). 편집기는 0=일요일(JS 관례)로 `… * * 1` 을 만들고 카탈로그도 표준 cron 이라고 안내했으니,
+   지금까지 **매주 스케줄이 하루 늦게 돌았다**. `cron_helper.to_trigger` 가 요일 필드의 숫자를 이름(mon,tue,…)으로 펼쳐 CronTrigger 에 넘기고,
+   `scheduler.py` 가 `from_crontab` 대신 이 함수를 쓴다 — 미리보기와 실제가 같은 함수다. 배포 뒤 기존 매주 스케줄은 편집기에 적힌 요일대로 돈다.
+
+**대안 (Alternatives)**
+
+- **점검 실패 = 노드 실패**: 알림 흐름이 예외 처리 경로가 된다. 기각(옵션으로만).
+- **상태를 노드 data 에 저장**: graph_data 가 실행마다 바뀌고 revision 이 쌓인다. 기각.
+- **인증서를 외부 API(SSL Labs 등)로**: 폐쇄망 불가, 한도·속도 문제. 기각.
+- **`npm audit`/`pip-audit` 를 서버에서 실행**: 언어 도구를 VM 에 깔아야 하고 실행 시간이 길다. OSV HTTP 로 충분하다.
+- **cron 을 LLM 만으로**: 같은 문장이 매번 다른 표현식이 될 수 있다. 규칙이 먼저.
+
+**결과 (Consequences)**
+
+- `connectors/services/http_check.py`·`osv.py`, `cron_helper.py`, 정의 2종(connector 블록·mock success/timeout+not_found/server_error),
+  `error_catalog.json` +3(HTTPCHECK_PROBLEM·OSV_VULNERABLE·OSV_LOCKFILE_UNRECOGNIZED), 생성기 2종(cursor 저장·승격 옵션), `POST /api/tools/
+  cron-suggest`·`GET /api/tools/cron-preview`, BINDABLE_FIELDS(httpCheckNode.url·osvScanNode.lockfile), 카탈로그 59종, 편집기 팔레트·문서·
+  아이콘 2종·ScheduleNode 카드 "말로 설정"+미리보기. `test_http_check.py`·`test_osv.py`·`test_cron_helper.py`.
+- dry-run 은 읽기 전용 커넥터를 실제로 실행한다(httpRequestNode GET 과 같음) — 점검 노드도 dry-run 에서 실제 요청을 보내고 cursor 를 저장한다.
+- **DEV-2 완료.** 다음은 DEV-3(Dooray·네이버웍스·카카오워크·잔디 발송, GitLab, Jira, Jenkins, Database write). 차별화 템플릿 4번(의존성 취약점
+  주간 점검)은 이제 부품이 다 있다 — 템플릿 게시는 DEV-3 뒤 한 번에.

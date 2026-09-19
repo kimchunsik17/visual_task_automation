@@ -1,0 +1,286 @@
+{
+  "type": "osvScanNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "의존성 취약점 검사 (OSV)",
+    "icon": "node-shield",
+    "color": "#dc2626"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "json"
+    }
+  ],
+  "fields": [
+    {
+      "name": "lockfile",
+      "kind": "textarea",
+      "label": "lockfile 내용 (비우면 직전 노드 출력)",
+      "placeholder": "package-lock.json · yarn.lock · requirements.txt · Pipfile.lock · poetry.lock · go.sum · Cargo.lock 의 내용을 붙이거나 ⚡ 로 앞 노드(GitHub 파일 읽기 등) 값을 꽂습니다"
+    },
+    {
+      "name": "format",
+      "kind": "select",
+      "label": "lockfile 형식",
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "자동 감지"
+        },
+        {
+          "value": "package-lock",
+          "label": "package-lock.json (npm)"
+        },
+        {
+          "value": "yarn",
+          "label": "yarn.lock (npm)"
+        },
+        {
+          "value": "requirements",
+          "label": "requirements.txt (PyPI)"
+        },
+        {
+          "value": "pipfile-lock",
+          "label": "Pipfile.lock (PyPI)"
+        },
+        {
+          "value": "poetry-lock",
+          "label": "poetry.lock (PyPI)"
+        },
+        {
+          "value": "go-sum",
+          "label": "go.sum (Go)"
+        },
+        {
+          "value": "cargo-lock",
+          "label": "Cargo.lock (crates.io)"
+        }
+      ]
+    },
+    {
+      "name": "minSeverity",
+      "kind": "select",
+      "label": "이 심각도 이상만",
+      "default": "all",
+      "options": [
+        {
+          "value": "all",
+          "label": "전부 (심각도 미상 포함)"
+        },
+        {
+          "value": "LOW",
+          "label": "LOW 이상"
+        },
+        {
+          "value": "MODERATE",
+          "label": "MODERATE 이상"
+        },
+        {
+          "value": "HIGH",
+          "label": "HIGH 이상"
+        },
+        {
+          "value": "CRITICAL",
+          "label": "CRITICAL 만"
+        }
+      ]
+    },
+    {
+      "name": "includeDetails",
+      "kind": "checkbox",
+      "label": "취약점 상세(요약·심각도·수정 버전) 조회 (최대 50건)",
+      "default": true
+    },
+    {
+      "name": "maxPackages",
+      "kind": "number",
+      "label": "조회할 최대 패키지 수",
+      "default": 1000,
+      "validation": [
+        {
+          "rule": "number",
+          "message": "{node_id}(osvScanNode)의 maxPackages는 숫자여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "failOnVulnerable",
+      "kind": "checkbox",
+      "label": "취약점이 있으면 실패로 처리 (error 갈래로)",
+      "default": false
+    }
+  ],
+  "credentials": [],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-read",
+  "executor": "osvScanNode",
+  "connector": {
+    "service": "OSV",
+    "role": "action",
+    "modes": [
+      "scan"
+    ],
+    "credentials": [],
+    "baseUrl": "https://api.osv.dev",
+    "timeoutSeconds": 20.0,
+    "rateLimit": {
+      "requestsPerMinute": 60
+    },
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 20.0
+    },
+    "sideEffectByMode": {
+      "scan": "external-read"
+    },
+    "outputSchemaByMode": {
+      "scan": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "packages": {
+            "type": "number"
+          },
+          "vulnerable": {
+            "type": "number"
+          },
+          "alertCount": {
+            "type": "number"
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "package": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "severity": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "fixedVersion": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "docsUrl": "https://google.github.io/osv.dev/post-v1-querybatch/",
+    "verifiedAt": "2026-09-19"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/v1/querybatch"
+            },
+            "status": 200,
+            "body": {
+              "results": [
+                {
+                  "vulns": [
+                    {
+                      "id": "GHSA-35jh-r3h4-6jhm",
+                      "modified": "2024-04-04T00:00:00Z"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "match": {
+              "method": "GET",
+              "urlContains": "/v1/vulns/"
+            },
+            "status": 200,
+            "body": {
+              "id": "GHSA-35jh-r3h4-6jhm",
+              "summary": "Command Injection in lodash",
+              "aliases": [
+                "CVE-2021-23337"
+              ],
+              "modified": "2024-04-04T00:00:00Z",
+              "database_specific": {
+                "severity": "HIGH"
+              },
+              "affected": [
+                {
+                  "package": {
+                    "ecosystem": "npm",
+                    "name": "lodash"
+                  },
+                  "ranges": [
+                    {
+                      "type": "SEMVER",
+                      "events": [
+                        {
+                          "introduced": "0"
+                        },
+                        {
+                          "fixed": "4.17.21"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "server_error": {
+        "responses": [
+          {
+            "status": 503,
+            "body": {
+              "code": 14,
+              "message": "unavailable"
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "lockfile(package-lock.json·yarn.lock·requirements.txt·Pipfile.lock·poetry.lock·go.sum·Cargo.lock)의 패키지 버전을 OSV(오픈소스 취약점 DB, 무료·키 불필요)에 조회해\n                   취약점 목록을 만든다. npm audit 같은 도구를 서버에서 돌리지 않고 HTTP 만 쓴다. 취약점이 있는 것은 실패가 아니라 **결과**다 —\n                   뒤의 conditionNode 가 vulnerable 을 보고 분기하고, formatNode 로 보고서를 만들거나 githubNode issue.create 로 이슈를 연다.\n                   data.lockfile(문자열 — 비우면 직전 노드 출력. 보통 ⚡ 로 githubNode file.get 의 content 를 꽂는다), data.format(\"auto\" 기본값 또는 형식 이름),\n                   data.minSeverity(\"all\" | \"LOW\" | \"MODERATE\" | \"HIGH\" | \"CRITICAL\"), data.includeDetails(불리언, 기본 true), data.maxPackages(숫자, 기본 1000),\n                   data.failOnVulnerable(불리언 — 켜면 취약점이 있을 때 error 갈래로).\n                   출력: {format, ecosystem, packages, vulnerable, alertCount, bySeverity{CRITICAL, HIGH, MODERATE, LOW, UNKNOWN}, alerts[{package, version, id, aliases, summary,\n                   severity, fixedVersion, url}], truncated}. 자격증명이 필요 없다.\n"
+  }
+}

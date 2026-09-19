@@ -1087,6 +1087,52 @@
         "detail"
       ],
       "docs": "Documents/ERROR_CATALOG.md#template_variables_invalid"
+    },
+    {
+      "code": "HTTPCHECK_PROBLEM",
+      "category": "connector",
+      "owner": "http_check",
+      "messageKey": "connector.httpcheck_problem",
+      "userMessage": "점검 대상에 문제가 있습니다 — 응답 상태·키워드·인증서·DNS 중 하나가 기대와 다릅니다. problems 를 확인해주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "none",
+      "safeDetailKeys": [
+        "url",
+        "problems"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#httpcheck_problem"
+    },
+    {
+      "code": "OSV_VULNERABLE",
+      "category": "connector",
+      "owner": "osv",
+      "messageKey": "connector.osv_vulnerable",
+      "userMessage": "의존성에 알려진 취약점이 있습니다. alerts 목록을 확인하고 수정 버전으로 올려주세요.",
+      "retryable": false,
+      "effectStateDefault": "not_applicable",
+      "resolution": "none",
+      "safeDetailKeys": [
+        "vulnerable",
+        "alertCount",
+        "top"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#osv_vulnerable"
+    },
+    {
+      "code": "OSV_LOCKFILE_UNRECOGNIZED",
+      "category": "validation",
+      "owner": "osv",
+      "messageKey": "validation.osv_lockfile_unrecognized",
+      "userMessage": "lockfile 형식을 알아내지 못했습니다. package-lock.json·yarn.lock·requirements.txt·Pipfile.lock·poetry.lock·go.sum·Cargo.lock 을 지원합니다.",
+      "retryable": false,
+      "effectStateDefault": "not_started",
+      "resolution": "focus_field",
+      "safeDetailKeys": [
+        "field",
+        "detail"
+      ],
+      "docs": "Documents/ERROR_CATALOG.md#osv_lockfile_unrecognized"
     }
   ]
 }

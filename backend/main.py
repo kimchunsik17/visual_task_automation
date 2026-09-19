@@ -757,6 +757,31 @@ def suggest_regex(payload: RegexSuggestPayload, user: models.User = Depends(get_
         raise HTTPException(status_code=502, detail=f"정규식 제안에 실패했습니다: {exc}")
 
 
+# scheduleNode 도우미(DEV-2 cronHelper): 한국어 → cron 은 규칙 우선·LLM 폴백, 미리보기는 스케줄러와 같은 CronTrigger 로 계산한다.
+class CronSuggestPayload(BaseModel):
+    text: str
+
+
+@app.post("/api/tools/cron-suggest")
+def suggest_cron(payload: CronSuggestPayload, user: models.User = Depends(get_current_user_required)):
+    import cron_helper
+    try:
+        return cron_helper.suggest(payload.text)
+    except cron_helper.CronHelperError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"일정 해석에 실패했습니다: {exc}")
+
+
+@app.get("/api/tools/cron-preview")
+def preview_cron(expr: str, user: models.User = Depends(get_current_user_required)):
+    import cron_helper
+    try:
+        return cron_helper.preview(expr)
+    except cron_helper.CronHelperError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 # 가져오기 파일은 파싱만 하고 버린다 — 업로드 저장소·쿼터에 남기지 않으므로 상한만 지킨다.
 MAX_FORMAT_IMPORT_BYTES = int(os.getenv("MAX_FORMAT_IMPORT_BYTES", 15 * 1024 * 1024))
 

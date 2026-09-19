@@ -16,12 +16,18 @@
       "values",
       "output_path"
     ],
+    "httpCheckNode": [
+      "url"
+    ],
     "httpRequestNode": [
       "url",
       "body"
     ],
     "kakaoNode": [
       "receiver"
+    ],
+    "osvScanNode": [
+      "lockfile"
     ],
     "regexExtractNode": [
       "source"

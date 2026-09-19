@@ -43,6 +43,9 @@ BINDABLE_FIELDS: Dict[str, Tuple[str, ...]] = {
     "textDiffNode": ("oldText", "newText"),
     "dataConvertNode": ("source",),
     "templateRenderNode": ("template", "variables"),
+    # DEV-2 2차 감시형 유틸 — 점검 주소는 목록 순회(distributorNode)에서, lockfile 은 githubNode file.get 의 content 에서 오는 것이 정상 사용법.
+    "httpCheckNode": ("url",),
+    "osvScanNode": ("lockfile",),
 }
 
 # JSON 경로 문법: a.b[0].c — databaseNode.parameters 의 path 와 같은 규칙.
@@ -223,6 +226,8 @@ PATH_DOCUMENTED_SOURCES: Dict[str, str] = {
     "githubTriggerNode": "event, action, repo, number, title, body, url, branch, labels[0], author",
     "textDiffNode": "changed, added, removed, diff",
     "regexExtractNode": "match, groups.<그룹이름> (mode=first 일 때)",
+    "httpCheckNode": "ok, changed, problems[0], http.status, http.responseMs, tls.daysLeft",
+    "osvScanNode": "vulnerable, alertCount, alerts[0].package, alerts[0].severity, alerts[0].fixedVersion",
     "databaseNode": "data.rows[0][0], data.rowCount (outputFormat='result' 일 때)",
 }
 

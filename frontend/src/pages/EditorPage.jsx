@@ -67,7 +67,7 @@ import {
 } from '../editorCommands';
 import { useEditorHistory } from '../useEditorHistory';
 import { EDITOR_NODE_CATALOG, getEditorNodeMeta, getReplacementCandidates } from '../editorNodeCatalog';
-import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DiscordTriggerNode, TelegramNode, TelegramTriggerNode, NotionNode, WebhookNode, YoutubeNode, YoutubeTriggerNode , MemoNode , RssTriggerNode , GmailTriggerNode , GmailNode , GoogleDriveNode , NaverSearchNode , JusoNode , DataGoKrNode , NaverSearchTriggerNode , NaverCafeNode , GithubTriggerNode , GithubNode , RegexExtractNode , TextDiffNode , DataConvertNode , TemplateRenderNode , HwpxDocumentNode, FormatNode, invalidateUserFormatsCache, formatFieldsSchema,
+import { StartNode, PromptNode, LLMNode, OutputNode, ConditionNode, ValueNode, LoopNode, BreakNode, PythonNode, TokenizerNode, DistributorNode, FileModifierNode, TemplateAnalyzerNode, DynamicInputNode, WebCrawlerNode, EmailNode, KakaoNode, DelayNode, JsonParserNode, MergeNode, HttpRequestNode, DatabaseNode, HumanApprovalNode, MultiAgentNode, DynamicNode, ScheduleNode, DiscordNode, DiscordTriggerNode, TelegramNode, TelegramTriggerNode, NotionNode, WebhookNode, YoutubeNode, YoutubeTriggerNode , MemoNode , RssTriggerNode , GmailTriggerNode , GmailNode , GoogleDriveNode , NaverSearchNode , JusoNode , DataGoKrNode , NaverSearchTriggerNode , NaverCafeNode , GithubTriggerNode , GithubNode , RegexExtractNode , TextDiffNode , DataConvertNode , TemplateRenderNode , HttpCheckNode , OsvScanNode , HwpxDocumentNode, FormatNode, invalidateUserFormatsCache, formatFieldsSchema,
 } from '../customNodes';
 import { NodeRegistry } from '../nodeRegistry';
 import { MEMO_MIN_NODE_HEIGHT } from '../memoSizing';
@@ -268,6 +268,8 @@ const nodeTypes = {
   textDiffNode: TextDiffNode,
   dataConvertNode: DataConvertNode,
   templateRenderNode: TemplateRenderNode,
+  httpCheckNode: HttpCheckNode,
+  osvScanNode: OsvScanNode,
   naverCafeNode: NaverCafeNode,
   hwpxDocumentNode: HwpxDocumentNode,
   formatNode: FormatNode,

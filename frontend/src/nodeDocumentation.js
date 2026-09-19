@@ -692,6 +692,46 @@ export const NODE_DOCS = {
     tips: ['마크다운을 그대로 쓰면 디스코드·GitHub 코멘트에 바로 보낼 수 있습니다.'],
     related: ['formatNode', 'emailNode', 'githubNode', 'llmNode'],
   },
+  httpCheckNode: {
+    summary: '웹사이트·API 의 상태·응답시간·본문 변경, TLS 인증서 만료, DNS 해석을 점검합니다.',
+    details: [
+      '점검 결과가 나쁜 것(503, 키워드 없음, 인증서 만료 임박)은 노드 실패가 아니라 결과입니다 — 출력의 ok 와 problems 를 조건 노드가 보고 알림을 보냅니다. "문제가 있으면 실패로 처리"를 켜면 error 갈래로 갑니다.',
+      '본문 변경 감지는 지난 점검의 해시를 기억해 changed 로 알려 줍니다(프로젝트·노드 단위로 저장). 인증서는 외부 API 없이 직접 핸드셰이크해 읽고, DNS 는 A/AAAA 만 봅니다.',
+      '사설 IP·내부 주소는 SSRF 검사로 막힙니다. 자격증명이 필요 없습니다.',
+    ],
+    usage: ['스케줄 → 웹사이트 점검 → 조건(ok=false) → 디스코드 알림', '인증서 만료 14일 전 알림', '경쟁사 가격 페이지가 바뀌면 요약해 메일'],
+    io: { input: '사용하지 않습니다(주소는 필드 또는 ⚡ 바인딩).', output: '{ok, problems, changed, http, tls, dns, previous} JSON 문자열.' },
+    fields: {
+      url: '점검할 주소. 스킴을 빼면 https 로 봅니다.',
+      mode: '전부 / HTTP만 / 인증서만 / DNS만.',
+      expectStatus: '정상으로 볼 상태 코드. 200-399, 200,204, 2xx 형태.',
+      keyword: '본문에 있어야 하는 문구. 없으면 http_keyword 문제로 표시.',
+      trackChanges: '켜면 지난 점검과 본문 해시를 비교해 changed 를 줍니다. 첫 점검은 firstRun.',
+      tlsWarnDays: '만료까지 이 일수보다 짧으면 tls_expiring.',
+      failOnProblem: '문제가 있을 때 error 갈래로 보냅니다.',
+    },
+    tips: ['여러 사이트를 점검하려면 분배기로 주소 목록을 순회하고 url 을 ⚡ 로 꽂으세요.', '응답 본문이 매번 바뀌는 페이지(시간 표시 등)는 trackChanges 를 꺼 두세요.'],
+    related: ['scheduleNode', 'conditionNode', 'discordNode', 'textDiffNode'],
+  },
+  osvScanNode: {
+    summary: 'lockfile 의 패키지 버전을 OSV(오픈소스 취약점 DB)에 조회해 취약점 목록을 만드는 노드입니다.',
+    details: [
+      'package-lock.json · yarn.lock · requirements.txt · Pipfile.lock · poetry.lock · go.sum · Cargo.lock 을 내용으로 자동 감지합니다. npm audit 같은 도구를 서버에서 돌리지 않고 HTTP 만 씁니다 — 키 불필요·무료.',
+      '취약점이 있는 것은 실패가 아니라 결과입니다 — vulnerable·alertCount 로 분기하고, alerts 를 문서 포맷 노드로 보고서를 만들거나 GitHub 이슈로 올립니다. "취약점이 있으면 실패로 처리"를 켜면 error 갈래로 갑니다.',
+      '상세(요약·심각도·수정 버전)는 취약점마다 한 번 조회하며 50건까지입니다. 그 뒤는 id 와 링크만 남습니다.',
+    ],
+    usage: ['주간 스케줄 → GitHub 파일 읽기(package-lock.json) → 취약점 검사 → 조건 → 보고서 → 승인 → 이슈 생성', 'PR 열림 → lockfile 읽기 → 검사 → PR 코멘트'],
+    io: { input: 'lockfile 내용(비우면 직전 노드 출력).', output: '{format, packages, vulnerable, alertCount, bySeverity, alerts[]} JSON 문자열.' },
+    fields: {
+      lockfile: '내용을 직접 붙이거나 ⚡ 로 GitHub 파일 읽기의 content 를 꽂습니다.',
+      format: '자동 감지가 틀리면 지정합니다.',
+      minSeverity: '이 심각도 이상만 남깁니다. 심각도 미상은 "전부"일 때만 포함.',
+      maxPackages: '조회할 최대 패키지 수(상한 5,000).',
+      failOnVulnerable: '취약점이 있을 때 error 갈래로 보냅니다.',
+    },
+    tips: ['수정 버전(fixedVersion)이 있는 항목부터 올리세요.', 'CRITICAL 만 알림받고 나머지는 주간 보고서로 모으는 식으로 minSeverity 를 나눠 쓰세요.'],
+    related: ['githubNode', 'conditionNode', 'formatNode', 'humanApprovalNode'],
+  },
   jusoNode: {
     summary: '사람이 쓴 주소를 행정안전부 도로명주소 표준으로 정규화합니다.',
     details: [

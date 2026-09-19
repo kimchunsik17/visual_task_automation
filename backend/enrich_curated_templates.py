@@ -97,6 +97,8 @@ STEP_SENTENCE = {
     "textDiffNode": "이전 텍스트와 비교해 차이를 만듭니다",
     "dataConvertNode": "JSON·YAML·TOML 형식을 변환합니다",
     "templateRenderNode": "템플릿에 값을 채워 본문을 만듭니다",
+    "httpCheckNode": "웹사이트 상태·인증서·DNS 를 점검합니다",
+    "osvScanNode": "의존성 취약점을 OSV 에 조회합니다",
     "naverCafeNode": "네이버 카페에 글을 올립니다",
     "jusoNode": "도로명주소를 조회합니다",
     "dataGoKrNode": "공공데이터포털에서 자료를 받아옵니다",
