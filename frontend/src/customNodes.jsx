@@ -557,6 +557,9 @@ export const OsvScanNode = (props) => <ConnectorNode {...props} nodeType="osvSca
 export const DoorayNode = (props) => <ConnectorNode {...props} nodeType="doorayNode" />;
 export const JandiNode = (props) => <ConnectorNode {...props} nodeType="jandiNode" />;
 export const KakaoWorkNode = (props) => <ConnectorNode {...props} nodeType="kakaoWorkNode" />;
+// DEV-3 2차 — GitLab. 트리거는 인바운드 웹훅(들어오는 연결 없음, 기본 검증 X-Gitlab-Token), 액션은 PAT + 인스턴스 주소 필드.
+export const GitlabTriggerNode = (props) => <ConnectorNode {...props} nodeType="gitlabTriggerNode" hasInput={false} />;
+export const GitlabNode = (props) => <ConnectorNode {...props} nodeType="gitlabNode" />;
 // 연동 노드는 아니지만(connector 블록 없음) 화면에서 필요한 것은 같다 — 정의에서 색·아이콘·
 // 필드를 읽어 그리고 펼칠 수 있으면 된다. ConnectorNode 는 그 셋만 쓰므로 그대로 재사용한다.
 export const HwpxDocumentNode = (props) => <ConnectorNode {...props} nodeType="hwpxDocumentNode" />;

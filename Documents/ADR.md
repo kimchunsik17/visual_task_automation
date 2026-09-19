@@ -2700,3 +2700,47 @@ n8n DevOps 템플릿의 절반은 **감시형 유틸**이다 — 사이트가 �
   편집기 팔레트·문서·아이콘 3종·자격증명 라벨. `test_team_chat.py`.
 - 실제 워크스페이스 발송 확인은 사용자 몫(키 필요). 확인되면 정의의 verifiedAt 을 채운다.
 - 다음 DEV-3: GitLab Trigger/Action(자체 호스팅 URL·`static_token`), Jira, Jenkins, Database write.
+
+## ADR-0036 · GitLab 연동: 인바운드 트리거는 서비스 표로 dispatch, 평탄화 키는 GitHub 과 같게, 인스턴스 주소는 노드 필드
+
+| 상태 | 수락됨 · 2026-09-19 (백로그 34 DEV-3 2차) |
+| --- | --- |
+| 결정자 | 백엔드 · 프론트엔드 |
+| 관련 | ROADMAP §3.3 DEV-3, ADR-0032(GitHub — 같은 모양), ADR-0031(웹훅 하드닝 `static_token`), url_guard(§6.5) |
+
+**맥락 (Context)**
+
+GitHub 연동(ADR-0032)을 두 번째 코드 호스팅에 반복하는 일이다. GitLab 이 다른 것은 셋 — 자체 호스팅 인스턴스가 흔하다, 인증이 PAT 헤더
+`PRIVATE-TOKEN` 이다, 웹훅 서명이 HMAC 이 아니라 평문 토큰(`X-Gitlab-Token`)이다. 결정할 것은 (1) 핸들러의 GitHub 전용 블록을 어떻게 늘리나,
+(2) 트리거 출력을 GitHub 과 얼마나 맞추나, (3) 사용자가 준 인스턴스 주소로 서버가 요청하는 문제였다.
+
+**결정 (Decision)**
+
+1. **인바운드 트리거는 서비스 표로 dispatch.** `webhook_verify.INBOUND_SERVICES = {노드타입: {module, event_header, delivery_header}}` —
+   핸들러는 노드 타입으로 표를 찾아 `connectors/services/<module>` 의 `trigger_matches`·`envelope` 을 부른다. GitHub 전용 `if` 를 GitLab 용으로
+   복사하지 않는다. 세 번째 서비스(Bitbucket·Jira 웹훅)는 표에 한 줄과 모듈 하나다.
+2. **기본 검증은 `static_token`, 헤더 `X-Gitlab-Token`.** DEV-0 의 모드를 그대로 쓴다(`DEFAULT_MODE_BY_TYPE`). 비밀은 GitHub 과 같은
+   `webhook_secret` provider — 사용자는 GitLab 웹훅 설정의 Secret token 에 같은 값을 넣는다. 중복 제거는 `X-Gitlab-Event-UUID`(ADR-0030 목록에 이미 있다).
+3. **이벤트 이름은 payload `object_kind` 가 정본.** `X-Gitlab-Event` 헤더("Merge Request Hook")는 보조로 정규화한다(`normalize_event`). 목업
+   샘플·수동 입력처럼 헤더가 없는 경우에도 같은 결과가 나온다.
+4. **평탄화 키는 GitHub 과 같다**(event·action·repo·number·title·body·url·branch·baseBranch·sha·labels·author·tag·status·commits·raw) + `instance`
+   (인스턴스 주소)·`pipelineId`. MR 의 number 는 iid. "PR 이든 MR 이든 뒤 노드는 같은 경로로 읽는다" — 두 연동을 나란히 두는 이유이고,
+   템플릿을 GitHub 에서 GitLab 으로 옮길 때 노드 하나만 바꾸면 된다.
+5. **인스턴스 주소는 노드 필드(`baseUrl`, 기본 gitlab.com)이고 url_guard 를 거친다.** 사용자가 준 주소로 서버가 요청하므로 SSRF 다 —
+   `normalize_base_url`(https 만, 경로 제거) 뒤 `check_url`. 사설망 GitLab 은 정책상 막힌다 — 수신(웹훅)은 되고 액션만 막히며, 운영자가 url_guard
+   허용 목록을 여는 것이 길이다(문서에 적음). 트리거 뒤의 액션은 `instance` 를 이어받아 baseUrl 을 비워 둘 수 있다(`fill_from_upstream`).
+6. **프로젝트는 숫자 id 또는 `group/project`(URL 인코딩).** GitLab 주소를 붙여도 경로를 뽑는다. `..`·공백은 요청 전에 거른다.
+7. **verifiedAt 없음.** 문서 지식으로 만들었다 — `UNVERIFIED_ON_PURPOSE` 에 이유를 적었고 실제 PAT 로 첫 호출을 확인하면 채운다.
+
+**대안 (Alternatives)**
+
+- **GitHub 노드에 "provider" 선택지 추가**: 필드·모드·인증·평탄화가 다 달라 조건문 덩어리가 된다. 기각.
+- **GitLab 전용 수신 경로**: ADR-0032 에서 이미 기각한 이유 그대로.
+- **인스턴스 주소를 API 센터 provider 값에(토큰과 함께)**: 같은 토큰으로 두 인스턴스를 쓰지 못하고, 주소가 비밀도 아니다. 노드 필드가 맞다.
+
+**결과 (Consequences)**
+
+- `connectors/services/gitlab.py`, 정의 2종(트리거는 connector 없음·`mock.samples` 3종, 액션은 11 모드·mock 5 시나리오), provider `gitlab`,
+  `webhook_verify.INBOUND_SERVICES`·INBOUND_NODE_TYPES·DEFAULT_MODE_BY_TYPE, `main.receive_webhook` dispatch 일반화, 생성기 2종(GitHub 과
+  같은 모양), `mock_service.ENTRY_NODE_TYPES`, 카탈로그 64종, 편집기 팔레트·문서·라벨·`provider-gitlab` 아이콘. `test_gitlab.py`.
+- 다음 DEV-3: Jira Action(+JQL 트리거) → Jenkins → Database write.

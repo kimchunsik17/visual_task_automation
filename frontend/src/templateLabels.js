@@ -34,6 +34,7 @@ export const TRIGGER_LABEL = {
   naverSearchTriggerNode: '네이버 검색 결과가 바뀌면',
   youtubeTriggerNode: '유튜브 새 영상이 올라오면',
   githubTriggerNode: 'GitHub 이벤트가 오면',
+  gitlabTriggerNode: 'GitLab 이벤트가 오면',
   telegramTriggerNode: '텔레그램 메시지가 오면',
   discordTriggerNode: '디스코드 메시지가 오면',
 };
@@ -49,7 +50,7 @@ const CREDENTIAL_LABEL = {
   kakao_user_oauth: '카카오 연결', notion: 'Notion', youtube: 'YouTube API',
   data_go_kr: '공공데이터포털 인증키', juso: '도로명주소 승인키',
   github: 'GitHub 토큰', webhook_secret: '웹훅 서명 비밀',
-  dooray_webhook: 'Dooray 웹훅', jandi_webhook: '잔디 웹훅', kakaowork: '카카오워크 App Key',
+  dooray_webhook: 'Dooray 웹훅', jandi_webhook: '잔디 웹훅', kakaowork: '카카오워크 App Key', gitlab: 'GitLab 토큰',
 };
 
 export function credentialLabel(id) {

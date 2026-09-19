@@ -57,6 +57,9 @@ const STATIC_EDITOR_NODES = [
   ['doorayNode', 'Dooray 발송', 'integration', '#3F6EF5', 'provider-dooray'],
   ['jandiNode', '잔디 발송', 'integration', '#00C473', 'provider-jandi'],
   ['kakaoWorkNode', '카카오워크 발송', 'integration', '#2F6BFF', 'provider-kakaowork'],
+  // DEV-3 2차 — GitLab 트리거(인바운드 웹훅 위)와 액션(PAT, 자체 호스팅 주소 필드).
+  ['gitlabTriggerNode', 'GitLab 이벤트 수신', 'input', '#FC6D26', 'provider-gitlab', 'trigger'],
+  ['gitlabNode', 'GitLab', 'integration', '#FC6D26', 'provider-gitlab'],
   // 문서 카테고리(포맷 스튜디오 계획 §4.3) — 새 문서·포스터는 formatNode, 기존 서식 파일
   // 채우기는 templateAnalyzer→fileModifier, 코드 없는 .hwpx 생성은 hwpxDocumentNode.
   ['formatNode', '문서 포맷', 'document', '#0d9488', 'node-file-modifier'],

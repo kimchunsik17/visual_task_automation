@@ -129,6 +129,9 @@ NODE_ALIASES: Dict[str, List[str]] = {
     "doorayNode": ["두레이", "dooray", "두레이로 보내", "두레이 알림", "두레이 메신저"],
     "jandiNode": ["잔디", "jandi", "잔디로 보내", "잔디 알림", "잔디 토픽"],
     "kakaoWorkNode": ["카카오워크", "kakaowork", "카카오 워크", "카카오워크로 보내", "워크 대화방"],
+    # DEV-3 2차 — GitLab. "MR/merge request/파이프라인/깃랩" 이 GitHub 과 갈리는 신호다.
+    "gitlabTriggerNode": ["gitlab", "깃랩", "MR 이 열리면", "MR이 열리면", "merge request", "머지 리퀘스트", "파이프라인 실패하면", "깃랩 이슈가"],
+    "gitlabNode": ["gitlab", "깃랩", "MR 코멘트", "MR 머지", "파이프라인 실행", "깃랩 이슈", "깃랩 릴리스", "자체 호스팅 깃랩"],
     "discordTriggerNode": ["디스코드 메시지가 오면", "디스코드에서 메시지", "디스코드 명령",
                            "디스코드로 물어보면"],
     "telegramTriggerNode": ["텔레그램 메시지가 오면", "텔레그램에서 메시지", "텔레그램으로 물어보면"],
@@ -523,7 +526,7 @@ def vector_candidates(
 # 적용한다(로드맵 원칙 3 — 필수 구조 규칙은 결정론적으로 주입).
 _TRIGGER_TYPES = {
     "scheduleNode", "webhookNode", "discordTriggerNode", "telegramTriggerNode", "youtubeTriggerNode",
-    "githubTriggerNode",
+    "githubTriggerNode", "gitlabTriggerNode",
 }
 _BRANCHING_TYPES = {"conditionNode", "humanApprovalNode", "distributorNode"}
 

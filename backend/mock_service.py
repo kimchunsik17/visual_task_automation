@@ -16,7 +16,7 @@ from connectors import mock_runtime
 import node_definition
 
 # 실행 트리거가 되는 노드. 사용자는 여기에 넣을 payload 를 고른다.
-ENTRY_NODE_TYPES = {"webhookNode", "dynamicInputNode", "startNode", "scheduleNode", "githubTriggerNode"}
+ENTRY_NODE_TYPES = {"webhookNode", "dynamicInputNode", "startNode", "scheduleNode", "githubTriggerNode", "gitlabTriggerNode"}
 
 # webhookNode 는 아직 NodeDefinition 이 없다(이전 대상이 아니다). 그동안 Mock 탭이 비어 보이지
 # 않도록 대표적인 수신 payload 를 여기 둔다. 노드가 이전되면 정의의 mock 블록으로 옮긴다.
