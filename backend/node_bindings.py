@@ -46,6 +46,10 @@ BINDABLE_FIELDS: Dict[str, Tuple[str, ...]] = {
     # DEV-2 2차 감시형 유틸 — 점검 주소는 목록 순회(distributorNode)에서, lockfile 은 githubNode file.get 의 content 에서 오는 것이 정상 사용법.
     "httpCheckNode": ("url",),
     "osvScanNode": ("lockfile",),
+    # DEV-3 국내 메신저 발송 — Slack 발송(channel·message)과 같은 자리.
+    "doorayNode": ("message", "title", "link"),
+    "jandiNode": ("message", "title", "description", "link"),
+    "kakaoWorkNode": ("message", "conversationId", "email"),
 }
 
 # JSON 경로 문법: a.b[0].c — databaseNode.parameters 의 path 와 같은 규칙.

@@ -248,6 +248,9 @@ MINIMAL_DATA = {
     "templateRenderNode": {"template": "{{x}}"},
     "httpCheckNode": {"url": "https://example.com"},
     "osvScanNode": {},
+    "doorayNode": {},
+    "jandiNode": {},
+    "kakaoWorkNode": {"mode": "send", "conversationId": "1"},
 }
 
 

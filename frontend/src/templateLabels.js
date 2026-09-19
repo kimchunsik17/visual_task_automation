@@ -49,6 +49,7 @@ const CREDENTIAL_LABEL = {
   kakao_user_oauth: '카카오 연결', notion: 'Notion', youtube: 'YouTube API',
   data_go_kr: '공공데이터포털 인증키', juso: '도로명주소 승인키',
   github: 'GitHub 토큰', webhook_secret: '웹훅 서명 비밀',
+  dooray_webhook: 'Dooray 웹훅', jandi_webhook: '잔디 웹훅', kakaowork: '카카오워크 App Key',
 };
 
 export function credentialLabel(id) {

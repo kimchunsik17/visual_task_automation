@@ -10,3 +10,4 @@ from . import connector_nodes
 from . import image_nodes
 from . import document_nodes
 from . import dev_tool_nodes
+from . import team_chat_nodes

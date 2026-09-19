@@ -252,6 +252,8 @@ def test_registry_loads_every_provider_the_api_center_offers():
         "webhook_secret",
         # 백로그 34 DEV-1 — GitHub fine-grained PAT. 노드에는 참조만 남는다(ADR-0032)
         "github",
+        # 백로그 34 DEV-3 — 국내 협업 메신저. 웹훅 URL 자체가 비밀(Dooray·잔디), 봇 App Key(카카오워크)(ADR-0035)
+        "dooray_webhook", "jandi_webhook", "kakaowork",
     }
 
 

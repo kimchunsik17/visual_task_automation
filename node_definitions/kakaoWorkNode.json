@@ -1,0 +1,181 @@
+{
+  "type": "kakaoWorkNode",
+  "version": 1,
+  "category": "integration",
+  "display": {
+    "label": "카카오워크 발송",
+    "icon": "provider-kakaowork",
+    "color": "#2F6BFF"
+  },
+  "inputs": [
+    {
+      "name": "in",
+      "dataType": "any"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "dataType": "text"
+    }
+  ],
+  "fields": [
+    {
+      "name": "mode",
+      "kind": "select",
+      "label": "받는 곳",
+      "default": "send",
+      "options": [
+        {
+          "value": "send",
+          "label": "대화방 id 로"
+        },
+        {
+          "value": "send_by_email",
+          "label": "구성원 이메일로"
+        }
+      ],
+      "validation": [
+        {
+          "rule": "enum",
+          "message": "{node_id}(kakaoWorkNode)의 mode는 send/send_by_email 중 하나여야 한다"
+        }
+      ]
+    },
+    {
+      "name": "conversationId",
+      "kind": "text",
+      "label": "대화방 id",
+      "placeholder": "봇이 초대된 대화방의 id",
+      "showWhen": {
+        "field": "mode",
+        "equals": "send"
+      }
+    },
+    {
+      "name": "email",
+      "kind": "text",
+      "label": "받는 사람 이메일 (워크스페이스 구성원)",
+      "placeholder": "name@company.com",
+      "showWhen": {
+        "field": "mode",
+        "equals": "send_by_email"
+      }
+    },
+    {
+      "name": "message",
+      "kind": "textarea",
+      "label": "메시지 (비우면 직전 노드 출력, 채우면 뒤에 직전 출력을 덧붙임)",
+      "placeholder": "{{last_result}} 로 자리를 정할 수도 있습니다",
+      "ui": {
+        "draggable": true
+      }
+    }
+  ],
+  "credentials": [
+    {
+      "name": "kakaowork",
+      "provider": "kakaowork",
+      "optional": false
+    }
+  ],
+  "capabilities": [
+    "network"
+  ],
+  "sideEffect": "external-write",
+  "executor": "kakaoWorkNode",
+  "connector": {
+    "service": "카카오워크",
+    "role": "action",
+    "modes": [
+      "send",
+      "send_by_email"
+    ],
+    "credentials": [
+      {
+        "provider": "kakaowork",
+        "scopes": []
+      }
+    ],
+    "baseUrl": "https://api.kakaowork.com",
+    "timeoutSeconds": 10.0,
+    "rateLimit": {
+      "requestsPerMinute": 60
+    },
+    "retryPolicy": {
+      "maxAttempts": 2,
+      "baseDelaySeconds": 1.0,
+      "maxDelaySeconds": 10.0
+    },
+    "sideEffectByMode": {
+      "send": "external-write",
+      "send_by_email": "external-write"
+    },
+    "docsUrl": "https://docs.kakaowork.com/"
+  },
+  "mock": {
+    "scenarios": {
+      "success": {
+        "responses": [
+          {
+            "match": {
+              "method": "POST",
+              "urlContains": "/v1/messages.send"
+            },
+            "status": 200,
+            "body": {
+              "success": true,
+              "message": {
+                "id": "1234567890",
+                "conversation_id": "42",
+                "text": "목업 메시지",
+                "send_time": 1700000000
+              }
+            }
+          }
+        ]
+      },
+      "auth_failed": {
+        "responses": [
+          {
+            "status": 401,
+            "body": {
+              "success": false,
+              "error": {
+                "code": "unauthorized",
+                "message": "Invalid app key"
+              }
+            }
+          }
+        ]
+      },
+      "rate_limited": {
+        "responses": [
+          {
+            "status": 429,
+            "headers": {
+              "Retry-After": "10"
+            },
+            "body": {
+              "success": false,
+              "error": {
+                "code": "too_many_requests",
+                "message": "rate limited"
+              }
+            }
+          }
+        ]
+      },
+      "timeout": {
+        "responses": [
+          {
+            "raise": "timeout"
+          }
+        ]
+      }
+    }
+  },
+  "llm": {
+    "description": "카카오워크 대화방이나 구성원에게 봇 메시지를 보낸다(봇 App Key). data.mode(문자열): \"send\"(대화방 id 로, 기본값 — data.conversationId 필수) |\n                   \"send_by_email\"(구성원 이메일로 — data.email 필수). Slack 발송과 같은 규약 — data.message(문자열, 선택)를 비우면 직전 노드 출력을 보내고, 채우면 메시지 뒤에\n                   직전 출력을 덧붙인다({{last_result}} 로 자리를 정할 수도 있다). API 센터에 '카카오워크 봇 App Key' 가 등록되어 있고 봇이 대화방에 초대돼 있어야 한다.\n                   출력은 실제로 보낸 메시지 텍스트.\n"
+  }
+}

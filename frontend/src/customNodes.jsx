@@ -553,6 +553,10 @@ export const TemplateRenderNode = (props) => <ConnectorNode {...props} nodeType=
 // DEV-2 2차 — 감시형 유틸(네트워크, 자격증명 없음). 점검 결과가 나쁜 것은 노드 실패가 아니라 결과다(ok/vulnerable 로 분기).
 export const HttpCheckNode = (props) => <ConnectorNode {...props} nodeType="httpCheckNode" />;
 export const OsvScanNode = (props) => <ConnectorNode {...props} nodeType="osvScanNode" />;
+// DEV-3 — 국내 협업 메신저 발송(Slack 발송과 같은 규약). 비밀은 API 센터(웹훅 URL·App Key)에만.
+export const DoorayNode = (props) => <ConnectorNode {...props} nodeType="doorayNode" />;
+export const JandiNode = (props) => <ConnectorNode {...props} nodeType="jandiNode" />;
+export const KakaoWorkNode = (props) => <ConnectorNode {...props} nodeType="kakaoWorkNode" />;
 // 연동 노드는 아니지만(connector 블록 없음) 화면에서 필요한 것은 같다 — 정의에서 색·아이콘·
 // 필드를 읽어 그리고 펼칠 수 있으면 된다. ConnectorNode 는 그 셋만 쓰므로 그대로 재사용한다.
 export const HwpxDocumentNode = (props) => <ConnectorNode {...props} nodeType="hwpxDocumentNode" />;

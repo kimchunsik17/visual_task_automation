@@ -193,8 +193,7 @@
         }
       }
     },
-    "docsUrl": "https://google.github.io/osv.dev/post-v1-querybatch/",
-    "verifiedAt": "2026-09-19"
+    "docsUrl": "https://google.github.io/osv.dev/post-v1-querybatch/"
   },
   "mock": {
     "scenarios": {

@@ -1031,6 +1031,206 @@
     "type": "discordNode",
     "version": 1
   },
+  "doorayNode": {
+    "capabilities": [
+      "network"
+    ],
+    "category": "integration",
+    "connector": {
+      "credentials": [
+        {
+          "optional": false,
+          "provider": "dooray_webhook",
+          "scopes": []
+        }
+      ],
+      "docsUrl": "https://helpdesk.dooray.com/",
+      "errorStyle": "http",
+      "inputSchema": {},
+      "modes": [
+        "send"
+      ],
+      "outputSchemaByMode": {},
+      "retryPolicy": {
+        "baseDelaySeconds": 1.0,
+        "maxAttempts": 2,
+        "maxDelaySeconds": 10.0,
+        "retryNonIdempotent": false
+      },
+      "role": "action",
+      "service": "Dooray",
+      "sideEffectByMode": {
+        "send": "external-write"
+      },
+      "timeoutSeconds": 10.0
+    },
+    "credentials": [
+      {
+        "name": "dooray_webhook",
+        "optional": false,
+        "provider": "dooray_webhook"
+      }
+    ],
+    "display": {
+      "color": "#3F6EF5",
+      "icon": "provider-dooray",
+      "label": "Dooray 발송"
+    },
+    "executor": "doorayNode",
+    "fields": [
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "메시지 (비우면 직전 노드 출력, 채우면 뒤에 직전 출력을 덧붙임)",
+        "name": "message",
+        "options": [],
+        "placeholder": "{{last_result}} 로 자리를 정할 수도 있습니다",
+        "ui": {
+          "draggable": true
+        },
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "첨부 제목 (선택)",
+        "name": "title",
+        "options": [],
+        "placeholder": "예: 배포 완료 — v2.3.0",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "제목 링크 (선택)",
+        "name": "link",
+        "options": [],
+        "placeholder": "https://…",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "",
+        "itemFields": [],
+        "kind": "select",
+        "label": "색",
+        "name": "color",
+        "options": [
+          {
+            "label": "기본",
+            "value": ""
+          },
+          {
+            "label": "초록",
+            "value": "green"
+          },
+          {
+            "label": "파랑",
+            "value": "blue"
+          },
+          {
+            "label": "노랑",
+            "value": "yellow"
+          },
+          {
+            "label": "빨강",
+            "value": "red"
+          },
+          {
+            "label": "회색",
+            "value": "gray"
+          }
+        ],
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "보내는 봇 이름 (선택)",
+        "name": "botName",
+        "options": [],
+        "placeholder": "Workflow AI",
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "NHN Dooray 메신저 채널에 메시지를 보낸다(Incoming Webhook). Slack 발송과 같은 규약 — data.message(문자열, 선택)를 비우면 직전 노드 출력을 보내고,\n                   채우면 메시지 뒤에 직전 출력을 덧붙인다({{last_result}} 로 자리를 정할 수도 있다). data.title(문자열, 선택 — 첨부 제목), data.link(문자열, 선택 — 제목 링크),\n                   data.color(\"green\"|\"blue\"|\"yellow\"|\"red\"|\"gray\", 선택), data.botName(문자열, 선택). API 센터에 'Dooray Incoming Webhook URL' 이 등록되어 있어야 한다.\n                   출력은 실제로 보낸 메시지 텍스트. 공공기관·기업 협업툴 알림에 쓴다.\n"
+    },
+    "mock": {
+      "scenarios": {
+        "auth_failed": {
+          "responses": [
+            {
+              "body": {
+                "header": {
+                  "isSuccessful": false,
+                  "resultCode": -300401,
+                  "resultMessage": "Unauthorized"
+                }
+              },
+              "status": 401
+            }
+          ]
+        },
+        "rate_limited": {
+          "responses": [
+            {
+              "body": {
+                "header": {
+                  "isSuccessful": false,
+                  "resultCode": -300429,
+                  "resultMessage": "Too Many Requests"
+                }
+              },
+              "headers": {
+                "Retry-After": "10"
+              },
+              "status": 429
+            }
+          ]
+        },
+        "success": {
+          "responses": [
+            {
+              "body": {
+                "header": {
+                  "isSuccessful": true,
+                  "resultCode": 0,
+                  "resultMessage": ""
+                }
+              },
+              "status": 200
+            }
+          ]
+        },
+        "timeout": {
+          "responses": [
+            {
+              "raise": "timeout"
+            }
+          ]
+        }
+      }
+    },
+    "outputs": [
+      {
+        "dataType": "text",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "external-write",
+    "type": "doorayNode",
+    "version": 1
+  },
   "emailNode": {
     "capabilities": [],
     "category": "integration",
@@ -4520,6 +4720,194 @@
     "type": "imageGenerationNode",
     "version": 1
   },
+  "jandiNode": {
+    "capabilities": [
+      "network"
+    ],
+    "category": "integration",
+    "connector": {
+      "credentials": [
+        {
+          "optional": false,
+          "provider": "jandi_webhook",
+          "scopes": []
+        }
+      ],
+      "docsUrl": "https://support.jandi.com/hc/ko",
+      "errorStyle": "http",
+      "inputSchema": {},
+      "modes": [
+        "send"
+      ],
+      "outputSchemaByMode": {},
+      "retryPolicy": {
+        "baseDelaySeconds": 1.0,
+        "maxAttempts": 2,
+        "maxDelaySeconds": 10.0,
+        "retryNonIdempotent": false
+      },
+      "role": "action",
+      "service": "잔디",
+      "sideEffectByMode": {
+        "send": "external-write"
+      },
+      "timeoutSeconds": 10.0
+    },
+    "credentials": [
+      {
+        "name": "jandi_webhook",
+        "optional": false,
+        "provider": "jandi_webhook"
+      }
+    ],
+    "display": {
+      "color": "#00C473",
+      "icon": "provider-jandi",
+      "label": "잔디 발송"
+    },
+    "executor": "jandiNode",
+    "fields": [
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "메시지 (비우면 직전 노드 출력, 채우면 뒤에 직전 출력을 덧붙임)",
+        "name": "message",
+        "options": [],
+        "placeholder": "{{last_result}} 로 자리를 정할 수도 있습니다",
+        "ui": {
+          "draggable": true
+        },
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "정보 카드 제목 (선택)",
+        "name": "title",
+        "options": [],
+        "placeholder": "예: 배포 완료",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "정보 카드 설명 (선택)",
+        "name": "description",
+        "options": [],
+        "placeholder": "예: v2.3.0 · 2분 소요",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "링크 (선택, 설명이 비면 설명 자리에)",
+        "name": "link",
+        "options": [],
+        "placeholder": "https://…",
+        "ui": {},
+        "validation": []
+      },
+      {
+        "default": "",
+        "itemFields": [],
+        "kind": "select",
+        "label": "색",
+        "name": "color",
+        "options": [
+          {
+            "label": "기본",
+            "value": ""
+          },
+          {
+            "label": "초록",
+            "value": "green"
+          },
+          {
+            "label": "파랑",
+            "value": "blue"
+          },
+          {
+            "label": "노랑",
+            "value": "yellow"
+          },
+          {
+            "label": "빨강",
+            "value": "red"
+          },
+          {
+            "label": "회색",
+            "value": "gray"
+          }
+        ],
+        "ui": {},
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "잔디(JANDI) 토픽에 메시지를 보낸다(Incoming Webhook 커넥트). Slack 발송과 같은 규약 — data.message(문자열, 선택)를 비우면 직전 노드 출력을 보내고,\n                   채우면 메시지 뒤에 직전 출력을 덧붙인다({{last_result}} 로 자리를 정할 수도 있다). data.title·data.description(문자열, 선택 — 정보 카드), data.link(문자열, 선택),\n                   data.color(\"green\"|\"blue\"|\"yellow\"|\"red\"|\"gray\", 선택). API 센터에 '잔디 Incoming Webhook URL' 이 등록되어 있어야 한다. 출력은 실제로 보낸 메시지 텍스트.\n"
+    },
+    "mock": {
+      "scenarios": {
+        "auth_failed": {
+          "responses": [
+            {
+              "body": {
+                "code": 40100,
+                "msg": "Unauthorized"
+              },
+              "status": 401
+            }
+          ]
+        },
+        "rate_limited": {
+          "responses": [
+            {
+              "body": {
+                "code": 42900,
+                "msg": "Too Many Requests"
+              },
+              "headers": {
+                "Retry-After": "10"
+              },
+              "status": 429
+            }
+          ]
+        },
+        "success": {
+          "responses": [
+            {
+              "body": {},
+              "status": 200
+            }
+          ]
+        },
+        "timeout": {
+          "responses": [
+            {
+              "raise": "timeout"
+            }
+          ]
+        }
+      }
+    },
+    "outputs": [
+      {
+        "dataType": "text",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "external-write",
+    "type": "jandiNode",
+    "version": 1
+  },
   "jsonParserNode": {
     "capabilities": [],
     "category": "code",
@@ -4921,6 +5309,209 @@
     ],
     "sideEffect": "external-read",
     "type": "jusoNode",
+    "version": 1
+  },
+  "kakaoWorkNode": {
+    "capabilities": [
+      "network"
+    ],
+    "category": "integration",
+    "connector": {
+      "baseUrl": "https://api.kakaowork.com",
+      "credentials": [
+        {
+          "optional": false,
+          "provider": "kakaowork",
+          "scopes": []
+        }
+      ],
+      "docsUrl": "https://docs.kakaowork.com/",
+      "errorStyle": "http",
+      "inputSchema": {},
+      "modes": [
+        "send",
+        "send_by_email"
+      ],
+      "outputSchemaByMode": {},
+      "rateLimit": {
+        "requestsPerMinute": 60
+      },
+      "retryPolicy": {
+        "baseDelaySeconds": 1.0,
+        "maxAttempts": 2,
+        "maxDelaySeconds": 10.0,
+        "retryNonIdempotent": false
+      },
+      "role": "action",
+      "service": "카카오워크",
+      "sideEffectByMode": {
+        "send": "external-write",
+        "send_by_email": "external-write"
+      },
+      "timeoutSeconds": 10.0
+    },
+    "credentials": [
+      {
+        "name": "kakaowork",
+        "optional": false,
+        "provider": "kakaowork"
+      }
+    ],
+    "display": {
+      "color": "#2F6BFF",
+      "icon": "provider-kakaowork",
+      "label": "카카오워크 발송"
+    },
+    "executor": "kakaoWorkNode",
+    "fields": [
+      {
+        "default": "send",
+        "itemFields": [],
+        "kind": "select",
+        "label": "받는 곳",
+        "name": "mode",
+        "options": [
+          {
+            "label": "대화방 id 로",
+            "value": "send"
+          },
+          {
+            "label": "구성원 이메일로",
+            "value": "send_by_email"
+          }
+        ],
+        "ui": {},
+        "validation": [
+          {
+            "allowMissing": false,
+            "message": "{node_id}(kakaoWorkNode)의 mode는 send/send_by_email 중 하나여야 한다",
+            "requireKeys": {},
+            "rule": "enum"
+          }
+        ]
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "대화방 id",
+        "name": "conversationId",
+        "options": [],
+        "placeholder": "봇이 초대된 대화방의 id",
+        "showWhen": {
+          "equals": "send",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "text",
+        "label": "받는 사람 이메일 (워크스페이스 구성원)",
+        "name": "email",
+        "options": [],
+        "placeholder": "name@company.com",
+        "showWhen": {
+          "equals": "send_by_email",
+          "field": "mode",
+          "truthy": true
+        },
+        "ui": {},
+        "validation": []
+      },
+      {
+        "itemFields": [],
+        "kind": "textarea",
+        "label": "메시지 (비우면 직전 노드 출력, 채우면 뒤에 직전 출력을 덧붙임)",
+        "name": "message",
+        "options": [],
+        "placeholder": "{{last_result}} 로 자리를 정할 수도 있습니다",
+        "ui": {
+          "draggable": true
+        },
+        "validation": []
+      }
+    ],
+    "inputs": [
+      {
+        "dataType": "any",
+        "name": "in"
+      }
+    ],
+    "llm": {
+      "description": "카카오워크 대화방이나 구성원에게 봇 메시지를 보낸다(봇 App Key). data.mode(문자열): \"send\"(대화방 id 로, 기본값 — data.conversationId 필수) |\n                   \"send_by_email\"(구성원 이메일로 — data.email 필수). Slack 발송과 같은 규약 — data.message(문자열, 선택)를 비우면 직전 노드 출력을 보내고, 채우면 메시지 뒤에\n                   직전 출력을 덧붙인다({{last_result}} 로 자리를 정할 수도 있다). API 센터에 '카카오워크 봇 App Key' 가 등록되어 있고 봇이 대화방에 초대돼 있어야 한다.\n                   출력은 실제로 보낸 메시지 텍스트.\n"
+    },
+    "mock": {
+      "scenarios": {
+        "auth_failed": {
+          "responses": [
+            {
+              "body": {
+                "error": {
+                  "code": "unauthorized",
+                  "message": "Invalid app key"
+                },
+                "success": false
+              },
+              "status": 401
+            }
+          ]
+        },
+        "rate_limited": {
+          "responses": [
+            {
+              "body": {
+                "error": {
+                  "code": "too_many_requests",
+                  "message": "rate limited"
+                },
+                "success": false
+              },
+              "headers": {
+                "Retry-After": "10"
+              },
+              "status": 429
+            }
+          ]
+        },
+        "success": {
+          "responses": [
+            {
+              "body": {
+                "message": {
+                  "conversation_id": "42",
+                  "id": "1234567890",
+                  "send_time": 1700000000,
+                  "text": "목업 메시지"
+                },
+                "success": true
+              },
+              "match": {
+                "method": "POST",
+                "urlContains": "/v1/messages.send"
+              },
+              "status": 200
+            }
+          ]
+        },
+        "timeout": {
+          "responses": [
+            {
+              "raise": "timeout"
+            }
+          ]
+        }
+      }
+    },
+    "outputs": [
+      {
+        "dataType": "text",
+        "name": "out"
+      }
+    ],
+    "sideEffect": "external-write",
+    "type": "kakaoWorkNode",
     "version": 1
   },
   "llmNode": {
@@ -6140,8 +6731,7 @@
       "sideEffectByMode": {
         "scan": "external-read"
       },
-      "timeoutSeconds": 20.0,
-      "verifiedAt": "2026-09-19"
+      "timeoutSeconds": 20.0
     },
     "credentials": [],
     "display": {

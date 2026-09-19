@@ -243,6 +243,11 @@ def test_기존_연동은_이_규칙에_걸리지_않는다():
 UNVERIFIED_ON_PURPOSE = {
     "jusoNode": "juso.go.kr 이 자동 요청에 403 을 준다 — 규격을 2차 출처에서 모았다. "
                 "승인키를 받아 실응답과 대조한 뒤 채운다",
+    # 백로그 34 DEV-2/3(2026-09-19): 문서 지식으로 만들었고 실제 키·워크스페이스로 호출해 대조하지 않았다 — 첫 실호출 확인 뒤 채운다.
+    "osvScanNode": "OSV querybatch/vulns 응답 모양을 문서 지식으로 옮겼다. 실제 lockfile 로 한 번 조회해 대조한 뒤 채운다",
+    "doorayNode": "Dooray Incoming Webhook payload(botName·text·attachments)를 문서 지식으로 옮겼다. 실제 채널로 첫 발송 확인 뒤 채운다",
+    "jandiNode": "잔디 커넥트 Incoming Webhook(body·connectColor·connectInfo, Accept 헤더)을 문서 지식으로 옮겼다. 실제 토픽 발송 확인 뒤 채운다",
+    "kakaoWorkNode": "카카오워크 봇 API(messages.send·send_by_email, Bearer App Key)를 문서 지식으로 옮겼다. 실제 봇으로 발송 확인 뒤 채운다",
 }
 
 
