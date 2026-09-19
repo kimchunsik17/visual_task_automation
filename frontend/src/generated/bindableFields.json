@@ -7,6 +7,11 @@
     "discordNode": [
       "channelId"
     ],
+    "doorayNode": [
+      "message",
+      "title",
+      "link"
+    ],
     "emailNode": [
       "toEmail",
       "subject"
@@ -23,8 +28,19 @@
       "url",
       "body"
     ],
+    "jandiNode": [
+      "message",
+      "title",
+      "description",
+      "link"
+    ],
     "kakaoNode": [
       "receiver"
+    ],
+    "kakaoWorkNode": [
+      "message",
+      "conversationId",
+      "email"
     ],
     "osvScanNode": [
       "lockfile"

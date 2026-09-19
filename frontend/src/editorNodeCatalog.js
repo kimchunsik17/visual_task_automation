@@ -53,6 +53,10 @@ const STATIC_EDITOR_NODES = [
   // DEV-2 2차 — 감시형 유틸(네트워크, 자격증명 없음).
   ['httpCheckNode', '웹사이트 점검', 'integration', '#22c55e', 'node-http-check'],
   ['osvScanNode', '의존성 취약점 검사', 'integration', '#dc2626', 'node-shield'],
+  // DEV-3 — 국내 협업 메신저 발송.
+  ['doorayNode', 'Dooray 발송', 'integration', '#3F6EF5', 'provider-dooray'],
+  ['jandiNode', '잔디 발송', 'integration', '#00C473', 'provider-jandi'],
+  ['kakaoWorkNode', '카카오워크 발송', 'integration', '#2F6BFF', 'provider-kakaowork'],
   // 문서 카테고리(포맷 스튜디오 계획 §4.3) — 새 문서·포스터는 formatNode, 기존 서식 파일
   // 채우기는 templateAnalyzer→fileModifier, 코드 없는 .hwpx 생성은 hwpxDocumentNode.
   ['formatNode', '문서 포맷', 'document', '#0d9488', 'node-file-modifier'],

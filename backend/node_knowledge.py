@@ -125,6 +125,10 @@ NODE_ALIASES: Dict[str, List[str]] = {
     "httpCheckNode": ["사이트 점검", "웹사이트 살아", "서버 죽었", "응답 확인", "헬스체크", "health", "uptime", "SSL", "인증서 만료",
                       "도메인 확인", "DNS", "사이트가 바뀌면", "페이지 변경 감지"],
     "osvScanNode": ["취약점", "CVE", "보안 점검", "의존성 검사", "lockfile", "package-lock", "requirements.txt", "npm audit", "OSV"],
+    # DEV-3 — 국내 협업 메신저 발송. 서비스 이름이 곧 신호다.
+    "doorayNode": ["두레이", "dooray", "두레이로 보내", "두레이 알림", "두레이 메신저"],
+    "jandiNode": ["잔디", "jandi", "잔디로 보내", "잔디 알림", "잔디 토픽"],
+    "kakaoWorkNode": ["카카오워크", "kakaowork", "카카오 워크", "카카오워크로 보내", "워크 대화방"],
     "discordTriggerNode": ["디스코드 메시지가 오면", "디스코드에서 메시지", "디스코드 명령",
                            "디스코드로 물어보면"],
     "telegramTriggerNode": ["텔레그램 메시지가 오면", "텔레그램에서 메시지", "텔레그램으로 물어보면"],

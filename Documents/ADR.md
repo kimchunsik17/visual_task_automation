@@ -2651,3 +2651,52 @@ n8n DevOps 템플릿의 절반은 **감시형 유틸**이다 — 사이트가 �
 - dry-run 은 읽기 전용 커넥터를 실제로 실행한다(httpRequestNode GET 과 같음) — 점검 노드도 dry-run 에서 실제 요청을 보내고 cursor 를 저장한다.
 - **DEV-2 완료.** 다음은 DEV-3(Dooray·네이버웍스·카카오워크·잔디 발송, GitLab, Jira, Jenkins, Database write). 차별화 템플릿 4번(의존성 취약점
   주간 점검)은 이제 부품이 다 있다 — 템플릿 게시는 DEV-3 뒤 한 번에.
+
+## ADR-0035 · 국내 협업 메신저 발송: 웹훅 URL 은 비밀이자 목적지다 — API 센터에 두고 허용 호스트만 부른다
+
+| 상태 | 수락됨 · 2026-09-19 (백로그 34 DEV-3 1차 — Dooray·잔디·카카오워크. 네이버웍스 보류) |
+| --- | --- |
+| 결정자 | 백엔드 · 프론트엔드 |
+| 관련 | ROADMAP §3.3 DEV-3, ADR-0007/0008(연동 계약·생성기), ADR-0016(delivery 도메인), ADR-0017(자격증명 참조), url_guard(§6.5), slackNode(발송 규약) |
+
+**맥락 (Context)**
+
+경쟁 제품에 공식 노드가 없는 국내 협업툴 발송이다. Dooray 는 공공기관·기업, 잔디는 중소기업, 카카오워크는 카카오 계열이 쓴다.
+셋은 "텍스트 한 덩어리 + 제목/링크/색" 을 보내는 같은 모양이지만 인증이 다르다 — Dooray·잔디는 **Incoming Webhook URL 자체가 비밀**이고,
+카카오워크는 봇 App Key(Bearer)다. 네이버웍스는 Incoming Webhook 이 없고 Bot API 가 서비스 계정 JWT(RS256 → access token)를 요구한다.
+결정할 것은 (1) 웹훅 URL 을 어디 두나, (2) 사용자가 준 URL 로 서버가 POST 하는 SSRF 를 어떻게 막나, (3) 메시지 규약, (4) 네이버웍스를
+지금 하나였다.
+
+**결정 (Decision)**
+
+1. **웹훅 URL 은 API 센터 provider(api_key kind)에.** `dooray_webhook`·`jandi_webhook` 은 값이 URL 이다. 노드 data 에는 `{{API_CENTER:…}}`
+   참조도 두지 않고 생성 코드가 `oauth.require_token` 으로 실행 시점에 읽는다 — graph_data·revision·공유 템플릿에 URL 이 남지 않는다
+   (URL 을 아는 누구나 채널에 글을 쓸 수 있다). 카카오워크는 `kakaowork`(App Key).
+2. **웹훅 URL 은 허용 호스트만, 그 위에 url_guard.** `team_chat.hook_url` 이 https + 서비스 공식 호스트(hook.dooray.com/*.dooray.com,
+   wh.jandi.com)만 받고, 목업이 아니면 `url_guard.check_url`(DNS 해석 결과 검사)을 한 번 더 건다. 사용자가 저장한 "웹훅 URL" 이 내부 주소면
+   서버가 내부로 POST 하게 되므로 이 두 겹이 필요하다. 카카오워크는 baseUrl 이 고정이다.
+3. **메시지 규약은 Slack 발송과 같다.** `compose_message` — message 를 비우면 직전 출력, 채우면 `message + "\n\n" + 직전 출력`, `{{last_result}}`
+   가 있으면 그 자리. 결과는 **실제로 보낸 텍스트**다(discordNode·emailNode 와 같은 이유 — 상태 문구로 덮으면 평가가 내용을 못 본다). 실패해도
+   본문을 남기고 `[⚠️ …]` 를 붙이며, 오류 도메인은 delivery(되돌릴 수 없는 발송; timeout 의 effectState 는 unknown).
+4. **한 모듈에 세 함수.** `connectors/services/team_chat.py` — 서비스별로 다른 것은 주소·헤더·payload·응답 판정뿐이라 나눌 이유가 없다.
+   Dooray 는 `header.isSuccessful=false` 를, 카카오워크는 `success=false` + `error.code` 를 오류로 읽는다(unauthorized 류 → auth_invalid).
+   본문은 4,000자에서 잘라 `…(잘림)` 을 붙인다.
+5. **네이버웍스는 보류.** 서비스 계정 JWT 발급·갱신은 새 credential kind(DEV-4 GitHub App 과 같은 부류)다. 로드맵 표에 이유를 적고 넘어간다.
+6. **verifiedAt 을 적지 않는다.** 이 세 API 는 문서 지식으로 만들었고 실제 키로 호출해 확인하지 않았다 — 확인한 날이 없으니 docsUrl 만 둔다.
+   실제 워크스페이스로 첫 발송을 확인하면 그때 적는다. 같은 기준으로 `osvScanNode`(ADR-0034)의 verifiedAt 도 지웠다 — OSV 응답 모양 역시 문서
+   지식으로 옮긴 것이다. 대조하지 못한 연동은 `test_connector_contract_phase0.UNVERIFIED_ON_PURPOSE` 에 이유와 함께 적혀 있어야 한다(테스트가 강제).
+
+**대안 (Alternatives)**
+
+- **웹훅 URL 을 노드 필드(secret)에**: discordNode 의 옛 방식. graph_data 치환 경로에 비밀이 실린다. 기각.
+- **서비스별 모듈·생성기 분리**: 코드 3배, 차이는 payload 몇 줄. 기각.
+- **일반 "HTTP 발송" 노드로 대체**: httpRequestNode 가 이미 있지만 사용자가 payload 모양·헤더를 알아야 하고 LLM 생성이 서비스를 고르지 못한다.
+  서비스 이름이 곧 검색 신호다(node_knowledge 별칭).
+
+**결과 (Consequences)**
+
+- `connectors/services/team_chat.py`, 정의 3종(connector 블록·mock success/auth_failed/rate_limited/timeout), provider 3종(번들 재생성),
+  생성기 `node_generators/team_chat_nodes.py`, BINDABLE_FIELDS(message·title·link·description·conversationId·email), 카탈로그 62종,
+  편집기 팔레트·문서·아이콘 3종·자격증명 라벨. `test_team_chat.py`.
+- 실제 워크스페이스 발송 확인은 사용자 몫(키 필요). 확인되면 정의의 verifiedAt 을 채운다.
+- 다음 DEV-3: GitLab Trigger/Action(자체 호스팅 URL·`static_token`), Jira, Jenkins, Database write.

@@ -732,6 +732,44 @@ export const NODE_DOCS = {
     tips: ['수정 버전(fixedVersion)이 있는 항목부터 올리세요.', 'CRITICAL 만 알림받고 나머지는 주간 보고서로 모으는 식으로 minSeverity 를 나눠 쓰세요.'],
     related: ['githubNode', 'conditionNode', 'formatNode', 'humanApprovalNode'],
   },
+  doorayNode: {
+    summary: 'NHN Dooray 메신저 채널에 메시지를 보냅니다(Incoming Webhook).',
+    details: [
+      'Slack 발송과 같은 규약입니다 — 메시지를 비우면 직전 노드 출력을 보내고, 채우면 그 뒤에 직전 출력을 덧붙입니다. {{last_result}} 로 자리를 정할 수도 있습니다.',
+      '웹훅 URL 은 그 자체가 비밀이라 API 센터 → Dooray Incoming Webhook URL 에 저장하고, 노드에는 참조만 남습니다. 서버는 *.dooray.com 주소만 받습니다.',
+      '출력은 실제로 보낸 메시지 텍스트입니다. 발송이 실패해도 본문은 남고 뒤에 ⚠️ 안내가 붙습니다(error 갈래로도 받을 수 있음).',
+    ],
+    usage: ['배포·릴리스 알림', '웹사이트 점검 결과 알림', '일일 보고서 요약 전달'],
+    io: { input: '직전 노드 출력(메시지 본문).', output: '보낸 메시지 텍스트.' },
+    fields: { message: '본문. 비우면 직전 출력.', title: '첨부 카드 제목(선택).', link: '제목에 걸 링크(선택).', color: '첨부 카드 색.', botName: '보내는 봇 이름(선택).' },
+    tips: ['4,000자를 넘으면 잘라 보내고 끝에 (잘림) 을 붙입니다 — 긴 내용은 문서 포맷 노드로 파일을 만들어 링크를 보내세요.'],
+    related: ['jandiNode', 'kakaoWorkNode', 'slackNode', 'httpCheckNode'],
+  },
+  jandiNode: {
+    summary: '잔디(JANDI) 토픽에 메시지를 보냅니다(Incoming Webhook 커넥트).',
+    details: [
+      'Slack 발송과 같은 규약입니다 — 메시지를 비우면 직전 노드 출력을 보내고, 채우면 그 뒤에 직전 출력을 덧붙입니다.',
+      '웹훅 URL 은 API 센터 → 잔디 Incoming Webhook URL 에 저장합니다. 서버는 wh.jandi.com 주소만 받습니다.',
+      '제목·설명을 채우면 정보 카드(connectInfo)로 함께 보냅니다. 출력은 실제로 보낸 메시지 텍스트입니다.',
+    ],
+    usage: ['CI 실패 알림', '이슈 등록 알림', '점검 결과 요약'],
+    io: { input: '직전 노드 출력(메시지 본문).', output: '보낸 메시지 텍스트.' },
+    fields: { message: '본문. 비우면 직전 출력.', title: '정보 카드 제목(선택).', description: '정보 카드 설명(선택). 비우면 링크가 대신 들어갑니다.', link: '링크(선택).', color: '카드 왼쪽 색.' },
+    tips: ['잔디 커넥트에서 토픽별로 웹훅을 만들 수 있습니다 — 토픽마다 API 센터 값을 바꿔 쓰거나 워크플로우를 나누세요.'],
+    related: ['doorayNode', 'kakaoWorkNode', 'slackNode', 'conditionNode'],
+  },
+  kakaoWorkNode: {
+    summary: '카카오워크 대화방이나 구성원에게 봇 메시지를 보냅니다.',
+    details: [
+      '봇 App Key 로 보냅니다(API 센터 → 카카오워크 봇 App Key). 대화방 id 로 보내려면 봇이 그 대화방에 초대돼 있어야 하고, 구성원 이메일로 보내면 id 가 필요 없습니다.',
+      'Slack 발송과 같은 규약입니다 — 메시지를 비우면 직전 노드 출력을 보내고, 채우면 그 뒤에 직전 출력을 덧붙입니다. 출력은 실제로 보낸 메시지 텍스트입니다.',
+    ],
+    usage: ['담당자에게 승인 요청 알림(이메일로)', '운영 대화방에 점검 결과', '릴리스 노트 요약 전달'],
+    io: { input: '직전 노드 출력(메시지 본문).', output: '보낸 메시지 텍스트.' },
+    fields: { mode: '대화방 id 로 / 구성원 이메일로.', conversationId: '봇이 초대된 대화방 id.', email: '워크스페이스 구성원 이메일.', message: '본문. 비우면 직전 출력.' },
+    tips: ['수신자를 앞 노드 값으로 정하려면 email 이나 conversationId 에 ⚡ 바인딩을 걸 수 있습니다.'],
+    related: ['doorayNode', 'jandiNode', 'kakaoNode', 'humanApprovalNode'],
+  },
   jusoNode: {
     summary: '사람이 쓴 주소를 행정안전부 도로명주소 표준으로 정규화합니다.',
     details: [

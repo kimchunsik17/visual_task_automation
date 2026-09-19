@@ -44,6 +44,8 @@ CONNECTOR_TYPES = [
     "githubTriggerNode", "githubNode",
     # 백로그 34 DEV-2 2차(2026-09-19, ADR-0034): 감시형 유틸. 자격증명 없는 connector — mock 은 success/timeout(+not_found/server_error).
     "httpCheckNode", "osvScanNode",
+    # 백로그 34 DEV-3 1차(2026-09-19, ADR-0035): 국내 협업 메신저 발송. 비밀은 웹훅 URL(Dooray·잔디)·App Key(카카오워크).
+    "doorayNode", "jandiNode", "kakaoWorkNode",
 ]
 # 백로그 34 DEV-2(2026-09-19, ADR-0033): 개발 편의 노드 — 결정적·외부 호출 없음. connector 블록도 mock 도 없다.
 UTILITY_TYPES = [
